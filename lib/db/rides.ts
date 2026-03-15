@@ -1,5 +1,5 @@
 import { neon } from '@neondatabase/serverless';
-import type { Ride, RideStatus, Transaction, TransactionType, TransactionStatus } from './types';
+import type { Ride, RideLocation, User } from './types';
 
 function sql() {
   return neon(process.env.DATABASE_URL!);
@@ -13,129 +13,104 @@ export async function getRideById(rideId: string): Promise<Ride | null> {
   return (rows[0] as Ride) ?? null;
 }
 
-export async function updateRideStatus(
-  rideId: string,
-  status: RideStatus,
-): Promise<Ride> {
+export async function getUserByClerkId(clerkId: string): Promise<User | null> {
   const db = sql();
-  const now = new Date().toISOString();
-
-  const timestampField: Record<string, string> = {
-    driver_arrived: 'driver_arrived_at',
-    in_progress: 'started_at',
-    completed: 'completed_at',
-    cancelled: 'cancelled_at',
-  };
-
-  const field = timestampField[status];
-
-  let rows;
-  if (field === 'driver_arrived_at') {
-    rows = await db`
-      UPDATE rides
-      SET status = ${status}, driver_arrived_at = ${now}, updated_at = ${now}
-      WHERE id = ${rideId}
-      RETURNING *
-    `;
-  } else if (field === 'started_at') {
-    rows = await db`
-      UPDATE rides
-      SET status = ${status}, started_at = ${now}, updated_at = ${now}
-      WHERE id = ${rideId}
-      RETURNING *
-    `;
-  } else if (field === 'completed_at') {
-    rows = await db`
-      UPDATE rides
-      SET status = ${status}, completed_at = ${now}, updated_at = ${now}
-      WHERE id = ${rideId}
-      RETURNING *
-    `;
-  } else {
-    rows = await db`
-      UPDATE rides
-      SET status = ${status}, updated_at = ${now}
-      WHERE id = ${rideId}
-      RETURNING *
-    `;
-  }
-
-  return rows[0] as Ride;
+  const rows = await db`
+    SELECT * FROM users WHERE clerk_id = ${clerkId} LIMIT 1
+  `;
+  return (rows[0] as User) ?? null;
 }
 
-export async function updateRideCancelled(
-  rideId: string,
-  cancelledBy: string,
-  reason: string
-): Promise<Ride> {
+export async function updateRideToOtw(rideId: string): Promise<Ride> {
   const db = sql();
-  const now = new Date();
+  const now = new Date().toISOString();
   const rows = await db`
     UPDATE rides
-    SET status = 'cancelled',
-        cancelled_at = ${now.toISOString()},
-        cancelled_by = ${cancelledBy},
-        cancellation_reason = ${reason},
-        updated_at = ${now.toISOString()}
+    SET status = 'otw', updated_at = ${now}
     WHERE id = ${rideId}
     RETURNING *
   `;
   return rows[0] as Ride;
 }
 
-export async function createTransaction(params: {
-  userId: string;
-  rideId: string;
-  type: TransactionType;
-  amount: number;
-  status: TransactionStatus;
-  description: string;
-}): Promise<Transaction> {
+export async function updateRideToHere(rideId: string): Promise<Ride> {
   const db = sql();
-  const now = new Date();
+  const now = new Date().toISOString();
   const rows = await db`
-    INSERT INTO transactions (
-      id, user_id, ride_id, transaction_type, amount, currency,
-      status, description, created_at
-    ) VALUES (
-      gen_random_uuid(),
-      ${params.userId},
-      ${params.rideId},
-      ${params.type},
-      ${params.amount},
-      'USD',
-      ${params.status},
-      ${params.description},
-      ${now.toISOString()}
-    )
+    UPDATE rides
+    SET status = 'here', updated_at = ${now}
+    WHERE id = ${rideId}
     RETURNING *
   `;
-  return rows[0] as Transaction;
+  return rows[0] as Ride;
 }
 
-export interface GpsPoint {
-  ride_id: string;
-  latitude: number;
-  longitude: number;
-  recorded_at: Date;
-  heading?: number;
-  speed_kmh?: number;
-}
-
-export async function insertGpsPoint(point: GpsPoint): Promise<void> {
+export async function updateRideToActive(rideId: string): Promise<Ride> {
   const db = sql();
-  await db`
-    INSERT INTO ride_gps_points (
-      id, ride_id, latitude, longitude, recorded_at, heading, speed_kmh, created_at
-    ) VALUES (
-      gen_random_uuid(),
-      ${point.ride_id},
-      ${point.latitude},
-      ${point.longitude},
-      ${point.recorded_at.toISOString()},
-      ${point.heading ?? null},
-      ${point.speed_kmh ?? null},
-      NOW()
-    )
+  const now = new Date().toISOString();
+  const rows = await db`
+    UPDATE rides
+    SET status = 'active', started_at = ${now}, updated_at = ${now}
+    WHERE id = ${rideId}
+    RETURNING *
   `;
+  return rows[0] as Ride;
+}
+
+export async function updateRideToEnded(
+  rideId: string,
+  disputeWindowExpiresAt: Date,
+): Promise<Ride> {
+  const db = sql();
+  const now = new Date().toISOString();
+  const disputeExpiry = disputeWindowExpiresAt.toISOString();
+  const rows = await db`
+    UPDATE rides
+    SET status = 'ended',
+        ended_at = ${now},
+        driver_confirmed_end = true,
+        dispute_window_expires_at = ${disputeExpiry},
+        updated_at = ${now}
+    WHERE id = ${rideId}
+    RETURNING *
+  `;
+  return rows[0] as Ride;
+}
+
+export async function cancelRide(rideId: string): Promise<Ride> {
+  const db = sql();
+  const now = new Date().toISOString();
+  const rows = await db`
+    UPDATE rides
+    SET status = 'cancelled', updated_at = ${now}
+    WHERE id = ${rideId}
+    RETURNING *
+  `;
+  return rows[0] as Ride;
+}
+
+export async function insertRideLocation(params: {
+  ride_id: string;
+  lat: number;
+  lng: number;
+}): Promise<RideLocation> {
+  const db = sql();
+  const now = new Date().toISOString();
+  const rows = await db`
+    INSERT INTO ride_locations (id, ride_id, lat, lng, recorded_at)
+    VALUES (gen_random_uuid(), ${params.ride_id}, ${params.lat}, ${params.lng}, ${now})
+    RETURNING *
+  `;
+  return rows[0] as RideLocation;
+}
+
+export async function getLastRideLocation(rideId: string): Promise<RideLocation | null> {
+  const db = sql();
+  const rows = await db`
+    SELECT * FROM ride_locations
+    WHERE ride_id = ${rideId}
+    ORDER BY recorded_at DESC
+    LIMIT 1
+  `;
+  return (rows[0] as RideLocation) ?? null;
 }

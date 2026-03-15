@@ -12,3 +12,13 @@ export function getAblyRest(): Ably.Rest {
 export function rideChannel(rideId: string): string {
   return `ride:${rideId}`;
 }
+
+export async function publishToChannel(
+  channelName: string,
+  event: string,
+  data: unknown,
+): Promise<void> {
+  const rest = getAblyRest();
+  const channel = rest.channels.get(channelName);
+  await channel.publish(event, data);
+}

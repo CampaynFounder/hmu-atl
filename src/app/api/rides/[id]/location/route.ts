@@ -1,111 +1,133 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { Redis } from '@upstash/redis';
-import { Client as QStash } from '@upstash/qstash';
-import { getAblyRest, rideChannel } from '@/lib/ably/client';
-import { getRideById, insertGpsPoint } from '@/lib/db/rides';
+import { getRideById, getUserByClerkId, insertRideLocation } from '@/lib/db/rides';
+import { publishToChannel, rideChannel } from '@/lib/ably/client';
+
+const GPS_MIN_INTERVAL_SECONDS = 10;
+const GPS_TIMEOUT_SECONDS = 90;
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
-const qstash = new QStash({ token: process.env.QSTASH_TOKEN! });
-
-const GPS_MIN_INTERVAL_SECONDS = 10;
-const GPS_TIMEOUT_SECONDS = 90;
-
 /**
  * POST /api/rides/[id]/location
- * Body: { latitude, longitude, heading?, speed_kmh? }
+ * Body: { lat: number; lng: number }
  *
  * - Validates Clerk session
- * - Enforces 10-second minimum interval via Redis (per-ride, per-user)
- * - Writes GPS point to Neon
- * - Publishes location to ride Ably channel
- * - Schedules 90s GPS timeout check via QStash
+ * - Validates caller is the driver for this ride
+ * - Throttles via Redis — rejects if last update < 10 seconds ago
+ * - INSERTs into ride_locations table
+ * - Publishes location to ride:{id} Ably channel
+ * - Checks 90s GPS timeout: if previous location was >90s ago, publishes connection_lost
  */
 export async function POST(
   req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const { userId } = await auth();
-  if (!userId) {
+  const { userId: clerkId } = await auth();
+  if (!clerkId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const { id: rideId } = await params;
 
-  // Validate ride exists and is active
-  const ride = await getRideById(rideId);
+  const [user, ride] = await Promise.all([
+    getUserByClerkId(clerkId),
+    getRideById(rideId),
+  ]);
+
+  if (!user) {
+    return NextResponse.json({ error: 'User not found' }, { status: 403 });
+  }
   if (!ride) {
     return NextResponse.json({ error: 'Ride not found' }, { status: 404 });
   }
-  if (ride.status !== 'accepted' && ride.status !== 'driver_arrived' && ride.status !== 'in_progress') {
-    return NextResponse.json({ error: 'Ride is not active' }, { status: 409 });
+
+  // Only the driver may broadcast location
+  if (ride.driver_id !== user.id) {
+    return NextResponse.json(
+      { error: 'Forbidden — only the driver can broadcast location' },
+      { status: 403 },
+    );
   }
 
-  // Enforce 10-second minimum interval
-  const throttleKey = `gps_throttle:${rideId}:${userId}`;
+  if (!['otw', 'here', 'active'].includes(ride.status)) {
+    return NextResponse.json({ error: 'Ride is not in a trackable state' }, { status: 409 });
+  }
+
+  // Throttle: reject if last update < 10 seconds ago
+  const throttleKey = `gps:throttle:${rideId}`;
   const throttled = await redis.get(throttleKey);
   if (throttled) {
     return NextResponse.json(
       { error: 'GPS updates must be at least 10 seconds apart' },
-      { status: 429 }
+      { status: 429 },
     );
   }
 
-  const body = await req.json();
-  const { latitude, longitude, heading, speed_kmh } = body;
+  let body: { lat?: unknown; lng?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
 
-  if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+  const { lat, lng } = body;
+  if (typeof lat !== 'number' || typeof lng !== 'number') {
     return NextResponse.json(
-      { error: 'latitude and longitude are required numbers' },
-      { status: 400 }
+      { error: 'lat and lng are required numbers' },
+      { status: 400 },
     );
   }
 
   const now = new Date();
+  const nowIso = now.toISOString();
 
-  // Set throttle key (10s TTL)
-  await redis.set(throttleKey, '1', { ex: GPS_MIN_INTERVAL_SECONDS });
+  // Check for 90s GPS gap — detect if driver reconnected after connection_lost
+  const lastTimestampStr = await redis.get<string>(`gps:last:${rideId}`);
+  let connectionLost = false;
+  if (lastTimestampStr) {
+    const gapSeconds = (now.getTime() - new Date(lastTimestampStr).getTime()) / 1000;
+    if (gapSeconds > GPS_TIMEOUT_SECONDS) {
+      connectionLost = true;
+    }
+  }
 
-  // Refresh GPS timeout sentinel key (90s TTL)
-  const timeoutKey = `gps_timeout:${rideId}`;
-  await redis.set(timeoutKey, now.toISOString(), { ex: GPS_TIMEOUT_SECONDS });
+  // Set throttle key (10s TTL) and update last-seen sentinel (1h TTL)
+  await Promise.all([
+    redis.set(throttleKey, '1', { ex: GPS_MIN_INTERVAL_SECONDS }),
+    redis.set(`gps:last:${rideId}`, nowIso, { ex: 60 * 60 }),
+  ]);
 
-  // Write GPS point to Neon
-  await insertGpsPoint({
-    ride_id: rideId,
-    latitude,
-    longitude,
-    recorded_at: now,
-    heading,
-    speed_kmh,
-  });
+  // Write location to Neon ride_locations table
+  await insertRideLocation({ ride_id: rideId, lat, lng });
 
-  // Publish to Ably
-  const ably = getAblyRest();
-  const channel = ably.channels.get(rideChannel(rideId));
-  await channel.publish('location', {
-    latitude,
-    longitude,
-    heading: heading ?? null,
-    speed_kmh: speed_kmh ?? null,
-    timestamp: now.toISOString(),
-    user_id: userId,
-  });
+  const channel = rideChannel(rideId);
 
-  // Schedule 90s GPS timeout check via QStash
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : 'http://localhost:3000';
+  // Publish location update and optionally connection_lost
+  const publishes: Promise<void>[] = [
+    publishToChannel(channel, 'location', {
+      lat,
+      lng,
+      timestamp: nowIso,
+      driver_id: user.id,
+    }),
+  ];
 
-  await qstash.publishJSON({
-    url: `${baseUrl}/api/rides/${rideId}/gps-timeout`,
-    body: { rideId, scheduledAt: now.toISOString() },
-    delay: GPS_TIMEOUT_SECONDS,
-  });
+  if (connectionLost) {
+    publishes.push(
+      publishToChannel(channel, 'connection_lost', {
+        ride_id: rideId,
+        gap_seconds: Math.floor((now.getTime() - new Date(lastTimestampStr!).getTime()) / 1000),
+        timestamp: nowIso,
+      }),
+    );
+  }
 
-  return NextResponse.json({ ok: true, timestamp: now.toISOString() });
+  await Promise.all(publishes);
+
+  return NextResponse.json({ ok: true, timestamp: nowIso });
 }
