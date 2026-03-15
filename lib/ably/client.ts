@@ -1,0 +1,14 @@
+import Ably from 'ably';
+
+let restClient: Ably.Rest | null = null;
+
+export function getAblyRest(): Ably.Rest {
+  if (!restClient) {
+    restClient = new Ably.Rest({ key: process.env.ABLY_API_KEY! });
+  }
+  return restClient;
+}
+
+export function rideChannel(rideId: string): string {
+  return `ride:${rideId}`;
+}
