@@ -3,17 +3,20 @@
  * All types imported from /lib/db/types.ts only.
  */
 
-import type { Payout, PayoutStatus } from './db/types';
+import type { Payout, TimingTier } from './db/types';
 import sql from './db/client';
 import { createTransfer } from './stripe';
-import { captureEvent } from '../src/lib/posthog-server';
+import posthog from './posthog';
 
-// ─── Fee constants ────────────────────────────────────────────────────────────
+type PayoutStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
-export const FREE_PLATFORM_FEE_RATE = 0.25;      // 25%
-export const HMU_FIRST_PLATFORM_FEE_RATE = 0.15; // 15%
+interface PayoutRecord extends Payout {
+  net_payout: number;
+  payout_account_id: string | null;
+}
 
-// ─── Tier helpers ─────────────────────────────────────────────────────────────
+export const FREE_PLATFORM_FEE_RATE = 0.25;
+export const HMU_FIRST_PLATFORM_FEE_RATE = 0.15;
 
 export function isHmuFirstDriver(
   publicMetadata: Record<string, unknown> | null | undefined,
@@ -21,7 +24,6 @@ export function isHmuFirstDriver(
   return publicMetadata?.tier === 'hmu_first';
 }
 
-/** Returns { platformFee, driverEarnings } in dollars (2 decimal places). */
 export function splitFare(
   totalFare: number,
   isFirstTier: boolean,
@@ -31,8 +33,6 @@ export function splitFare(
   const driverEarnings = Math.round((totalFare - platformFee) * 100) / 100;
   return { platformFee, driverEarnings };
 }
-
-// ─── DB helpers ───────────────────────────────────────────────────────────────
 
 export async function insertPayout(params: {
   driver_id: string;
@@ -49,40 +49,29 @@ export async function insertPayout(params: {
   scheduled_date: Date | null;
   processor_payout_id: string | null;
   metadata: Record<string, unknown>;
-}): Promise<Payout> {
+}): Promise<PayoutRecord> {
+  const timingTier: TimingTier = params.payout_method === 'instant' ? 'hmu_first' : 'free';
+  const processedAt = params.payout_method === 'instant' ? new Date().toISOString() : null;
+
   const rows = await sql`
     INSERT INTO payouts (
-      driver_id, amount, currency, payout_method, payout_account_id,
-      status, processor_payout_id, period_start_date, period_end_date,
-      rides_count, total_earnings, platform_fees, adjustments, net_payout,
-      scheduled_date, metadata, created_at
+      ride_id, driver_id, amount, fee, timing_tier,
+      stripe_transfer_id, created_at, processed_at
     ) VALUES (
-      ${params.driver_id},
-      ${params.amount},
-      ${params.currency},
-      ${params.payout_method},
-      ${params.payout_account_id},
-      ${params.status},
-      ${params.processor_payout_id},
-      ${params.period_start_date.toISOString()},
-      ${params.period_end_date.toISOString()},
-      1,
-      ${params.amount},
-      ${params.platform_fees},
-      0,
-      ${params.net_payout},
-      ${params.scheduled_date ? params.scheduled_date.toISOString() : null},
-      ${JSON.stringify(params.metadata)},
-      NOW()
+      ${params.ride_id}, ${params.driver_id}, ${params.amount}, ${params.platform_fees},
+      ${timingTier}, ${params.processor_payout_id}, NOW(), ${processedAt}
     )
-    RETURNING *
+    RETURNING id, ride_id, driver_id, amount, fee, timing_tier,
+              stripe_transfer_id, created_at, processed_at
   `;
-  return rows[0] as Payout;
+
+  const row = rows[0] as Payout;
+  return { ...row, net_payout: params.net_payout, payout_account_id: params.payout_account_id };
 }
 
 export async function updatePayoutStatus(
   id: string,
-  status: PayoutStatus,
+  _status: PayoutStatus,
   updates: {
     processor_payout_id?: string;
     failure_reason?: string;
@@ -90,129 +79,127 @@ export async function updatePayoutStatus(
     metadata?: Record<string, unknown>;
   } = {},
 ): Promise<void> {
-  await sql`
-    UPDATE payouts
-    SET
-      status = ${status},
-      processor_payout_id = COALESCE(${updates.processor_payout_id ?? null}, processor_payout_id),
-      failure_reason = ${updates.failure_reason ?? null},
-      processed_at = ${updates.processed_at ? updates.processed_at.toISOString() : null},
-      metadata = CASE
-        WHEN ${updates.metadata ? JSON.stringify(updates.metadata) : null}::text IS NOT NULL
-        THEN ${updates.metadata ? JSON.stringify(updates.metadata) : '{}'}::jsonb
-        ELSE metadata
-      END
-    WHERE id = ${id}
-  `;
+  const transferId = updates.processor_payout_id ?? null;
+  const processedAt = updates.processed_at ? updates.processed_at.toISOString() : null;
+
+  if (transferId !== null || processedAt !== null) {
+    await sql`
+      UPDATE payouts
+      SET
+        stripe_transfer_id = COALESCE(${transferId}, stripe_transfer_id),
+        processed_at = COALESCE(${processedAt}, processed_at)
+      WHERE id = ${id}
+    `;
+  }
 }
 
-export async function getPendingBatchPayouts(): Promise<Payout[]> {
+export async function getPendingBatchPayouts(): Promise<PayoutRecord[]> {
   const rows = await sql`
-    SELECT * FROM payouts
-    WHERE status = 'pending'
-      AND payout_method = 'batch'
-      AND (scheduled_date IS NULL OR scheduled_date <= NOW())
-    ORDER BY created_at ASC
+    SELECT
+      p.id, p.ride_id, p.driver_id, p.amount, p.fee,
+      p.timing_tier, p.stripe_transfer_id, p.created_at, p.processed_at,
+      dp.stripe_account_id AS payout_account_id
+    FROM payouts p
+    LEFT JOIN driver_profiles dp ON dp.user_id = p.driver_id
+    WHERE p.timing_tier = 'free'
+      AND p.processed_at IS NULL
+    ORDER BY p.created_at ASC
   `;
-  return rows as Payout[];
+
+  return rows.map((r) => ({
+    id: r.id as string,
+    ride_id: r.ride_id as string,
+    driver_id: r.driver_id as string,
+    amount: r.amount as number,
+    fee: r.fee as number,
+    timing_tier: r.timing_tier as TimingTier,
+    stripe_transfer_id: (r.stripe_transfer_id ?? undefined) as string | undefined,
+    created_at: r.created_at as Date,
+    processed_at: (r.processed_at ?? undefined) as Date | undefined,
+    net_payout: Math.round(((r.amount as number) - (r.fee as number)) * 100) / 100,
+    payout_account_id: (r.payout_account_id ?? null) as string | null,
+  }));
 }
 
-export async function getDriverPayouts(driverId: string): Promise<Payout[]> {
+export async function getDriverPayouts(driverId: string): Promise<PayoutRecord[]> {
   const rows = await sql`
-    SELECT * FROM payouts
-    WHERE driver_id = ${driverId}
-    ORDER BY created_at DESC
+    SELECT
+      p.id, p.ride_id, p.driver_id, p.amount, p.fee,
+      p.timing_tier, p.stripe_transfer_id, p.created_at, p.processed_at,
+      dp.stripe_account_id AS payout_account_id
+    FROM payouts p
+    LEFT JOIN driver_profiles dp ON dp.user_id = p.driver_id
+    WHERE p.driver_id = ${driverId}
+    ORDER BY p.created_at DESC
     LIMIT 100
   `;
-  return rows as Payout[];
+
+  return rows.map((r) => ({
+    id: r.id as string,
+    ride_id: r.ride_id as string,
+    driver_id: r.driver_id as string,
+    amount: r.amount as number,
+    fee: r.fee as number,
+    timing_tier: r.timing_tier as TimingTier,
+    stripe_transfer_id: (r.stripe_transfer_id ?? undefined) as string | undefined,
+    created_at: r.created_at as Date,
+    processed_at: (r.processed_at ?? undefined) as Date | undefined,
+    net_payout: Math.round(((r.amount as number) - (r.fee as number)) * 100) / 100,
+    payout_account_id: (r.payout_account_id ?? null) as string | null,
+  }));
 }
 
-// ─── Stripe transfer executor ─────────────────────────────────────────────────
-
-export async function executeStripeTransfer(payout: Payout): Promise<string> {
-  const stripeAccountId = payout.payout_account_id ?? 'acct_mock';
-  const amountCents = Math.round((payout.net_payout ?? payout.amount) * 100);
+export async function executeStripeTransfer(payout: PayoutRecord): Promise<string> {
+  const stripeAccountId = payout.payout_account_id ?? `acct_mock_${payout.driver_id}`;
+  const amountCents = Math.round(payout.net_payout * 100);
 
   const transfer = await createTransfer({
     amount_cents: amountCents,
-    currency: payout.currency,
+    currency: 'usd',
     destination: stripeAccountId,
     description: `HMU-ATL payout ${payout.id}`,
-    metadata: {
-      payout_id: payout.id,
-      driver_id: payout.driver_id,
-    },
+    metadata: { payout_id: payout.id, driver_id: payout.driver_id },
   });
 
   return transfer.id;
 }
 
-// ─── Admin notification ───────────────────────────────────────────────────────
-
 export async function notifyAdminPayoutFailed(
-  payout: Payout,
+  payout: PayoutRecord,
   attempt: number,
   reason: string,
 ): Promise<void> {
-  console.error(
-    `[payout-failure] payout=${payout.id} driver=${payout.driver_id} attempt=${attempt} reason=${reason}`,
-  );
-  captureEvent('admin', 'payout_failed_admin_alert', {
-    payout_id: payout.id,
-    driver_id: payout.driver_id,
-    attempt,
-    reason,
+  console.error(`[payout-failure] payout=${payout.id} driver=${payout.driver_id} attempt=${attempt} reason=${reason}`);
+  posthog.capture({
+    distinctId: 'admin',
+    event: 'payout_failed_admin_alert',
+    properties: { payout_id: payout.id, driver_id: payout.driver_id, attempt, reason },
   });
 }
 
-// ─── Retry logic ──────────────────────────────────────────────────────────────
-
 const MAX_RETRY_ATTEMPTS = 3;
 
-export async function executePayoutWithRetry(payout: Payout): Promise<{
+export async function executePayoutWithRetry(payout: PayoutRecord): Promise<{
   success: boolean;
   processorId?: string;
   error?: string;
 }> {
-  const currentAttempts = Number(
-    (payout.metadata as Record<string, unknown>)?.attempts ?? 0,
-  );
-
-  for (let attempt = currentAttempts + 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+  for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
     try {
-      await updatePayoutStatus(payout.id, 'processing', {
-        metadata: {
-          ...(payout.metadata as Record<string, unknown>),
-          attempts: attempt,
-        },
-      });
-
       const processorId = await executeStripeTransfer(payout);
-
       await updatePayoutStatus(payout.id, 'completed', {
         processor_payout_id: processorId,
         processed_at: new Date(),
       });
-
       return { success: true, processorId };
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-
       if (attempt >= MAX_RETRY_ATTEMPTS) {
-        await updatePayoutStatus(payout.id, 'failed', {
-          failure_reason: reason,
-          metadata: {
-            ...(payout.metadata as Record<string, unknown>),
-            attempts: attempt,
-          },
-        });
         await notifyAdminPayoutFailed(payout, attempt, reason);
         return { success: false, error: reason };
       }
-
       await new Promise((r) => setTimeout(r, 500 * attempt));
     }
   }
-
   return { success: false, error: 'max retries exceeded' };
 }
