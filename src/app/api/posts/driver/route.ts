@@ -1,69 +1,98 @@
-import { auth } from '@clerk/nextjs/server';
-import { NextRequest, NextResponse } from 'next/server';
-import { VehicleType } from '@/../lib/db/types';
-import { DriverPost, saveDriverPost } from '@/lib/posts';
-import { publishDriverPresence } from '@/lib/ably-server';
-import { captureEvent } from '@/lib/posthog-server';
-import { postRateLimit } from '@/lib/rate-limit';
+import { auth } from "@clerk/nextjs/server";
+import { NextRequest, NextResponse } from "next/server";
+import { neon } from "@neondatabase/serverless";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
+import { enterAreaPresence } from "../../../../../lib/ably/presence";
+import type { HmuPost, PostType, HmuPostStatus } from "../../../../../lib/db/types";
 
-interface CreateDriverPostBody {
-  area: string;
-  vehicle_type: VehicleType;
-  seat_capacity: number;
-  price_range_min: number;
-  price_range_max: number;
-  time_window: number;
-  message?: string;
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(10, "1 m"),
+  prefix: "rl:posts:driver",
+});
+
+interface DriverPostBody {
+  areas: string[];
+  price: number;
+  time_window: {
+    start?: string;
+    end?: string;
+    description?: string;
+  };
+  max_stops?: number;
 }
 
-const VEHICLE_TYPES: VehicleType[] = ['sedan', 'suv', 'van', 'luxury', 'xl'];
+function deriveExpiresAt(tw: DriverPostBody["time_window"]): Date {
+  if (tw.end) {
+    const end = new Date(tw.end);
+    if (!isNaN(end.getTime())) return end;
+  }
+  const fallback = new Date();
+  fallback.setHours(fallback.getHours() + 2);
+  return fallback;
+}
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   const { userId } = await auth();
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const { success } = await postRateLimit.limit(userId);
-  if (!success) return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
-
-  let body: CreateDriverPostBody;
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
-
-  const { area, vehicle_type, seat_capacity, price_range_min, price_range_max, time_window, message } = body;
-
-  if (
-    !area || !vehicle_type || !VEHICLE_TYPES.includes(vehicle_type) ||
-    typeof seat_capacity !== 'number' || seat_capacity < 1 ||
-    typeof price_range_min !== 'number' || typeof price_range_max !== 'number' ||
-    price_range_min < 0 || price_range_max < price_range_min ||
-    typeof time_window !== 'number' || time_window < 1 || time_window > 480
-  ) {
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 422 });
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + time_window * 60 * 1000);
+  const { success } = await ratelimit.limit(userId);
+  if (!success) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
 
-  const post: DriverPost = {
-    id: crypto.randomUUID(),
-    driver_id: userId,
-    area, vehicle_type, seat_capacity, price_range_min, price_range_max,
-    time_window, message, status: 'active',
-    created_at: now.toISOString(),
-    expires_at: expiresAt.toISOString(),
-  };
+  let body: Partial<DriverPostBody>;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
 
-  await saveDriverPost(post);
+  const { areas, price, time_window, max_stops } = body;
+  void max_stops; // accepted but not persisted — no column in schema
 
-  await publishDriverPresence(area, userId, post.id, 'enter', {
-    vehicle_type, seat_capacity, price_range_min, price_range_max,
-    expires_at: post.expires_at,
-  });
+  if (!Array.isArray(areas) || areas.length === 0) {
+    return NextResponse.json({ error: "areas must be a non-empty array" }, { status: 400 });
+  }
+  if (typeof price !== "number" || price < 0) {
+    return NextResponse.json({ error: "price must be a non-negative number" }, { status: 400 });
+  }
+  if (!time_window || typeof time_window !== "object") {
+    return NextResponse.json({ error: "time_window is required" }, { status: 400 });
+  }
 
-  captureEvent(userId, 'driver_post_created', {
-    post_id: post.id, area, vehicle_type, seat_capacity,
-    price_range_min, price_range_max, time_window,
-  });
+  const sql = neon(process.env.DATABASE_URL!);
+
+  const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${userId} LIMIT 1`;
+  if (!userRows.length) {
+    return NextResponse.json({ error: "User not found" }, { status: 403 });
+  }
+  const internalUserId: string = userRows[0].id as string;
+
+  const expiresAt = deriveExpiresAt(time_window);
+  const postType: PostType = "driver_offering";
+  const status: HmuPostStatus = "active";
+
+  const rows = await sql`
+    INSERT INTO hmu_posts (user_id, post_type, areas, price, time_window, status, expires_at)
+    VALUES (
+      ${internalUserId},
+      ${postType},
+      ${JSON.stringify(areas)},
+      ${price},
+      ${JSON.stringify(time_window)},
+      ${status},
+      ${expiresAt.toISOString()}
+    )
+    RETURNING *
+  `;
+
+  const post = rows[0] as HmuPost;
+
+  await enterAreaPresence({ userId: internalUserId, postId: post.id, postType, price, areas });
 
   return NextResponse.json({ post }, { status: 201 });
 }
