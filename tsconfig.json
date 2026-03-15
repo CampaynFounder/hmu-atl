@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@neondatabase/serverless": ["./node_modules/@neondatabase/serverless/index.d.ts"]
     }
   },
   "include": [
