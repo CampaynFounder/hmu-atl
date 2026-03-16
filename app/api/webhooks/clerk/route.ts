@@ -9,6 +9,10 @@ import { createUser, updateUser, deleteUser, getUserByClerkId } from '@/lib/db/u
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 import type { ProfileType } from '@/lib/db/types';
 
+// Force dynamic rendering (don't pre-render at build time)
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 export async function POST(req: Request) {
   const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET;
 

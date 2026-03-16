@@ -7,10 +7,15 @@ import { neon, neonConfig, Pool } from '@neondatabase/serverless';
 neonConfig.fetchConnectionCache = true;
 
 // Pooled connection for serverless functions (recommended for most queries)
-export const sql = neon(process.env.DATABASE_URL!);
+// Only initialize if DATABASE_URL is available (skip during build time)
+export const sql = process.env.DATABASE_URL
+  ? neon(process.env.DATABASE_URL)
+  : (() => { throw new Error('DATABASE_URL not configured'); }) as any;
 
 // Direct connection pool for transactions and complex queries
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL_UNPOOLED });
+export const pool = process.env.DATABASE_URL_UNPOOLED
+  ? new Pool({ connectionString: process.env.DATABASE_URL_UNPOOLED })
+  : null as any;
 
 // Note: For parameterized queries, use the sql template tag directly:
 // const result = await sql`SELECT * FROM users WHERE id = ${userId}`;
