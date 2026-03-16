@@ -1,0 +1,10 @@
+{
+  "build": {
+    "command": "npx @opennextjs/cloudflare build",
+    "cwd": "/",
+    "watch_paths": []
+  },
+  "deploy": {
+    "command": "npx @opennextjs/cloudflare deploy"
+  }
+}
