@@ -2,8 +2,11 @@
 // Server-side authorization helpers for role and account status checks
 
 import { redirect } from 'next/navigation';
-import { getCurrentUser } from './get-current-user';
+import { getCurrentUser as _getCurrentUser } from './get-current-user';
 import type { ProfileType, AccountStatus } from '@/lib/db/types';
+
+// Re-export getCurrentUser for convenience
+export { getCurrentUser } from './get-current-user';
 
 /**
  * Require user to have specific profile_type (role)
@@ -16,7 +19,7 @@ import type { ProfileType, AccountStatus } from '@/lib/db/types';
  * ```
  */
 export async function requireRole(allowedRoles: ProfileType[]) {
-  const user = await getCurrentUser();
+  const user = await _getCurrentUser();
 
   if (!user) {
     redirect('/sign-in');
@@ -43,7 +46,7 @@ export async function requireRole(allowedRoles: ProfileType[]) {
  * Example: A driver might be authenticated but still pending_activation
  */
 export async function requireAccountStatus(allowedStatuses: AccountStatus[]) {
-  const user = await getCurrentUser();
+  const user = await _getCurrentUser();
 
   if (!user) {
     redirect('/sign-in');
@@ -81,7 +84,7 @@ export async function requireRoleAndStatus(
   allowedRoles: ProfileType[],
   allowedStatuses: AccountStatus[]
 ) {
-  const user = await getCurrentUser();
+  const user = await _getCurrentUser();
 
   if (!user) {
     redirect('/sign-in');
