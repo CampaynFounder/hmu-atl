@@ -95,7 +95,7 @@ export async function createAccountLink(params: {
     return `https://stripe.mock/onboarding/${params.accountId}`;
   }
 
-  const accountLink = await stripe.accountLinks.create({
+  const accountLink = await getStripe().accountLinks.create({
     account: params.accountId,
     refresh_url: params.refreshUrl,
     return_url: params.returnUrl,
@@ -125,7 +125,7 @@ export async function createPaymentIntent(params: {
     };
   }
 
-  const paymentIntent = await stripe.paymentIntents.create({
+  const paymentIntent = await getStripe().paymentIntents.create({
     amount: params.amount,
     currency: 'usd',
     customer: params.customerId,
@@ -156,7 +156,7 @@ export async function createTransfer(params: {
     return `tr_mock_${Date.now()}`;
   }
 
-  const transfer = await stripe.transfers.create({
+  const transfer = await getStripe().transfers.create({
     amount: params.amount,
     currency: 'usd',
     destination: params.destination,
