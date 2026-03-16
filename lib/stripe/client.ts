@@ -3,9 +3,19 @@
 
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-02-25.clover',
-});
+// Lazy initialization - only create Stripe client when actually used (not during build)
+let stripe: Stripe | null = null;
+function getStripe(): Stripe {
+  if (!stripe && process.env.STRIPE_SECRET_KEY) {
+    stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: '2026-02-25.clover',
+    });
+  }
+  if (!stripe) {
+    throw new Error('STRIPE_SECRET_KEY not configured');
+  }
+  return stripe;
+}
 
 const IS_MOCK = process.env.STRIPE_MOCK === 'true';
 
@@ -32,7 +42,7 @@ export async function createCustomer(params: {
     return generateMockCustomerId();
   }
 
-  const customer = await stripe.customers.create({
+  const customer = await getStripe().customers.create({
     email: params.email,
     name: params.name,
     metadata: {
@@ -56,7 +66,7 @@ export async function createConnectAccount(params: {
     return generateMockAccountId();
   }
 
-  const account = await stripe.accounts.create({
+  const account = await getStripe().accounts.create({
     type: 'express',
     email: params.email,
     capabilities: {
