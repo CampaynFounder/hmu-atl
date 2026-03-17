@@ -171,7 +171,7 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl }: VideoRecord
       window.URL.revokeObjectURL(video.src);
 
       if (video.duration > 10) {
-        setError('Video must be 10 seconds or less. We'll auto-crop to 5 seconds.');
+        setError("Video must be 10 seconds or less. We'll auto-crop to 5 seconds.");
       }
 
       // Accept the video
