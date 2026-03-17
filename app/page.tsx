@@ -29,7 +29,7 @@ export default function HomePage() {
     <div className={isDark ? 'dark-theme' : 'light-theme'}>
       {/* Scroll Progress Bar */}
       <motion.div
-        className={`fixed top-0 left-0 right-0 h-0.5 z-50 ${
+        className={`fixed top-0 left-0 right-0 h-0.5 z-[60] ${
           isDark
             ? 'bg-gradient-to-r from-purple-500 via-blue-500 to-cyan-400'
             : 'bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-500'
@@ -38,7 +38,7 @@ export default function HomePage() {
       />
 
       {/* Hero Section */}
-      <section className={`relative min-h-screen flex items-center justify-center overflow-hidden ${
+      <section className={`relative min-h-screen flex items-center justify-center overflow-hidden pt-16 ${
         isDark ? 'bg-[#0A0A0A]' : 'bg-gradient-to-br from-gray-50 via-white to-blue-50'
       }`}>
         {/* Fine Grid Background (smaller 2rem grid) */}
