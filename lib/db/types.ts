@@ -29,10 +29,18 @@ export interface User {
 export interface DriverProfile {
   id: string;
   user_id: string;
+  first_name: string;
+  last_name: string;
+  gender?: string;
+  pronouns?: string;
+  lgbtq_friendly: boolean;
+  video_url?: string;
+  thumbnail_url?: string;
   areas: Record<string, any>; // JSONB
   pricing: Record<string, any>; // JSONB
   schedule: Record<string, any>; // JSONB
   vehicle_info: Record<string, any>; // JSONB
+  stripe_connect_id?: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -40,9 +48,16 @@ export interface DriverProfile {
 export interface RiderProfile {
   id: string;
   user_id: string;
+  first_name: string;
+  last_name: string;
+  gender?: string;
+  pronouns?: string;
+  lgbtq_friendly: boolean;
+  video_url?: string;
+  thumbnail_url?: string;
+  safety_preferences: Record<string, any>; // JSONB
   price_range: string;
-  driver_preference: string;
-  stripe_customer_id: string;
+  stripe_customer_id?: string;
   created_at: Date;
   updated_at: Date;
 }
