@@ -44,6 +44,11 @@ export async function POST(request: NextRequest) {
       schedule,
       vehicle_info,
       stripe_connect_id,
+      // Driver rider-preference fields
+      rider_gender_pref,
+      require_og_status,
+      min_rider_chill_score,
+      avoid_riders_with_disputes,
     } = body;
 
     // Validate required fields
@@ -157,6 +162,8 @@ export async function POST(request: NextRequest) {
           schedule,
           vehicle_info,
           stripe_connect_id,
+          min_rider_chill_score,
+          require_og_status,
         });
         results.profiles.driver = driverProfile;
       } else {

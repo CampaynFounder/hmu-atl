@@ -55,6 +55,7 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
       component: (
         <Welcome
           onNext={() => setCurrentStep(1)}
+          userType="driver"
           data={formData}
           onChange={(data) => setFormData((prev) => ({ ...prev, ...data }))}
         />

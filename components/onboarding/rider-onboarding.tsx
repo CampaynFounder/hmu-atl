@@ -76,6 +76,7 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
       component: (
         <Welcome
           onNext={() => setCurrentStep(1)}
+          userType="rider"
           data={formData}
           onChange={(data) => setFormData({ ...formData, ...data })}
         />

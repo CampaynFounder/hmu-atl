@@ -5,6 +5,7 @@ import { User, Users } from 'lucide-react';
 
 interface WelcomeProps {
   onNext: () => void;
+  userType?: 'rider' | 'driver';
   data: {
     firstName: string;
     lastName: string;
@@ -15,7 +16,8 @@ interface WelcomeProps {
   onChange: (data: Partial<WelcomeProps['data']>) => void;
 }
 
-export function Welcome({ onNext, data, onChange }: WelcomeProps) {
+export function Welcome({ onNext, userType = 'rider', data, onChange }: WelcomeProps) {
+  const otherRole = userType === 'driver' ? 'riders' : 'drivers';
   const genderOptions = [
     { value: 'woman', label: 'Woman', icon: '♀️' },
     { value: 'man', label: 'Man', icon: '♂️' },
@@ -62,7 +64,7 @@ export function Welcome({ onNext, data, onChange }: WelcomeProps) {
             className="w-full rounded-xl border border-gray-300 px-4 py-3 text-lg focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-zinc-700 dark:bg-zinc-900"
           />
           <p className="mt-1 text-xs text-muted-foreground">
-            Only your first initial will be shown to drivers
+            Only your first initial will be shown to {otherRole}
           </p>
         </div>
       </div>
@@ -89,7 +91,7 @@ export function Welcome({ onNext, data, onChange }: WelcomeProps) {
           ))}
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          This helps match you with drivers you feel comfortable with
+          This helps match you with {otherRole} you feel comfortable with
         </p>
       </div>
 
@@ -138,7 +140,7 @@ export function Welcome({ onNext, data, onChange }: WelcomeProps) {
               <span className="text-xl">🏳️‍🌈</span>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Show this badge on your profile and connect with drivers who value
+              Show this badge on your profile and connect with {otherRole} who value
               inclusivity
             </p>
           </div>
@@ -151,7 +153,7 @@ export function Welcome({ onNext, data, onChange }: WelcomeProps) {
           <Users className="h-5 w-5 shrink-0 text-muted-foreground mt-0.5" />
           <div className="text-sm text-muted-foreground">
             <strong className="text-foreground">Why we ask:</strong> This information
-            helps us match you with drivers you'll feel comfortable with. Your
+            helps us match you with {otherRole} you'll feel comfortable with. Your
             safety and comfort are our top priority.
           </div>
         </div>

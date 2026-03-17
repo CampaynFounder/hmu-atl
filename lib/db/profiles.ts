@@ -74,7 +74,7 @@ export async function createRiderProfile(
       ${params.video_url || null},
       ${params.thumbnail_url || null},
       ${safetyPrefs},
-      ${params.driver_gender_pref || 'any'},
+      ${params.driver_gender_pref || 'no_preference'},
       ${JSON.stringify({ range: params.price_range || 'medium' })},
       ${params.stripe_customer_id || null}
     )
