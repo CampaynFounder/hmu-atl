@@ -7,8 +7,8 @@ import styles from './driver.module.css';
 
 export default function DriverLandingClient() {
   const router = useRouter();
-  const [ridePrice, setRidePrice] = useState(20);
-  const [earnedToday, setEarnedToday] = useState(0);
+  const [ridePrice, setRidePrice] = useState('20');
+  const [earnedToday, setEarnedToday] = useState('');
   const [simKeep, setSimKeep] = useState('$18.09');
   const [simTook, setSimTook] = useState('$1.91');
   const [simNote, setSimNote] = useState('First $50 of your day — <strong>we only take 10%</strong>');
@@ -53,8 +53,8 @@ export default function DriverLandingClient() {
 
   // Fee calculator
   useEffect(() => {
-    const ride = ridePrice || 0;
-    const earned = earnedToday || 0;
+    const ride = parseFloat(ridePrice) || 0;
+    const earned = parseFloat(earnedToday) || 0;
     const DAILY_CAP = 40;
     const stripeNet = ride - (ride * 0.029 + 0.3);
 
@@ -337,7 +337,7 @@ export default function DriverLandingClient() {
               value={ridePrice}
               min={5}
               max={200}
-              onChange={(e) => setRidePrice(Number(e.target.value))}
+              onChange={(e) => setRidePrice(e.target.value)}
             />
           </div>
           <div className={styles.simulatorRow}>
@@ -349,7 +349,7 @@ export default function DriverLandingClient() {
               value={earnedToday}
               min={0}
               max={500}
-              onChange={(e) => setEarnedToday(Number(e.target.value))}
+              onChange={(e) => setEarnedToday(e.target.value)}
             />
           </div>
           <div className={styles.simResult}>
