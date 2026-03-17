@@ -5,6 +5,7 @@
   "scripts": {
     "build": "next build",
     "build:next": "next build",
+    "postbuild": "cp public/_routes.json .open-next/assets/_routes.json 2>/dev/null || true",
     "dev": "next dev",
     "start": "next start",
     "lint": "eslint",
