@@ -1,0 +1,160 @@
+import { NextRequest, NextResponse } from 'next/server';
+import Stripe from 'stripe';
+import { sql } from '@/lib/db/client';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2026-02-25.clover' });
+
+export async function POST(request: NextRequest) {
+  const body = await request.text();
+  const sig = request.headers.get('stripe-signature');
+
+  if (!sig) {
+    return NextResponse.json({ error: 'Missing stripe-signature header' }, { status: 400 });
+  }
+
+  let event: Stripe.Event;
+  try {
+    event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET!);
+  } catch (err) {
+    console.error('Stripe webhook signature verification failed:', err);
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
+  }
+
+  try {
+    switch (event.type) {
+      // ─── Ride escrow ────────────────────────────────────────────────────────
+      case 'payment_intent.succeeded': {
+        const pi = event.data.object as Stripe.PaymentIntent;
+        const rideId = pi.metadata?.rideId;
+        if (rideId) {
+          await sql`
+            UPDATE rides SET status = 'completed', completed_at = NOW()
+            WHERE id = ${rideId} AND payment_intent_id = ${pi.id}
+          `;
+        }
+        break;
+      }
+
+      case 'payment_intent.payment_failed': {
+        const pi = event.data.object as Stripe.PaymentIntent;
+        const rideId = pi.metadata?.rideId;
+        if (rideId) {
+          await sql`
+            UPDATE rides SET status = 'cancelled'
+            WHERE id = ${rideId} AND payment_intent_id = ${pi.id}
+          `;
+        }
+        break;
+      }
+
+      case 'payment_intent.canceled': {
+        const pi = event.data.object as Stripe.PaymentIntent;
+        const rideId = pi.metadata?.rideId;
+        if (rideId) {
+          await sql`
+            UPDATE rides SET status = 'cancelled'
+            WHERE id = ${rideId} AND payment_intent_id = ${pi.id}
+          `;
+        }
+        break;
+      }
+
+      // ─── Stripe Connect (driver accounts) ──────────────────────────────────
+      case 'account.updated': {
+        const account = event.data.object as Stripe.Account;
+        const chargesEnabled = account.charges_enabled;
+        const payoutsEnabled = account.payouts_enabled;
+
+        if (chargesEnabled && payoutsEnabled) {
+          // Mark driver as fully activated
+          await sql`
+            UPDATE users
+            SET account_status = 'active', updated_at = NOW()
+            WHERE id IN (
+              SELECT user_id FROM driver_profiles
+              WHERE stripe_account_id = ${account.id}
+            )
+          `;
+        }
+        break;
+      }
+
+      case 'transfer.created': {
+        const transfer = event.data.object as Stripe.Transfer;
+        const rideId = transfer.metadata?.rideId;
+        if (rideId) {
+          await sql`
+            INSERT INTO payouts (ride_id, driver_id, gross_amount, net_amount, stripe_transfer_id, paid_at)
+            SELECT
+              ${rideId}::uuid,
+              driver_id,
+              amount,
+              amount,
+              ${transfer.id},
+              NOW()
+            FROM rides WHERE id = ${rideId}
+            ON CONFLICT DO NOTHING
+          `;
+        }
+        break;
+      }
+
+      // transfer.failed is not a Stripe webhook event — handle via transfer.created status check
+
+
+      // ─── HMU First subscription ─────────────────────────────────────────────
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated': {
+        const sub = event.data.object as Stripe.Subscription;
+        const isActive = sub.status === 'active' || sub.status === 'trialing';
+        const tier = isActive ? 'hmu_first' : 'free';
+
+        await sql`
+          UPDATE users SET tier = ${tier}, updated_at = NOW()
+          WHERE stripe_customer_id = ${sub.customer as string}
+        `;
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        const sub = event.data.object as Stripe.Subscription;
+        await sql`
+          UPDATE users SET tier = 'free', updated_at = NOW()
+          WHERE stripe_customer_id = ${sub.customer as string}
+        `;
+        break;
+      }
+
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object as Stripe.Invoice;
+        const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
+        if (customerId) {
+          await sql`
+            UPDATE users SET tier = 'hmu_first', updated_at = NOW()
+            WHERE stripe_customer_id = ${customerId}
+          `;
+        }
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object as Stripe.Invoice;
+        const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
+        if (customerId) {
+          // Grace period — don't downgrade immediately, Stripe will retry
+          console.warn('HMU First invoice payment failed for customer:', customerId);
+        }
+        break;
+      }
+
+      default:
+        // Unhandled event — log and return 200 so Stripe doesn't retry
+        break;
+    }
+
+    return NextResponse.json({ received: true });
+  } catch (err) {
+    console.error('Stripe webhook handler error:', err);
+    return NextResponse.json({ error: 'Webhook handler failed' }, { status: 500 });
+  }
+}
