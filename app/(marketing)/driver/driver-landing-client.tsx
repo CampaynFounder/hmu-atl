@@ -117,7 +117,10 @@ export default function DriverLandingClient() {
       {/* NAV */}
       <nav className={styles.nav}>
         <Link href="/" className={styles.navLogo}>HMU ATL</Link>
-        <Link href="/sign-up?type=driver" className={styles.navCta}>Lock In Free</Link>
+        <div className={styles.navActions}>
+          <Link href="/sign-in?type=driver" className={styles.navSignIn}>Sign In</Link>
+          <Link href="/sign-up?type=driver" className={styles.navCta}>Lock In Free</Link>
+        </div>
       </nav>
 
       {/* TICKER */}

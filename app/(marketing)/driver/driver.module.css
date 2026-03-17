@@ -60,6 +60,23 @@
   color: var(--green);
   text-decoration: none;
 }
+.navActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.navSignIn {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-light);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 20px;
+  transition: color 0.15s;
+}
+.navSignIn:hover {
+  color: var(--white);
+}
 .navCta {
   background: var(--green);
   color: var(--black);
