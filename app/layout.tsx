@@ -4,6 +4,7 @@
 import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
 import { Inter } from 'next/font/google';
+import { Header } from '@/components/layout/header';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
@@ -21,7 +22,10 @@ export default function RootLayout({
   return (
     <ClerkProvider>
       <html lang="en">
-        <body className={`${inter.variable} font-sans antialiased`}>{children}</body>
+        <body className={`${inter.variable} font-sans antialiased`}>
+          <Header />
+          {children}
+        </body>
       </html>
     </ClerkProvider>
   );
