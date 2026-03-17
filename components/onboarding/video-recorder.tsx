@@ -476,7 +476,7 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl }: VideoRecord
         )}
 
         {/* Preview */}
-        {state === 'preview' && videoUrl && (
+        {(state === 'preview' || state === 'uploading') && videoUrl && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
