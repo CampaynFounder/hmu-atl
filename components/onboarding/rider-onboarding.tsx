@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { VideoRecorder } from './video-recorder';
-import { SafetyPreferences } from './safety-preferences';
+import { SafetyPreferences, type GenderPreference } from './safety-preferences';
 import { PaymentSetup } from './payment-setup';
 import { Welcome } from './welcome';
 import { ArrowRight, ArrowLeft, Check } from 'lucide-react';
@@ -22,7 +22,28 @@ interface RiderOnboardingProps {
 
 export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
   const [currentStep, setCurrentStep] = useState(0);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    // Profile
+    firstName: string;
+    lastName: string;
+    gender: string;
+    pronouns: string;
+    lgbtqFriendly: boolean;
+
+    // Video
+    videoUrl: string;
+    thumbnailUrl: string;
+
+    // Safety Preferences
+    driverGenderPref: GenderPreference;
+    requireLgbtqFriendly: boolean;
+    minDriverRating: number;
+    requireVerification: boolean;
+    avoidDisputes: boolean;
+
+    // Payment
+    paymentMethodId: string;
+  }>({
     // Profile
     firstName: '',
     lastName: '',

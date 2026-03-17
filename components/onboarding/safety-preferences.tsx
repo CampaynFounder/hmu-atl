@@ -2,7 +2,7 @@
 
 import { Shield, Users, Star, CheckCircle2, AlertTriangle } from 'lucide-react';
 
-type GenderPreference = 'no_preference' | 'women_only' | 'men_only' | 'prefer_women' | 'prefer_men';
+export type GenderPreference = 'no_preference' | 'women_only' | 'men_only' | 'prefer_women' | 'prefer_men';
 
 interface SafetyPreferencesProps {
   preferences: {
