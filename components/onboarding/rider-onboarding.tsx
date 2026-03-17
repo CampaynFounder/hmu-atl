@@ -94,7 +94,7 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
     {
       id: 'payment',
       title: 'Add payment method 💳',
-      description: 'You won't be charged until your ride is complete',
+      description: "You won't be charged until your ride is complete",
       component: (
         <PaymentSetup
           onPaymentAdded={(paymentMethodId) => {
