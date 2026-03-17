@@ -35,7 +35,7 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
     thumbnailUrl: '',
 
     // Safety Preferences
-    driverGenderPref: 'no_preference' as const,
+    driverGenderPref: 'no_preference',
     requireLgbtqFriendly: false,
     minDriverRating: 4.0,
     requireVerification: false,
