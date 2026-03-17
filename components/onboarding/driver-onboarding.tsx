@@ -41,6 +41,7 @@ export function DriverOnboarding({ onComplete }: DriverOnboardingProps) {
       requireOgStatus: false,
       minRiderChillScore: 0,
       lgbtqFriendly: false,
+      avoidRidersWithDisputes: true,
     },
     stripeConnectId: '',
   });
@@ -89,6 +90,7 @@ export function DriverOnboarding({ onComplete }: DriverOnboardingProps) {
       description: 'Optional now — required before your first ride pays out',
       component: (
         <PaymentSetup
+          variant="payout"
           onPaymentAdded={(id) => setFormData((prev) => ({ ...prev, stripeConnectId: id }))}
           existingStripeCustomerId={formData.stripeConnectId}
         />
@@ -254,6 +256,7 @@ async function saveDriverOnboarding(data: {
         rider_gender_pref: data.riderPreferences.riderGenderPref,
         require_og_status: data.riderPreferences.requireOgStatus,
         min_rider_chill_score: data.riderPreferences.minRiderChillScore,
+        avoid_riders_with_disputes: data.riderPreferences.avoidRidersWithDisputes,
         stripe_connect_id: data.stripeConnectId || null,
       }),
     });

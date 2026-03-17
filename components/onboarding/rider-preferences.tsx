@@ -1,12 +1,13 @@
 'use client';
 
-import { Users, Shield, Star } from 'lucide-react';
+import { Users, Shield, Star, AlertTriangle } from 'lucide-react';
 
 export interface RiderPreferences {
   riderGenderPref: 'any' | 'women_only' | 'men_only';
   requireOgStatus: boolean;
   minRiderChillScore: number;
   lgbtqFriendly: boolean;
+  avoidRidersWithDisputes: boolean;
 }
 
 interface RiderPreferencesProps {
@@ -22,57 +23,28 @@ const CHILL_PRESETS = [
 ];
 
 const GENDER_OPTIONS = [
-  { value: 'any' as const,         label: 'Any rider',      sub: 'Open to all' },
-  { value: 'women_only' as const,  label: 'Women only',     sub: 'Female riders only' },
-  { value: 'men_only' as const,    label: 'Men only',       sub: 'Male riders only' },
+  { value: 'any' as const,         label: 'Show me all riders',  sub: 'Open to anyone' },
+  { value: 'women_only' as const,  label: 'Women only',          sub: 'Female riders only' },
+  { value: 'men_only' as const,    label: 'Men only',            sub: 'Male riders only' },
 ];
 
 export function RiderPreferencesStep({ preferences, onChange }: RiderPreferencesProps) {
   return (
     <div className="space-y-6">
-      <div className="rounded-xl bg-purple-50 dark:bg-purple-950 p-4 border border-purple-200 dark:border-purple-800">
+      <div className="rounded-xl bg-[#00E676]/10 p-4 border border-[#00E676]/30">
         <div className="flex gap-3">
-          <Shield className="h-5 w-5 shrink-0 text-purple-600 dark:text-purple-400 mt-0.5" />
-          <p className="text-sm text-muted-foreground">
-            <strong className="text-foreground">Your ride, your rules.</strong>{' '}
-            These settings control who can book you directly. You can always decline any request.
+          <Shield className="h-5 w-5 shrink-0 text-[#00E676] mt-0.5" />
+          <p className="text-sm text-zinc-300">
+            <strong className="text-white">Your ride, your rules.</strong>{' '}
+            These settings control which riders can book you. You can always decline any request.
           </p>
-        </div>
-      </div>
-
-      {/* Minimum Chill Score */}
-      <div>
-        <label className="flex items-center gap-2 text-sm font-semibold mb-3">
-          <Star className="h-4 w-4 text-emerald-500" />
-          Minimum Rider Chill Score
-        </label>
-        <div className="grid grid-cols-2 gap-2">
-          {CHILL_PRESETS.map((preset) => (
-            <button
-              key={preset.value}
-              type="button"
-              onClick={() => onChange({ minRiderChillScore: preset.value })}
-              className={`rounded-xl border-2 p-3 text-left transition-all hover:border-purple-500 ${
-                preferences.minRiderChillScore === preset.value
-                  ? 'border-purple-500 bg-purple-50 dark:bg-purple-950'
-                  : 'border-gray-200 dark:border-zinc-700'
-              }`}
-            >
-              <div className="text-xl mb-1">{preset.emoji}</div>
-              <div className="text-sm font-bold">{preset.label}</div>
-              <div className="text-xs text-muted-foreground">{preset.sub}</div>
-              {preset.value > 0 && (
-                <div className="text-xs font-mono text-purple-600 dark:text-purple-400 mt-1">{preset.value}%+</div>
-              )}
-            </button>
-          ))}
         </div>
       </div>
 
       {/* Rider Gender Preference */}
       <div>
-        <label className="flex items-center gap-2 text-sm font-semibold mb-3">
-          <Users className="h-4 w-4" />
+        <label className="flex items-center gap-2 text-sm font-semibold mb-3 text-white">
+          <Users className="h-4 w-4 text-[#00E676]" />
           Rider Gender Preference
         </label>
         <div className="space-y-2">
@@ -81,25 +53,25 @@ export function RiderPreferencesStep({ preferences, onChange }: RiderPreferences
               key={opt.value}
               type="button"
               onClick={() => onChange({ riderGenderPref: opt.value })}
-              className={`w-full rounded-xl border-2 px-4 py-3 text-left transition-all hover:border-purple-500 ${
+              className={`w-full rounded-xl border-2 px-4 py-3 text-left transition-all ${
                 preferences.riderGenderPref === opt.value
-                  ? 'border-purple-500 bg-purple-50 dark:bg-purple-950'
-                  : 'border-gray-200 dark:border-zinc-700'
+                  ? 'border-[#00E676] bg-[#00E676]/10'
+                  : 'border-zinc-700 hover:border-zinc-500'
               }`}
             >
               <div className="flex items-center gap-3">
                 <div className={`h-5 w-5 shrink-0 rounded-full border-2 flex items-center justify-center ${
                   preferences.riderGenderPref === opt.value
-                    ? 'border-purple-500 bg-purple-500'
-                    : 'border-gray-300 dark:border-zinc-600'
+                    ? 'border-[#00E676] bg-[#00E676]'
+                    : 'border-zinc-600'
                 }`}>
                   {preferences.riderGenderPref === opt.value && (
-                    <div className="h-2 w-2 rounded-full bg-white" />
+                    <div className="h-2 w-2 rounded-full bg-black" />
                   )}
                 </div>
                 <div>
-                  <div className="font-medium text-sm">{opt.label}</div>
-                  <div className="text-xs text-muted-foreground">{opt.sub}</div>
+                  <div className="font-medium text-sm text-white">{opt.label}</div>
+                  <div className="text-xs text-zinc-400">{opt.sub}</div>
                 </div>
               </div>
             </button>
@@ -107,45 +79,101 @@ export function RiderPreferencesStep({ preferences, onChange }: RiderPreferences
         </div>
       </div>
 
-      {/* OG Riders Only */}
-      <label className="flex items-start gap-3 cursor-pointer rounded-xl border-2 p-4 transition-all hover:border-purple-500 dark:border-zinc-700">
-        <input
-          type="checkbox"
-          checked={preferences.requireOgStatus}
-          onChange={(e) => onChange({ requireOgStatus: e.target.checked })}
-          className="mt-0.5 h-5 w-5 rounded border-gray-300 text-purple-600 focus:ring-2 focus:ring-purple-500/20"
-        />
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm">OG Riders only</span>
-            <span className="rounded-full bg-emerald-100 dark:bg-emerald-900 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-300">
-              10+ rides
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Only riders with 10+ completed rides and zero open disputes can book you directly.
-          </p>
+      {/* Minimum Rider Chill Score */}
+      <div>
+        <label className="flex items-center gap-2 text-sm font-semibold mb-3 text-white">
+          <Star className="h-4 w-4 text-[#00E676]" />
+          Minimum Rider Chill Score
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          {CHILL_PRESETS.map((preset) => (
+            <button
+              key={preset.value}
+              type="button"
+              onClick={() => onChange({ minRiderChillScore: preset.value })}
+              className={`rounded-xl border-2 p-3 text-left transition-all ${
+                preferences.minRiderChillScore === preset.value
+                  ? 'border-[#00E676] bg-[#00E676]/10'
+                  : 'border-zinc-700 hover:border-zinc-500'
+              }`}
+            >
+              <div className="text-xl mb-1">{preset.emoji}</div>
+              <div className="text-sm font-bold text-white">{preset.label}</div>
+              <div className="text-xs text-zinc-400">{preset.sub}</div>
+              {preset.value > 0 && (
+                <div className="text-xs font-mono text-[#00E676] mt-1">{preset.value}%+</div>
+              )}
+            </button>
+          ))}
         </div>
-      </label>
+      </div>
 
-      {/* LGBTQ+ Friendly */}
-      <label className="flex items-start gap-3 cursor-pointer rounded-xl border-2 border-purple-300 dark:border-purple-700 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950 p-4">
-        <input
-          type="checkbox"
-          checked={preferences.lgbtqFriendly}
-          onChange={(e) => onChange({ lgbtqFriendly: e.target.checked })}
-          className="mt-0.5 h-5 w-5 rounded border-gray-300 text-purple-600 focus:ring-2 focus:ring-purple-500/20"
-        />
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm">I&apos;m LGBTQ+ friendly</span>
-            <span className="text-lg">🏳️‍🌈</span>
+      {/* Additional Rider Filters */}
+      <div className="space-y-3">
+        <label className="block text-sm font-semibold text-white mb-2">Rider Filters</label>
+
+        {/* OG Riders Only */}
+        <label className="flex items-start gap-3 cursor-pointer rounded-xl border-2 border-zinc-700 p-4 transition-all hover:border-zinc-500">
+          <input
+            type="checkbox"
+            checked={preferences.requireOgStatus}
+            onChange={(e) => onChange({ requireOgStatus: e.target.checked })}
+            className="mt-0.5 h-5 w-5 rounded border-zinc-600 accent-[#00E676]"
+          />
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-sm text-white">OG Riders only</span>
+              <span className="rounded-full bg-[#00E676]/20 px-2 py-0.5 text-xs font-bold text-[#00E676]">
+                10+ rides
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-zinc-400">
+              Only riders with 10+ completed rides and zero open disputes can book you directly.
+            </p>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Show this badge on your profile. Riders filtering for LGBTQ+ friendly drivers will find you.
-          </p>
-        </div>
-      </label>
+        </label>
+
+        {/* Avoid Riders with Disputes */}
+        <label className="flex items-start gap-3 cursor-pointer rounded-xl border-2 border-zinc-700 p-4 transition-all hover:border-zinc-500">
+          <input
+            type="checkbox"
+            checked={preferences.avoidRidersWithDisputes}
+            onChange={(e) => onChange({ avoidRidersWithDisputes: e.target.checked })}
+            className="mt-0.5 h-5 w-5 rounded border-zinc-600 accent-[#00E676]"
+          />
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-orange-400" />
+              <span className="font-semibold text-sm text-white">Avoid riders with disputes</span>
+              <span className="ml-auto rounded-full bg-green-900/50 px-2 py-0.5 text-xs font-medium text-green-400">
+                Recommended
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-zinc-400">
+              Hide riders who currently have unresolved safety or conduct disputes.
+            </p>
+          </div>
+        </label>
+
+        {/* LGBTQ+ Friendly */}
+        <label className="flex items-start gap-3 cursor-pointer rounded-xl border-2 border-purple-700/60 bg-gradient-to-br from-purple-950/40 to-pink-950/40 p-4">
+          <input
+            type="checkbox"
+            checked={preferences.lgbtqFriendly}
+            onChange={(e) => onChange({ lgbtqFriendly: e.target.checked })}
+            className="mt-0.5 h-5 w-5 rounded border-zinc-600 accent-[#00E676]"
+          />
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-sm text-white">I&apos;m LGBTQ+ friendly</span>
+              <span className="text-lg">🏳️‍🌈</span>
+            </div>
+            <p className="mt-1 text-xs text-zinc-400">
+              Show this badge on your profile. Riders filtering for LGBTQ+ friendly drivers will find you.
+            </p>
+          </div>
+        </label>
+      </div>
     </div>
   );
 }
