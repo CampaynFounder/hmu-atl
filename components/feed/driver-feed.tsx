@@ -66,6 +66,12 @@ export function DriverFeed({
   const fetchMore = useCallback(async () => {
     if (loading || !hasMore) return;
 
+    // DEMO: In production, this would fetch from the API
+    // For now, we're using mock data only, so disable pagination
+    setHasMore(false);
+
+    // Commented out for demo - uncomment when API is ready
+    /*
     setLoading(true);
     try {
       const res = await fetch(`/api/feed/drivers?page=${page + 1}`);
@@ -83,6 +89,7 @@ export function DriverFeed({
     } finally {
       setLoading(false);
     }
+    */
   }, [page, loading, hasMore]);
 
   // Load more when within 2 cards of the end
@@ -101,17 +108,23 @@ export function DriverFeed({
       onRequestRide();
     }
 
-    // Track activity
-    await fetch('/api/users/activity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        event: 'driver_requested',
-        properties: {
-          driverId,
-        },
-      }),
-    });
+    // DEMO: Track activity (disabled for demo, enable when API is ready)
+    /*
+    try {
+      await fetch('/api/users/activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event: 'driver_requested',
+          properties: {
+            driverId,
+          },
+        }),
+      });
+    } catch (error) {
+      console.error('Failed to track activity:', error);
+    }
+    */
   };
 
   const handleSkip = (driverId: string) => {

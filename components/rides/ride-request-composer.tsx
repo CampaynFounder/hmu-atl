@@ -80,6 +80,14 @@ export function RideRequestComposer({
   }, [pickup, dropoff, stops]);
 
   const calculateSuggestedPrice = async () => {
+    // DEMO: Use mock pricing for demo
+    // In production, this would call the API
+    const mockPrice = 15 + Math.floor(Math.random() * 20);
+    setSuggestedPrice(mockPrice);
+    setOfferAmount(mockPrice);
+
+    // Commented out for demo - uncomment when API is ready
+    /*
     try {
       const res = await fetch('/api/rides/price-estimate', {
         method: 'POST',
@@ -99,6 +107,7 @@ export function RideRequestComposer({
     } catch (error) {
       console.error('Failed to get price estimate:', error);
     }
+    */
   };
 
   const handleAddStop = () => {
@@ -209,7 +218,7 @@ export function RideRequestComposer({
                       ref={pickupInputRef}
                       type="text"
                       placeholder="Enter pickup address"
-                      className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-zinc-700 dark:bg-zinc-800"
+                      className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:placeholder-gray-400"
                     />
                   </div>
 
@@ -225,7 +234,7 @@ export function RideRequestComposer({
                       ref={dropoffInputRef}
                       type="text"
                       placeholder="Enter destination address"
-                      className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-zinc-700 dark:bg-zinc-800"
+                      className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:placeholder-gray-400"
                     />
                   </div>
 
@@ -256,7 +265,7 @@ export function RideRequestComposer({
                             type="text"
                             placeholder={`Stop ${index + 1} address`}
                             value={stop.address}
-                            className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-zinc-700 dark:bg-zinc-800"
+                            className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:placeholder-gray-400"
                           />
                         </div>
                         <button
@@ -270,7 +279,7 @@ export function RideRequestComposer({
                         type="text"
                         placeholder="Note for this stop (optional)"
                         value={stop.note || ''}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-zinc-700 dark:bg-zinc-800"
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:placeholder-gray-400"
                       />
                     </div>
                   ))}
@@ -325,7 +334,7 @@ export function RideRequestComposer({
                           type="number"
                           value={offerAmount}
                           onChange={(e) => setOfferAmount(parseFloat(e.target.value) || 0)}
-                          className="w-20 rounded-lg border border-gray-300 px-2 py-1 text-right text-2xl font-bold focus:border-purple-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800"
+                          className="w-20 rounded-lg border border-gray-300 bg-white px-2 py-1 text-right text-2xl font-bold text-gray-900 focus:border-purple-500 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
                           step="0.50"
                           min="0"
                         />
@@ -389,7 +398,7 @@ export function RideRequestComposer({
                         <input
                           type="datetime-local"
                           onChange={(e) => setScheduledFor(new Date(e.target.value))}
-                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-purple-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800"
+                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-purple-500 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
                           min={new Date().toISOString().slice(0, 16)}
                         />
                       </div>
@@ -408,7 +417,7 @@ export function RideRequestComposer({
                       placeholder="e.g., I have luggage, Please text when you arrive, etc."
                       rows={3}
                       maxLength={200}
-                      className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-zinc-700 dark:bg-zinc-800"
+                      className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:placeholder-gray-400"
                     />
                     <p className="mt-1 text-xs text-muted-foreground">
                       {note.length}/200 characters
