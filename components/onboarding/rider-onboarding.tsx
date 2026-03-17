@@ -62,7 +62,7 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
     {
       id: 'video',
       title: 'Show your face 📹',
-      description: 'Record a quick 5-second intro video so drivers know who they're picking up',
+      description: "Record a quick 5-second intro video so drivers know who they're picking up",
       component: (
         <VideoRecorder
           onVideoRecorded={(videoUrl, thumbnailUrl) => {
