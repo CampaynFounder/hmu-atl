@@ -7,11 +7,10 @@ import styles from './driver.module.css';
 
 export default function DriverLandingClient() {
   const router = useRouter();
-  const [ridePrice, setRidePrice] = useState('20');
-  const [earnedToday, setEarnedToday] = useState('');
-  const [simKeep, setSimKeep] = useState('$18.09');
-  const [simTook, setSimTook] = useState('$1.91');
-  const [simNote, setSimNote] = useState('First $50 of your day — <strong>we only take 10%</strong>');
+  const [earnedToday, setEarnedToday] = useState('140');
+  const [simKeep, setSimKeep] = useState('$122.31');
+  const [simTook, setSimTook] = useState('$17.69');
+  const [simNote, setSimNote] = useState('First $50 at 10% + $90 at 15%');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -51,45 +50,53 @@ export default function DriverLandingClient() {
     return () => observer.disconnect();
   }, []);
 
-  // Fee calculator
+  // Fee calculator — total daily earnings breakdown
   useEffect(() => {
-    const ride = parseFloat(ridePrice) || 0;
-    const earned = parseFloat(earnedToday) || 0;
+    const total = parseFloat(earnedToday) || 0;
+
+    if (total <= 0) {
+      setSimKeep('$0.00');
+      setSimTook('$0.00');
+      setSimNote('Enter how much you want to earn today');
+      return;
+    }
+
+    // ~4.4% effective Stripe cost per $20 avg ride (2.9% + $0.30/$20)
+    const STRIPE_RATIO = 0.956;
     const DAILY_CAP = 40;
-    const stripeNet = ride - (ride * 0.029 + 0.3);
+    const TIERS = [
+      { prev: 0,   upTo: 50,       rate: 0.10, label: 'First $50' },
+      { prev: 50,  upTo: 150,      rate: 0.15, label: '$50–$150' },
+      { prev: 150, upTo: 300,      rate: 0.20, label: '$150–$300' },
+      { prev: 300, upTo: Infinity, rate: 0.25, label: 'Over $300' },
+    ];
 
-    let rate: number;
-    let tierLabel: string;
-    if (earned < 50) {
-      rate = 0.1;
-      tierLabel = 'First $50 of your day — <strong>we only take 10%</strong>';
-    } else if (earned < 150) {
-      rate = 0.15;
-      tierLabel = "You've earned $50+ today — <strong>15% rate</strong>";
-    } else if (earned < 300) {
-      rate = 0.2;
-      tierLabel = "You've earned $150+ today — <strong>20% rate</strong>";
-    } else {
-      rate = 0.25;
-      tierLabel = "You've earned $300+ today — <strong>25% rate</strong>";
+    let rawFee = 0;
+    let remaining = total;
+    const parts: string[] = [];
+
+    for (const { prev, upTo, rate, label } of TIERS) {
+      if (remaining <= 0) break;
+      const tierSize = upTo === Infinity ? remaining : upTo - prev;
+      const inTier = Math.min(remaining, tierSize);
+      rawFee += inTier * STRIPE_RATIO * rate;
+      parts.push(`${label} at ${(rate * 100).toFixed(0)}%`);
+      remaining -= inTier;
     }
 
-    let fee = stripeNet * rate;
-    const estimatedPriorFees = earned * rate * 0.15;
-    const remainingCap = Math.max(0, DAILY_CAP - estimatedPriorFees);
+    const capHit = rawFee >= DAILY_CAP;
+    const totalFee = Math.min(rawFee, DAILY_CAP);
+    const kept = total - totalFee;
 
-    if (remainingCap <= 0) {
-      fee = 0;
-      tierLabel = '🔥 <strong>Daily cap hit — HMU takes $0 on this ride</strong>';
-    } else {
-      fee = Math.min(fee, remainingCap);
-    }
-
-    const kept = ride - fee;
     setSimKeep('$' + kept.toFixed(2));
-    setSimTook('$' + fee.toFixed(2));
-    setSimNote(tierLabel);
-  }, [ridePrice, earnedToday]);
+    setSimTook('$' + totalFee.toFixed(2));
+
+    if (capHit) {
+      setSimNote('🔥 <strong>Daily cap hit — everything after this is all yours, $0 to HMU</strong>');
+    } else {
+      setSimNote(parts.join(' + '));
+    }
+  }, [earnedToday]);
 
   const handleSignup = (e: React.FormEvent) => {
     e.preventDefault();
@@ -329,26 +336,14 @@ export default function DriverLandingClient() {
         <div className={`${styles.simulator} ${styles.reveal}`}>
           <div className={styles.simulatorLabel}>Try The Math</div>
           <div className={styles.simulatorRow}>
-            <label htmlFor="sim-ride">Ride price ($)</label>
-            <input
-              id="sim-ride"
-              type="number"
-              className={styles.simInput}
-              value={ridePrice}
-              min={5}
-              max={200}
-              onChange={(e) => setRidePrice(e.target.value)}
-            />
-          </div>
-          <div className={styles.simulatorRow}>
-            <label htmlFor="sim-earned">Earned today ($)</label>
+            <label htmlFor="sim-earned">You Make ($)</label>
             <input
               id="sim-earned"
               type="number"
               className={styles.simInput}
               value={earnedToday}
               min={0}
-              max={500}
+              max={1000}
               onChange={(e) => setEarnedToday(e.target.value)}
             />
           </div>
@@ -362,6 +357,7 @@ export default function DriverLandingClient() {
               <div className={styles.simResultValueDim}>{simTook}</div>
             </div>
           </div>
+          <div className={styles.simResultSub}>out of ${earnedToday || '0'} earned today</div>
           <div
             className={styles.simNote}
             dangerouslySetInnerHTML={{ __html: simNote }}

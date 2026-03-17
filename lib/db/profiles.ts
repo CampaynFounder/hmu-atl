@@ -46,36 +46,36 @@ export interface UpdateRiderProfileParams {
 export async function createRiderProfile(
   params: CreateRiderProfileParams
 ): Promise<RiderProfile> {
+  const safetyPrefs = JSON.stringify({
+    driver_gender_pref: params.driver_gender_pref || 'no_preference',
+    require_lgbtq_friendly: params.require_lgbtq_friendly || false,
+    min_driver_rating: params.min_driver_rating || 4.0,
+    require_verification: params.require_verification || false,
+    avoid_disputes: params.avoid_disputes ?? true,
+  });
+
   const result = await sql`
     INSERT INTO rider_profiles (
       user_id,
       first_name,
       last_name,
-      gender,
-      pronouns,
       lgbtq_friendly,
       video_url,
       thumbnail_url,
       safety_preferences,
+      driver_preference,
       price_range,
       stripe_customer_id
     ) VALUES (
       ${params.user_id},
       ${params.first_name},
       ${params.last_name},
-      ${params.gender || null},
-      ${params.pronouns || null},
       ${params.lgbtq_friendly || false},
       ${params.video_url || null},
       ${params.thumbnail_url || null},
-      ${JSON.stringify({
-        driver_gender_pref: params.driver_gender_pref || 'no_preference',
-        require_lgbtq_friendly: params.require_lgbtq_friendly || false,
-        min_driver_rating: params.min_driver_rating || 4.0,
-        require_verification: params.require_verification || false,
-        avoid_disputes: params.avoid_disputes || true,
-      })},
-      ${params.price_range || 'medium'},
+      ${safetyPrefs},
+      ${params.driver_gender_pref || 'any'},
+      ${JSON.stringify({ range: params.price_range || 'medium' })},
       ${params.stripe_customer_id || null}
     )
     RETURNING *
@@ -250,13 +250,16 @@ export async function createDriverProfile(
 ): Promise<DriverProfile> {
   const handle = params.handle || (await generateDriverHandle(params.first_name, params.last_name));
 
+  const displayName = params.first_name
+    ? `${params.first_name} ${params.last_name ? params.last_name.charAt(0) + '.' : ''}`.trim()
+    : handle;
+
   const result = await sql`
     INSERT INTO driver_profiles (
       user_id,
       first_name,
       last_name,
-      gender,
-      pronouns,
+      display_name,
       lgbtq_friendly,
       video_url,
       thumbnail_url,
@@ -264,7 +267,7 @@ export async function createDriverProfile(
       pricing,
       schedule,
       vehicle_info,
-      stripe_connect_id,
+      stripe_account_id,
       handle,
       accept_direct_bookings,
       min_rider_chill_score,
@@ -273,8 +276,7 @@ export async function createDriverProfile(
       ${params.user_id},
       ${params.first_name},
       ${params.last_name},
-      ${params.gender || null},
-      ${params.pronouns || null},
+      ${displayName},
       ${params.lgbtq_friendly || false},
       ${params.video_url || null},
       ${params.thumbnail_url || null},

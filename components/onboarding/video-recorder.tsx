@@ -263,6 +263,14 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl }: VideoRecord
     }
   };
 
+  // Auto-play preview when recording/upload is done
+  useEffect(() => {
+    if (state === 'preview' && previewRef.current) {
+      previewRef.current.play().catch(() => {});
+      setIsPlaying(true);
+    }
+  }, [state, videoUrl]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -324,11 +332,21 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl }: VideoRecord
                 <div className="flex-1">
                   <div className="font-bold text-lg mb-1">Upload Existing Video</div>
                   <p className="text-sm text-muted-foreground">
-                    Have a video ready? Upload it here (max 10s, we'll crop to 5s)
+                    Have a video ready? Upload it here (max 10s, we&apos;ll crop to 5s)
                   </p>
                 </div>
               </div>
             </button>
+
+            {/* Why it matters */}
+            <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 dark:bg-amber-950 dark:border-amber-800">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-1">
+                🔥 Verified riders get matched 3x faster
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Drivers prefer riders with a face intro. It only takes 5 seconds — just smile and say hi!
+              </p>
+            </div>
           </motion.div>
         )}
 
@@ -484,21 +502,25 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl }: VideoRecord
             animate={{ opacity: 1 }}
             className="space-y-4"
           >
-            <div className="relative aspect-[9/16] max-h-[600px] mx-auto overflow-hidden rounded-3xl bg-black">
+            <p className="text-center text-sm font-medium text-muted-foreground">
+              Review your intro — tap to play/pause
+            </p>
+
+            <div className="relative aspect-[9/16] max-h-[500px] mx-auto overflow-hidden rounded-3xl bg-black">
               <video
                 ref={previewRef}
                 src={videoUrl}
                 className="h-full w-full object-cover"
                 loop
                 playsInline
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
                 onClick={() => {
                   if (previewRef.current) {
                     if (isPlaying) {
                       previewRef.current.pause();
-                      setIsPlaying(false);
                     } else {
                       previewRef.current.play();
-                      setIsPlaying(true);
                     }
                   }
                 }}
@@ -506,25 +528,19 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl }: VideoRecord
 
               {/* Play/Pause Overlay */}
               {!isPlaying && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
                   <div className="rounded-full bg-white/90 p-6">
                     <Play className="h-12 w-12 text-black" />
                   </div>
                 </div>
               )}
-
-              {/* Success Badge */}
-              <div className="absolute top-4 right-4">
-                <div className="rounded-full bg-green-500 p-3">
-                  <Check className="h-6 w-6 text-white" />
-                </div>
-              </div>
             </div>
 
             <div className="flex items-center justify-center gap-4">
               <button
                 onClick={retake}
-                className="flex items-center gap-2 rounded-full border-2 border-gray-300 px-6 py-3 font-semibold transition-all hover:bg-gray-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                disabled={state === 'uploading'}
+                className="flex items-center gap-2 rounded-full border-2 border-gray-300 px-6 py-3 font-semibold transition-all hover:bg-gray-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
               >
                 <RotateCcw className="h-5 w-5" />
                 Retake
@@ -537,16 +553,22 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl }: VideoRecord
                 {state === 'uploading' ? (
                   <>
                     <Loader2 className="h-5 w-5 animate-spin" />
-                    Uploading...
+                    Saving...
                   </>
                 ) : (
                   <>
                     <Check className="h-5 w-5" />
-                    Looks Good!
+                    Use This Video
                   </>
                 )}
               </button>
             </div>
+
+            {state !== 'uploading' && (
+              <p className="text-center text-xs text-muted-foreground">
+                Happy with it? Hit <strong>Use This Video</strong> then tap Next to continue.
+              </p>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

@@ -1,6 +1,6 @@
 'use client';
 
-import { Shield, Users, Star, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Shield, Users, CheckCircle2, AlertTriangle } from 'lucide-react';
 
 export type GenderPreference = 'no_preference' | 'women_only' | 'men_only' | 'prefer_women' | 'prefer_men';
 
@@ -8,7 +8,7 @@ interface SafetyPreferencesProps {
   preferences: {
     driverGenderPref: GenderPreference;
     requireLgbtqFriendly: boolean;
-    minDriverRating: number;
+    minDriverChillScore: number;
     requireVerification: boolean;
     avoidDisputes: boolean;
   };
@@ -44,11 +44,11 @@ export function SafetyPreferences({ preferences, onChange }: SafetyPreferencesPr
     },
   ];
 
-  const ratingLabels = [
-    { value: 4.0, label: '4.0+', description: 'Good drivers' },
-    { value: 4.5, label: '4.5+', description: 'Great drivers' },
-    { value: 4.8, label: '4.8+', description: 'Excellent drivers' },
-    { value: 4.9, label: '4.9+', description: 'Top rated only' },
+  const chillPresets = [
+    { value: 0,  emoji: '👐', label: 'Any vibe',   sub: 'All drivers welcome' },
+    { value: 50, emoji: '🙂', label: 'Basic',      sub: 'No red flags' },
+    { value: 70, emoji: '✅', label: 'Chill',      sub: 'Solid track record' },
+    { value: 85, emoji: '😎', label: 'Very Chill', sub: 'Top tier drivers' },
   ];
 
   return (
@@ -130,36 +130,31 @@ export function SafetyPreferences({ preferences, onChange }: SafetyPreferencesPr
         </label>
       </div>
 
-      {/* Minimum Driver Rating */}
+      {/* Minimum Driver Chill Score */}
       <div>
         <label className="block text-sm font-medium mb-3">
-          <Star className="inline h-4 w-4 mr-1 text-yellow-500 fill-yellow-500" />
-          Minimum Driver Rating
+          Minimum Driver Chill Score
         </label>
-        <div className="grid grid-cols-2 gap-3">
-          {ratingLabels.map((option) => (
+        <div className="grid grid-cols-2 gap-2">
+          {chillPresets.map((preset) => (
             <button
-              key={option.value}
-              onClick={() => onChange({ minDriverRating: option.value })}
-              className={`rounded-xl border-2 px-4 py-3 transition-all hover:border-purple-500 ${
-                preferences.minDriverRating === option.value
+              key={preset.value}
+              type="button"
+              onClick={() => onChange({ minDriverChillScore: preset.value })}
+              className={`rounded-xl border-2 p-3 text-left transition-all hover:border-purple-500 ${
+                preferences.minDriverChillScore === preset.value
                   ? 'border-purple-500 bg-purple-50 dark:bg-purple-950'
                   : 'border-gray-300 dark:border-zinc-700'
               }`}
             >
-              <div className="text-center">
-                <div className="text-2xl font-bold">{option.label}</div>
-                <div className="text-xs text-muted-foreground">{option.description}</div>
-              </div>
+              <div className="text-xl mb-1">{preset.emoji}</div>
+              <div className="text-sm font-bold">{preset.label}</div>
+              <div className="text-xs text-muted-foreground">{preset.sub}</div>
+              {preset.value > 0 && (
+                <div className="text-xs font-mono text-purple-600 dark:text-purple-400 mt-1">{preset.value}%+</div>
+              )}
             </button>
           ))}
-        </div>
-        <div className="mt-3 flex items-center gap-2 rounded-lg bg-gray-100 px-3 py-2 text-sm text-muted-foreground dark:bg-zinc-800">
-          <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-          <span>
-            Currently set to{' '}
-            <strong className="text-foreground">{preferences.minDriverRating}+</strong>
-          </span>
         </div>
       </div>
 

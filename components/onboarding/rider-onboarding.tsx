@@ -6,6 +6,7 @@ import { VideoRecorder } from './video-recorder';
 import { SafetyPreferences, type GenderPreference } from './safety-preferences';
 import { PaymentSetup } from './payment-setup';
 import { Welcome } from './welcome';
+import { RatingIntro } from './rating-intro';
 import { ArrowRight, ArrowLeft, Check } from 'lucide-react';
 
 interface OnboardingStep {
@@ -37,7 +38,7 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
     // Safety Preferences
     driverGenderPref: GenderPreference;
     requireLgbtqFriendly: boolean;
-    minDriverRating: number;
+    minDriverChillScore: number;
     requireVerification: boolean;
     avoidDisputes: boolean;
 
@@ -58,7 +59,7 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
     // Safety Preferences
     driverGenderPref: 'no_preference',
     requireLgbtqFriendly: false,
-    minDriverRating: 4.0,
+    minDriverChillScore: 0,
     requireVerification: false,
     avoidDisputes: true,
 
@@ -81,9 +82,16 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
       required: true,
     },
     {
+      id: 'ratings',
+      title: 'How ratings work 📊',
+      description: 'The system that keeps every ride right',
+      component: <RatingIntro userType="rider" />,
+      required: false,
+    },
+    {
       id: 'video',
       title: 'Show your face 📹',
-      description: "Record a quick 5-second intro video so drivers know who they're picking up",
+      description: 'Optional — but verified riders get matched 3x faster',
       component: (
         <VideoRecorder
           onVideoRecorded={(videoUrl, thumbnailUrl) => {
@@ -92,7 +100,7 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
           existingVideoUrl={formData.videoUrl}
         />
       ),
-      required: true,
+      required: false,
     },
     {
       id: 'safety',
@@ -103,7 +111,7 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
           preferences={{
             driverGenderPref: formData.driverGenderPref,
             requireLgbtqFriendly: formData.requireLgbtqFriendly,
-            minDriverRating: formData.minDriverRating,
+            minDriverChillScore: formData.minDriverChillScore,
             requireVerification: formData.requireVerification,
             avoidDisputes: formData.avoidDisputes,
           }}
@@ -115,7 +123,7 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
     {
       id: 'payment',
       title: 'Add payment method 💳',
-      description: "You won't be charged until your ride is complete",
+      description: 'Optional now — required when you book your first ride',
       component: (
         <PaymentSetup
           onPaymentAdded={(stripeCustomerId) => {
@@ -124,7 +132,7 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
           existingStripeCustomerId={formData.stripeCustomerId}
         />
       ),
-      required: true,
+      required: false,
     },
   ];
 
@@ -244,13 +252,28 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
 
               {/* Skip Link (for optional steps) */}
               {!currentStepData.required && (
-                <div className="text-center">
+                <div className="text-center space-y-1">
                   <button
                     onClick={() => setCurrentStep((prev) => prev + 1)}
                     className="text-sm text-muted-foreground hover:underline"
                   >
                     Skip for now
                   </button>
+                  {currentStepData.id === 'ratings' && (
+                    <p className="text-xs text-muted-foreground">
+                      This is important — but you can come back to it anytime.
+                    </p>
+                  )}
+                  {currentStepData.id === 'video' && (
+                    <p className="text-xs text-muted-foreground">
+                      You can add your video later. Verified riders get matched faster. 🚀
+                    </p>
+                  )}
+                  {currentStepData.id === 'payment' && (
+                    <p className="text-xs text-muted-foreground">
+                      You&apos;ll be prompted to add a card before your first booking.
+                    </p>
+                  )}
                 </div>
               )}
             </motion.div>
@@ -290,7 +313,7 @@ async function saveOnboardingData(data: any): Promise<void> {
       thumbnail_url: data.thumbnailUrl,
       driver_gender_pref: data.driverGenderPref,
       require_lgbtq_friendly: data.requireLgbtqFriendly,
-      min_driver_rating: data.minDriverRating,
+      min_driver_chill_score: data.minDriverChillScore,
       require_verification: data.requireVerification,
       avoid_disputes: data.avoidDisputes,
       price_range: 'medium',

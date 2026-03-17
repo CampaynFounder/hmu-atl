@@ -1,17 +1,36 @@
 'use client';
 
-import { useState } from 'react';
+import { useUser } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
 import { RiderOnboarding } from '@/components/onboarding/rider-onboarding';
+import { DriverOnboarding } from '@/components/onboarding/driver-onboarding';
 
-export default function OnboardingDemoPage() {
-  const [completed, setCompleted] = useState(false);
+export default function OnboardingPage() {
+  const { user, isLoaded } = useUser();
+  const router = useRouter();
 
   const handleComplete = () => {
-    setCompleted(true);
-    alert('Onboarding completed! (Demo mode)');
-    // In production, would redirect to rider feed
-    window.location.href = '/rider';
+    const profileType = user?.publicMetadata?.profileType;
+    router.push(profileType === 'driver' ? '/driver-demo' : '/rider');
   };
+
+  if (!isLoaded) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-zinc-950">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#00E676] border-t-transparent" />
+      </div>
+    );
+  }
+
+  const profileType = user?.publicMetadata?.profileType;
+
+  if (profileType === 'driver') {
+    return (
+      <div className="h-screen w-screen overflow-auto">
+        <DriverOnboarding onComplete={handleComplete} />
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen w-screen overflow-auto">

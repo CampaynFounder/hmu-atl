@@ -82,9 +82,9 @@ export async function POST(request: NextRequest) {
           ${clerkId},
           ${profile_type},
           'pending_activation',
-          'base',
+          'free',
           false,
-          5.0
+          0
         )
         RETURNING id
       `;

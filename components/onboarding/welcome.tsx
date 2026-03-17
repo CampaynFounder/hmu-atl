@@ -52,7 +52,7 @@ export function Welcome({ onNext, data, onChange }: WelcomeProps) {
 
         <div>
           <label className="block text-sm font-medium mb-2">
-            Last Name <span className="text-gray-400">(optional)</span>
+            Last Name <span className="text-red-500">*</span>
           </label>
           <input
             type="text"

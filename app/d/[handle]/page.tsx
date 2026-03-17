@@ -42,33 +42,41 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
   const profile = await getDriverProfileByHandle(handle);
   if (!profile) notFound();
 
-  // Fetch user-level data (tier, chill_score, completed_rides, account_status)
+  // Fetch user-level data (tier, chill_score, account_status)
   const userRows = await sql`
-    SELECT tier, chill_score, completed_rides, account_status
+    SELECT tier, chill_score, account_status
     FROM users WHERE id = ${profile.user_id} LIMIT 1
   `;
 
-  if (!userRows.length || (userRows[0] as { account_status: string }).account_status !== 'active') {
-    notFound();
-  }
+  if (!userRows.length) notFound();
 
   const user = userRows[0] as {
     tier: string;
     chill_score: number;
-    completed_rides: number;
     account_status: string;
   };
 
+  // Don't show suspended/banned drivers
+  if (user.account_status === 'suspended' || user.account_status === 'banned') {
+    notFound();
+  }
+
+  const profileAny = profile as unknown as Record<string, unknown>;
+  const displayName = (profileAny.display_name as string)
+    || (profileAny.first_name as string)
+    || profile.handle
+    || 'Driver';
+
   const driverData = {
     handle: profile.handle!,
-    displayName: profile.first_name,
+    displayName,
     areas: Array.isArray(profile.areas) ? profile.areas : [],
     pricing: profile.pricing as Record<string, unknown>,
     schedule: profile.schedule as Record<string, unknown>,
     vehiclePhotoUrl: (profile.vehicle_info as Record<string, unknown>)?.photo_url as string | null ?? null,
     isHmuFirst: user.tier === 'hmu_first',
-    chillScore: Number(user.chill_score),
-    completedRides: Number(user.completed_rides ?? 0),
+    chillScore: Number(user.chill_score ?? 0),
+    completedRides: 0,
     acceptDirectBookings: profile.accept_direct_bookings,
     minRiderChillScore: Number(profile.min_rider_chill_score),
     requireOgStatus: profile.require_og_status,
