@@ -28,28 +28,35 @@ export default function AuthCallbackPage() {
 
   const checkOnboardingAndRedirect = async () => {
     try {
-      // Check if user has completed onboarding
+      // Preserve returnTo from URL for post-onboarding redirect back to driver profile
+      const params = new URLSearchParams(window.location.search);
+      const returnTo = params.get('returnTo');
+
       const res = await fetch('/api/users/onboarding');
       const data = await res.json();
 
       if (data.onboarded && data.accountStatus === 'active') {
-        // User is fully onboarded
-        // Route based on profile type
+        // If rider came from a driver share link, send them back there
+        if (returnTo && returnTo.startsWith('/d/')) {
+          router.push(`${returnTo}?bookingOpen=1`);
+          return;
+        }
         if (data.profileType === 'driver') {
           router.push('/driver');
         } else if (data.profileType === 'rider' || data.profileType === 'both') {
           router.push('/rider');
         } else {
-          // Default to rider if no profile type
           router.push('/rider');
         }
       } else {
-        // User needs to complete onboarding
-        router.push('/onboarding');
+        // Pass returnTo through onboarding so we don't lose context
+        const onboardingUrl = returnTo
+          ? `/onboarding?returnTo=${encodeURIComponent(returnTo)}`
+          : '/onboarding';
+        router.push(onboardingUrl);
       }
     } catch (error) {
       console.error('Failed to check onboarding status:', error);
-      // On error, default to onboarding to be safe
       router.push('/onboarding');
     }
   };

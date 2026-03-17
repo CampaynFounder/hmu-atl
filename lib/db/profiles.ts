@@ -182,6 +182,10 @@ export interface CreateDriverProfileParams {
     capacity?: number;
   };
   stripe_connect_id?: string;
+  handle?: string;
+  accept_direct_bookings?: boolean;
+  min_rider_chill_score?: number;
+  require_og_status?: boolean;
 }
 
 export interface UpdateDriverProfileParams {
@@ -197,11 +201,55 @@ export interface UpdateDriverProfileParams {
   schedule?: Record<string, any>;
   vehicle_info?: Record<string, any>;
   stripe_connect_id?: string;
+  handle?: string;
+  accept_direct_bookings?: boolean;
+  min_rider_chill_score?: number;
+  require_og_status?: boolean;
 }
+
+// ─── Handle generation ───────────────────────────────────────────────────────
+
+function slugify(str: string): string {
+  return str
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+export async function generateDriverHandle(
+  firstName: string,
+  lastName: string
+): Promise<string> {
+  const base = slugify(`${firstName}-${lastName.charAt(0)}`);
+  let candidate = base;
+  let suffix = 2;
+  while (true) {
+    const existing = await sql`
+      SELECT id FROM driver_profiles WHERE handle = ${candidate} LIMIT 1
+    `;
+    if (existing.length === 0) return candidate;
+    candidate = `${base}-${suffix}`;
+    suffix++;
+  }
+}
+
+export async function getDriverProfileByHandle(
+  handle: string
+): Promise<DriverProfile | null> {
+  const result = await sql`
+    SELECT * FROM driver_profiles WHERE handle = ${handle} LIMIT 1
+  `;
+  return (result[0] as DriverProfile) || null;
+}
+
+// ─── Create ──────────────────────────────────────────────────────────────────
 
 export async function createDriverProfile(
   params: CreateDriverProfileParams
 ): Promise<DriverProfile> {
+  const handle = params.handle || (await generateDriverHandle(params.first_name, params.last_name));
+
   const result = await sql`
     INSERT INTO driver_profiles (
       user_id,
@@ -216,7 +264,11 @@ export async function createDriverProfile(
       pricing,
       schedule,
       vehicle_info,
-      stripe_connect_id
+      stripe_connect_id,
+      handle,
+      accept_direct_bookings,
+      min_rider_chill_score,
+      require_og_status
     ) VALUES (
       ${params.user_id},
       ${params.first_name},
@@ -230,7 +282,11 @@ export async function createDriverProfile(
       ${JSON.stringify(params.pricing || {})},
       ${JSON.stringify(params.schedule || {})},
       ${JSON.stringify(params.vehicle_info || {})},
-      ${params.stripe_connect_id || null}
+      ${params.stripe_connect_id || null},
+      ${handle},
+      ${params.accept_direct_bookings ?? true},
+      ${params.min_rider_chill_score ?? 0},
+      ${params.require_og_status ?? false}
     )
     RETURNING *
   `;
@@ -262,18 +318,22 @@ export async function updateDriverProfile(
   const result = await sql`
     UPDATE driver_profiles
     SET
-      first_name = COALESCE(${params.first_name}, first_name),
-      last_name = COALESCE(${params.last_name}, last_name),
-      gender = COALESCE(${params.gender || null}, gender),
-      pronouns = COALESCE(${params.pronouns || null}, pronouns),
-      lgbtq_friendly = COALESCE(${params.lgbtq_friendly}, lgbtq_friendly),
-      video_url = COALESCE(${params.video_url || null}, video_url),
-      thumbnail_url = COALESCE(${params.thumbnail_url || null}, thumbnail_url),
+      first_name = COALESCE(${params.first_name ?? null}, first_name),
+      last_name = COALESCE(${params.last_name ?? null}, last_name),
+      gender = COALESCE(${params.gender ?? null}, gender),
+      pronouns = COALESCE(${params.pronouns ?? null}, pronouns),
+      lgbtq_friendly = COALESCE(${params.lgbtq_friendly ?? null}, lgbtq_friendly),
+      video_url = COALESCE(${params.video_url ?? null}, video_url),
+      thumbnail_url = COALESCE(${params.thumbnail_url ?? null}, thumbnail_url),
       areas = COALESCE(${params.areas ? JSON.stringify(params.areas) : null}, areas),
       pricing = COALESCE(${params.pricing ? JSON.stringify(params.pricing) : null}, pricing),
       schedule = COALESCE(${params.schedule ? JSON.stringify(params.schedule) : null}, schedule),
       vehicle_info = COALESCE(${params.vehicle_info ? JSON.stringify(params.vehicle_info) : null}, vehicle_info),
-      stripe_connect_id = COALESCE(${params.stripe_connect_id || null}, stripe_connect_id),
+      stripe_connect_id = COALESCE(${params.stripe_connect_id ?? null}, stripe_connect_id),
+      handle = COALESCE(${params.handle ?? null}, handle),
+      accept_direct_bookings = COALESCE(${params.accept_direct_bookings ?? null}, accept_direct_bookings),
+      min_rider_chill_score = COALESCE(${params.min_rider_chill_score ?? null}, min_rider_chill_score),
+      require_og_status = COALESCE(${params.require_og_status ?? null}, require_og_status),
       updated_at = NOW()
     WHERE user_id = ${userId}
     RETURNING *

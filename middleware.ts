@@ -9,6 +9,10 @@ const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/api/webhooks(.*)',
+  '/d/(.*)',
+  '/api/drivers/:handle',
+  '/driver',
+  '/rider',
 ]);
 
 // Define pending-only routes (only for pending_activation users)

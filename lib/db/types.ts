@@ -5,7 +5,7 @@
 export type ProfileType = 'rider' | 'driver' | 'both';
 export type AccountStatus = 'pending_activation' | 'active' | 'suspended' | 'banned';
 export type Tier = 'free' | 'hmu_first';
-export type PostType = 'rider_seeking_driver' | 'driver_offering_ride';
+export type PostType = 'rider_seeking_driver' | 'driver_offering_ride' | 'direct_booking';
 export type HmuPostStatus = 'active' | 'matched' | 'expired' | 'cancelled';
 export type RideStatus = 'pending' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
 export type DisputeStatus = 'open' | 'under_review' | 'resolved' | 'closed';
@@ -41,6 +41,10 @@ export interface DriverProfile {
   schedule: Record<string, any>; // JSONB
   vehicle_info: Record<string, any>; // JSONB
   stripe_connect_id?: string;
+  handle: string | null;
+  accept_direct_bookings: boolean;
+  min_rider_chill_score: number;
+  require_og_status: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -71,6 +75,8 @@ export interface HmuPost {
   time_window: Record<string, any>; // JSONB
   status: HmuPostStatus;
   expires_at: Date;
+  target_driver_id: string | null;
+  booking_expires_at: Date | null;
   created_at: Date;
 }
 

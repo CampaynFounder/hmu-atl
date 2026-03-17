@@ -1,12 +1,18 @@
 'use client';
 
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+const MARKETING_PATHS = ['/driver', '/rider'];
+
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const pathname = usePathname();
+
+  if (MARKETING_PATHS.includes(pathname)) return null;
 
   return (
     <>
@@ -76,7 +82,7 @@ export function Header() {
                 </li>
                 <li>
                   <Link
-                    href="/driver"
+                    href="/driver-demo"
                     onClick={() => setIsMenuOpen(false)}
                     className="block px-4 py-3 rounded-lg text-white hover:bg-white/10 transition-colors"
                   >
