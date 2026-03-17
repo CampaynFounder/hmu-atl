@@ -10,6 +10,7 @@ import { ArrowRight, ArrowLeft, Check } from 'lucide-react';
 
 interface DriverOnboardingProps {
   onComplete: () => void;
+  tier?: string;
 }
 
 interface OnboardingStep {
@@ -20,7 +21,7 @@ interface OnboardingStep {
   required: boolean;
 }
 
-export function DriverOnboarding({ onComplete }: DriverOnboardingProps) {
+export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboardingProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<{
     firstName: string;
@@ -119,6 +120,21 @@ export function DriverOnboarding({ onComplete }: DriverOnboardingProps) {
       {/* Progress Bar */}
       <div className="sticky top-0 z-10 bg-zinc-900/80 backdrop-blur-sm border-b border-zinc-800">
         <div className="mx-auto max-w-2xl px-4 py-4">
+          {/* Account type badge */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="rounded-full bg-[#00E676]/20 px-3 py-1 text-xs font-bold text-[#00E676] uppercase tracking-wide">
+              Driver Account
+            </span>
+            {tier === 'hmu_first' ? (
+              <span className="rounded-full bg-[#00E676] px-3 py-1 text-xs font-black text-black">
+                HMU First
+              </span>
+            ) : (
+              <span className="rounded-full bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-400">
+                Free Tier
+              </span>
+            )}
+          </div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-zinc-400">
               Step {currentStep + 1} of {steps.length}

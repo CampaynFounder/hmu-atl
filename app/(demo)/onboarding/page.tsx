@@ -22,19 +22,20 @@ export default function OnboardingPage() {
     );
   }
 
-  const profileType = user?.publicMetadata?.profileType;
+  const profileType = user?.publicMetadata?.profileType as string | undefined;
+  const tier = (user?.publicMetadata?.tier as string | undefined) ?? 'free';
 
   if (profileType === 'driver') {
     return (
       <div className="h-screen w-screen overflow-auto">
-        <DriverOnboarding onComplete={handleComplete} />
+        <DriverOnboarding onComplete={handleComplete} tier={tier} />
       </div>
     );
   }
 
   return (
     <div className="h-screen w-screen overflow-auto">
-      <RiderOnboarding onComplete={handleComplete} />
+      <RiderOnboarding onComplete={handleComplete} tier={tier} />
     </div>
   );
 }

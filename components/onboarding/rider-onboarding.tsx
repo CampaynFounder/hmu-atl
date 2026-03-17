@@ -19,9 +19,10 @@ interface OnboardingStep {
 
 interface RiderOnboardingProps {
   onComplete: () => void;
+  tier?: string;
 }
 
-export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
+export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<{
     // Profile
@@ -161,6 +162,23 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
       {/* Progress Bar */}
       <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-sm dark:bg-zinc-900/80">
         <div className="mx-auto max-w-2xl px-4 py-4">
+          {/* Account type badge */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-purple-100 dark:bg-purple-900/50 px-3 py-1 text-xs font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wide">
+                Rider Account
+              </span>
+              {tier === 'hmu_first' ? (
+                <span className="rounded-full bg-gradient-to-r from-purple-500 to-pink-500 px-3 py-1 text-xs font-bold text-white">
+                  HMU First
+                </span>
+              ) : (
+                <span className="rounded-full bg-gray-100 dark:bg-zinc-800 px-3 py-1 text-xs font-medium text-muted-foreground">
+                  Free
+                </span>
+              )}
+            </div>
+          </div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-muted-foreground">
               Step {currentStep + 1} of {steps.length}
