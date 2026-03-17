@@ -2,7 +2,7 @@
 // Handles initial profile creation for riders and drivers after signup
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import {
   createRiderProfile,
   createDriverProfile,
@@ -184,6 +184,18 @@ export async function POST(request: NextRequest) {
       results.pendingItems = [];
       if (!hasVideo) results.pendingItems.push('video');
       if (!hasPayment) results.pendingItems.push('payment');
+    }
+
+    // Sync profileType to Clerk publicMetadata so the onboarding page
+    // can read it directly on return logins without relying on URL params.
+    try {
+      const clerk = await clerkClient();
+      await clerk.users.updateUserMetadata(clerkId, {
+        publicMetadata: { profileType: profile_type },
+      });
+    } catch (clerkErr) {
+      // Non-fatal — user can still use the app, just log it
+      console.error('[ONBOARDING] Failed to sync profileType to Clerk:', clerkErr);
     }
 
     return NextResponse.json({

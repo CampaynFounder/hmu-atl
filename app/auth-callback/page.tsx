@@ -28,9 +28,10 @@ export default function AuthCallbackPage() {
 
   const checkOnboardingAndRedirect = async () => {
     try {
-      // Preserve returnTo from URL for post-onboarding redirect back to driver profile
       const params = new URLSearchParams(window.location.search);
       const returnTo = params.get('returnTo');
+      // type param signals intent from sign-up URL (e.g. /sign-up?type=driver)
+      const type = params.get('type');
 
       const res = await fetch('/api/users/onboarding');
       const data = await res.json();
@@ -49,10 +50,11 @@ export default function AuthCallbackPage() {
           router.push('/rider');
         }
       } else {
-        // Pass returnTo through onboarding so we don't lose context
-        const onboardingUrl = returnTo
-          ? `/onboarding?returnTo=${encodeURIComponent(returnTo)}`
-          : '/onboarding';
+        // Forward type and returnTo through onboarding so context is never lost
+        const onboardingParams = new URLSearchParams();
+        if (type) onboardingParams.set('type', type);
+        if (returnTo) onboardingParams.set('returnTo', returnTo);
+        const onboardingUrl = `/onboarding${onboardingParams.size ? `?${onboardingParams}` : ''}`;
         router.push(onboardingUrl);
       }
     } catch (error) {
