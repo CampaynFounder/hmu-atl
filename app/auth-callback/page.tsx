@@ -29,9 +29,14 @@ export default function AuthCallbackPage() {
   const checkOnboardingAndRedirect = async () => {
     try {
       const params = new URLSearchParams(window.location.search);
-      const returnTo = params.get('returnTo');
-      // type param signals intent from sign-up URL (e.g. /sign-up?type=driver)
-      const type = params.get('type');
+
+      // Read type from URL params first, fall back to localStorage (OAuth loses URL params)
+      const type = params.get('type') || localStorage.getItem('hmu_signup_type');
+      const returnTo = params.get('returnTo') || localStorage.getItem('hmu_signup_returnTo');
+
+      // Clean up localStorage after reading — one-time use
+      localStorage.removeItem('hmu_signup_type');
+      localStorage.removeItem('hmu_signup_returnTo');
 
       const res = await fetch('/api/users/onboarding');
       const data = await res.json();
