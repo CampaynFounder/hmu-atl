@@ -42,7 +42,7 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
     avoidDisputes: boolean;
 
     // Payment
-    paymentMethodId: string;
+    stripeCustomerId: string;
   }>({
     // Profile
     firstName: '',
@@ -63,7 +63,7 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
     avoidDisputes: true,
 
     // Payment
-    paymentMethodId: '',
+    stripeCustomerId: '',
   });
 
   const steps: OnboardingStep[] = [
@@ -118,10 +118,10 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
       description: "You won't be charged until your ride is complete",
       component: (
         <PaymentSetup
-          onPaymentAdded={(paymentMethodId) => {
-            setFormData({ ...formData, paymentMethodId });
+          onPaymentAdded={(stripeCustomerId) => {
+            setFormData({ ...formData, stripeCustomerId });
           }}
-          existingPaymentMethodId={formData.paymentMethodId}
+          existingStripeCustomerId={formData.stripeCustomerId}
         />
       ),
       required: true,
@@ -265,11 +265,11 @@ export function RiderOnboarding({ onComplete }: RiderOnboardingProps) {
 function validateStep(stepId: string, data: any): boolean {
   switch (stepId) {
     case 'welcome':
-      return Boolean(data.firstName && data.gender);
+      return Boolean(data.firstName && data.lastName && data.gender);
     case 'video':
       return Boolean(data.videoUrl);
     case 'payment':
-      return Boolean(data.paymentMethodId);
+      return Boolean(data.stripeCustomerId);
     default:
       return true;
   }
@@ -278,15 +278,37 @@ function validateStep(stepId: string, data: any): boolean {
 // Save to backend
 async function saveOnboardingData(data: any): Promise<void> {
   try {
+    // Format data for API
+    const payload = {
+      profile_type: 'rider',
+      first_name: data.firstName,
+      last_name: data.lastName,
+      gender: data.gender,
+      pronouns: data.pronouns,
+      lgbtq_friendly: data.lgbtqFriendly,
+      video_url: data.videoUrl,
+      thumbnail_url: data.thumbnailUrl,
+      driver_gender_pref: data.driverGenderPref,
+      require_lgbtq_friendly: data.requireLgbtqFriendly,
+      min_driver_rating: data.minDriverRating,
+      require_verification: data.requireVerification,
+      avoid_disputes: data.avoidDisputes,
+      price_range: 'medium',
+      stripe_customer_id: data.stripeCustomerId,
+    };
+
     const res = await fetch('/api/users/onboarding', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
-      throw new Error('Failed to save onboarding data');
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to save onboarding data');
     }
+
+    const result = await res.json();
 
     // Track onboarding completion
     await fetch('/api/users/activity', {
@@ -296,11 +318,14 @@ async function saveOnboardingData(data: any): Promise<void> {
         event: 'profile_completed',
         properties: {
           hasVideo: Boolean(data.videoUrl),
-          hasPayment: Boolean(data.paymentMethodId),
+          hasPayment: Boolean(data.stripeCustomerId),
           safetyPrefsSet: Boolean(data.driverGenderPref !== 'no_preference'),
+          accountStatus: result.accountStatus,
         },
       }),
-    });
+    }).catch(console.error); // Don't fail if analytics fails
+
+    return result;
   } catch (error) {
     console.error('Failed to save onboarding:', error);
     throw error;

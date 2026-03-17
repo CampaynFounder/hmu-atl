@@ -14,22 +14,22 @@ import {
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '');
 
 interface PaymentSetupProps {
-  onPaymentAdded: (paymentMethodId: string) => void;
-  existingPaymentMethodId?: string;
+  onPaymentAdded: (stripeCustomerId: string) => void;
+  existingStripeCustomerId?: string;
 }
 
-export function PaymentSetup({ onPaymentAdded, existingPaymentMethodId }: PaymentSetupProps) {
+export function PaymentSetup({ onPaymentAdded, existingStripeCustomerId }: PaymentSetupProps) {
   return (
     <Elements stripe={stripePromise}>
       <PaymentSetupForm
         onPaymentAdded={onPaymentAdded}
-        existingPaymentMethodId={existingPaymentMethodId}
+        existingStripeCustomerId={existingStripeCustomerId}
       />
     </Elements>
   );
 }
 
-function PaymentSetupForm({ onPaymentAdded, existingPaymentMethodId }: PaymentSetupProps) {
+function PaymentSetupForm({ onPaymentAdded, existingStripeCustomerId }: PaymentSetupProps) {
   const stripe = useStripe();
   const elements = useElements();
 
@@ -43,10 +43,10 @@ function PaymentSetupForm({ onPaymentAdded, existingPaymentMethodId }: PaymentSe
 
   // Fetch existing payment method if provided
   useEffect(() => {
-    if (existingPaymentMethodId) {
+    if (existingStripeCustomerId) {
       fetchExistingPaymentMethod();
     }
-  }, [existingPaymentMethodId]);
+  }, [existingStripeCustomerId]);
 
   const fetchExistingPaymentMethod = async () => {
     try {
@@ -121,9 +121,10 @@ function PaymentSetupForm({ onPaymentAdded, existingPaymentMethodId }: PaymentSe
             last4: paymentMethod.card?.last4,
           },
         }),
-      });
+      }).catch(console.error); // Don't fail if analytics fails
 
-      onPaymentAdded(paymentMethod.id);
+      // Pass the Stripe customer ID to the parent
+      onPaymentAdded(data.customerId || data.stripeCustomerId);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {

@@ -225,15 +225,17 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl }: VideoRecord
       // Create form data
       const formData = new FormData();
       formData.append('video', videoBlob, 'intro-video.webm');
+      formData.append('profile_type', 'rider');
 
-      // Upload to server (which will upload to Cloudflare Stream)
-      const response = await fetch('/api/users/video-upload', {
+      // Upload to server (which will upload to Cloudflare R2)
+      const response = await fetch('/api/upload/video', {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error('Upload failed');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Upload failed');
       }
 
       const data = await response.json();
