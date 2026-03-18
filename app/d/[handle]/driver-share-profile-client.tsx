@@ -122,15 +122,31 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
         .section-label { font-family: var(--font-mono, 'Space Mono', monospace); font-size: 10px; color: var(--gray); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 10px; margin-top: 24px; }
         .area-chips { display: flex; flex-wrap: wrap; gap: 8px; }
         .area-chip { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font-size: 13px; color: var(--gray-light); }
+        .section-sub { font-size: 13px; color: var(--gray); margin-bottom: 12px; line-height: 1.4; }
         .pricing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .pricing-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+        .pricing-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; animation: priceIn 0.6s ease-out both; }
+        .pricing-card:nth-child(1) { animation-delay: 0.1s; }
+        .pricing-card:nth-child(2) { animation-delay: 0.2s; }
+        .pricing-card:nth-child(3) { animation-delay: 0.3s; }
+        .pricing-card:nth-child(4) { animation-delay: 0.4s; }
+        @keyframes priceIn { from { opacity: 0; transform: translateY(12px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
         .pricing-label { font-size: 12px; color: var(--gray); margin-bottom: 4px; }
-        .pricing-value { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 28px; color: var(--green); line-height: 1; }
+        .pricing-value { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 28px; color: var(--green); line-height: 1; animation: countUp 0.8s ease-out both; }
+        @keyframes countUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .pricing-value .dollar { font-size: 18px; opacity: 0.7; }
         .schedule-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
-        .schedule-day { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 4px; text-align: center; }
+        .schedule-day { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 4px; text-align: center; animation: dayIn 0.4s ease-out both; }
+        .schedule-day:nth-child(1) { animation-delay: 0.05s; }
+        .schedule-day:nth-child(2) { animation-delay: 0.1s; }
+        .schedule-day:nth-child(3) { animation-delay: 0.15s; }
+        .schedule-day:nth-child(4) { animation-delay: 0.2s; }
+        .schedule-day:nth-child(5) { animation-delay: 0.25s; }
+        .schedule-day:nth-child(6) { animation-delay: 0.3s; }
+        .schedule-day:nth-child(7) { animation-delay: 0.35s; }
+        @keyframes dayIn { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
         .schedule-day.available { border-color: rgba(0,230,118,0.3); background: rgba(0,230,118,0.06); }
         .schedule-day-label { font-size: 10px; color: var(--gray); text-transform: uppercase; letter-spacing: 1px; }
-        .schedule-day-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gray); margin: 4px auto 0; }
+        .schedule-day-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gray); margin: 4px auto 0; transition: background 0.3s; }
         .schedule-day.available .schedule-day-dot { background: var(--green); }
         .cta-sticky { position: fixed; bottom: 0; left: 0; right: 0; padding: 16px 20px; background: linear-gradient(to top, rgba(8,8,8,0.98) 70%, transparent); z-index: 50; }
         .cta-btn { width: 100%; padding: 18px; border-radius: 100px; border: none; font-family: var(--font-body, 'DM Sans', sans-serif); font-weight: 700; font-size: 17px; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; text-decoration: none; display: block; text-align: center; }
@@ -198,10 +214,45 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
             </div>
           </div>
 
+          {/* Pricing */}
+          <p className="section-label">Pricing</p>
+          <p className="section-sub">
+            {driver.pricing.minimum
+              ? `Don\u2019t HMU for less than $${Number(driver.pricing.minimum).toFixed(0)}. You name your price, I accept or pass.`
+              : 'You name your price, I accept or pass. No surge, no fees.'}
+          </p>
+          <div className="pricing-grid">
+            {driver.pricing.minimum != null && Number(driver.pricing.minimum) > 0 && (
+              <div className="pricing-card">
+                <div className="pricing-label">Don&apos;t HMU for less than</div>
+                <div className="pricing-value"><span className="dollar">$</span>{Number(driver.pricing.minimum).toFixed(0)}</div>
+              </div>
+            )}
+            {driver.pricing.base_rate != null && Number(driver.pricing.base_rate) > 0 && (
+              <div className="pricing-card">
+                <div className="pricing-label">30 min ride</div>
+                <div className="pricing-value"><span className="dollar">$</span>{Number(driver.pricing.base_rate).toFixed(0)}</div>
+              </div>
+            )}
+            {driver.pricing.hourly != null && Number(driver.pricing.hourly) > 0 && (
+              <div className="pricing-card">
+                <div className="pricing-label">1 hour</div>
+                <div className="pricing-value"><span className="dollar">$</span>{Number(driver.pricing.hourly).toFixed(0)}</div>
+              </div>
+            )}
+            {driver.pricing.out_of_town != null && Number(driver.pricing.out_of_town) > 0 && (
+              <div className="pricing-card">
+                <div className="pricing-label">Out of town / hr</div>
+                <div className="pricing-value"><span className="dollar">$</span>{Number(driver.pricing.out_of_town).toFixed(0)}</div>
+              </div>
+            )}
+          </div>
+
           {/* Areas */}
           {driver.areas.length > 0 && (
             <>
-              <p className="section-label">Serves</p>
+              <p className="section-label">Areas</p>
+              <p className="section-sub">Where I ride. Multi-stop and round trip available.</p>
               <div className="area-chips">
                 {driver.areas.map((area) => (
                   <span key={area} className="area-chip">{area}</span>
@@ -210,45 +261,21 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
             </>
           )}
 
-          {/* Pricing */}
-          {Object.keys(driver.pricing).length > 0 && (
-            <>
-              <p className="section-label">Pricing</p>
-              <div className="pricing-grid">
-                {driver.pricing.minimum != null && (
-                  <div className="pricing-card">
-                    <div className="pricing-label">Minimum</div>
-                    <div className="pricing-value">${Number(driver.pricing.minimum).toFixed(0)}</div>
-                  </div>
-                )}
-                {driver.pricing.base_rate != null && (
-                  <div className="pricing-card">
-                    <div className="pricing-label">Base Rate</div>
-                    <div className="pricing-value">${Number(driver.pricing.base_rate).toFixed(0)}</div>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-
           {/* Schedule */}
-          {Object.keys(driver.schedule).length > 0 && (
-            <>
-              <p className="section-label">Availability</p>
-              <div className="schedule-grid">
-                {['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => {
-                  const key = { mon: 'monday', tue: 'tuesday', wed: 'wednesday', thu: 'thursday', fri: 'friday', sat: 'saturday', sun: 'sunday' }[d]!;
-                  const avail = (driver.schedule[key] as { available?: boolean } | undefined)?.available ?? false;
-                  return (
-                    <div key={d} className={`schedule-day${avail ? ' available' : ''}`}>
-                      <div className="schedule-day-label">{d}</div>
-                      <div className="schedule-day-dot" />
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
+          <p className="section-label">Availability</p>
+          <p className="section-sub">Green = I&apos;m active. Tap Book to request a day.</p>
+          <div className="schedule-grid">
+            {['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => {
+              const key = { mon: 'monday', tue: 'tuesday', wed: 'wednesday', thu: 'thursday', fri: 'friday', sat: 'saturday', sun: 'sunday' }[d]!;
+              const avail = (driver.schedule[key] as { available?: boolean } | undefined)?.available ?? false;
+              return (
+                <div key={d} className={`schedule-day${avail ? ' available' : ''}`}>
+                  <div className="schedule-day-label">{d}</div>
+                  <div className="schedule-day-dot" />
+                </div>
+              );
+            })}
+          </div>
 
           {/* Booking requirements */}
           {(driver.requireOgStatus || driver.minRiderChillScore > 0) && (
