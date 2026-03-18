@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
+import { VideoRecorder } from '@/components/onboarding/video-recorder';
 
 interface ProfileData {
   handle: string;
@@ -14,6 +15,7 @@ interface ProfileData {
   areas: string[];
   pricing: Record<string, unknown>;
   schedule: Record<string, unknown>;
+  videoUrl: string;
   vehiclePhotoUrl: string;
   acceptDirectBookings: boolean;
   minRiderChillScore: number;
@@ -48,6 +50,7 @@ export default function DriverProfileClient({ profile, user }: Props) {
   const [data, setData] = useState(profile);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState('');
+  const [showVideoEditor, setShowVideoEditor] = useState(false);
 
   const save = useCallback(async (patch: Partial<ProfileData>) => {
     setSaving(true);
@@ -159,6 +162,12 @@ export default function DriverProfileClient({ profile, user }: Props) {
         .save-status { font-size: 12px; color: var(--green); text-align: right; min-height: 18px; margin-top: 4px; }
         .link-pill { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; font-family: var(--font-mono, monospace); font-size: 13px; color: var(--green); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 12px; }
         .badge { display: inline-block; background: var(--green); color: var(--black); font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 100px; letter-spacing: 1px; text-transform: uppercase; margin-left: 8px; }
+        .dp-video-preview { position: relative; border-radius: 16px; overflow: hidden; }
+        .dp-video { width: 100%; aspect-ratio: 9/16; max-height: 300px; object-fit: cover; border-radius: 16px; background: #000; }
+        .dp-video-change { position: absolute; bottom: 12px; right: 12px; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.2); color: #fff; font-size: 13px; font-weight: 600; padding: 8px 16px; border-radius: 100px; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .dp-video-change:hover { background: rgba(0,0,0,0.9); }
+        .dp-video-editor { border-radius: 16px; overflow: hidden; }
+        .dp-video-cancel { width: 100%; margin-top: 10px; padding: 12px; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 100px; color: var(--gray); font-size: 14px; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); }
       `}</style>
 
       <div className="dp">
@@ -190,6 +199,58 @@ export default function DriverProfileClient({ profile, user }: Props) {
         <div className="dp-section">
           <div className="dp-section-title">Your HMU Link</div>
           <div className="link-pill">{shareUrl}</div>
+        </div>
+
+        {/* Video Intro */}
+        <div className="dp-section">
+          <div className="dp-section-title">Video Intro</div>
+          {data.videoUrl && !showVideoEditor ? (
+            <div className="dp-video-preview">
+              <video
+                src={data.videoUrl}
+                className="dp-video"
+                loop
+                muted
+                playsInline
+                autoPlay
+              />
+              <button
+                className="dp-video-change"
+                onClick={() => setShowVideoEditor(true)}
+              >
+                Change Video
+              </button>
+            </div>
+          ) : (
+            <div className="dp-video-editor">
+              <VideoRecorder
+                onVideoRecorded={async (url, _thumb) => {
+                  setData((d) => ({ ...d, videoUrl: url }));
+                  setShowVideoEditor(false);
+                  // Save video URL to profile
+                  await fetch('/api/users/profile', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ profile_type: 'driver', video_url: url }),
+                  });
+                  setSaved('Video saved');
+                  setTimeout(() => setSaved(''), 2000);
+                }}
+                existingVideoUrl={data.videoUrl || undefined}
+              />
+              {data.videoUrl && (
+                <button
+                  className="dp-video-cancel"
+                  onClick={() => setShowVideoEditor(false)}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          )}
+          <p className="dp-row-sub" style={{ marginTop: '8px' }}>
+            This plays on your HMU link so riders know who&apos;s pulling up
+          </p>
         </div>
 
         {/* Booking Settings */}

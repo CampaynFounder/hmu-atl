@@ -38,6 +38,7 @@ export default async function DriverProfilePage() {
         areas: Array.isArray(p.areas) ? p.areas : [],
         pricing: (p.pricing as Record<string, unknown>) || {},
         schedule: (p.schedule as Record<string, unknown>) || {},
+        videoUrl: (p.video_url as string) || '',
         vehiclePhotoUrl: ((p.vehicle_info as Record<string, unknown>)?.photo_url as string) || '',
         acceptDirectBookings: (p.accept_direct_bookings as boolean) ?? true,
         minRiderChillScore: Number(p.min_rider_chill_score ?? 0),

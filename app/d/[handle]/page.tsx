@@ -73,6 +73,7 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
     areas: Array.isArray(profile.areas) ? profile.areas : [],
     pricing: profile.pricing as Record<string, unknown>,
     schedule: profile.schedule as Record<string, unknown>,
+    videoUrl: (profileAny.video_url as string) || null,
     vehiclePhotoUrl: (profile.vehicle_info as Record<string, unknown>)?.photo_url as string | null ?? null,
     isHmuFirst: user.tier === 'hmu_first',
     chillScore: Number(user.chill_score ?? 0),

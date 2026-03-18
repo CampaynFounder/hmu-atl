@@ -12,6 +12,7 @@ interface DriverData {
   areas: string[];
   pricing: Record<string, unknown>;
   schedule: Record<string, unknown>;
+  videoUrl: string | null;
   vehiclePhotoUrl: string | null;
   isHmuFirst: boolean;
   chillScore: number;
@@ -151,8 +152,18 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
       `}</style>
 
       <div className="profile-page">
-        {/* Vehicle photo */}
-        {driver.vehiclePhotoUrl ? (
+        {/* Hero: video intro or vehicle photo */}
+        {driver.videoUrl ? (
+          <video
+            src={driver.videoUrl}
+            className="hero-photo"
+            autoPlay
+            loop
+            muted
+            playsInline
+            style={{ objectFit: 'cover' }}
+          />
+        ) : driver.vehiclePhotoUrl ? (
           <img src={driver.vehiclePhotoUrl} alt={`${driver.displayName}'s vehicle`} className="hero-photo" />
         ) : (
           <div className="hero-photo-placeholder">🚗</div>
