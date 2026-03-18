@@ -27,7 +27,7 @@ function OnboardingInner() {
   const tier = (user?.publicMetadata?.tier as string | undefined) ?? 'free';
 
   const handleComplete = () => {
-    router.push(activeType === 'driver' ? '/driver/home' : '/rider');
+    router.push(activeType === 'driver' ? '/driver/home' : '/rider/home');
   };
 
   if (!isLoaded) {

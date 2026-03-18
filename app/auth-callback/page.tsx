@@ -50,9 +50,9 @@ export default function AuthCallbackPage() {
         if (data.profileType === 'driver') {
           router.push('/driver/home');
         } else if (data.profileType === 'rider' || data.profileType === 'both') {
-          router.push('/rider');
+          router.push('/rider/home');
         } else {
-          router.push('/rider');
+          router.push('/rider/home');
         }
       } else {
         // Forward type and returnTo through onboarding so context is never lost

@@ -14,6 +14,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/drivers/:handle',
   '/driver',
   '/rider',
+  '/rider/home',
 ]);
 
 // Define pending-only routes (only for pending_activation users)
