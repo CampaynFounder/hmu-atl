@@ -61,17 +61,10 @@ export default function DriverProfileClient({ profile, user }: Props) {
     setSaving(true);
     setSaved('');
     try {
-      const apiPatch: Record<string, unknown> = {};
-      if ('areas' in patch) apiPatch.areas = patch.areas;
-      if ('pricing' in patch) apiPatch.pricing = patch.pricing;
-      if ('schedule' in patch) apiPatch.schedule = patch.schedule;
-      if ('lgbtqFriendly' in patch) apiPatch.lgbtq_friendly = patch.lgbtqFriendly;
-      if ('acceptDirectBookings' in patch) apiPatch.accept_direct_bookings = patch.acceptDirectBookings;
-      if ('minRiderChillScore' in patch) apiPatch.min_rider_chill_score = patch.minRiderChillScore;
-      if ('requireOgStatus' in patch) apiPatch.require_og_status = patch.requireOgStatus;
+      let res: Response;
 
       if ('acceptDirectBookings' in patch || 'minRiderChillScore' in patch || 'requireOgStatus' in patch) {
-        await fetch('/api/drivers/booking-settings', {
+        res = await fetch('/api/drivers/booking-settings', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -81,16 +74,30 @@ export default function DriverProfileClient({ profile, user }: Props) {
           }),
         });
       } else {
-        await fetch('/api/users/profile', {
+        // Map client field names to DB field names
+        const apiPatch: Record<string, unknown> = {};
+        if ('areas' in patch) apiPatch.areas = patch.areas;
+        if ('pricing' in patch) apiPatch.pricing = patch.pricing;
+        if ('schedule' in patch) apiPatch.schedule = patch.schedule;
+        if ('lgbtqFriendly' in patch) apiPatch.lgbtq_friendly = patch.lgbtqFriendly;
+
+        res = await fetch('/api/users/profile', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ profile_type: 'driver', ...apiPatch }),
         });
       }
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Save failed (${res.status})`);
+      }
+
       setSaved('Saved');
-      setTimeout(() => setSaved(''), 2000);
-    } catch {
-      setSaved('Error saving');
+      setTimeout(() => setSaved(''), 2500);
+    } catch (err) {
+      setSaved(err instanceof Error ? err.message : 'Error saving');
+      setTimeout(() => setSaved(''), 4000);
     } finally {
       setSaving(false);
     }
