@@ -48,7 +48,7 @@ export default function AuthCallbackPage() {
           return;
         }
         if (data.profileType === 'driver') {
-          router.push('/driver');
+          router.push('/driver/home');
         } else if (data.profileType === 'rider' || data.profileType === 'both') {
           router.push('/rider');
         } else {

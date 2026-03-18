@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
-import BookingDrawer from './booking-drawer';
+import ChatBooking from './chat-booking';
 import type { EligibilityResult } from '@/lib/db/direct-bookings';
 
 interface DriverData {
@@ -245,9 +245,9 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
         <div className="cta-sticky">{renderCtaButton()}</div>
       </div>
 
-      {/* Booking drawer */}
+      {/* Chat booking flow */}
       {isSignedIn && eligibility?.eligible && (
-        <BookingDrawer
+        <ChatBooking
           driver={driver}
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}

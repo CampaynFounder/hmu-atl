@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Welcome } from './welcome';
+import { VideoRecorder } from './video-recorder';
 import { RatingIntro } from './rating-intro';
 import { RiderPreferencesStep, type RiderPreferences } from './rider-preferences';
 import { PaymentSetup } from './payment-setup';
@@ -29,6 +30,8 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
     gender: string;
     pronouns: string;
     lgbtqFriendly: boolean;
+    videoIntroUrl: string;
+    videoThumbnailUrl: string;
     riderPreferences: RiderPreferences;
     stripeConnectId: string;
   }>({
@@ -37,6 +40,8 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
     gender: '',
     pronouns: '',
     lgbtqFriendly: false,
+    videoIntroUrl: '',
+    videoThumbnailUrl: '',
     riderPreferences: {
       riderGenderPref: 'any',
       requireOgStatus: false,
@@ -61,6 +66,24 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
         />
       ),
       required: true,
+    },
+    {
+      id: 'video-intro',
+      title: 'Record your intro 🎥',
+      description: 'A quick video so riders know who\'s pulling up',
+      component: (
+        <VideoRecorder
+          onVideoRecorded={(videoUrl, thumbnailUrl) =>
+            setFormData((prev) => ({
+              ...prev,
+              videoIntroUrl: videoUrl,
+              videoThumbnailUrl: thumbnailUrl,
+            }))
+          }
+          existingVideoUrl={formData.videoIntroUrl || undefined}
+        />
+      ),
+      required: false,
     },
     {
       id: 'ratings',
@@ -256,6 +279,8 @@ async function saveDriverOnboarding(data: {
   gender: string;
   pronouns: string;
   lgbtqFriendly: boolean;
+  videoIntroUrl: string;
+  videoThumbnailUrl: string;
   riderPreferences: RiderPreferences;
   stripeConnectId: string;
 }): Promise<void> {
@@ -275,6 +300,7 @@ async function saveDriverOnboarding(data: {
         min_rider_chill_score: data.riderPreferences.minRiderChillScore,
         avoid_riders_with_disputes: data.riderPreferences.avoidRidersWithDisputes,
         stripe_connect_id: data.stripeConnectId || null,
+        video_intro_url: data.videoIntroUrl || null,
       }),
     });
 

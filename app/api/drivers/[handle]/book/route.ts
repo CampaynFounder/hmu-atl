@@ -16,29 +16,33 @@ export async function POST(
 
   const { handle } = await params;
 
-  let body: { price: number; areas: string[]; timeWindow: Record<string, unknown> };
+  let body: { price: number; areas?: string[]; timeWindow?: Record<string, unknown> };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { price, areas, timeWindow } = body;
-  if (!price || !areas?.length) {
-    return NextResponse.json({ error: 'price and areas are required' }, { status: 400 });
+  const { price, timeWindow } = body;
+  if (!price) {
+    return NextResponse.json({ error: 'price is required' }, { status: 400 });
   }
 
   // Resolve IDs
   const [riderRows, driverRows] = await Promise.all([
     sql`SELECT id, account_status FROM users WHERE clerk_id = ${clerkId} LIMIT 1`,
-    sql`SELECT user_id FROM driver_profiles WHERE handle = ${handle} LIMIT 1`,
+    sql`SELECT user_id, areas FROM driver_profiles WHERE handle = ${handle} LIMIT 1`,
   ]);
 
   if (!riderRows.length) return NextResponse.json({ error: 'Rider not found' }, { status: 404 });
   if (!driverRows.length) return NextResponse.json({ error: 'Driver not found' }, { status: 404 });
 
   const rider = riderRows[0] as { id: string; account_status: string };
-  const driverUserId = (driverRows[0] as { user_id: string }).user_id;
+  const driverProfile = driverRows[0] as { user_id: string; areas: string[] };
+  const driverUserId = driverProfile.user_id;
+
+  // Fall back to driver's areas if not provided
+  const areas = body.areas?.length ? body.areas : (Array.isArray(driverProfile.areas) ? driverProfile.areas : ['ATL']);
 
   if (rider.account_status !== 'active') {
     return NextResponse.json({ error: 'Account not active' }, { status: 403 });
