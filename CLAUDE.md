@@ -35,6 +35,45 @@ HMU ATL is a **mobile-first PWA** peer-to-peer ride platform for Metro Atlanta.
 
 ---
 
+## DEPLOYMENT (CRITICAL — READ BEFORE ANY DEPLOY)
+
+> **Production is served by the `hmu-atl` Cloudflare Worker, NOT Cloudflare Pages.**
+> The custom domain `atl.hmucashride.com` routes to this worker.
+> Deploying to the wrong target causes **Clerk handshake errors** because Clerk is configured for `atl.hmucashride.com` only.
+
+### How to deploy to production
+```bash
+npm run build && npx opennextjs-cloudflare build && npx wrangler deploy --config wrangler.worker.jsonc
+```
+
+### What each piece does
+| Step | Command | Purpose |
+|---|---|---|
+| 1 | `npm run build` | Next.js production build |
+| 2 | `npx opennextjs-cloudflare build` | Converts Next.js output to Cloudflare Worker format |
+| 3 | `npx wrangler deploy --config wrangler.worker.jsonc` | Deploys to `hmu-atl` worker → `atl.hmucashride.com` |
+
+### DO NOT
+- **DO NOT** deploy to `hmu-atlp` Pages project — that is not the production target
+- **DO NOT** use `wrangler pages deploy` — that deploys to Pages, not the Worker
+- **DO NOT** deploy without `--config wrangler.worker.jsonc` — the default `wrangler.jsonc` is for Pages
+- **DO NOT** omit the custom domain route from `wrangler.worker.jsonc`
+
+### Clerk domain configuration
+- Clerk publishable key is bound to `clerk.atl.hmucashride.com`
+- `NEXT_PUBLIC_CLERK_DOMAIN=clerk.atl.hmucashride.com` must be set as a Worker secret
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` must be set as a Worker secret
+- If the site is accessed on any other domain (e.g. `*.workers.dev`), Clerk handshake will fail
+
+### Cloudflare Pages auto-deploy (dashboard)
+The Pages project `hmu-atlp` auto-deploys on git push. Its deploy command should be:
+```
+npx wrangler deploy --config wrangler.worker.jsonc
+```
+Build command: `npm run build && npx opennextjs-cloudflare build`
+
+---
+
 ## 21ST.DEV UI COMPONENTS
 
 21st.dev is an open-source shadcn/ui-based component registry. Components are installed with:
