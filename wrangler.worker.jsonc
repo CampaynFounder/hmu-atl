@@ -27,5 +27,8 @@
   },
   "observability": {
     "enabled": true
-  }
+  },
+  "routes": [
+    { "pattern": "atl.hmucashride.com", "custom_domain": true }
+  ]
 }
