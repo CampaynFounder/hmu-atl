@@ -9,7 +9,7 @@ export default async function DriverProfilePage() {
   if (!clerkId) redirect('/sign-in');
 
   const userRows = await sql`
-    SELECT id, tier, chill_score, completed_rides
+    SELECT id, tier, chill_score
     FROM users WHERE clerk_id = ${clerkId} LIMIT 1
   `;
   if (!userRows.length) redirect('/onboarding?type=driver');
@@ -18,7 +18,6 @@ export default async function DriverProfilePage() {
     id: string;
     tier: string;
     chill_score: number;
-    completed_rides: number;
   };
 
   const profile = await getDriverProfileByUserId(user.id);
@@ -47,7 +46,7 @@ export default async function DriverProfilePage() {
       user={{
         tier: user.tier,
         chillScore: Number(user.chill_score ?? 0),
-        completedRides: Number(user.completed_rides ?? 0),
+        completedRides: 0,
       }}
     />
   );
