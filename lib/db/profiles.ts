@@ -322,8 +322,7 @@ export async function updateDriverProfile(
     SET
       first_name = COALESCE(${params.first_name ?? null}, first_name),
       last_name = COALESCE(${params.last_name ?? null}, last_name),
-      gender = COALESCE(${params.gender ?? null}, gender),
-      pronouns = COALESCE(${params.pronouns ?? null}, pronouns),
+      display_name = COALESCE(${params.first_name ? `${params.first_name} ${(params.last_name ?? '').charAt(0)}.`.trim() : null}, display_name),
       lgbtq_friendly = COALESCE(${params.lgbtq_friendly ?? null}, lgbtq_friendly),
       video_url = COALESCE(${params.video_url ?? null}, video_url),
       thumbnail_url = COALESCE(${params.thumbnail_url ?? null}, thumbnail_url),
@@ -331,7 +330,6 @@ export async function updateDriverProfile(
       pricing = COALESCE(${params.pricing ? JSON.stringify(params.pricing) : null}::jsonb, pricing),
       schedule = COALESCE(${params.schedule ? JSON.stringify(params.schedule) : null}::jsonb, schedule),
       vehicle_info = COALESCE(${params.vehicle_info ? JSON.stringify(params.vehicle_info) : null}::jsonb, vehicle_info),
-      stripe_connect_id = COALESCE(${params.stripe_connect_id ?? null}, stripe_connect_id),
       handle = COALESCE(${params.handle ?? null}, handle),
       accept_direct_bookings = COALESCE(${params.accept_direct_bookings ?? null}, accept_direct_bookings),
       min_rider_chill_score = COALESCE(${params.min_rider_chill_score ?? null}, min_rider_chill_score),
