@@ -53,6 +53,8 @@ export default function DriverProfileClient({ profile, user }: Props) {
   const [showVideoEditor, setShowVideoEditor] = useState(!profile.videoUrl);
   const [videoSaved, setVideoSaved] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoSaved, setPhotoSaved] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   const save = useCallback(async (patch: Partial<ProfileData>) => {
@@ -131,9 +133,14 @@ export default function DriverProfileClient({ profile, user }: Props) {
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) return;
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Please select an image file');
+      return;
+    }
 
     setPhotoUploading(true);
+    setUploadError('');
+    setPhotoSaved(false);
     try {
       const formData = new FormData();
       formData.append('video', file, file.name);
@@ -141,23 +148,21 @@ export default function DriverProfileClient({ profile, user }: Props) {
       formData.append('media_type', 'photo');
 
       const res = await fetch('/api/upload/video', { method: 'POST', body: formData });
+      const result = await res.json();
 
-      if (res.ok) {
-        const result = await res.json();
-        // Upload API auto-saves to vehicle_info.photo_url
+      if (res.ok && result.url) {
         setData((d) => ({ ...d, vehiclePhotoUrl: result.url }));
-        setSaved('Photo saved');
-        setTimeout(() => setSaved(''), 2000);
+        setPhotoSaved(true);
+        setTimeout(() => setPhotoSaved(false), 4000);
       } else {
-        const err = await res.json().catch(() => ({}));
-        setSaved(err.error || 'Upload failed');
-        setTimeout(() => setSaved(''), 3000);
+        setUploadError(result.error || 'Upload failed — try again');
       }
     } catch {
-      setSaved('Upload failed');
-      setTimeout(() => setSaved(''), 3000);
+      setUploadError('Network error — check your connection and try again');
     } finally {
       setPhotoUploading(false);
+      // Reset file input so same file can be re-selected
+      if (photoInputRef.current) photoInputRef.current.value = '';
     }
   };
 
@@ -443,6 +448,15 @@ export default function DriverProfileClient({ profile, user }: Props) {
           <p className="dp-row-sub" style={{ marginBottom: '14px' }}>
             Shows on your HMU link — use a vehicle photo, promo flyer, or ad
           </p>
+
+          {photoSaved && (
+            <div className="media-saved">Photo saved — visible on your HMU link now</div>
+          )}
+          {uploadError && (
+            <div style={{ padding: '12px', background: 'rgba(255,68,68,0.1)', border: '1px solid rgba(255,68,68,0.25)', borderRadius: '12px', color: '#FF5252', fontSize: '14px', marginBottom: '12px' }}>
+              {uploadError}
+            </div>
+          )}
 
           {data.vehiclePhotoUrl ? (
             <>
