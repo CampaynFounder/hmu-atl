@@ -32,6 +32,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
   const [eligibility, setEligibility] = useState<EligibilityResult | null>(null);
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [videoMuted, setVideoMuted] = useState(true);
 
   // Fetch eligibility once auth is known
   useEffect(() => {
@@ -154,15 +155,26 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
       <div className="profile-page">
         {/* Hero: video intro or vehicle photo */}
         {driver.videoUrl ? (
-          <video
-            src={driver.videoUrl}
-            className="hero-photo"
-            autoPlay
-            loop
-            muted
-            playsInline
-            style={{ objectFit: 'cover' }}
-          />
+          <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setVideoMuted(!videoMuted)}>
+            <video
+              src={driver.videoUrl}
+              className="hero-photo"
+              autoPlay
+              loop
+              muted={videoMuted}
+              playsInline
+              style={{ objectFit: 'cover' }}
+            />
+            <div style={{
+              position: 'absolute', bottom: '16px', right: '16px',
+              background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
+              borderRadius: '100px', padding: '8px 14px',
+              fontSize: '13px', color: '#fff', fontWeight: 600,
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+              {videoMuted ? '\uD83D\uDD07 Tap for sound' : '\uD83D\uDD0A Sound on'}
+            </div>
+          </div>
         ) : driver.vehiclePhotoUrl ? (
           <img src={driver.vehiclePhotoUrl} alt={`${driver.displayName}'s vehicle`} className="hero-photo" />
         ) : (

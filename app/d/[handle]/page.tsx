@@ -18,10 +18,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const areas = Array.isArray(profile.areas) ? profile.areas.join(', ') : '';
   const p = profile as unknown as Record<string, unknown>;
 
-  // Priority: thumbnail > vehicle photo > dynamic OG fallback
-  const thumbnailUrl = p.thumbnail_url as string | undefined;
+  // OG image: photo first (social platforms can't render video), then dynamic card
   const vehiclePhotoUrl = (p.vehicle_info as Record<string, unknown>)?.photo_url as string | undefined;
-  const ogImage = thumbnailUrl || vehiclePhotoUrl
+  const thumbnailUrl = p.thumbnail_url as string | undefined;
+  // Only use thumbnail if it's an actual image (not a video URL)
+  const thumbnailIsImage = thumbnailUrl && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(thumbnailUrl);
+  const ogImage = vehiclePhotoUrl || (thumbnailIsImage ? thumbnailUrl : null)
     || `https://atl.hmucashride.com/api/og/driver?handle=${handle}`;
 
   return {
