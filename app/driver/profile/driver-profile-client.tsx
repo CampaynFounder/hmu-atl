@@ -246,6 +246,10 @@ export default function DriverProfileClient({ profile, user }: Props) {
         .photo-upload-icon { font-size: 36px; margin-bottom: 8px; opacity: 0.5; }
         .photo-upload-text { font-size: 14px; color: var(--gray-light); font-weight: 500; }
         .photo-upload-sub { font-size: 12px; color: var(--gray); margin-top: 4px; }
+        .save-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--green); color: var(--black); font-weight: 700; font-size: 14px; padding: 12px 28px; border-radius: 100px; z-index: 60; animation: toastIn 0.3s ease-out; box-shadow: 0 4px 20px rgba(0,230,118,0.3); }
+        .save-toast--error { background: #FF5252; color: #fff; box-shadow: 0 4px 20px rgba(255,82,82,0.3); }
+        .save-toast--saving { background: var(--card2); border: 1px solid var(--border); color: var(--green); }
+        @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(16px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
       `}</style>
 
       <div className="dp">
@@ -345,26 +349,40 @@ export default function DriverProfileClient({ profile, user }: Props) {
         <div className="dp-section">
           <div className="dp-section-title">Pricing</div>
           <div className="dp-row">
-            <div className="dp-row-left"><div className="dp-row-label">Minimum ride</div></div>
+            <div className="dp-row-left">
+              <div className="dp-row-label">Minimum ride</div>
+              <div className="dp-row-sub">Don&apos;t HMU for less than this</div>
+            </div>
             <input type="number" className="price-input" defaultValue={Number(data.pricing.minimum ?? 0)} onBlur={(e) => updatePricing('minimum', e.target.value)} placeholder="$" />
           </div>
           <div className="dp-row">
-            <div className="dp-row-left"><div className="dp-row-label">Base rate (30 min)</div></div>
+            <div className="dp-row-left">
+              <div className="dp-row-label">30 min ride</div>
+              <div className="dp-row-sub">Short trips around your area</div>
+            </div>
             <input type="number" className="price-input" defaultValue={Number(data.pricing.base_rate ?? 0)} onBlur={(e) => updatePricing('base_rate', e.target.value)} placeholder="$" />
           </div>
           <div className="dp-row">
-            <div className="dp-row-left"><div className="dp-row-label">1 hour</div></div>
+            <div className="dp-row-left">
+              <div className="dp-row-label">1 hour</div>
+              <div className="dp-row-sub">Multi-stop or longer distance</div>
+            </div>
             <input type="number" className="price-input" defaultValue={Number(data.pricing.hourly ?? 0)} onBlur={(e) => updatePricing('hourly', e.target.value)} placeholder="$" />
           </div>
           <div className="dp-row">
-            <div className="dp-row-left"><div className="dp-row-label">Out of town / hr</div></div>
+            <div className="dp-row-left">
+              <div className="dp-row-label">Out of town / hr</div>
+              <div className="dp-row-sub">Outside your usual areas</div>
+            </div>
             <input type="number" className="price-input" defaultValue={Number(data.pricing.out_of_town ?? 0)} onBlur={(e) => updatePricing('out_of_town', e.target.value)} placeholder="$" />
           </div>
+          <div className="save-status">{saving ? 'Saving...' : saved}</div>
         </div>
 
         {/* Areas */}
         <div className="dp-section">
           <div className="dp-section-title">Areas You Serve</div>
+          <div className="dp-row-sub" style={{ marginBottom: '12px' }}>Tap to toggle — riders see these on your HMU link</div>
           <div className="area-chips">
             {ATLANTA_AREAS.map((area) => (
               <button key={area} className={`area-chip${data.areas.includes(area) ? ' selected' : ''}`} onClick={() => toggleArea(area)}>
@@ -377,6 +395,7 @@ export default function DriverProfileClient({ profile, user }: Props) {
         {/* Schedule */}
         <div className="dp-section">
           <div className="dp-section-title">Availability</div>
+          <div className="dp-row-sub" style={{ marginBottom: '12px' }}>Days you&apos;re available — shows on your HMU link</div>
           <div className="day-grid">
             {DAYS.map((day) => {
               const isActive = (data.schedule[day] as { available?: boolean } | undefined)?.available ?? false;
@@ -514,6 +533,14 @@ export default function DriverProfileClient({ profile, user }: Props) {
           </div>
         </div>
       </div>
+
+      {/* Save toast */}
+      {saving && <div className="save-toast save-toast--saving">Saving...</div>}
+      {!saving && saved && (
+        <div className={`save-toast${saved.includes('Error') || saved.includes('failed') ? ' save-toast--error' : ''}`}>
+          {saved}
+        </div>
+      )}
     </>
   );
 }
