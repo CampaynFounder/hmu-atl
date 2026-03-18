@@ -16,6 +16,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const name = profile.first_name;
   const areas = Array.isArray(profile.areas) ? profile.areas.join(', ') : '';
+  const p = profile as unknown as Record<string, unknown>;
+
+  // Priority: thumbnail > vehicle photo > dynamic OG fallback
+  const thumbnailUrl = p.thumbnail_url as string | undefined;
+  const vehiclePhotoUrl = (p.vehicle_info as Record<string, unknown>)?.photo_url as string | undefined;
+  const ogImage = thumbnailUrl || vehiclePhotoUrl
+    || `https://atl.hmucashride.com/api/og/driver?handle=${handle}`;
 
   return {
     title: `Book ${name} — HMU ATL`,
@@ -26,11 +33,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       url: `https://atl.hmucashride.com/d/${handle}`,
       siteName: 'HMU ATL Cash Ride',
       type: 'profile',
+      images: [{ url: ogImage, width: 1200, height: 630, alt: `Book ${name} on HMU ATL` }],
     },
     twitter: {
       card: 'summary_large_image',
       title: `Book ${name} — HMU ATL`,
       description: `${areas} • Payment secured before they pull up.`,
+      images: [ogImage],
     },
   };
 }
