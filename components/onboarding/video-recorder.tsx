@@ -17,12 +17,13 @@ import {
 interface VideoRecorderProps {
   onVideoRecorded: (videoUrl: string, thumbnailUrl: string) => void;
   existingVideoUrl?: string;
+  profileType?: 'rider' | 'driver';
 }
 
 type RecordingMode = 'choose' | 'record' | 'upload';
 type RecordingState = 'idle' | 'countdown' | 'recording' | 'preview' | 'uploading';
 
-export function VideoRecorder({ onVideoRecorded, existingVideoUrl }: VideoRecorderProps) {
+export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType = 'rider' }: VideoRecorderProps) {
   const [mode, setMode] = useState<RecordingMode>('choose');
   const [state, setState] = useState<RecordingState>('idle');
   const [countdown, setCountdown] = useState(3);
@@ -225,7 +226,8 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl }: VideoRecord
       // Create form data
       const formData = new FormData();
       formData.append('video', videoBlob, 'intro-video.webm');
-      formData.append('profile_type', 'rider');
+      formData.append('profile_type', profileType);
+      formData.append('media_type', 'video');
 
       // Upload to server (which will upload to Cloudflare R2)
       const response = await fetch('/api/upload/video', {
@@ -254,7 +256,7 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl }: VideoRecord
       });
 
       // Callback with URLs
-      onVideoRecorded(data.videoUrl, data.thumbnailUrl);
+      onVideoRecorded(data.url || data.videoUrl, data.thumbnailUrl || data.url || data.videoUrl);
       setState('preview');
     } catch (err) {
       console.error('Upload error:', err);

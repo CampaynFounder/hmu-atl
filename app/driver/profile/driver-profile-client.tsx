@@ -121,14 +121,10 @@ export default function DriverProfileClient({ profile, user }: Props) {
   };
 
   const handleVideoSaved = async (url: string) => {
+    // Upload API auto-saves video_url to driver_profiles
     setData((d) => ({ ...d, videoUrl: url }));
     setShowVideoEditor(false);
     setVideoSaved(true);
-    await fetch('/api/users/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile_type: 'driver', video_url: url }),
-    });
     setTimeout(() => setVideoSaved(false), 3000);
   };
 
@@ -142,28 +138,24 @@ export default function DriverProfileClient({ profile, user }: Props) {
       const formData = new FormData();
       formData.append('video', file, file.name);
       formData.append('profile_type', 'driver');
+      formData.append('media_type', 'photo');
 
-      const res = await fetch('/api/upload/video', {
-        method: 'POST',
-        body: formData,
-      });
+      const res = await fetch('/api/upload/video', { method: 'POST', body: formData });
 
       if (res.ok) {
         const result = await res.json();
-        setData((d) => ({ ...d, vehiclePhotoUrl: result.videoUrl }));
-        await fetch('/api/users/profile', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            profile_type: 'driver',
-            vehicle_info: JSON.stringify({ photo_url: result.videoUrl }),
-          }),
-        });
+        // Upload API auto-saves to vehicle_info.photo_url
+        setData((d) => ({ ...d, vehiclePhotoUrl: result.url }));
         setSaved('Photo saved');
         setTimeout(() => setSaved(''), 2000);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setSaved(err.error || 'Upload failed');
+        setTimeout(() => setSaved(''), 3000);
       }
     } catch {
       setSaved('Upload failed');
+      setTimeout(() => setSaved(''), 3000);
     } finally {
       setPhotoUploading(false);
     }
@@ -430,6 +422,7 @@ export default function DriverProfileClient({ profile, user }: Props) {
                 key={showVideoEditor ? 'editing' : 'initial'}
                 onVideoRecorded={(url) => handleVideoSaved(url)}
                 existingVideoUrl={undefined}
+                profileType="driver"
               />
               {data.videoUrl && (
                 <button

@@ -20,6 +20,10 @@
     {
       "binding": "NEXT_INC_CACHE_R2_BUCKET",
       "bucket_name": "hmu-atl-opennext-cache"
+    },
+    {
+      "binding": "MEDIA_BUCKET",
+      "bucket_name": "hmu-atl-media"
     }
   ],
   "images": {
