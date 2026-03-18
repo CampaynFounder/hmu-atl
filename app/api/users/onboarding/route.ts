@@ -174,24 +174,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Update user account status to active if profiles are complete
-    const hasVideo = !!video_url;
-    const hasPayment = profile_type === 'rider' ? !!stripe_customer_id : !!stripe_connect_id;
-
-    if (hasVideo && hasPayment) {
-      await sql`
-        UPDATE users
-        SET account_status = 'active',
-            updated_at = NOW()
-        WHERE id = ${userId}
-      `;
-      results.accountStatus = 'active';
-    } else {
-      results.accountStatus = 'pending_activation';
-      results.pendingItems = [];
-      if (!hasVideo) results.pendingItems.push('video');
-      if (!hasPayment) results.pendingItems.push('payment');
-    }
+    // Activate account once profile is created
+    // Video and payment are optional during onboarding — required before first ride
+    await sql`
+      UPDATE users
+      SET account_status = 'active',
+          updated_at = NOW()
+      WHERE id = ${userId}
+    `;
+    results.accountStatus = 'active';
 
     // Sync profileType to Clerk publicMetadata so the onboarding page
     // can read it directly on return logins without relying on URL params.

@@ -41,7 +41,9 @@ export default function AuthCallbackPage() {
       const res = await fetch('/api/users/onboarding');
       const data = await res.json();
 
-      if (data.onboarded && data.accountStatus === 'active') {
+      // Route if onboarded (active or pending_activation with a profile created)
+      const hasProfile = data.hasDriverProfile || data.hasRiderProfile;
+      if (hasProfile) {
         // If rider came from a driver share link, send them back there
         if (returnTo && returnTo.startsWith('/d/')) {
           router.push(`${returnTo}?bookingOpen=1`);
