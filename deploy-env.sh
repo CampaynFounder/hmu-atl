@@ -3,7 +3,7 @@
 # Deploy environment variables to Cloudflare Pages
 # Usage: ./deploy-env.sh
 
-PROJECT_NAME="hmu-atl"
+PROJECT_NAME="hmu-atlp"
 
 echo "📦 Deploying environment variables to Cloudflare Pages: $PROJECT_NAME"
 echo ""
