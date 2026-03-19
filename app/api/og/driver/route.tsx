@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   }
 
   const p = profile as unknown as Record<string, unknown>;
-  const name = (p.display_name as string) || (p.first_name as string) || handle;
+  const name = (p.display_name as string) || handle;
   const areas = Array.isArray(p.areas) ? (p.areas as string[]).slice(0, 4).join(' · ') : 'Metro Atlanta';
   const vehiclePhotoUrl = ((p.vehicle_info as Record<string, unknown>)?.photo_url as string) || null;
   const rawThumb = (p.thumbnail_url as string) || null;
@@ -178,7 +178,7 @@ export async function GET(req: NextRequest) {
             width: '320px',
           }}
         >
-          Book {(p.first_name as string) || 'this driver'}
+          Book {name}
         </div>
       </div>
     </div>,
