@@ -152,11 +152,12 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
       setShowConfirmation(true);
     } else {
       setCurrentStep((prev) => prev + 1);
+      window.scrollTo(0, 0);
     }
   };
 
   if (showConfirmation) {
-    return <ConfirmationScreen name={formData.firstName} onContinue={onComplete} />;
+    return <ConfirmationScreen name={formData.displayName || formData.firstName} onContinue={onComplete} />;
   }
 
   return (
@@ -222,7 +223,7 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
               {/* Navigation */}
               <div className="flex items-center justify-between gap-4">
                 <button
-                  onClick={() => setCurrentStep((prev) => Math.max(0, prev - 1))}
+                  onClick={() => { setCurrentStep((prev) => Math.max(0, prev - 1)); window.scrollTo(0, 0); }}
                   disabled={currentStep === 0}
                   className="flex items-center gap-2 rounded-full px-6 py-3 font-semibold text-zinc-400 transition-all hover:bg-zinc-800 disabled:opacity-0"
                 >
@@ -268,7 +269,7 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
               {!currentStepData.required && (
                 <div className="text-center space-y-1">
                   <button
-                    onClick={() => setCurrentStep((prev) => prev + 1)}
+                    onClick={() => { setCurrentStep((prev) => prev + 1); window.scrollTo(0, 0); }}
                     className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
                   >
                     Skip for now
@@ -424,89 +425,94 @@ async function saveDriverOnboarding(data: {
 }
 
 function ConfirmationScreen({ name, onContinue }: { name: string; onContinue: () => void }) {
-  const [particles, setParticles] = useState<Array<{ id: number; x: number; delay: number; color: string; size: number }>>([]);
-
-  useState(() => {
-    const colors = ['#00E676', '#FFD600', '#FF4081', '#448AFF', '#E040FB', '#FF6E40', '#00E5FF'];
-    const p = Array.from({ length: 60 }, (_, i) => ({
-      id: i,
-      x: Math.random() * 100,
-      delay: Math.random() * 2,
-      color: colors[Math.floor(Math.random() * colors.length)],
-      size: Math.random() * 8 + 4,
-    }));
-    setParticles(p);
-  });
+  const colors = ['#00E676', '#FFD600', '#FF4081', '#448AFF', '#E040FB', '#FF6E40', '#00E5FF'];
+  const particles = Array.from({ length: 50 }, (_, i) => ({
+    id: i,
+    x: Math.random() * 100,
+    delay: Math.random() * 1.5,
+    color: colors[i % colors.length],
+    size: Math.random() * 8 + 4,
+    drift: (Math.random() - 0.5) * 100,
+  }));
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950 overflow-hidden">
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 50,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      background: '#080808', overflow: 'hidden',
+    }}>
       <style>{`
-        @keyframes confettiFall {
-          0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; }
-          80% { opacity: 1; }
-          100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        @keyframes confetti {
+          0% { transform: translateY(-20px) translateX(0) rotate(0deg); opacity: 0; }
+          10% { opacity: 1; }
+          100% { transform: translateY(100vh) translateX(var(--drift)) rotate(720deg); opacity: 0; }
         }
-        .confetti-piece {
-          position: absolute;
-          top: 0;
-          border-radius: 2px;
-          animation: confettiFall 3s ease-in forwards;
-        }
-        @keyframes scaleIn {
-          0% { transform: scale(0.5); opacity: 0; }
-          50% { transform: scale(1.05); }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        @keyframes fadeUp {
-          0% { transform: translateY(20px); opacity: 0; }
-          100% { transform: translateY(0); opacity: 1; }
-        }
-        .confirm-icon { animation: scaleIn 0.6s ease-out forwards; }
-        .confirm-title { animation: fadeUp 0.5s ease-out 0.3s forwards; opacity: 0; }
-        .confirm-sub { animation: fadeUp 0.5s ease-out 0.5s forwards; opacity: 0; }
-        .confirm-btn { animation: fadeUp 0.5s ease-out 0.7s forwards; opacity: 0; }
+        @keyframes scaleIn { 0% { transform: scale(0); } 60% { transform: scale(1.1); } 100% { transform: scale(1); } }
+        @keyframes fadeUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
       `}</style>
 
-      {/* Confetti */}
       {particles.map((p) => (
         <div
           key={p.id}
-          className="confetti-piece"
           style={{
+            position: 'absolute',
+            top: '-20px',
             left: `${p.x}%`,
             width: `${p.size}px`,
             height: `${p.size * 1.5}px`,
             backgroundColor: p.color,
-            animationDelay: `${p.delay}s`,
+            borderRadius: '2px',
+            // @ts-expect-error CSS custom property
+            '--drift': `${p.drift}px`,
+            animation: `confetti ${2 + Math.random()}s ease-in ${p.delay}s forwards`,
           }}
         />
       ))}
 
-      <div className="relative z-10 text-center px-6 max-w-sm">
-        {/* Big check */}
-        <div className="confirm-icon mb-6">
-          <div className="mx-auto w-24 h-24 rounded-full bg-[#00E676]/20 flex items-center justify-center">
-            <div className="w-16 h-16 rounded-full bg-[#00E676] flex items-center justify-center">
+      <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', padding: '0 24px', maxWidth: '360px' }}>
+        <div style={{ animation: 'scaleIn 0.5s ease-out', marginBottom: '24px' }}>
+          <div style={{
+            width: '96px', height: '96px', borderRadius: '50%',
+            background: 'rgba(0,230,118,0.15)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', margin: '0 auto',
+          }}>
+            <div style={{
+              width: '64px', height: '64px', borderRadius: '50%',
+              background: '#00E676', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+            }}>
               <Check className="w-8 h-8 text-black" strokeWidth={3} />
             </div>
           </div>
         </div>
 
-        <h1
-          className="confirm-title text-white mb-3"
-          style={{ fontFamily: 'var(--font-display, Bebas Neue, sans-serif)', fontSize: '44px', lineHeight: '1' }}
-        >
-          YOU&apos;RE LIVE, {name.toUpperCase()}
+        <h1 style={{
+          fontFamily: 'var(--font-display, Bebas Neue, sans-serif)',
+          fontSize: '40px', lineHeight: 1, color: '#fff',
+          marginBottom: '12px',
+          animation: 'fadeUp 0.5s ease-out 0.3s both',
+        }}>
+          YOU&apos;RE LIVE, {name.toUpperCase()}!
         </h1>
 
-        <p className="confirm-sub text-zinc-400 text-base leading-relaxed mb-8">
+        <p style={{
+          fontSize: '15px', color: '#888', lineHeight: 1.5,
+          marginBottom: '32px',
+          animation: 'fadeUp 0.5s ease-out 0.5s both',
+        }}>
           Your driver profile is set up. Share your link and start getting ride requests.
         </p>
 
         <button
+          type="button"
           onClick={onContinue}
-          className="confirm-btn w-full py-4 rounded-full bg-[#00E676] text-black font-black text-lg transition-all hover:shadow-[0_0_32px_rgba(0,230,118,0.3)] active:scale-95"
-          style={{ fontFamily: 'var(--font-body, DM Sans, sans-serif)' }}
+          style={{
+            width: '100%', padding: '18px', borderRadius: '100px',
+            border: 'none', background: '#00E676', color: '#080808',
+            fontWeight: 800, fontSize: '17px', cursor: 'pointer',
+            fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+            animation: 'fadeUp 0.5s ease-out 0.7s both',
+          }}
         >
           See My HMU Link
         </button>

@@ -379,19 +379,24 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
             animate={{ opacity: 1 }}
             className="space-y-4"
           >
-            <div className="relative aspect-[9/16] max-h-[350px] mx-auto overflow-hidden rounded-2xl bg-black">
+            <div
+              className="relative aspect-[9/16] max-h-[350px] mx-auto overflow-hidden rounded-2xl bg-black cursor-pointer"
+              onClick={() => {
+                if (previewRef.current) {
+                  if (previewRef.current.paused) {
+                    previewRef.current.play().catch(() => {});
+                  } else {
+                    previewRef.current.pause();
+                  }
+                }
+              }}
+            >
               <video
                 ref={previewRef}
-                src={videoUrl}
+                src={videoUrl || undefined}
                 className="h-full w-full object-cover"
                 loop
                 playsInline
-                muted
-                onClick={() => {
-                  if (previewRef.current) {
-                    isPlaying ? previewRef.current.pause() : previewRef.current.play();
-                  }
-                }}
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
               />
