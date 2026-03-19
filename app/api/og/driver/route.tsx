@@ -53,13 +53,13 @@ export async function GET(req: NextRequest) {
       }}
     >
       {/* Left: Photo */}
-      <div style={{ width: '420px', height: '100%', display: 'flex', position: 'relative' }}>
+      <div style={{ width: '420px', height: '100%', display: 'flex', position: 'relative', background: '#0a0a0a' }}>
         {photoUrl ? (
           <img
             src={photoUrl}
             width={420}
             height={630}
-            style={{ objectFit: 'cover' }}
+            style={{ objectFit: 'contain', objectPosition: 'center center' }}
           />
         ) : (
           <div
