@@ -20,7 +20,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   // Always use dynamic OG card — it composites driver photo into 1200x630 frame
   // Raw photo URLs get cropped unpredictably by social platforms
-  const ogImage = `https://atl.hmucashride.com/api/og/driver?handle=${handle}`;
+  // v= cache buster — increment when photo changes to force social platforms to re-fetch
+  const ogImage = `https://atl.hmucashride.com/api/og/driver?handle=${handle}&v=2`;
 
   const displayName = (p.display_name as string) || name || handle;
   const ogTitle = `${displayName} Doin Cash Rides. HMU ATL!`;
