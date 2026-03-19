@@ -52,22 +52,6 @@ export default function DriverFeedClient({ driverAreas }: Props) {
   }, [fetchRequests]);
 
   const handleAccept = async (postId: string) => {
-    // Check payout setup first
-    try {
-      const setupRes = await fetch('/api/driver/payout-setup');
-      if (setupRes.ok) {
-        const setupData = await setupRes.json();
-        if (!setupData.setupComplete) {
-          const startRes = await fetch('/api/driver/onboarding/start', { method: 'POST' });
-          const startData = await startRes.json();
-          if (startData.onboardingUrl) {
-            window.location.href = startData.onboardingUrl;
-            return;
-          }
-        }
-      }
-    } catch { /* proceed */ }
-
     try {
       const res = await fetch(`/api/bookings/${postId}/accept`, { method: 'POST' });
       if (res.ok) {

@@ -94,37 +94,20 @@ export default function DriverHomeClient({
   };
 
   const handleAction = async (postId: string, action: 'accept' | 'decline') => {
-    if (action === 'accept') {
-      // Check payout setup first
-      try {
-        const setupRes = await fetch('/api/driver/payout-setup');
-        if (setupRes.ok) {
-          const setupData = await setupRes.json();
-          if (!setupData.setupComplete) {
-            // Redirect to payout setup
-            const startRes = await fetch('/api/driver/onboarding/start', { method: 'POST' });
-            const startData = await startRes.json();
-            if (startData.onboardingUrl) {
-              window.location.href = startData.onboardingUrl;
-              return;
-            }
-          }
-        }
-      } catch { /* proceed anyway */ }
-    }
-
     setActionLoading(postId);
     try {
       const res = await fetch(`/api/bookings/${postId}/${action}`, { method: 'POST' });
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         setRequests((prev) => prev.filter((r) => r.id !== postId));
         if (action === 'accept' && data.rideId) {
           window.location.href = `/ride/${data.rideId}`;
         }
+      } else {
+        alert(`Error: ${data.error || 'Failed'}${data.detail ? '\n' + data.detail : ''}`);
       }
-    } catch {
-      // silent
+    } catch (e) {
+      alert('Network error: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setActionLoading(null);
     }
