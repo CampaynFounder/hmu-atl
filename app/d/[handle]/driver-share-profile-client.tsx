@@ -110,7 +110,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
       <style>{`
         :root { --green: #00E676; --black: #080808; --card: #141414; --card2: #1a1a1a; --border: rgba(255,255,255,0.08); --gray: #888; --gray-light: #bbb; }
         .profile-page { background: var(--black); color: #fff; min-height: 100svh; font-family: var(--font-body, 'DM Sans', sans-serif); padding-bottom: 100px; }
-        .hero-photo { width: 100%; aspect-ratio: 4/3; object-fit: cover; object-position: center center; background: var(--black); }
+        .hero-photo { width: 100%; display: block; background: var(--black); }
         .hero-photo-placeholder { width: 100%; aspect-ratio: 4/3; background: linear-gradient(135deg, #141414, #1a1a1a); display: flex; align-items: center; justify-content: center; font-size: 64px; }
         .profile-body { padding: 24px 20px 0; }
         .name-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
