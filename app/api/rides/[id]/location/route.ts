@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { publishRideUpdate } from '@/lib/ably/server';
 
 export async function POST(
   req: NextRequest,
@@ -36,6 +37,9 @@ export async function POST(
       INSERT INTO ride_locations (ride_id, user_id, lat, lng)
       VALUES (${rideId}, ${userId}, ${lat}, ${lng})
     `;
+
+    // Publish location to ride channel for real-time map
+    await publishRideUpdate(rideId, 'location', { userId, lat, lng, timestamp: Date.now() }).catch(() => {});
 
     return NextResponse.json({ saved: true });
   } catch (error) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
+import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 
 export async function POST(
   _req: NextRequest,
@@ -34,6 +35,9 @@ export async function POST(
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'here'
     `;
+
+    await publishRideUpdate(rideId, 'status_change', { status: 'active', message: 'Ride is active' }).catch(() => {});
+    await notifyUser(ride.driver_id as string, 'ride_update', { rideId, status: 'active', message: 'Rider is in — ride started!' }).catch(() => {});
 
     return NextResponse.json({ status: 'active', rideId });
   } catch (error) {

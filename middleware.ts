@@ -26,6 +26,7 @@ const isProtectedRoute = createRouteMatcher([
   '/dashboard(.*)',
   '/profile(.*)',
   '/rides(.*)',
+  '/ride(.*)',
   '/driver(.*)',
   '/rider(.*)',
   '/hmu(.*)',

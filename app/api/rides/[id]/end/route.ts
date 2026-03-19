@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { captureRiderPayment } from '@/lib/payments/escrow';
+import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 
 export async function POST(
   _req: NextRequest,
@@ -51,6 +52,16 @@ export async function POST(
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'active'
     `;
+
+    await publishRideUpdate(rideId, 'status_change', {
+      status: 'ended',
+      message: 'Ride ended',
+      driverReceives: payoutResult.driverReceives,
+      disputeWindowMinutes: disputeMinutes,
+    }).catch(() => {});
+    await notifyUser(ride.rider_id as string, 'ride_update', {
+      rideId, status: 'ended', message: 'Ride complete — rate your driver',
+    }).catch(() => {});
 
     return NextResponse.json({
       status: 'ended',
