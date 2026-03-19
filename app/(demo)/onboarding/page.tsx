@@ -27,7 +27,9 @@ function OnboardingInner() {
   const tier = (user?.publicMetadata?.tier as string | undefined) ?? 'free';
 
   const handleComplete = () => {
-    router.push(activeType === 'driver' ? '/driver/home' : '/rider/home');
+    // Full page reload to force Clerk to re-fetch user metadata
+    // (client-side router.push keeps stale publicMetadata cache)
+    window.location.href = activeType === 'driver' ? '/driver/home' : '/rider/home';
   };
 
   if (!isLoaded) {
