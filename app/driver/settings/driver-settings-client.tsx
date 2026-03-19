@@ -142,9 +142,14 @@ function SecurityTab() {
             profileSectionTitle: { color: '#888888' },
             profileSectionContent: { color: '#ffffff' },
             formButtonPrimary: { backgroundColor: '#00E676', color: '#080808' },
-            navbarButton: { color: '#bbb' },
-            navbarButtonIcon: { color: '#888' },
-            navbarButton__active: { color: '#00E676' },
+            navbarButton: { color: '#ffffff', fontWeight: 600 },
+            navbarButtonIcon: { color: '#00E676' },
+            navbarButton__active: { color: '#00E676', borderColor: '#00E676' },
+            badge: { backgroundColor: '#00E676', color: '#080808' },
+            profileSectionPrimaryButton: { color: '#00E676' },
+            menuButton: { color: '#ffffff' },
+            menuItem: { color: '#ffffff' },
+            accordionTriggerButton: { color: '#ffffff' },
           },
         }}
       />
