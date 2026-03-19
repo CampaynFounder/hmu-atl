@@ -22,7 +22,8 @@ export function Header() {
 
   const handleSignOut = () => {
     close();
-    signOut({ redirectUrl: '/' });
+    const redirectUrl = profileType === 'rider' ? '/rider/home' : profileType === 'driver' ? '/driver' : '/';
+    signOut({ redirectUrl });
   };
 
   return (

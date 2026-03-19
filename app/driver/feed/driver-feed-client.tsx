@@ -17,6 +17,7 @@ interface RiderRequest {
   expiresAt: string;
   createdAt: string;
   areas?: string[];
+  riderOnline?: boolean;
 }
 
 interface Props {
@@ -293,7 +294,14 @@ function SwipeableCard({
         {/* Hero */}
         <div className="rc-hero">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <div className="rc-name">{request.riderName}</div>
+            <div className="rc-name">
+              {request.riderName}
+              <span style={{
+                width: '8px', height: '8px', borderRadius: '50%',
+                background: request.riderOnline ? '#00E676' : '#555',
+                display: 'inline-block', marginLeft: '6px', verticalAlign: 'middle',
+              }} />
+            </div>
             {request.type === 'broadcast' && (
               <span style={{ fontSize: '10px', background: 'rgba(68,138,255,0.15)', color: '#448AFF', padding: '2px 8px', borderRadius: '100px', fontWeight: 600 }}>
                 Broadcast

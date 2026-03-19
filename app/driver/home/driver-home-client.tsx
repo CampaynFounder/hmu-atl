@@ -13,6 +13,7 @@ interface BookingRequest {
   price: number;
   expiresAt: string;
   createdAt?: string;
+  riderOnline?: boolean;
 }
 
 interface Props {
@@ -232,7 +233,14 @@ export default function DriverHomeClient({
           requests.map((req) => (
             <div key={req.id} className="request-card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className="request-rider">{req.riderName}</div>
+                <div className="request-rider">
+                  {req.riderName}
+                  <span style={{
+                    width: '8px', height: '8px', borderRadius: '50%',
+                    background: req.riderOnline ? '#00E676' : '#555',
+                    display: 'inline-block', marginLeft: '6px', verticalAlign: 'middle',
+                  }} title={req.riderOnline ? 'Online now' : 'Offline'} />
+                </div>
                 {req.createdAt && (
                   <span style={{ fontSize: '12px', color: '#888' }}>{getTimeAgo(req.createdAt)}</span>
                 )}

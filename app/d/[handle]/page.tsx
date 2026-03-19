@@ -74,7 +74,6 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
 
   const profileAny = profile as unknown as Record<string, unknown>;
   const displayName = (profileAny.display_name as string)
-    || (profileAny.first_name as string)
     || profile.handle
     || 'Driver';
 

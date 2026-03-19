@@ -35,6 +35,8 @@ export async function GET() {
 
   const requests = rows.map((row: Record<string, unknown>) => {
     const tw = (row.time_window ?? {}) as Record<string, unknown>;
+    const createdAt = new Date(row.created_at as string);
+    const minutesAgo = (Date.now() - createdAt.getTime()) / 60000;
     return {
       id: row.id,
       type: row.post_type === 'direct_booking' ? 'direct' : 'broadcast',
@@ -46,6 +48,7 @@ export async function GET() {
       price: Number(row.price ?? 0),
       expiresAt: row.booking_expires_at || row.expires_at,
       createdAt: row.created_at,
+      riderOnline: minutesAgo < 30,
     };
   });
 
