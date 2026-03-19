@@ -72,7 +72,8 @@ export function Header() {
                     <>
                       <NavItem href="/driver/home" label="Driver Home" active={pathname === '/driver/home'} accent onClick={close} />
                       <NavItem href="/driver/feed" label="Find Riders" active={pathname === '/driver/feed'} onClick={close} />
-                      <NavItem href="/driver/profile" label="My Profile & Settings" active={pathname === '/driver/profile'} onClick={close} />
+                      <NavItem href="/driver/profile" label="HMU Profile" active={pathname === '/driver/profile'} onClick={close} />
+                      <NavItem href="/driver/settings" label="HMU Settings" active={pathname.startsWith('/driver/settings')} onClick={close} />
                     </>
                   )}
 
