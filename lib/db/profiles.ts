@@ -219,10 +219,11 @@ function slugify(str: string): string {
 }
 
 export async function generateDriverHandle(
-  firstName: string,
-  lastName: string
+  displayName: string,
+  _lastName?: string
 ): Promise<string> {
-  const base = slugify(`${firstName}-${lastName.charAt(0)}`);
+  // Generate handle from display name (public identity), not legal name
+  const base = slugify(displayName);
   let candidate = base;
   let suffix = 2;
   while (true) {
@@ -249,12 +250,12 @@ export async function getDriverProfileByHandle(
 export async function createDriverProfile(
   params: CreateDriverProfileParams
 ): Promise<DriverProfile> {
-  const handle = params.handle || (await generateDriverHandle(params.first_name, params.last_name));
-
   const displayName = params.display_name
     || (params.first_name
       ? `${params.first_name} ${params.last_name ? params.last_name.charAt(0) + '.' : ''}`.trim()
-      : handle);
+      : 'Driver');
+
+  const handle = params.handle || (await generateDriverHandle(displayName));
 
   const result = await sql`
     INSERT INTO driver_profiles (
