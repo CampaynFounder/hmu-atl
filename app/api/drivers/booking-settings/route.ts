@@ -20,11 +20,24 @@ export async function PATCH(req: NextRequest) {
     accept_direct_bookings?: boolean;
     min_rider_chill_score?: number;
     require_og_status?: boolean;
+    show_video_on_link?: boolean;
+    profile_visible?: boolean;
   };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  // Update via direct SQL for fields not in updateDriverProfile
+  if (body.show_video_on_link !== undefined || body.profile_visible !== undefined) {
+    await sql`
+      UPDATE driver_profiles SET
+        show_video_on_link = COALESCE(${body.show_video_on_link ?? null}, show_video_on_link),
+        profile_visible = COALESCE(${body.profile_visible ?? null}, profile_visible),
+        updated_at = NOW()
+      WHERE user_id = ${userId}
+    `;
   }
 
   const updated = await updateDriverProfile(userId, {

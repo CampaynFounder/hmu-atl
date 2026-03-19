@@ -70,8 +70,13 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
     account_status: string;
   };
 
-  // Don't show suspended/banned drivers
+  // Don't show suspended/banned or hidden drivers
   if (user.account_status === 'suspended' || user.account_status === 'banned') {
+    notFound();
+  }
+
+  const profileAnyCheck = profile as unknown as Record<string, unknown>;
+  if (profileAnyCheck.profile_visible === false) {
     notFound();
   }
 
@@ -87,7 +92,7 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
     areas: Array.isArray(profile.areas) ? profile.areas : [],
     pricing: profile.pricing as Record<string, unknown>,
     schedule: profile.schedule as Record<string, unknown>,
-    videoUrl: (profileAny.video_url as string) || null,
+    videoUrl: profileAny.show_video_on_link !== false ? ((profileAny.video_url as string) || null) : null,
     vehiclePhotoUrl: (profile.vehicle_info as Record<string, unknown>)?.photo_url as string | null ?? null,
     isHmuFirst: user.tier === 'hmu_first',
     chillScore: Number(user.chill_score ?? 0),

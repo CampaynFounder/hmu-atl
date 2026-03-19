@@ -21,6 +21,8 @@ interface ProfileData {
   acceptDirectBookings: boolean;
   minRiderChillScore: number;
   requireOgStatus: boolean;
+  showVideoOnLink: boolean;
+  profileVisible: boolean;
 }
 
 interface UserData {
@@ -72,7 +74,7 @@ export default function DriverProfileClient({ profile, user, payout }: Props) {
     try {
       let res: Response;
 
-      if ('acceptDirectBookings' in patch || 'minRiderChillScore' in patch || 'requireOgStatus' in patch) {
+      if ('acceptDirectBookings' in patch || 'minRiderChillScore' in patch || 'requireOgStatus' in patch || 'showVideoOnLink' in patch || 'profileVisible' in patch) {
         res = await fetch('/api/drivers/booking-settings', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -80,6 +82,8 @@ export default function DriverProfileClient({ profile, user, payout }: Props) {
             accept_direct_bookings: patch.acceptDirectBookings ?? data.acceptDirectBookings,
             min_rider_chill_score: patch.minRiderChillScore ?? data.minRiderChillScore,
             require_og_status: patch.requireOgStatus ?? data.requireOgStatus,
+            show_video_on_link: patch.showVideoOnLink ?? data.showVideoOnLink,
+            profile_visible: patch.profileVisible ?? data.profileVisible,
           }),
         });
       } else {
@@ -368,6 +372,37 @@ export default function DriverProfileClient({ profile, user, payout }: Props) {
           </div>
 
           <div className="save-status">{saving ? 'Saving...' : saved}</div>
+        </div>
+
+        {/* Visibility */}
+        <div className="dp-section">
+          <div className="dp-section-title">Visibility</div>
+
+          <div className="dp-row">
+            <div className="dp-row-left">
+              <div className="dp-row-label">Profile visible</div>
+              <div className="dp-row-sub">Turn off when you&apos;re not doing rides — hides you from the app</div>
+            </div>
+            <button
+              className={`toggle ${data.profileVisible ? 'on' : 'off'}`}
+              onClick={() => update({ profileVisible: !data.profileVisible })}
+            >
+              <div className="toggle-thumb" />
+            </button>
+          </div>
+
+          <div className="dp-row">
+            <div className="dp-row-left">
+              <div className="dp-row-label">Show video on HMU link</div>
+              <div className="dp-row-sub">Toggle off to show your photo instead — video stays saved</div>
+            </div>
+            <button
+              className={`toggle ${data.showVideoOnLink ? 'on' : 'off'}`}
+              onClick={() => update({ showVideoOnLink: !data.showVideoOnLink })}
+            >
+              <div className="toggle-thumb" />
+            </button>
+          </div>
         </div>
 
         {/* Pricing */}

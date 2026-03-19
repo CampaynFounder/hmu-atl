@@ -43,6 +43,8 @@ export default async function DriverProfilePage() {
         acceptDirectBookings: (p.accept_direct_bookings as boolean) ?? true,
         minRiderChillScore: Number(p.min_rider_chill_score ?? 0),
         requireOgStatus: (p.require_og_status as boolean) || false,
+        showVideoOnLink: (p.show_video_on_link as boolean) ?? true,
+        profileVisible: (p.profile_visible as boolean) ?? true,
       }}
       user={{
         tier: user.tier,
