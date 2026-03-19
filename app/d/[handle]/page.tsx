@@ -18,13 +18,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const areas = Array.isArray(profile.areas) ? profile.areas.join(', ') : '';
   const p = profile as unknown as Record<string, unknown>;
 
-  // OG image: photo first (social platforms can't render video), then dynamic card
-  const vehiclePhotoUrl = (p.vehicle_info as Record<string, unknown>)?.photo_url as string | undefined;
-  const thumbnailUrl = p.thumbnail_url as string | undefined;
-  // Only use thumbnail if it's an actual image (not a video URL)
-  const thumbnailIsImage = thumbnailUrl && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(thumbnailUrl);
-  const ogImage = vehiclePhotoUrl || (thumbnailIsImage ? thumbnailUrl : null)
-    || `https://atl.hmucashride.com/api/og/driver?handle=${handle}`;
+  // Always use dynamic OG card — it composites driver photo into 1200x630 frame
+  // Raw photo URLs get cropped unpredictably by social platforms
+  const ogImage = `https://atl.hmucashride.com/api/og/driver?handle=${handle}`;
 
   const displayName = (p.display_name as string) || name || handle;
   const ogTitle = `${displayName} Doin Cash Rides. HMU ATL!`;

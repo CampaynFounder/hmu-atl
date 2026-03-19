@@ -52,27 +52,36 @@ export async function GET(req: NextRequest) {
         fontFamily: 'sans-serif',
       }}
     >
-      {/* Left: Photo */}
-      <div style={{ width: '420px', height: '100%', display: 'flex', position: 'relative', background: '#0a0a0a' }}>
+      {/* Left: Photo — centered in frame, never cropped */}
+      <div style={{
+        width: '400px',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#0a0a0a',
+        padding: '24px',
+      }}>
         {photoUrl ? (
           <img
             src={photoUrl}
-            width={420}
-            height={630}
-            style={{ objectFit: 'contain', objectPosition: 'center center' }}
+            style={{
+              maxWidth: '100%',
+              maxHeight: '100%',
+              borderRadius: '20px',
+            }}
           />
         ) : (
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              background: 'linear-gradient(135deg, #141414, #1a1a1a)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '120px',
-            }}
-          >
+          <div style={{
+            width: '200px',
+            height: '200px',
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #141414, #1a1a1a)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '80px',
+          }}>
             🚗
           </div>
         )}
