@@ -22,6 +22,7 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
   const [status, setStatus] = useState<PayoutStatus>(initialStatus);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const searchParams = useSearchParams();
 
   // On page load, check URL params for ?setup=complete and refresh status
@@ -47,34 +48,28 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
     }
   };
 
-  const handleVerifyIdentity = async () => {
+  const startOnboarding = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch('/api/driver/onboarding/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Something went wrong');
+        setLoading(false);
+        return;
+      }
       if (data.onboardingUrl) {
         window.location.href = data.onboardingUrl;
+      } else {
+        setError('No onboarding URL returned — try again');
+        setLoading(false);
       }
     } catch {
-      setLoading(false);
-    }
-  };
-
-  const handleAddPayoutAccount = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/driver/onboarding/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const data = await res.json();
-      if (data.onboardingUrl) {
-        window.location.href = data.onboardingUrl;
-      }
-    } catch {
+      setError('Network error — check your connection');
       setLoading(false);
     }
   };
@@ -164,6 +159,20 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
           Set up your payout account so you can get paid after every ride.
         </p>
 
+        {error && (
+          <div style={{
+            background: 'rgba(255,68,68,0.1)',
+            border: '1px solid rgba(255,68,68,0.25)',
+            borderRadius: '12px',
+            padding: '12px 16px',
+            fontSize: '14px',
+            color: '#FF5252',
+            marginBottom: '16px',
+          }}>
+            {error}
+          </div>
+        )}
+
         {refreshing && (
           <div className="ps-refreshing">
             <span className="ps-spinner" />
@@ -222,7 +231,7 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
                 ) : (
                   <button
                     className="ps-btn ps-btn--green"
-                    onClick={handleVerifyIdentity}
+                    onClick={startOnboarding}
                     disabled={loading}
                   >
                     {loading ? (
@@ -263,7 +272,7 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
                   </div>
                 ) : status.stripeComplete ? (
                   <div className="ps-method-grid">
-                    <div className="ps-method-card" onClick={handleAddPayoutAccount}>
+                    <div className="ps-method-card" onClick={startOnboarding}>
                       <div className="ps-method-icon">{'\uD83C\uDFE6'}</div>
                       <div className="ps-method-info">
                         <div className="ps-method-name">Bank Account</div>
@@ -271,7 +280,7 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
                       </div>
                       <div className="ps-method-arrow">{'\u203A'}</div>
                     </div>
-                    <div className="ps-method-card" onClick={handleAddPayoutAccount}>
+                    <div className="ps-method-card" onClick={startOnboarding}>
                       <div className="ps-method-icon">{'\uD83D\uDCB3'}</div>
                       <div className="ps-method-info">
                         <div className="ps-method-name">Debit Card</div>
