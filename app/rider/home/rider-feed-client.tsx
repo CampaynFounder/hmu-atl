@@ -44,6 +44,15 @@ export default function RiderFeedClient({ displayName }: Props) {
       .catch(() => {});
   }, []);
 
+  async function handleDelete(postId: string) {
+    try {
+      const res = await fetch(`/api/rider/posts?postId=${postId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setPosts(prev => prev.filter(p => p.id !== postId));
+      }
+    } catch { /* silent */ }
+  }
+
   async function handlePost() {
     const text = input.trim();
     if (!text) return;
@@ -189,8 +198,22 @@ export default function RiderFeedClient({ displayName }: Props) {
         {posts.map((post) => (
           <div key={post.id} className="rf-post">
             <div className="rf-post-header">
-              <span className="rf-post-name">{displayName}</span>
-              <span className="rf-post-time">{getTimeAgo(post.createdAt)}</span>
+              <span className="rf-post-name">@{displayName}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span className="rf-post-time">{getTimeAgo(post.createdAt)}</span>
+                {post.status === 'active' && (
+                  <button
+                    onClick={() => handleDelete(post.id)}
+                    style={{
+                      background: 'none', border: 'none', color: '#FF5252',
+                      fontSize: '12px', cursor: 'pointer', padding: '2px 6px',
+                      fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
             </div>
             <div className="rf-post-message">{post.message}</div>
             <div className="rf-post-price">${post.price}</div>
@@ -213,18 +236,19 @@ export default function RiderFeedClient({ displayName }: Props) {
         {/* Browse drivers link */}
         <div style={{ padding: '20px', textAlign: 'center' }}>
           <Link
-            href="/driver"
+            href="/rider/browse"
             style={{
               display: 'inline-block',
               padding: '12px 24px',
               borderRadius: '100px',
-              border: '1px solid rgba(255,255,255,0.1)',
-              color: '#888',
+              border: '1px solid rgba(0,230,118,0.2)',
+              color: '#00E676',
               fontSize: '13px',
+              fontWeight: 600,
               textDecoration: 'none',
             }}
           >
-            Or browse drivers directly
+            Browse available drivers
           </Link>
         </div>
       </div>

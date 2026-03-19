@@ -72,3 +72,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to post' }, { status: 500 });
   }
 }
+
+// DELETE — cancel a ride request
+export async function DELETE(req: NextRequest) {
+  try {
+    const { userId: clerkId } = await auth();
+    if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const postId = req.nextUrl.searchParams.get('postId');
+    if (!postId) return NextResponse.json({ error: 'postId required' }, { status: 400 });
+
+    const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const userId = (userRows[0] as { id: string }).id;
+
+    await sql`
+      UPDATE hmu_posts SET status = 'cancelled'
+      WHERE id = ${postId} AND user_id = ${userId} AND status = 'active'
+    `;
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Delete rider post error:', error);
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
+  }
+}
