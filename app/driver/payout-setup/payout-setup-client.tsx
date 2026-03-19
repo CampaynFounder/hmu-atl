@@ -23,16 +23,16 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   async function startOnboarding() {
-    console.log('startOnboarding called');
+    alert('Button clicked — starting onboarding');
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/driver/onboarding/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      const url = '/api/driver/onboarding/start';
+      alert('Fetching: ' + url);
+      const res = await fetch(url, { method: 'POST' });
+      alert('Response status: ' + res.status);
       const data = await res.json();
-      console.log('API response:', data);
+      alert('Response data: ' + JSON.stringify(data).substring(0, 200));
       if (!res.ok) {
         setError(data.error || 'Something went wrong');
         setLoading(false);
@@ -45,8 +45,9 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
         setLoading(false);
       }
     } catch (e) {
-      console.error('Fetch error:', e);
-      setError('Network error — check your connection');
+      const msg = e instanceof Error ? e.message : String(e);
+      alert('Fetch error: ' + msg);
+      setError(msg);
       setLoading(false);
     }
   }
