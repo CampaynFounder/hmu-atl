@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
 interface PayoutStatus {
@@ -21,6 +21,37 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
   const [status, setStatus] = useState<PayoutStatus>(initialStatus);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Auto-refresh status on mount if stripe account exists but setup isn't complete
+  useEffect(() => {
+    if (initialStatus.stripeAccountId && !initialStatus.setupComplete) {
+      refreshStatus();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function refreshStatus() {
+    setRefreshing(true);
+    try {
+      const res = await fetch('/api/driver/payout-setup');
+      if (res.ok) {
+        const data = await res.json();
+        setStatus({
+          stripeAccountId: data.stripeAccountId,
+          stripeComplete: data.stripeComplete,
+          hasExternalAccount: !!data.stripeAccount,
+          last4: data.stripeAccount?.last4 || null,
+          accountType: data.stripeAccount?.type || null,
+          bankName: data.stripeAccount?.bank || null,
+          setupComplete: data.setupComplete,
+        });
+      }
+    } catch {
+      // silent
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function startOnboarding() {
     setLoading(true);
@@ -45,17 +76,6 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
     }
   }
 
-  async function refreshStatus() {
-    try {
-      const res = await fetch('/api/driver/payout-setup');
-      if (res.ok) {
-        const data = await res.json();
-        setStatus(data);
-      }
-    } catch {
-      // silent
-    }
-  }
 
   const allComplete = status.stripeComplete && status.hasExternalAccount;
 
@@ -79,6 +99,22 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
       <p style={{ fontSize: '14px', color: '#888', marginBottom: '24px', lineHeight: 1.5 }}>
         Set up your payout account so you can get paid after every ride.
       </p>
+
+      {/* Refreshing */}
+      {refreshing && (
+        <div style={{
+          background: 'rgba(0,230,118,0.08)',
+          border: '1px solid rgba(0,230,118,0.15)',
+          borderRadius: '12px',
+          padding: '12px 16px',
+          fontSize: '14px',
+          color: '#00E676',
+          textAlign: 'center',
+          marginBottom: '16px',
+        }}>
+          Checking your Stripe status...
+        </div>
+      )}
 
       {/* Error */}
       {error && (
