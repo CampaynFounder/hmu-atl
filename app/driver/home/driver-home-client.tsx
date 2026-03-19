@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import CashoutCard from '@/components/driver/cashout-card';
 
 interface BookingRequest {
   id: string;
@@ -149,7 +150,10 @@ export default function DriverHomeClient({
       <div className="driver-home">
         <h1 className="greeting">
           {displayName}
-          {isHmuFirst && <span className="badge">HMU First</span>}
+          {isHmuFirst
+            ? <span className="badge">{'\uD83E\uDD47'} HMU First</span>
+            : <span className="badge" style={{ background: '#1a1a1a', color: '#888', border: '1px solid rgba(255,255,255,0.08)' }}>Free Tier</span>
+          }
         </h1>
         <p className="greeting-sub">Your ride link is live</p>
 
@@ -160,6 +164,9 @@ export default function DriverHomeClient({
             ))}
           </div>
         )}
+
+        {/* Cash Out */}
+        <CashoutCard />
 
         {/* Share Link Card */}
         <div className="share-card">
