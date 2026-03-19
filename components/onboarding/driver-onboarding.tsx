@@ -28,6 +28,7 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
   const [formData, setFormData] = useState<{
     firstName: string;
     lastName: string;
+    displayName: string;
     gender: string;
     pronouns: string;
     lgbtqFriendly: boolean;
@@ -38,6 +39,7 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
   }>({
     firstName: '',
     lastName: '',
+    displayName: '',
     gender: '',
     pronouns: '',
     lgbtqFriendly: false,
@@ -56,14 +58,27 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
   const steps: OnboardingStep[] = [
     {
       id: 'welcome',
-      title: 'Welcome, Driverpreneur 👋',
-      description: 'Your ride, your price, your rules',
+      title: 'Verify Your Identity 🔒',
+      description: 'This info is private — only used for verification & payouts',
       component: (
         <Welcome
           onNext={() => setCurrentStep(1)}
           userType="driver"
           data={formData}
           onChange={(data) => setFormData((prev) => ({ ...prev, ...data }))}
+        />
+      ),
+      required: true,
+    },
+    {
+      id: 'display-name',
+      title: 'Choose Your Driver Name 🏷️',
+      description: 'This is what riders see — keep it real or get creative',
+      component: (
+        <DriverNameStep
+          displayName={formData.displayName}
+          firstName={formData.firstName}
+          onChange={(name) => setFormData((prev) => ({ ...prev, displayName: name }))}
         />
       ),
       required: true,
@@ -273,14 +288,94 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
   );
 }
 
-function validateStep(stepId: string, data: { firstName: string; lastName: string; gender: string }): boolean {
+function DriverNameStep({
+  displayName,
+  firstName,
+  onChange,
+}: {
+  displayName: string;
+  firstName: string;
+  onChange: (name: string) => void;
+}) {
+  const suggestions = [
+    `${firstName} ${firstName.charAt(0)}.`,
+    firstName,
+    `${firstName} the Driver`,
+    `${firstName} ATL`,
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl bg-zinc-900 border border-zinc-700 p-4">
+        <div className="flex gap-3">
+          <span className="text-xl mt-0.5">🔒</span>
+          <div className="text-sm text-zinc-400">
+            <strong className="text-zinc-200">Your legal name stays private.</strong>{' '}
+            It&apos;s only used for identity verification and payouts. Riders never see it.
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-semibold text-white mb-2">
+          Driver Name <span className="text-red-400">*</span>
+        </label>
+        <input
+          type="text"
+          value={displayName}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="What riders will see"
+          className="w-full rounded-xl border border-zinc-600 bg-zinc-900 px-4 py-3 text-lg text-white placeholder:text-zinc-500 focus:border-[#00E676] focus:outline-none focus:ring-2 focus:ring-[#00E676]/20"
+          autoFocus
+        />
+        <p className="mt-2 text-xs text-zinc-400">
+          This shows on your HMU link, booking requests, and ride flow
+        </p>
+      </div>
+
+      <div>
+        <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Quick picks</p>
+        <div className="flex flex-wrap gap-2">
+          {suggestions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onChange(s)}
+              className={`rounded-full border-2 px-4 py-2 text-sm transition-all ${
+                displayName === s
+                  ? 'border-[#00E676] bg-[#00E676]/10 text-white'
+                  : 'border-zinc-600 text-zinc-300 hover:border-zinc-400'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {displayName && (
+        <div className="rounded-xl bg-zinc-800 border border-zinc-700 p-4 text-center">
+          <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Preview</p>
+          <p className="text-2xl font-black text-white" style={{ fontFamily: 'var(--font-display, Bebas Neue, sans-serif)' }}>
+            {displayName}
+          </p>
+          <p className="text-xs text-zinc-400 mt-1">Doin Cash Rides. HMU ATL!</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function validateStep(stepId: string, data: { firstName: string; lastName: string; gender: string; displayName: string }): boolean {
   if (stepId === 'welcome') return Boolean(data.firstName && data.lastName && data.gender);
+  if (stepId === 'display-name') return Boolean(data.displayName.trim());
   return true;
 }
 
 async function saveDriverOnboarding(data: {
   firstName: string;
   lastName: string;
+  displayName: string;
   gender: string;
   pronouns: string;
   lgbtqFriendly: boolean;
@@ -297,6 +392,7 @@ async function saveDriverOnboarding(data: {
         profile_type: 'driver',
         first_name: data.firstName,
         last_name: data.lastName,
+        display_name: data.displayName || `${data.firstName} ${data.lastName.charAt(0)}.`,
         gender: data.gender,
         pronouns: data.pronouns,
         lgbtq_friendly: data.riderPreferences.lgbtqFriendly,

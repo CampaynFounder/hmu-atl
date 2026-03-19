@@ -572,11 +572,29 @@ export default function DriverProfileClient({ profile, user, payout }: Props) {
           />
         </div>
 
-        {/* Profile Info */}
+        {/* Display Identity */}
         <div className="dp-section">
-          <div className="dp-section-title">Profile Info</div>
+          <div className="dp-section-title">Public Identity</div>
+          <div className="dp-row-sub" style={{ marginBottom: '12px' }}>What riders see on your profile and HMU link</div>
           <div className="dp-row">
-            <div className="dp-row-left"><div className="dp-row-label">Name</div></div>
+            <div className="dp-row-left">
+              <div className="dp-row-label">Driver Name</div>
+              <div className="dp-row-sub">Change anytime — your link stays the same</div>
+            </div>
+            <div className="dp-row-value">{data.displayName}</div>
+          </div>
+          <div className="dp-row">
+            <div className="dp-row-left"><div className="dp-row-label">Handle</div></div>
+            <div className="dp-row-value">@{data.handle}</div>
+          </div>
+        </div>
+
+        {/* Legal Identity */}
+        <div className="dp-section">
+          <div className="dp-section-title">Legal Identity</div>
+          <div className="dp-row-sub" style={{ marginBottom: '12px' }}>Private — used for Stripe verification &amp; payouts only. Riders never see this.</div>
+          <div className="dp-row">
+            <div className="dp-row-left"><div className="dp-row-label">Legal Name</div></div>
             <div className="dp-row-value">{data.firstName} {data.lastName}</div>
           </div>
           <div className="dp-row">
@@ -586,10 +604,6 @@ export default function DriverProfileClient({ profile, user, payout }: Props) {
           <div className="dp-row">
             <div className="dp-row-left"><div className="dp-row-label">Pronouns</div></div>
             <div className="dp-row-value">{data.pronouns || '\u2014'}</div>
-          </div>
-          <div className="dp-row">
-            <div className="dp-row-left"><div className="dp-row-label">Handle</div></div>
-            <div className="dp-row-value">@{data.handle}</div>
           </div>
         </div>
       </div>

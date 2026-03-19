@@ -183,6 +183,7 @@ export interface CreateDriverProfileParams {
   };
   stripe_connect_id?: string;
   handle?: string;
+  display_name?: string;
   accept_direct_bookings?: boolean;
   min_rider_chill_score?: number;
   require_og_status?: boolean;
@@ -250,9 +251,10 @@ export async function createDriverProfile(
 ): Promise<DriverProfile> {
   const handle = params.handle || (await generateDriverHandle(params.first_name, params.last_name));
 
-  const displayName = params.first_name
-    ? `${params.first_name} ${params.last_name ? params.last_name.charAt(0) + '.' : ''}`.trim()
-    : handle;
+  const displayName = params.display_name
+    || (params.first_name
+      ? `${params.first_name} ${params.last_name ? params.last_name.charAt(0) + '.' : ''}`.trim()
+      : handle);
 
   const result = await sql`
     INSERT INTO driver_profiles (

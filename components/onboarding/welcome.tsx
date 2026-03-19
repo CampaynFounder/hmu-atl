@@ -36,11 +36,24 @@ export function Welcome({ onNext, userType = 'rider', data, onChange }: WelcomeP
 
   return (
     <div className="space-y-6">
+      {/* Privacy notice for drivers */}
+      {userType === 'driver' && (
+        <div className="rounded-xl bg-zinc-900 border border-zinc-700 p-4">
+          <div className="flex gap-3">
+            <span className="text-xl mt-0.5">🔒</span>
+            <div className="text-sm text-zinc-400">
+              <strong className="text-zinc-200">Your legal name is private.</strong>{' '}
+              Used only for identity verification &amp; payouts. You&apos;ll choose a public driver name next.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Name */}
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-semibold text-white mb-2">
-            First Name <span className="text-red-400">*</span>
+            {userType === 'driver' ? 'Legal First Name' : 'First Name'} <span className="text-red-400">*</span>
           </label>
           <input
             type="text"
@@ -54,7 +67,7 @@ export function Welcome({ onNext, userType = 'rider', data, onChange }: WelcomeP
 
         <div>
           <label className="block text-sm font-semibold text-white mb-2">
-            Last Name <span className="text-red-400">*</span>
+            {userType === 'driver' ? 'Legal Last Name' : 'Last Name'} <span className="text-red-400">*</span>
           </label>
           <input
             type="text"
