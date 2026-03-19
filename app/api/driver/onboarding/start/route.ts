@@ -30,10 +30,19 @@ export async function POST() {
     if (!stripeAccountId) {
       const clerk = await clerkClient();
       const clerkUser = await clerk.users.getUser(clerkId);
-      const email = profile.email || clerkUser.primaryEmailAddress?.emailAddress || '';
+      const email = profile.email
+        || clerkUser.primaryEmailAddress?.emailAddress
+        || clerkUser.emailAddresses?.[0]?.emailAddress
+        || '';
+      const phone = clerkUser.primaryPhoneNumber?.phoneNumber
+        || clerkUser.phoneNumbers?.[0]?.phoneNumber
+        || '';
+
+      // Stripe requires at least an email — generate a placeholder if phone-only signup
+      const stripeEmail = email || (phone ? `${phone.replace(/\D/g, '')}@phone.hmucashride.com` : `${clerkId}@driver.hmucashride.com`);
 
       stripeAccountId = await createStripeConnectAccount({
-        email,
+        email: stripeEmail,
         firstName: profile.first_name,
         lastName: profile.last_name || '',
       });
