@@ -9,6 +9,8 @@ interface ProfileData {
   lastName: string;
   lgbtqFriendly: boolean;
   hasPaymentMethod: boolean;
+  paymentBrand: string | null;
+  paymentLast4: string | null;
 }
 
 interface Props {
@@ -244,25 +246,29 @@ export default function RiderProfileClient({ profile }: Props) {
             <div style={{ fontSize: '15px', fontWeight: 600 }}>Payment Method</div>
             <div style={{ fontSize: '12px', color: '#888', marginTop: '2px' }}>
               {profile.hasPaymentMethod
-                ? 'Payment method linked'
-                : 'Add a payment method to book rides'}
+                ? `${(profile.paymentBrand || 'Card').charAt(0).toUpperCase() + (profile.paymentBrand || 'card').slice(1)} ending in ${profile.paymentLast4}`
+                : 'Required before you can book rides'}
             </div>
           </div>
           {profile.hasPaymentMethod ? (
-            <div
+            <button
+              type="button"
+              onClick={handleAddPayment}
+              disabled={addingPayment}
               style={{
-                display: 'inline-block',
-                background: 'rgba(0,230,118,0.12)',
+                background: 'none',
                 border: '1px solid rgba(0,230,118,0.3)',
                 color: '#00E676',
                 fontSize: '12px',
-                fontWeight: 700,
+                fontWeight: 600,
                 padding: '6px 14px',
                 borderRadius: '100px',
+                cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
               }}
             >
-              Linked
-            </div>
+              {addingPayment ? '...' : 'Update'}
+            </button>
           ) : (
             <button
               type="button"
@@ -282,7 +288,7 @@ export default function RiderProfileClient({ profile }: Props) {
                 fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
               }}
             >
-              {addingPayment ? 'Opening...' : 'Add Payment'}
+              {addingPayment ? 'Opening Stripe...' : 'Link Payment Method'}
             </button>
           )}
         </div>

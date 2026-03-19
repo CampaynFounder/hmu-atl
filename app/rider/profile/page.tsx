@@ -9,7 +9,7 @@ export default async function RiderProfilePage() {
 
   const rows = await sql`
     SELECT rp.display_name, rp.first_name, rp.last_name, rp.lgbtq_friendly,
-           rp.stripe_customer_id, u.tier
+           rp.stripe_customer_id, u.tier, u.id as user_id
     FROM users u
     JOIN rider_profiles rp ON rp.user_id = u.id
     WHERE u.clerk_id = ${clerkId} LIMIT 1
@@ -18,6 +18,14 @@ export default async function RiderProfilePage() {
 
   const p = rows[0] as Record<string, unknown>;
 
+  // Check for actual saved payment methods, not just customer ID
+  const pmRows = await sql`
+    SELECT id, brand, last4 FROM rider_payment_methods
+    WHERE rider_id = ${p.user_id} AND is_default = true
+    LIMIT 1
+  `;
+  const defaultPm = pmRows[0] as Record<string, unknown> | undefined;
+
   return (
     <RiderProfileClient
       profile={{
@@ -25,7 +33,9 @@ export default async function RiderProfilePage() {
         firstName: (p.first_name as string) || '',
         lastName: (p.last_name as string) || '',
         lgbtqFriendly: (p.lgbtq_friendly as boolean) || false,
-        hasPaymentMethod: !!(p.stripe_customer_id),
+        hasPaymentMethod: !!defaultPm,
+        paymentBrand: (defaultPm?.brand as string) || null,
+        paymentLast4: (defaultPm?.last4 as string) || null,
       }}
     />
   );
