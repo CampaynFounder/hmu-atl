@@ -99,6 +99,57 @@ export function calculateDriverPayout(
   };
 }
 
+export function calculateFullBreakdown(
+  rideAmount: number,
+  tier: 'free' | 'hmu_first',
+  payoutMethod: string,
+  cumulativeDailyEarnings: number,
+  dailyFeePaid: number,
+  weeklyFeePaid: number
+): {
+  rideAmount: number;
+  stripeFee: number;
+  netAfterStripe: number;
+  platformFee: number;
+  dotsPayoutFee: number;
+  driverReceives: number;
+  platformReceives: number;
+  dailyCapHit: boolean;
+  weeklyCapHit: boolean;
+  tierLabel: string;
+  nextTierAt: number | null;
+} {
+  const stripeFee = Math.round((rideAmount * 0.029 + 0.30) * 100) / 100;
+  const netAfterStripe = rideAmount - stripeFee;
+
+  const { fee: platformFee, rate, dailyCapHit, weeklyCapHit, tierLabel } = calculatePlatformFee(
+    netAfterStripe, tier, cumulativeDailyEarnings, dailyFeePaid, weeklyFeePaid
+  );
+
+  // Dots payout fees (driver-facing)
+  let dotsPayoutFee = 0;
+  if (payoutMethod === 'debit') dotsPayoutFee = netAfterStripe * 0.005;
+  else if (payoutMethod === 'paypal') dotsPayoutFee = netAfterStripe * 0.01;
+  dotsPayoutFee = Math.round(dotsPayoutFee * 100) / 100;
+
+  const driverReceives = Math.round((netAfterStripe - platformFee - dotsPayoutFee) * 100) / 100;
+  const platformReceives = Math.round((stripeFee + platformFee + dotsPayoutFee) * 100) / 100;
+
+  // Next tier threshold
+  let nextTierAt: number | null = null;
+  if (tier === 'free') {
+    if (cumulativeDailyEarnings < 50) nextTierAt = 50;
+    else if (cumulativeDailyEarnings < 150) nextTierAt = 150;
+    else if (cumulativeDailyEarnings < 300) nextTierAt = 300;
+  }
+
+  return {
+    rideAmount, stripeFee, netAfterStripe, platformFee, dotsPayoutFee,
+    driverReceives, platformReceives, dailyCapHit, weeklyCapHit,
+    tierLabel, nextTierAt,
+  };
+}
+
 export async function getDailyEarnings(driverId: string): Promise<{
   cumulativeDailyEarnings: number;
   dailyFeePaid: number;

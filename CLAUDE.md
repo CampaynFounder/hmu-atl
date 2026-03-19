@@ -749,6 +749,68 @@ A feature is complete when all of the following are true:
 
 ---
 
+## PAYMENT ARCHITECTURE (LOCKED)
+
+### Charge Type: Destination Charges
+- Rider pays the HMU ATL platform Stripe account
+- Platform transfers net amount to driver's Stripe Connect account
+- `application_fee_amount` calculated and set at **capture time** (not create)
+- This ensures correct progressive fee tier based on daily earnings at ride end
+
+### Payment Flow
+```
+Price Agreed → holdRiderPayment() [manual capture]
+  → Ride Active → Driver taps End Ride
+  → 45-min dispute window opens
+  → Window closes clean → captureRiderPayment()
+  → routeDriverPayout()
+```
+
+### Driver Payouts
+- **Stripe Connect Express** for bank + debit payouts (LIVE)
+- **Dots API** for Cash App, Venmo, Zelle, PayPal — **ASPIRATIONAL** (not implemented, $999/mo API tier)
+- Payout schedule: manual (code triggers all payouts)
+- HMU First: instant payout after every ride
+- Free tier: batched daily at 6am ET
+
+### Rider Payment Methods
+- Saved via Stripe SetupIntents (off_session usage)
+- Stored in `rider_payment_methods` table
+- Apple Pay, Google Pay, Cash App Pay supported via Stripe
+
+### Three Price Modes
+1. **Rider proposes** — rider names their price, drivers accept or pass
+2. **Auto-calculated** — system suggests based on distance/time/stops
+3. **Driver fixed** — driver posts minimum, rider takes it or leaves it
+
+### Key Tables
+- `rider_payment_methods` — saved cards
+- `price_negotiations` — price proposal tracking
+- `transaction_ledger` — full audit trail for all money movement
+- `daily_earnings` — progressive fee tier tracking
+- `rides` columns: price_mode, proposed_price, final_agreed_price, payment tracking fields
+
+---
+
+## FAST FOLLOW — NEXT SESSION PRIORITIES
+
+These are built in schema but NOT yet implemented in code:
+
+| Priority | Feature | Status |
+|---|---|---|
+| P0 | Price negotiation flow (3 modes) | Schema ready, lib/payments/negotiation.ts needed |
+| P0 | Payment workflow orchestrator | Schema ready, lib/payments/workflow.ts needed |
+| P1 | Transaction ledger queries | Table exists, lib/payments/ledger.ts needed |
+| P1 | Payout router (Stripe transfers + batch) | lib/payments/payout-router.ts needed |
+| P1 | Stripe webhook handler (full) | Expand app/api/webhooks/stripe/route.ts |
+| P2 | Real-time financial UI via Ably | Push payment events to ride channel |
+| P2 | Rider payment UI (saved cards, add/remove) | Frontend components needed |
+| P2 | Driver earnings visualization (daily/weekly) | Frontend components needed |
+| P3 | Dots integration | Blocked on Dots API access ($999/mo) — evaluate alternatives |
+| P3 | Price auto-calculator with Turf.js | lib/payments/price-calculator.ts |
+
+---
+
 ## POST-MVP ROADMAP (Schema Must Accommodate)
 
 | Phase | Feature |
