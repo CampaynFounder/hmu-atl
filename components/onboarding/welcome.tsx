@@ -77,7 +77,7 @@ export function Welcome({ onNext, userType = 'rider', data, onChange }: WelcomeP
             className="w-full rounded-xl border border-zinc-600 bg-zinc-900 px-4 py-3 text-lg text-white placeholder:text-zinc-500 focus:border-[#00E676] focus:outline-none focus:ring-2 focus:ring-[#00E676]/20"
           />
           <p className="mt-1 text-xs text-zinc-400">
-            Only your first initial will be shown to {otherRole}
+            Only your display name will be shown to {otherRole} — you&apos;ll choose it next
           </p>
         </div>
       </div>
