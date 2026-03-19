@@ -80,7 +80,7 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
     }
   }, [open, step]);
 
-  // Countdown timer
+  // Countdown timer + poll for ride acceptance
   useEffect(() => {
     if (step !== 'pending' || !expiresAt) return;
     const tick = () => {
@@ -94,7 +94,28 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
     };
     tick();
     timerRef.current = setInterval(tick, 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+
+    // Poll for active ride (driver accepted)
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/rides/active');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.hasActiveRide && data.rideId) {
+            addSystemMessageDirect("driver accepted! redirecting to your ride...");
+            setTimeout(() => {
+              window.location.href = `/ride/${data.rideId}`;
+            }, 1000);
+            clearInterval(pollInterval);
+          }
+        }
+      } catch { /* silent */ }
+    }, 5000);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      clearInterval(pollInterval);
+    };
   }, [step, expiresAt]);
 
   // Auto-scroll

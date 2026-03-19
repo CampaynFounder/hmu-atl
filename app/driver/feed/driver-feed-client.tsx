@@ -53,9 +53,13 @@ export default function DriverFeedClient({ driverAreas }: Props) {
     try {
       const res = await fetch(`/api/bookings/${postId}/accept`, { method: 'POST' });
       if (res.ok) {
+        const data = await res.json();
         setRequests((prev) => prev.filter((r) => r.id !== postId));
         setActionFeedback('Accepted!');
-        setTimeout(() => setActionFeedback(null), 2000);
+        // Redirect to ride view
+        if (data.rideId) {
+          window.location.href = `/ride/${data.rideId}`;
+        }
       }
     } catch { /* silent */ }
   };

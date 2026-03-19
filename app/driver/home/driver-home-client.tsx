@@ -96,7 +96,12 @@ export default function DriverHomeClient({
     try {
       const res = await fetch(`/api/bookings/${postId}/${action}`, { method: 'POST' });
       if (res.ok) {
+        const data = await res.json();
         setRequests((prev) => prev.filter((r) => r.id !== postId));
+        // Redirect to ride view on accept
+        if (action === 'accept' && data.rideId) {
+          window.location.href = `/ride/${data.rideId}`;
+        }
       }
     } catch {
       // silent
