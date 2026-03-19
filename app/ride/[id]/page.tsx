@@ -30,6 +30,10 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
   const isDriver = ride.driver_id === user.id;
 
   return (
+    <>
+      {/* Mapbox GL loaded via CDN to avoid bundling into worker */}
+      <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.css" rel="stylesheet" />
+      <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.js" async />
     <ActiveRideClient
       rideId={rideId}
       userId={user.id}
@@ -53,5 +57,6 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
       }}
       mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''}
     />
+    </>
   );
 }

@@ -4,8 +4,10 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useGeolocation } from '@/hooks/use-geolocation';
 import { useAbly } from '@/hooks/use-ably';
 import Link from 'next/link';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
+
+// Mapbox GL loaded via CDN script tag — accessed as window.mapboxgl
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare const mapboxgl: any;
 
 // ── Theme constants (inline, no CSS vars) ──
 const COLORS = {
@@ -105,9 +107,9 @@ export default function ActiveRideClient({
   const [notification, setNotification] = useState<string | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
-  const driverMarkerRef = useRef<mapboxgl.Marker | null>(null);
-  const riderMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const mapRef = useRef<any | null>(null);
+  const driverMarkerRef = useRef<any | null>(null);
+  const riderMarkerRef = useRef<any | null>(null);
 
   // GPS tracking for driver during active ride phases
   const shouldTrackGps = isDriver && ['otw', 'here', 'active'].includes(ride.status);
@@ -206,7 +208,7 @@ export default function ActiveRideClient({
       el.style.border = '3px solid ' + COLORS.white;
       el.style.boxShadow = '0 0 12px ' + COLORS.green;
 
-      driverMarkerRef.current = new mapboxgl.Marker({ element: el })
+      driverMarkerRef.current = new mapboxgl.Map({ element: el })
         .setLngLat([driverLocation.lng, driverLocation.lat])
         .addTo(mapRef.current);
     } else {
@@ -241,7 +243,7 @@ export default function ActiveRideClient({
         el.style.border = '2px solid ' + COLORS.white;
         el.style.boxShadow = '0 0 8px ' + COLORS.blue;
 
-        riderMarkerRef.current = new mapboxgl.Marker({ element: el })
+        riderMarkerRef.current = new mapboxgl.Map({ element: el })
           .setLngLat([lng, lat])
           .addTo(map);
       }
