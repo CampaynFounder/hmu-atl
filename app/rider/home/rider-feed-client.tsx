@@ -138,8 +138,8 @@ export default function RiderFeedClient({ displayName }: Props) {
 
       <div className="rf">
         <div className="rf-header">
-          <h1 className="rf-greeting">Where you headed, {displayName}?</h1>
-          <p className="rf-sub">Post what you need — drivers will HMU</p>
+          <h1 className="rf-greeting">Where you headed, @{displayName}?</h1>
+          <p className="rf-sub">Post what you need. Drivers online now sayin HMU.</p>
         </div>
 
         {/* Composer */}

@@ -25,7 +25,7 @@ export default async function RiderHomePage() {
         const user = rows[0] as Record<string, unknown>;
         if (user.profile_type === 'rider') {
           isLoggedIn = true;
-          displayName = (user.display_name as string) || (user.first_name as string) || 'Rider';
+          displayName = (user.display_name as string) || 'Rider';
         }
       }
     }
