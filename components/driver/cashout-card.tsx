@@ -139,12 +139,12 @@ export default function CashoutCard() {
             <div className="co-result-amount">${result.amount.toFixed(2)}</div>
             <div className="co-result-sub">
               {result.method === 'instant' ? 'On its way — arrives in minutes' : 'On its way — 1-2 business days'}
-              {result.fee > 0 && ` (${result.fee.toFixed(2)} fee)`}
+              {result.fee > 0 && ` ($${result.fee.toFixed(2)} fee)`}
             </div>
           </div>
-        ) : balance.available > 0 ? (
+        ) : (
           <>
-            {/* Method picker */}
+            {/* Method picker — always visible */}
             <div className="co-methods">
               <div
                 className={`co-method ${selectedMethod === 'standard' ? 'co-method--selected' : ''}`}
@@ -164,7 +164,7 @@ export default function CashoutCard() {
                   <div className="co-method-fee">FREE {'\uD83E\uDD47'}</div>
                 ) : (
                   <div className="co-method-fee co-method-fee--paid">
-                    ${instantFee.toFixed(2)} fee
+                    $1 or 1%
                   </div>
                 )}
               </div>
@@ -176,22 +176,18 @@ export default function CashoutCard() {
               onClick={handleCashout}
               disabled={cashingOut || balance.available <= 0}
             >
-              {cashingOut ? 'Processing...' : `Cash Out $${balance.available.toFixed(2)}`}
+              {cashingOut ? 'Processing...' : balance.available > 0 ? `Cash Out $${balance.available.toFixed(2)}` : 'No balance yet — complete a ride'}
             </button>
 
-            {!isHmuFirst && selectedMethod === 'instant' && (
+            {!isHmuFirst && (
               <Link href="/driver/settings?tab=hmu-first" className="co-upgrade">
                 <span className="co-upgrade-text">
-                  {'\uD83E\uDD47'} Upgrade to HMU First — free instant payouts
+                  {'\uD83E\uDD47'} Upgrade to HMU First — free instant payouts + 12% flat fee
                 </span>
                 <span className="co-upgrade-arrow">{'\u203A'}</span>
               </Link>
             )}
           </>
-        ) : (
-          <div className="co-pending" style={{ marginBottom: 0 }}>
-            Complete rides to build your balance
-          </div>
         )}
       </div>
     </>
