@@ -12,6 +12,7 @@ export interface CreateRiderProfileParams {
   user_id: string;
   first_name: string;
   last_name: string;
+  display_name?: string;
   gender?: string;
   pronouns?: string;
   lgbtq_friendly?: boolean;
@@ -59,6 +60,7 @@ export async function createRiderProfile(
       user_id,
       first_name,
       last_name,
+      display_name,
       lgbtq_friendly,
       video_url,
       thumbnail_url,
@@ -70,6 +72,7 @@ export async function createRiderProfile(
       ${params.user_id},
       ${params.first_name},
       ${params.last_name},
+      ${params.display_name || `${params.first_name} ${params.last_name?.charAt(0) || ''}.`.trim()},
       ${params.lgbtq_friendly || false},
       ${params.video_url || null},
       ${params.thumbnail_url || null},

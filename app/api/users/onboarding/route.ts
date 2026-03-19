@@ -123,6 +123,7 @@ export async function POST(request: NextRequest) {
           user_id: userId,
           first_name,
           last_name,
+          display_name: display_name || `${first_name} ${last_name?.charAt(0) || ''}.`.trim(),
           gender,
           pronouns,
           lgbtq_friendly,
