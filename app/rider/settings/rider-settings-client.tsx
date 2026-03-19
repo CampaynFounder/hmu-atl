@@ -1,7 +1,6 @@
 'use client';
 
-import { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import { UserProfile } from '@clerk/nextjs';
 import Link from 'next/link';
 import { ChevronLeft, Shield, CreditCard, MessageCircle } from 'lucide-react';
@@ -15,9 +14,16 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id'];
 
 export default function RiderSettingsClient() {
-  const searchParams = useSearchParams();
-  const initialTab = (searchParams.get('tab') as TabId) || 'security';
-  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
+  const [activeTab, setActiveTab] = useState<TabId>('security');
+
+  // Check URL for tab param on mount (without useSearchParams)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab') as TabId | null;
+    if (tab && ['security', 'payment', 'support'].includes(tab)) {
+      setActiveTab(tab);
+    }
+  }, []);
 
   return (
     <>
@@ -142,74 +148,151 @@ function SecurityTab() {
 }
 
 function PaymentTab() {
+  const [methods, setMethods] = useState<Array<{
+    id: string; brand: string | null; last4: string; expMonth: number | null; expYear: number | null; isDefault: boolean;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch saved payment methods on mount
+  useState(() => {
+    fetch('/api/rider/payment-methods')
+      .then(r => r.json())
+      .then(data => { if (data.methods) setMethods(data.methods); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  });
+
+  async function handleAddMethod() {
+    setAdding(true);
+    setError(null);
+    try {
+      // Create a Stripe Checkout session in setup mode
+      const res = await fetch('/api/rider/payment-methods/checkout', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Failed to start payment setup');
+        setAdding(false);
+        return;
+      }
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch {
+      setError('Network error');
+      setAdding(false);
+    }
+  }
+
+  async function handleSetDefault(id: string) {
+    await fetch(`/api/rider/payment-methods/${id}/default`, { method: 'PATCH' });
+    setMethods(prev => prev.map(m => ({ ...m, isDefault: m.id === id })));
+  }
+
+  async function handleDelete(id: string) {
+    await fetch(`/api/rider/payment-methods/${id}`, { method: 'DELETE' });
+    setMethods(prev => prev.filter(m => m.id !== id));
+  }
+
+  const brandIcons: Record<string, string> = {
+    visa: '💳', mastercard: '💳', amex: '💳', discover: '💳',
+    apple_pay: '🍎', google_pay: '📱', cashapp: '💸',
+  };
+
   return (
     <div>
-      <div
-        style={{
-          background: '#141414',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '16px',
-          padding: '20px',
-          marginBottom: '12px',
-        }}
-      >
+      {/* Saved methods */}
+      <div style={{
+        background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: '16px', padding: '20px', marginBottom: '12px',
+      }}>
         <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '4px' }}>
-          Saved Cards
-        </div>
-        <div style={{ fontSize: '13px', color: '#888', lineHeight: 1.4 }}>
-          Your saved payment methods for booking rides.
-        </div>
-        <div
-          style={{
-            textAlign: 'center',
-            padding: '40px 20px',
-          }}
-        >
-          <div style={{ fontSize: '36px', marginBottom: '8px', opacity: 0.4 }}>
-            {'\uD83D\uDCB3'}
-          </div>
-          <div style={{ fontSize: '14px', color: '#888' }}>
-            No payment methods saved yet
-          </div>
-        </div>
-      </div>
-
-      <div
-        style={{
-          background: '#141414',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '16px',
-          padding: '20px',
-          marginBottom: '12px',
-        }}
-      >
-        <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '4px' }}>
-          Add Payment Method
+          Payment Methods
         </div>
         <div style={{ fontSize: '13px', color: '#888', lineHeight: 1.4, marginBottom: '16px' }}>
-          Add a debit card, credit card, Apple Pay, or Google Pay to start booking rides.
+          Used when you book rides
         </div>
-        <button
-          style={{
-            display: 'block',
-            width: '100%',
-            padding: '14px',
-            borderRadius: '100px',
-            border: 'none',
-            background: '#00E676',
-            color: '#080808',
-            fontWeight: 700,
-            fontSize: '15px',
-            cursor: 'pointer',
-            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-            transition: 'all 0.15s',
-          }}
-          onClick={() => {
-            // TODO: Open Stripe Checkout / Setup Session
-          }}
-        >
-          Add Payment Method
-        </button>
+
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '20px', color: '#888', fontSize: '14px' }}>
+            Loading...
+          </div>
+        ) : methods.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '24px 0' }}>
+            <div style={{ fontSize: '36px', marginBottom: '8px', opacity: 0.4 }}>{'\uD83D\uDCB3'}</div>
+            <div style={{ fontSize: '14px', color: '#888' }}>No payment methods linked yet</div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {methods.map(m => (
+              <div key={m.id} style={{
+                display: 'flex', alignItems: 'center', gap: '12px',
+                background: '#1a1a1a', border: m.isDefault ? '1px solid rgba(0,230,118,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                borderRadius: '14px', padding: '14px 16px',
+              }}>
+                <span style={{ fontSize: '20px' }}>{brandIcons[m.brand || ''] || '💳'}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '14px', fontWeight: 600 }}>
+                    {(m.brand || 'Card').charAt(0).toUpperCase() + (m.brand || 'card').slice(1)} ending in {m.last4}
+                  </div>
+                  {m.expMonth && m.expYear && (
+                    <div style={{ fontSize: '12px', color: '#888', fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
+                      Expires {m.expMonth}/{m.expYear}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {m.isDefault ? (
+                    <span style={{ fontSize: '11px', color: '#00E676', fontWeight: 600, padding: '4px 8px', background: 'rgba(0,230,118,0.1)', borderRadius: '100px' }}>
+                      Default
+                    </span>
+                  ) : (
+                    <button onClick={() => handleSetDefault(m.id)} style={{
+                      fontSize: '11px', color: '#888', background: 'none', border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '100px', padding: '4px 8px', cursor: 'pointer',
+                      fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                    }}>
+                      Set default
+                    </button>
+                  )}
+                  <button onClick={() => handleDelete(m.id)} style={{
+                    fontSize: '11px', color: '#FF5252', background: 'none', border: 'none', cursor: 'pointer', padding: '4px',
+                    fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                  }}>
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Add method */}
+      {error && (
+        <div style={{ fontSize: '13px', color: '#FF5252', marginBottom: '12px', padding: '10px 14px', background: 'rgba(255,68,68,0.08)', borderRadius: '10px' }}>
+          {error}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={handleAddMethod}
+        disabled={adding}
+        style={{
+          display: 'block', width: '100%', padding: '16px', borderRadius: '100px',
+          border: 'none', background: '#00E676', color: '#080808',
+          fontWeight: 700, fontSize: '15px', cursor: adding ? 'not-allowed' : 'pointer',
+          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          opacity: adding ? 0.5 : 1,
+        }}
+      >
+        {adding ? 'Opening Stripe...' : methods.length > 0 ? 'Add Another Method' : 'Link Payment Method'}
+      </button>
+
+      <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '12px', color: '#555' }}>
+        Secure payment via Stripe. Apple Pay, Google Pay, and cards supported.
       </div>
     </div>
   );
