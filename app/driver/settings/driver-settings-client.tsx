@@ -137,13 +137,14 @@ function SecurityTab() {
           elements: {
             rootBox: { width: '100%' },
             card: { boxShadow: 'none', border: '1px solid rgba(255,255,255,0.08)' },
-            navbar: { display: 'none' },
-            navbarMobileMenuButton: { display: 'none' },
             headerTitle: { color: '#ffffff' },
             headerSubtitle: { color: '#888888' },
             profileSectionTitle: { color: '#888888' },
             profileSectionContent: { color: '#ffffff' },
             formButtonPrimary: { backgroundColor: '#00E676', color: '#080808' },
+            navbarButton: { color: '#bbb' },
+            navbarButtonIcon: { color: '#888' },
+            navbarButton__active: { color: '#00E676' },
           },
         }}
       />
