@@ -46,6 +46,16 @@ export default function DriverSettingsClient({ tier }: Props) {
         .clerk-wrap { border-radius: 20px; overflow: hidden; }
         .clerk-wrap .cl-rootBox { width: 100% !important; }
         .clerk-wrap .cl-card { background: var(--card) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
+        .clerk-wrap .cl-navbarMobileMenuRow { color: #fff !important; }
+        .clerk-wrap .cl-navbarMobileMenuButton { color: #fff !important; }
+        .clerk-wrap .cl-headerTitle { color: #fff !important; }
+        .clerk-wrap .cl-breadcrumbs { color: #fff !important; }
+        .clerk-wrap .cl-breadcrumbsItem { color: #fff !important; }
+        .clerk-wrap .cl-breadcrumbsItem button { color: #fff !important; }
+        .clerk-wrap .cl-breadcrumbsItemDivider { color: #888 !important; }
+        .clerk-wrap [class*="navbarMobileMenu"] { color: #fff !important; }
+        .clerk-wrap [class*="Account"] { color: #fff !important; }
+        .clerk-wrap .cl-navbar button { color: #fff !important; }
 
         /* HMU First tab */
         .upgrade-card { background: linear-gradient(135deg, rgba(0,230,118,0.08), rgba(0,230,118,0.02)); border: 1px solid rgba(0,230,118,0.2); border-radius: 20px; padding: 24px 20px; margin-bottom: 20px; }
@@ -150,6 +160,13 @@ function SecurityTab() {
             menuButton: { color: '#ffffff' },
             menuItem: { color: '#ffffff' },
             accordionTriggerButton: { color: '#ffffff' },
+            navbarMobileMenuRow: { color: '#ffffff' },
+            navbarMobileMenuButton: { color: '#ffffff' },
+            pageScrollBox: { color: '#ffffff' },
+            page: { color: '#ffffff' },
+            breadcrumbs: { color: '#ffffff' },
+            breadcrumbsItem: { color: '#ffffff' },
+            breadcrumbsItemDivider: { color: '#888' },
           },
         }}
       />
