@@ -84,8 +84,10 @@ export async function POST(
     return NextResponse.json({ status: 'matched', rideId });
   } catch (error) {
     console.error('Accept booking error:', error);
+    const msg = error instanceof Error ? error.message : 'Failed to accept';
+    // Include more detail for debugging
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to accept' },
+      { error: msg, detail: String(error) },
       { status: 500 }
     );
   }
