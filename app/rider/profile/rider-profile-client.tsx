@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 
 interface ProfileData {
@@ -15,6 +16,21 @@ interface Props {
 }
 
 export default function RiderProfileClient({ profile }: Props) {
+  const [addingPayment, setAddingPayment] = useState(false);
+
+  async function handleAddPayment() {
+    setAddingPayment(true);
+    try {
+      const res = await fetch('/api/rider/payment-methods/checkout', { method: 'POST' });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch {
+      setAddingPayment(false);
+    }
+  }
+
   return (
     <div
       style={{
@@ -248,8 +264,10 @@ export default function RiderProfileClient({ profile }: Props) {
               Linked
             </div>
           ) : (
-            <Link
-              href="/rider/settings?tab=payment"
+            <button
+              type="button"
+              onClick={handleAddPayment}
+              disabled={addingPayment}
               style={{
                 display: 'inline-block',
                 background: '#00E676',
@@ -258,11 +276,14 @@ export default function RiderProfileClient({ profile }: Props) {
                 fontWeight: 700,
                 padding: '8px 16px',
                 borderRadius: '100px',
-                textDecoration: 'none',
+                border: 'none',
+                cursor: addingPayment ? 'not-allowed' : 'pointer',
+                opacity: addingPayment ? 0.5 : 1,
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
               }}
             >
-              Add Payment
-            </Link>
+              {addingPayment ? 'Opening...' : 'Add Payment'}
+            </button>
           )}
         </div>
       </div>
