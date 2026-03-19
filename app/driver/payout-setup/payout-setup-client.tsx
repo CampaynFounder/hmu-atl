@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 
 interface PayoutStatus {
@@ -15,37 +15,15 @@ interface PayoutStatus {
 
 interface Props {
   initialStatus: PayoutStatus;
-  shouldRefresh?: boolean;
 }
 
-export default function PayoutSetupClient({ initialStatus, shouldRefresh }: Props) {
+export default function PayoutSetupClient({ initialStatus }: Props) {
   const [status, setStatus] = useState<PayoutStatus>(initialStatus);
   const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (shouldRefresh) {
-      refreshStatus();
-    }
-  }, [shouldRefresh]);
-
-  const refreshStatus = async () => {
-    setRefreshing(true);
-    try {
-      const res = await fetch('/api/driver/payout-setup');
-      if (res.ok) {
-        const data = await res.json();
-        setStatus(data);
-      }
-    } catch {
-      // silently fail — user can refresh manually
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  const startOnboarding = async () => {
+  async function startOnboarding() {
+    console.log('startOnboarding called');
     setLoading(true);
     setError(null);
     try {
@@ -54,6 +32,7 @@ export default function PayoutSetupClient({ initialStatus, shouldRefresh }: Prop
         headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json();
+      console.log('API response:', data);
       if (!res.ok) {
         setError(data.error || 'Something went wrong');
         setLoading(false);
@@ -62,240 +41,304 @@ export default function PayoutSetupClient({ initialStatus, shouldRefresh }: Prop
       if (data.onboardingUrl) {
         window.location.href = data.onboardingUrl;
       } else {
-        setError('No onboarding URL returned — try again');
+        setError('No onboarding URL returned');
         setLoading(false);
       }
-    } catch {
+    } catch (e) {
+      console.error('Fetch error:', e);
       setError('Network error — check your connection');
       setLoading(false);
     }
-  };
+  }
+
+  async function refreshStatus() {
+    try {
+      const res = await fetch('/api/driver/payout-setup');
+      if (res.ok) {
+        const data = await res.json();
+        setStatus(data);
+      }
+    } catch {
+      // silent
+    }
+  }
 
   const allComplete = status.stripeComplete && status.hasExternalAccount;
 
   return (
-    <>
-      <style>{`
-        :root { --green: #00E676; --black: #080808; --card: #141414; --card2: #1a1a1a; --border: rgba(255,255,255,0.08); --gray: #888; --gray-light: #bbb; }
-        .ps { background: var(--black); color: #fff; min-height: 100svh; font-family: var(--font-body, 'DM Sans', sans-serif); padding: 72px 20px 40px; }
-        .ps-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
-        .ps-title { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 32px; letter-spacing: 1px; }
-        .ps-back { font-size: 14px; color: var(--green); text-decoration: none; font-weight: 600; }
-        .ps-subtitle { font-size: 14px; color: var(--gray); margin-top: -20px; margin-bottom: 32px; line-height: 1.5; }
+    <div style={{
+      background: '#080808',
+      color: '#fff',
+      minHeight: '100svh',
+      fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+      padding: '72px 20px 40px',
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+        <h1 style={{ fontFamily: 'var(--font-display, Bebas Neue, sans-serif)', fontSize: '32px' }}>
+          Payout Setup
+        </h1>
+        <Link href="/driver/profile" style={{ color: '#00E676', fontSize: '14px', fontWeight: 600, textDecoration: 'none' }}>
+          Back
+        </Link>
+      </div>
+      <p style={{ fontSize: '14px', color: '#888', marginBottom: '24px', lineHeight: 1.5 }}>
+        Set up your payout account so you can get paid after every ride.
+      </p>
 
-        /* Step indicators */
-        .ps-steps { display: flex; flex-direction: column; gap: 0; margin-bottom: 32px; }
-        .ps-step { position: relative; padding-left: 48px; padding-bottom: 32px; }
-        .ps-step:last-child { padding-bottom: 0; }
-
-        /* Connecting line */
-        .ps-step::before { content: ''; position: absolute; left: 17px; top: 36px; bottom: 0; width: 2px; background: rgba(255,255,255,0.08); }
-        .ps-step:last-child::before { display: none; }
-        .ps-step.ps-step--complete::before { background: rgba(0,230,118,0.3); }
-
-        /* Step circle */
-        .ps-step-circle { position: absolute; left: 0; top: 0; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 18px; border: 2px solid rgba(255,255,255,0.15); background: var(--card); color: var(--gray); transition: all 0.3s; }
-        .ps-step--active .ps-step-circle { border-color: var(--green); color: var(--green); background: rgba(0,230,118,0.08); }
-        .ps-step--complete .ps-step-circle { border-color: var(--green); background: var(--green); color: var(--black); }
-
-        .ps-step-content { padding-top: 2px; }
-        .ps-step-title { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
-        .ps-step--pending .ps-step-title { color: var(--gray); }
-        .ps-step-desc { font-size: 13px; color: var(--gray); line-height: 1.5; margin-bottom: 16px; }
-
-        /* Cards for payout method options */
-        .ps-method-grid { display: flex; flex-direction: column; gap: 10px; }
-        .ps-method-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 18px 20px; display: flex; align-items: center; gap: 14px; cursor: pointer; transition: all 0.15s; -webkit-tap-highlight-color: transparent; }
-        .ps-method-card:hover { border-color: rgba(0,230,118,0.3); background: rgba(0,230,118,0.04); }
-        .ps-method-card:active { transform: scale(0.98); }
-        .ps-method-icon { font-size: 28px; flex-shrink: 0; }
-        .ps-method-info { flex: 1; }
-        .ps-method-name { font-size: 16px; font-weight: 600; }
-        .ps-method-fee { font-size: 12px; color: var(--gray); margin-top: 2px; }
-        .ps-method-fee--free { color: var(--green); font-weight: 600; }
-        .ps-method-arrow { color: var(--gray); font-size: 18px; }
-
-        /* Buttons */
-        .ps-btn { display: block; width: 100%; padding: 16px; border: none; border-radius: 100px; font-size: 16px; font-weight: 700; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); transition: all 0.15s; -webkit-tap-highlight-color: transparent; text-align: center; text-decoration: none; }
-        .ps-btn:active { transform: scale(0.97); }
-        .ps-btn--green { background: var(--green); color: var(--black); }
-        .ps-btn--green:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-        .ps-btn--outline { background: transparent; border: 1px solid rgba(255,255,255,0.15); color: #fff; }
-
-        /* Complete state */
-        .ps-complete-check { font-size: 14px; color: var(--green); font-weight: 600; display: flex; align-items: center; gap: 8px; }
-
-        /* Success state */
-        .ps-success { text-align: center; padding: 48px 20px; }
-        .ps-success-icon { font-size: 64px; margin-bottom: 20px; }
-        .ps-success-title { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 36px; letter-spacing: 1px; margin-bottom: 8px; }
-        .ps-success-desc { font-size: 15px; color: var(--gray-light); margin-bottom: 36px; line-height: 1.5; }
-
-        /* Account display */
-        .ps-account { background: var(--card); border: 1px solid rgba(0,230,118,0.2); border-radius: 16px; padding: 16px 20px; display: flex; align-items: center; gap: 14px; }
-        .ps-account-icon { font-size: 24px; }
-        .ps-account-info { flex: 1; }
-        .ps-account-name { font-size: 15px; font-weight: 600; }
-        .ps-account-detail { font-size: 12px; color: var(--gray); margin-top: 2px; font-family: var(--font-mono, 'Space Mono', monospace); }
-        .ps-account-check { color: var(--green); font-size: 20px; }
-
-        /* Loading spinner */
-        .ps-spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid transparent; border-top-color: currentColor; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; margin-right: 8px; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-
-        /* Refreshing banner */
-        .ps-refreshing { background: rgba(0,230,118,0.08); border: 1px solid rgba(0,230,118,0.15); border-radius: 12px; padding: 12px 16px; font-size: 13px; color: var(--green); text-align: center; margin-bottom: 24px; display: flex; align-items: center; justify-content: center; gap: 8px; }
-      `}</style>
-
-      <div className="ps">
-        <div className="ps-header">
-          <h1 className="ps-title">Payout Setup</h1>
-          <Link href="/driver/profile" className="ps-back">Back</Link>
+      {/* Error */}
+      {error && (
+        <div style={{
+          background: 'rgba(255,68,68,0.1)',
+          border: '1px solid rgba(255,68,68,0.25)',
+          borderRadius: '12px',
+          padding: '12px 16px',
+          fontSize: '14px',
+          color: '#FF5252',
+          marginBottom: '16px',
+        }}>
+          {error}
+          <button
+            onClick={() => setError(null)}
+            style={{ float: 'right', background: 'none', border: 'none', color: '#FF5252', cursor: 'pointer', fontSize: '16px' }}
+          >
+            x
+          </button>
         </div>
-        <p className="ps-subtitle">
-          Set up your payout account so you can get paid after every ride.
-        </p>
+      )}
 
-        {error && (
+      {allComplete ? (
+        /* Success */
+        <div style={{ textAlign: 'center', padding: '48px 0' }}>
+          <div style={{ fontSize: '64px', marginBottom: '20px' }}>&#x2705;</div>
+          <div style={{ fontFamily: 'var(--font-display, Bebas Neue, sans-serif)', fontSize: '36px', marginBottom: '8px' }}>
+            You&apos;re All Set
+          </div>
+          <p style={{ fontSize: '15px', color: '#bbb', marginBottom: '32px' }}>
+            Start accepting rides and get paid directly to your account.
+          </p>
+          {status.last4 && (
+            <div style={{
+              background: '#141414',
+              border: '1px solid rgba(0,230,118,0.2)',
+              borderRadius: '16px',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '14px',
+              marginBottom: '24px',
+              textAlign: 'left',
+            }}>
+              <span style={{ fontSize: '24px' }}>{status.accountType === 'card' ? '\uD83D\uDCB3' : '\uD83C\uDFE6'}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '15px', fontWeight: 600 }}>
+                  {status.bankName || (status.accountType === 'card' ? 'Debit Card' : 'Bank Account')}
+                </div>
+                <div style={{ fontSize: '12px', color: '#888', fontFamily: 'var(--font-mono, Space Mono, monospace)' }}>
+                  ending in {status.last4}
+                </div>
+              </div>
+              <span style={{ color: '#00E676', fontSize: '20px' }}>&#x2713;</span>
+            </div>
+          )}
+          <Link
+            href="/driver/feed"
+            style={{
+              display: 'block',
+              padding: '16px',
+              borderRadius: '100px',
+              background: '#00E676',
+              color: '#080808',
+              fontWeight: 700,
+              fontSize: '16px',
+              textAlign: 'center',
+              textDecoration: 'none',
+            }}
+          >
+            Go Live
+          </Link>
+        </div>
+      ) : (
+        /* Steps */
+        <div>
+          {/* Step 1 */}
           <div style={{
-            background: 'rgba(255,68,68,0.1)',
-            border: '1px solid rgba(255,68,68,0.25)',
-            borderRadius: '12px',
-            padding: '12px 16px',
-            fontSize: '14px',
-            color: '#FF5252',
+            background: '#141414',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '20px',
+            padding: '24px 20px',
             marginBottom: '16px',
           }}>
-            {error}
-          </div>
-        )}
-
-        {refreshing && (
-          <div className="ps-refreshing">
-            <span className="ps-spinner" />
-            Checking your setup status...
-          </div>
-        )}
-
-        {allComplete ? (
-          /* ---- SUCCESS STATE ---- */
-          <div className="ps-success">
-            <div className="ps-success-icon">{'\u2705'}</div>
-            <div className="ps-success-title">You&apos;re All Set</div>
-            <p className="ps-success-desc">
-              Start accepting rides and get paid directly to your account.
-            </p>
-
-            {status.hasExternalAccount && (
-              <div className="ps-account" style={{ marginBottom: '24px', textAlign: 'left' }}>
-                <div className="ps-account-icon">
-                  {status.accountType === 'card' ? '\uD83D\uDCB3' : '\uD83C\uDFE6'}
-                </div>
-                <div className="ps-account-info">
-                  <div className="ps-account-name">
-                    {status.bankName || (status.accountType === 'card' ? 'Debit Card' : 'Bank Account')}
-                  </div>
-                  <div className="ps-account-detail">
-                    {status.accountType === 'card' ? 'Card' : 'Account'} ending in {status.last4}
-                  </div>
-                </div>
-                <div className="ps-account-check">{'\u2713'}</div>
-              </div>
-            )}
-
-            <Link href="/driver/feed" className="ps-btn ps-btn--green">
-              Go Live
-            </Link>
-          </div>
-        ) : (
-          /* ---- STEP-BY-STEP FLOW ---- */
-          <div className="ps-steps">
-            {/* Step 1: Verify Identity */}
-            <div className={`ps-step ${status.stripeComplete ? 'ps-step--complete' : 'ps-step--active'}`}>
-              <div className="ps-step-circle">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+              <div style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '16px',
+                fontWeight: 700,
+                background: status.stripeComplete ? '#00E676' : 'rgba(0,230,118,0.08)',
+                color: status.stripeComplete ? '#080808' : '#00E676',
+                border: '2px solid #00E676',
+                flexShrink: 0,
+              }}>
                 {status.stripeComplete ? '\u2713' : '1'}
               </div>
-              <div className="ps-step-content">
-                <div className="ps-step-title">Verify Your Identity</div>
-                <p className="ps-step-desc">
-                  Stripe handles identity verification securely. This is required before you can receive payouts.
-                </p>
-
-                {status.stripeComplete ? (
-                  <div className="ps-complete-check">
-                    {'\u2713'} Identity Verified
-                  </div>
-                ) : (
-                  <button
-                    className="ps-btn ps-btn--green"
-                    onClick={startOnboarding}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <><span className="ps-spinner" />Redirecting...</>
-                    ) : (
-                      'Verify Identity'
-                    )}
-                  </button>
-                )}
+              <div>
+                <div style={{ fontSize: '18px', fontWeight: 700 }}>Verify Your Identity</div>
+                <div style={{ fontSize: '13px', color: '#888' }}>Stripe handles verification securely</div>
               </div>
             </div>
 
-            {/* Step 2: Add Payout Account */}
-            <div className={`ps-step ${status.hasExternalAccount ? 'ps-step--complete' : status.stripeComplete ? 'ps-step--active' : 'ps-step--pending'}`}>
-              <div className="ps-step-circle">
+            {status.stripeComplete ? (
+              <div style={{ color: '#00E676', fontWeight: 600, fontSize: '14px' }}>
+                &#x2713; Identity Verified
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={startOnboarding}
+                disabled={loading}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  padding: '16px',
+                  borderRadius: '100px',
+                  border: 'none',
+                  background: loading ? 'rgba(0,230,118,0.3)' : '#00E676',
+                  color: '#080808',
+                  fontWeight: 700,
+                  fontSize: '16px',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+                }}
+              >
+                {loading ? 'Connecting to Stripe...' : 'Verify Identity'}
+              </button>
+            )}
+          </div>
+
+          {/* Step 2 */}
+          <div style={{
+            background: '#141414',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '20px',
+            padding: '24px 20px',
+            opacity: status.stripeComplete ? 1 : 0.4,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+              <div style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '16px',
+                fontWeight: 700,
+                background: status.hasExternalAccount ? '#00E676' : '#1a1a1a',
+                color: status.hasExternalAccount ? '#080808' : '#888',
+                border: `2px solid ${status.hasExternalAccount ? '#00E676' : 'rgba(255,255,255,0.15)'}`,
+                flexShrink: 0,
+              }}>
                 {status.hasExternalAccount ? '\u2713' : '2'}
               </div>
-              <div className="ps-step-content">
-                <div className="ps-step-title">Add Payout Account</div>
-                <p className="ps-step-desc">
-                  Choose how you want to get paid after each ride.
-                </p>
-
-                {status.hasExternalAccount ? (
-                  <div className="ps-account">
-                    <div className="ps-account-icon">
-                      {status.accountType === 'card' ? '\uD83D\uDCB3' : '\uD83C\uDFE6'}
-                    </div>
-                    <div className="ps-account-info">
-                      <div className="ps-account-name">
-                        {status.bankName || (status.accountType === 'card' ? 'Debit Card' : 'Bank Account')}
-                      </div>
-                      <div className="ps-account-detail">
-                        {status.accountType === 'card' ? 'Card' : 'Account'} ending in {status.last4}
-                      </div>
-                    </div>
-                    <div className="ps-account-check">{'\u2713'}</div>
-                  </div>
-                ) : status.stripeComplete ? (
-                  <div className="ps-method-grid">
-                    <div className="ps-method-card" onClick={startOnboarding}>
-                      <div className="ps-method-icon">{'\uD83C\uDFE6'}</div>
-                      <div className="ps-method-info">
-                        <div className="ps-method-name">Bank Account</div>
-                        <div className="ps-method-fee ps-method-fee--free">FREE</div>
-                      </div>
-                      <div className="ps-method-arrow">{'\u203A'}</div>
-                    </div>
-                    <div className="ps-method-card" onClick={startOnboarding}>
-                      <div className="ps-method-icon">{'\uD83D\uDCB3'}</div>
-                      <div className="ps-method-info">
-                        <div className="ps-method-name">Debit Card</div>
-                        <div className="ps-method-fee">0.5% fee</div>
-                      </div>
-                      <div className="ps-method-arrow">{'\u203A'}</div>
-                    </div>
-                  </div>
-                ) : (
-                  <p style={{ fontSize: '13px', color: 'var(--gray)', fontStyle: 'italic' }}>
-                    Complete Step 1 first
-                  </p>
-                )}
+              <div>
+                <div style={{ fontSize: '18px', fontWeight: 700 }}>Add Payout Account</div>
+                <div style={{ fontSize: '13px', color: '#888' }}>Choose how you get paid</div>
               </div>
             </div>
+
+            {status.hasExternalAccount ? (
+              <div style={{ color: '#00E676', fontWeight: 600, fontSize: '14px' }}>
+                &#x2713; {status.bankName || 'Account'} ending in {status.last4}
+              </div>
+            ) : status.stripeComplete ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={startOnboarding}
+                  disabled={loading}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px',
+                    width: '100%',
+                    padding: '18px 20px',
+                    background: '#1a1a1a',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '16px',
+                    cursor: 'pointer',
+                    color: '#fff',
+                    textAlign: 'left',
+                    fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+                  }}
+                >
+                  <span style={{ fontSize: '28px' }}>{'\uD83C\uDFE6'}</span>
+                  <span style={{ flex: 1 }}>
+                    <span style={{ display: 'block', fontSize: '16px', fontWeight: 600 }}>Bank Account</span>
+                    <span style={{ display: 'block', fontSize: '12px', color: '#00E676', fontWeight: 600 }}>FREE</span>
+                  </span>
+                  <span style={{ color: '#888', fontSize: '18px' }}>{'\u203A'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={startOnboarding}
+                  disabled={loading}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px',
+                    width: '100%',
+                    padding: '18px 20px',
+                    background: '#1a1a1a',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '16px',
+                    cursor: 'pointer',
+                    color: '#fff',
+                    textAlign: 'left',
+                    fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+                  }}
+                >
+                  <span style={{ fontSize: '28px' }}>{'\uD83D\uDCB3'}</span>
+                  <span style={{ flex: 1 }}>
+                    <span style={{ display: 'block', fontSize: '16px', fontWeight: 600 }}>Debit Card</span>
+                    <span style={{ display: 'block', fontSize: '12px', color: '#888' }}>0.5% fee</span>
+                  </span>
+                  <span style={{ color: '#888', fontSize: '18px' }}>{'\u203A'}</span>
+                </button>
+              </div>
+            ) : (
+              <p style={{ fontSize: '13px', color: '#888', fontStyle: 'italic' }}>
+                Complete Step 1 first
+              </p>
+            )}
           </div>
-        )}
-      </div>
-    </>
+
+          {/* Refresh button */}
+          <button
+            type="button"
+            onClick={refreshStatus}
+            style={{
+              display: 'block',
+              width: '100%',
+              marginTop: '16px',
+              padding: '14px',
+              borderRadius: '100px',
+              border: '1px solid rgba(255,255,255,0.1)',
+              background: 'transparent',
+              color: '#888',
+              fontSize: '14px',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+            }}
+          >
+            Refresh Status
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
