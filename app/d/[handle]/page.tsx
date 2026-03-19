@@ -26,21 +26,24 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const ogImage = vehiclePhotoUrl || (thumbnailIsImage ? thumbnailUrl : null)
     || `https://atl.hmucashride.com/api/og/driver?handle=${handle}`;
 
+  const displayName = (p.display_name as string) || name || handle;
+  const ogTitle = `${displayName} Doin Cash Rides. HMU ATL!`;
+
   return {
-    title: `Book ${name} — HMU ATL`,
-    description: `Book ${name} directly on HMU ATL. Serving ${areas}. Payment secured upfront.`,
+    title: ogTitle,
+    description: `Book ${displayName} directly. Serving ${areas}. No surge, no fees — just cash rides.`,
     openGraph: {
-      title: `Book ${name} on HMU ATL`,
+      title: ogTitle,
       description: `${areas} • Payment-ready rides in Metro ATL`,
       url: `https://atl.hmucashride.com/d/${handle}`,
       siteName: 'HMU ATL Cash Ride',
       type: 'profile',
-      images: [{ url: ogImage, width: 1200, height: 630, alt: `Book ${name} on HMU ATL` }],
+      images: [{ url: ogImage, width: 1200, height: 630, alt: ogTitle }],
     },
     twitter: {
       card: 'summary_large_image',
-      title: `Book ${name} — HMU ATL`,
-      description: `${areas} • Payment secured before they pull up.`,
+      title: ogTitle,
+      description: `${areas} • No surge, no fees — just cash rides.`,
       images: [ogImage],
     },
   };
