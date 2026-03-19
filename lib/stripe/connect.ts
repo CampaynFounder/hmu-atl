@@ -5,7 +5,9 @@ import Stripe from 'stripe';
 let _stripe: Stripe | null = null;
 function getStripe(): Stripe {
   if (!_stripe) {
-    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
+    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+      httpClient: Stripe.createFetchHttpClient(),
+    });
   }
   return _stripe;
 }
