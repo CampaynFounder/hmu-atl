@@ -49,6 +49,12 @@ export default async function DriverProfilePage() {
         chillScore: Number(user.chill_score ?? 0),
         completedRides: 0,
       }}
+      payout={{
+        setupComplete: !!(p.payout_setup_complete),
+        last4: (p.stripe_external_account_last4 as string) || null,
+        accountType: (p.stripe_external_account_type as string) || null,
+        bankName: (p.stripe_external_account_bank as string) || null,
+      }}
     />
   );
 }

@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { VideoRecorder } from '@/components/onboarding/video-recorder';
+import PayoutSection from './payout-section';
 
 interface ProfileData {
   handle: string;
@@ -28,9 +29,17 @@ interface UserData {
   completedRides: number;
 }
 
+interface PayoutData {
+  setupComplete: boolean;
+  last4: string | null;
+  accountType: string | null;
+  bankName: string | null;
+}
+
 interface Props {
   profile: ProfileData;
   user: UserData;
+  payout: PayoutData;
 }
 
 const ATLANTA_AREAS = [
@@ -46,7 +55,7 @@ const DAY_LABELS: Record<string, string> = {
   friday: 'Fri', saturday: 'Sat', sunday: 'Sun',
 };
 
-export default function DriverProfileClient({ profile, user }: Props) {
+export default function DriverProfileClient({ profile, user, payout }: Props) {
   const [data, setData] = useState(profile);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState('');
@@ -289,6 +298,15 @@ export default function DriverProfileClient({ profile, user }: Props) {
           <div className="dp-section-title">Your HMU Link</div>
           <div className="link-pill">{shareUrl}</div>
         </div>
+
+        {/* Payout */}
+        <PayoutSection
+          payoutSetupComplete={payout.setupComplete}
+          last4={payout.last4}
+          accountType={payout.accountType}
+          bankName={payout.bankName}
+          tier={user.tier}
+        />
 
         {/* Booking Settings */}
         <div className="dp-section">
