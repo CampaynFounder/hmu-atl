@@ -55,14 +55,11 @@ export async function POST(req: NextRequest) {
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     const userId = (userRows[0] as { id: string }).id;
 
-    // Parse areas from message (simple: use first word or "ATL" default)
-    const areas = ['ATL'];
-
     const rows = await sql`
       INSERT INTO hmu_posts (
         user_id, post_type, areas, price, time_window, status, expires_at
       ) VALUES (
-        ${userId}, 'rider_request', ${JSON.stringify(areas)}::jsonb,
+        ${userId}, 'rider_request', ${['ATL']},
         ${price}, ${JSON.stringify({ message, destination: message })}::jsonb,
         'active', NOW() + INTERVAL '2 hours'
       )

@@ -81,7 +81,6 @@ export function Header() {
                   {isSignedIn && profileType === 'rider' && (
                     <>
                       <NavItem href="/rider/home" label="Find a Ride" active={pathname === '/rider/home'} accent onClick={close} />
-                      <NavItem href="/driver" label="Become a Driver" onClick={close} />
                     </>
                   )}
 
