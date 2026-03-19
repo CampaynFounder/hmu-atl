@@ -12,6 +12,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/webhooks(.*)',
   '/d/(.*)',
   '/api/drivers/:handle',
+  '/api/og/(.*)',
   '/driver',
   '/rider',
   '/rider/home',

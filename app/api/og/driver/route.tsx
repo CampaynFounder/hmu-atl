@@ -3,8 +3,6 @@ import { NextRequest } from 'next/server';
 import { getDriverProfileByHandle } from '@/lib/db/profiles';
 import { sql } from '@/lib/db/client';
 
-export const runtime = 'edge';
-
 export async function GET(req: NextRequest) {
   const handle = req.nextUrl.searchParams.get('handle');
   if (!handle) {
