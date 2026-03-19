@@ -11,20 +11,25 @@ export async function GET() {
 
   const driverUserId = (userRows[0] as { id: string }).id;
 
+  // Fetch both direct bookings AND broadcast rider requests
   const rows = await sql`
     SELECT
       p.id,
+      p.post_type,
       p.price,
       p.time_window,
       p.booking_expires_at,
+      p.expires_at,
       p.created_at,
       COALESCE(rp.display_name, rp.first_name, 'Rider') AS rider_name
     FROM hmu_posts p
     LEFT JOIN rider_profiles rp ON rp.user_id = p.user_id
-    WHERE p.target_driver_id = ${driverUserId}
-      AND p.post_type = 'direct_booking'
-      AND p.status = 'active'
-      AND p.booking_expires_at > NOW()
+    WHERE p.status = 'active'
+      AND (
+        (p.post_type = 'direct_booking' AND p.target_driver_id = ${driverUserId} AND p.booking_expires_at > NOW())
+        OR
+        (p.post_type = 'rider_request' AND p.expires_at > NOW())
+      )
     ORDER BY p.created_at DESC
   `;
 
@@ -32,13 +37,15 @@ export async function GET() {
     const tw = (row.time_window ?? {}) as Record<string, unknown>;
     return {
       id: row.id,
+      type: row.post_type === 'direct_booking' ? 'direct' : 'broadcast',
       riderName: row.rider_name ?? 'Rider',
-      destination: tw.destination ?? tw.note ?? '',
+      destination: tw.destination ?? tw.message ?? tw.note ?? '',
       time: tw.time ?? '',
       stops: tw.stops ?? '',
       roundTrip: tw.round_trip === true,
       price: Number(row.price ?? 0),
-      expiresAt: row.booking_expires_at,
+      expiresAt: row.booking_expires_at || row.expires_at,
+      createdAt: row.created_at,
     };
   });
 

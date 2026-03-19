@@ -7,6 +7,7 @@ import { MapPin, Clock, DollarSign, ArrowRight, ChevronLeft } from 'lucide-react
 
 interface RiderRequest {
   id: string;
+  type?: string;
   riderName: string;
   destination: string;
   time: string;
@@ -15,7 +16,7 @@ interface RiderRequest {
   price: number;
   expiresAt: string;
   createdAt: string;
-  areas: string[];
+  areas?: string[];
 }
 
 interface Props {
@@ -258,7 +259,19 @@ function SwipeableCard({
       <div className="rider-card-inner">
         {/* Hero */}
         <div className="rc-hero">
-          <div className="rc-name">{request.riderName}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+            <div className="rc-name">{request.riderName}</div>
+            {request.type === 'broadcast' && (
+              <span style={{ fontSize: '10px', background: 'rgba(68,138,255,0.15)', color: '#448AFF', padding: '2px 8px', borderRadius: '100px', fontWeight: 600 }}>
+                Broadcast
+              </span>
+            )}
+            {request.type === 'direct' && (
+              <span style={{ fontSize: '10px', background: 'rgba(0,230,118,0.15)', color: '#00E676', padding: '2px 8px', borderRadius: '100px', fontWeight: 600 }}>
+                For you
+              </span>
+            )}
+          </div>
           <div className="rc-time-ago">{timeAgo}</div>
         </div>
 

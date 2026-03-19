@@ -20,15 +20,17 @@ export async function POST(
     const postRows = await sql`
       SELECT * FROM hmu_posts
       WHERE id = ${postId}
-        AND post_type = 'direct_booking'
-        AND target_driver_id = ${driverUserId}
         AND status = 'active'
-        AND booking_expires_at > NOW()
+        AND (
+          (post_type = 'direct_booking' AND target_driver_id = ${driverUserId} AND booking_expires_at > NOW())
+          OR
+          (post_type = 'rider_request' AND expires_at > NOW())
+        )
       LIMIT 1
     `;
 
     if (!postRows.length) {
-      return NextResponse.json({ error: 'Booking not found or expired' }, { status: 404 });
+      return NextResponse.json({ error: 'Request not found or expired' }, { status: 404 });
     }
 
     const post = postRows[0] as Record<string, unknown>;
