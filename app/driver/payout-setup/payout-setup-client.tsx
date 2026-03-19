@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 
 interface PayoutStatus {
   stripeAccountId: string | null;
@@ -16,22 +15,20 @@ interface PayoutStatus {
 
 interface Props {
   initialStatus: PayoutStatus;
+  shouldRefresh?: boolean;
 }
 
-export default function PayoutSetupClient({ initialStatus }: Props) {
+export default function PayoutSetupClient({ initialStatus, shouldRefresh }: Props) {
   const [status, setStatus] = useState<PayoutStatus>(initialStatus);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const searchParams = useSearchParams();
 
-  // On page load, check URL params for ?setup=complete and refresh status
   useEffect(() => {
-    if (searchParams.get('setup') === 'complete') {
+    if (shouldRefresh) {
       refreshStatus();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [shouldRefresh]);
 
   const refreshStatus = async () => {
     setRefreshing(true);
