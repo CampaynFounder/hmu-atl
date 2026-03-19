@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { UserProfile } from '@clerk/nextjs';
+import UpgradeOverlay from '@/components/driver/upgrade-overlay';
 import Link from 'next/link';
 import { ChevronLeft, Shield, Zap, Clock, MessageCircle } from 'lucide-react';
 
@@ -176,6 +177,7 @@ function SecurityTab() {
 
 function HmuFirstTab({ tier }: { tier: string }) {
   const isFirst = tier === 'hmu_first';
+  const [showUpgrade, setShowUpgrade] = useState(false);
 
   return (
     <div>
@@ -234,9 +236,16 @@ function HmuFirstTab({ tier }: { tier: string }) {
       {isFirst ? (
         <div className="current-plan">You&apos;re on HMU First</div>
       ) : (
-        <button className="upgrade-btn">
-          Upgrade to HMU First — $9.99/mo
-        </button>
+        <>
+          <button className="upgrade-btn" onClick={() => setShowUpgrade(true)}>
+            Upgrade Now — $9.99/mo
+          </button>
+          <UpgradeOverlay
+            open={showUpgrade}
+            onClose={() => setShowUpgrade(false)}
+            onUpgraded={() => window.location.reload()}
+          />
+        </>
       )}
     </div>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
+import UpgradeOverlay from './upgrade-overlay';
 
 interface BalanceData {
   available: number;
@@ -18,6 +18,7 @@ export default function CashoutCard() {
   const [result, setResult] = useState<{ amount: number; method: string; fee: number; arrival: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedMethod, setSelectedMethod] = useState<'standard' | 'instant'>('standard');
+  const [showUpgrade, setShowUpgrade] = useState(false);
 
   useEffect(() => {
     fetch('/api/driver/balance')
@@ -180,13 +181,19 @@ export default function CashoutCard() {
             </button>
 
             {!isHmuFirst && (
-              <Link href="/driver/settings?tab=hmu-first" className="co-upgrade">
+              <button type="button" className="co-upgrade" onClick={() => setShowUpgrade(true)} style={{ width: '100%', cursor: 'pointer', background: 'transparent', fontFamily: 'var(--font-body, DM Sans, sans-serif)' }}>
                 <span className="co-upgrade-text">
-                  {'\uD83E\uDD47'} Upgrade to HMU First — free instant payouts + 12% flat fee
+                  {'\uD83E\uDD47'} Upgrade to HMU First — keep more + free instant payouts
                 </span>
                 <span className="co-upgrade-arrow">{'\u203A'}</span>
-              </Link>
+              </button>
             )}
+
+            <UpgradeOverlay
+              open={showUpgrade}
+              onClose={() => setShowUpgrade(false)}
+              onUpgraded={() => { setShowUpgrade(false); window.location.reload(); }}
+            />
           </>
         )}
       </div>
