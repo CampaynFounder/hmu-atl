@@ -103,11 +103,13 @@ export default function DriverHomeClient({
         if (action === 'accept' && data.rideId) {
           window.location.href = `/ride/${data.rideId}`;
         }
-      } else {
-        alert(`Error: ${data.error || 'Failed'}${data.detail ? '\n' + data.detail : ''}`);
+      } else if (data.error === 'PAYOUT_REQUIRED') {
+        if (confirm('Set up your payout account to accept rides. Go to payout setup?')) {
+          window.location.href = '/driver/payout-setup';
+        }
       }
-    } catch (e) {
-      alert('Network error: ' + (e instanceof Error ? e.message : String(e)));
+    } catch {
+      // silent
     } finally {
       setActionLoading(null);
     }

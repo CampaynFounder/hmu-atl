@@ -17,6 +17,14 @@ export async function POST(
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     const driverUserId = (userRows[0] as { id: string }).id;
 
+    // Check payout setup
+    const payoutRows = await sql`
+      SELECT payout_setup_complete FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
+    `;
+    if (payoutRows.length && !(payoutRows[0] as Record<string, unknown>).payout_setup_complete) {
+      return NextResponse.json({ error: 'PAYOUT_REQUIRED' }, { status: 403 });
+    }
+
     const postRows = await sql`
       SELECT * FROM hmu_posts
       WHERE id = ${postId}
