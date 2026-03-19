@@ -12,6 +12,7 @@ interface BookingRequest {
   roundTrip: boolean;
   price: number;
   expiresAt: string;
+  createdAt?: string;
 }
 
 interface Props {
@@ -92,13 +93,31 @@ export default function DriverHomeClient({
   };
 
   const handleAction = async (postId: string, action: 'accept' | 'decline') => {
+    if (action === 'accept') {
+      // Check payout setup first
+      try {
+        const setupRes = await fetch('/api/driver/payout-setup');
+        if (setupRes.ok) {
+          const setupData = await setupRes.json();
+          if (!setupData.setupComplete) {
+            // Redirect to payout setup
+            const startRes = await fetch('/api/driver/onboarding/start', { method: 'POST' });
+            const startData = await startRes.json();
+            if (startData.onboardingUrl) {
+              window.location.href = startData.onboardingUrl;
+              return;
+            }
+          }
+        }
+      } catch { /* proceed anyway */ }
+    }
+
     setActionLoading(postId);
     try {
       const res = await fetch(`/api/bookings/${postId}/${action}`, { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
         setRequests((prev) => prev.filter((r) => r.id !== postId));
-        // Redirect to ride view on accept
         if (action === 'accept' && data.rideId) {
           window.location.href = `/ride/${data.rideId}`;
         }
@@ -212,7 +231,12 @@ export default function DriverHomeClient({
         ) : (
           requests.map((req) => (
             <div key={req.id} className="request-card">
-              <div className="request-rider">{req.riderName}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="request-rider">{req.riderName}</div>
+                {req.createdAt && (
+                  <span style={{ fontSize: '12px', color: '#888' }}>{getTimeAgo(req.createdAt)}</span>
+                )}
+              </div>
               <div className="request-detail">
                 <span className="request-detail-label">Where</span>
                 {req.destination || 'Not specified'}
@@ -256,4 +280,14 @@ export default function DriverHomeClient({
       </div>
     </>
   );
+}
+
+function getTimeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }

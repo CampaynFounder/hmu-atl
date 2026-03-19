@@ -51,13 +51,28 @@ export default function DriverFeedClient({ driverAreas }: Props) {
   }, [fetchRequests]);
 
   const handleAccept = async (postId: string) => {
+    // Check payout setup first
+    try {
+      const setupRes = await fetch('/api/driver/payout-setup');
+      if (setupRes.ok) {
+        const setupData = await setupRes.json();
+        if (!setupData.setupComplete) {
+          const startRes = await fetch('/api/driver/onboarding/start', { method: 'POST' });
+          const startData = await startRes.json();
+          if (startData.onboardingUrl) {
+            window.location.href = startData.onboardingUrl;
+            return;
+          }
+        }
+      }
+    } catch { /* proceed */ }
+
     try {
       const res = await fetch(`/api/bookings/${postId}/accept`, { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
         setRequests((prev) => prev.filter((r) => r.id !== postId));
         setActionFeedback('Accepted!');
-        // Redirect to ride view
         if (data.rideId) {
           window.location.href = `/ride/${data.rideId}`;
         }
@@ -232,13 +247,26 @@ function SwipeableCard({
   const rotate = useTransform(x, [-200, 0, 200], [-8, 0, 8]);
   const acceptOpacity = useTransform(x, [0, 80, 200], [0, 0.5, 1]);
   const skipOpacity = useTransform(x, [-200, -80, 0], [1, 0.5, 0]);
+  const [dismissed, setDismissed] = useState<'left' | 'right' | null>(null);
 
   const handleDragEnd = (_: unknown, info: PanInfo) => {
     if (info.offset.x > 120) {
-      onAccept();
+      setDismissed('right');
+      setTimeout(onAccept, 300);
     } else if (info.offset.x < -120) {
-      onDecline();
+      setDismissed('left');
+      setTimeout(onDecline, 300);
     }
+  };
+
+  const handlePassClick = () => {
+    setDismissed('left');
+    setTimeout(onDecline, 300);
+  };
+
+  const handleAcceptClick = () => {
+    setDismissed('right');
+    setTimeout(onAccept, 300);
   };
 
   const timeAgo = getTimeAgo(request.createdAt);
@@ -247,14 +275,19 @@ function SwipeableCard({
     <motion.div
       className="rider-card"
       style={{ x, rotate }}
-      drag="x"
+      drag={!dismissed ? 'x' : false}
       dragConstraints={{ left: 0, right: 0 }}
       dragElastic={0.7}
       onDragEnd={handleDragEnd}
       initial={{ scale: 0.95, opacity: 0, y: 20 }}
-      animate={{ scale: 1, opacity: 1, y: 0 }}
+      animate={dismissed === 'left'
+        ? { x: -400, rotate: -15, opacity: 0 }
+        : dismissed === 'right'
+        ? { x: 400, rotate: 15, opacity: 0 }
+        : { scale: 1, opacity: 1, y: 0 }
+      }
       exit={{ scale: 1.02, opacity: 0, y: -30 }}
-      transition={{ duration: 0.25 }}
+      transition={{ duration: dismissed ? 0.3 : 0.25 }}
     >
       <div className="rider-card-inner">
         {/* Hero */}
@@ -319,10 +352,10 @@ function SwipeableCard({
 
         {/* Actions */}
         <div className="rc-actions">
-          <button className="rc-btn rc-btn--accept" onClick={onAccept}>
+          <button className="rc-btn rc-btn--accept" onClick={handleAcceptClick} disabled={!!dismissed}>
             Accept ${request.price}
           </button>
-          <button className="rc-btn rc-btn--decline" onClick={onDecline}>
+          <button className="rc-btn rc-btn--decline" onClick={handlePassClick} disabled={!!dismissed}>
             Pass
           </button>
           <div className="rc-swipe-hint">
