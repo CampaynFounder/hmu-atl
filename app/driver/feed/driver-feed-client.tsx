@@ -357,10 +357,10 @@ function SwipeableCard({
       </div>
 
       {/* Swipe indicators */}
-      <motion.div className="swipe-label swipe-label--accept" style={{ opacity: acceptOpacity }}>
-        BET
+      <motion.div className="swipe-label swipe-label--accept" style={{ opacity: dismissed === 'right' ? 1 : acceptOpacity }}>
+        HMU
       </motion.div>
-      <motion.div className="swipe-label swipe-label--skip" style={{ opacity: skipOpacity }}>
+      <motion.div className="swipe-label swipe-label--skip" style={{ opacity: dismissed === 'left' ? 1 : skipOpacity }}>
         NAH
       </motion.div>
     </motion.div>
