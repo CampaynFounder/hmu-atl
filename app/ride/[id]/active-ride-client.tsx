@@ -46,6 +46,10 @@ interface RideData {
   disputeWindowExpiresAt: string | null;
   driverPayoutAmount: number;
   platformFeeAmount: number;
+  cooAt: string | null;
+  riderLat: number | null;
+  riderLng: number | null;
+  riderLocationText: string | null;
 }
 
 interface ActiveRideClientProps {
@@ -147,6 +151,27 @@ export default function ActiveRideClient({
       case 'dispute_filed': {
         setRide(prev => ({ ...prev, status: 'disputed' }));
         showNotification('A dispute has been filed');
+        break;
+      }
+      case 'coo': {
+        setRide(prev => ({
+          ...prev,
+          cooAt: new Date().toISOString(),
+          riderLat: data.riderLat as number | null,
+          riderLng: data.riderLng as number | null,
+          riderLocationText: data.riderLocation as string | null,
+        }));
+        showNotification('Rider says COO — payment ready!');
+        break;
+      }
+      case 'status_change': {
+        const newStatus = data.status as string;
+        if (newStatus) setRide(prev => ({ ...prev, status: newStatus }));
+        if (data.message) showNotification(data.message as string);
+        break;
+      }
+      case 'location': {
+        setDriverLocation({ lat: data.lat as number, lng: data.lng as number });
         break;
       }
       default:
@@ -541,13 +566,18 @@ export default function ActiveRideClient({
     if (isDriver) {
       switch (ride.status) {
         case 'matched':
-          return (
-            <ActionButton
-              label="OTW"
-              color={COLORS.green}
-              onPress={() => callAction('otw')}
-              loading={loading}
-            />
+          return ride.cooAt ? (
+            <>
+              <StatusMessage text={`Rider is ready! ${ride.riderLocationText ? 'Pickup: ' + ride.riderLocationText : 'Location shared on map'}`} />
+              <ActionButton
+                label="OTW"
+                color={COLORS.green}
+                onPress={() => callAction('otw')}
+                loading={loading}
+              />
+            </>
+          ) : (
+            <StatusMessage text="Waiting for rider to confirm COO..." />
           );
 
         case 'otw':
@@ -598,8 +628,12 @@ export default function ActiveRideClient({
     // ── RIDER views ──
     switch (ride.status) {
       case 'matched':
-        return (
-          <StatusMessage text="Waiting for driver to start heading your way..." />
+        return ride.cooAt ? (
+          <StatusMessage text="COO sent — waiting for driver to go OTW..." />
+        ) : (
+          <CooButton rideId={rideId} onCooSent={(lat, lng, text) => {
+            setRide(prev => ({ ...prev, cooAt: new Date().toISOString(), riderLat: lat, riderLng: lng, riderLocationText: text }));
+          }} />
         );
 
       case 'otw':
@@ -921,4 +955,100 @@ function getStatusNotification(status: string, isDriver: boolean): string {
     default:
       return '';
   }
+}
+
+// ── COO Button component ──
+function CooButton({ rideId, onCooSent }: {
+  rideId: string;
+  onCooSent: (lat: number | null, lng: number | null, text: string | null) => void;
+}) {
+  const [locationText, setLocationText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [gettingLocation, setGettingLocation] = useState(false);
+  const [geoLat, setGeoLat] = useState<number | null>(null);
+  const [geoLng, setGeoLng] = useState<number | null>(null);
+
+  function getMyLocation() {
+    if (!navigator.geolocation) return;
+    setGettingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGeoLat(pos.coords.latitude);
+        setGeoLng(pos.coords.longitude);
+        setGettingLocation(false);
+      },
+      () => setGettingLocation(false),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
+  async function handleCoo() {
+    if (!locationText.trim() && !geoLat) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/rides/${rideId}/coo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: geoLat, lng: geoLng, locationText: locationText.trim() || null }),
+      });
+      if (res.ok) {
+        onCooSent(geoLat, geoLng, locationText.trim() || null);
+      }
+    } catch { /* silent */ }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div style={{ fontSize: '14px', color: COLORS.grayLight, marginBottom: '4px' }}>
+        Share your pickup location so your driver can find you
+      </div>
+
+      <input
+        type="text"
+        value={locationText}
+        onChange={(e) => setLocationText(e.target.value)}
+        placeholder="e.g. 123 Peachtree St, in front of Starbucks"
+        style={{
+          background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: '12px', padding: '14px 16px', color: '#fff',
+          fontSize: '15px', outline: 'none', width: '100%',
+          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+        }}
+      />
+
+      <button
+        type="button"
+        onClick={getMyLocation}
+        disabled={gettingLocation}
+        style={{
+          background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: '100px', padding: '10px 16px', color: COLORS.blue,
+          fontSize: '13px', fontWeight: 600, cursor: 'pointer', width: '100%',
+          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+        }}
+      >
+        {gettingLocation ? 'Getting location...' : geoLat ? `📍 Location shared (${geoLat.toFixed(4)}, ${geoLng?.toFixed(4)})` : '📍 Share my GPS location'}
+      </button>
+
+      <button
+        type="button"
+        onClick={handleCoo}
+        disabled={loading || (!locationText.trim() && !geoLat)}
+        style={{
+          width: '100%', padding: '18px', borderRadius: '100px',
+          border: 'none', background: COLORS.green, color: COLORS.black,
+          fontWeight: 800, fontSize: '18px', cursor: 'pointer',
+          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          opacity: loading || (!locationText.trim() && !geoLat) ? 0.4 : 1,
+        }}
+      >
+        {loading ? 'Sending...' : 'COO — I\'m ready'}
+      </button>
+
+      <div style={{ fontSize: '12px', color: COLORS.gray, textAlign: 'center' }}>
+        This confirms your payment and shares your pickup location
+      </div>
+    </div>
+  );
 }

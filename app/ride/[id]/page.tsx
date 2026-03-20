@@ -47,6 +47,7 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
       {/* Mapbox GL loaded via CDN to avoid bundling into worker */}
       <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.css" rel="stylesheet" />
       <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.js" async />
+      <style>{`.mapboxgl-ctrl-logo { width: 60px !important; height: 16px !important; opacity: 0.3 !important; } .mapboxgl-ctrl-attrib { font-size: 9px !important; opacity: 0.3 !important; }`}</style>
     <ActiveRideClient
       rideId={rideId}
       userId={user.id}
@@ -67,6 +68,10 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
         disputeWindowExpiresAt: ride.dispute_window_expires_at as string | null,
         driverPayoutAmount: Number(ride.driver_payout_amount || 0),
         platformFeeAmount: Number(ride.platform_fee_amount || 0),
+        cooAt: ride.coo_at as string | null,
+        riderLat: ride.rider_lat ? Number(ride.rider_lat) : null,
+        riderLng: ride.rider_lng ? Number(ride.rider_lng) : null,
+        riderLocationText: (ride.rider_location_text as string) || null,
       }}
       mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''}
     />
