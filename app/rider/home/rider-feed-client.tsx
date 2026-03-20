@@ -171,7 +171,16 @@ export default function RiderFeedClient({ displayName }: Props) {
               'bankhead > gresham 2 stops $35',
               'marietta > airport $40 round trip',
             ].map((ex) => (
-              <button key={ex} className="rf-example" onClick={() => setInput(ex)}>
+              <button key={ex} className="rf-example" onClick={() => {
+                setInput(ex);
+                // Focus and select so typing replaces
+                setTimeout(() => {
+                  if (inputRef.current) {
+                    inputRef.current.focus();
+                    inputRef.current.select();
+                  }
+                }, 50);
+              }}>
                 {ex}
               </button>
             ))}
