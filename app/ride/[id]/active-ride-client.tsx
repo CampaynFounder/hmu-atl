@@ -174,6 +174,20 @@ export default function ActiveRideClient({
         setDriverLocation({ lat: data.lat as number, lng: data.lng as number });
         break;
       }
+      case 'cancel_request': {
+        if (isDriver) {
+          // Driver sees cancel request from rider
+          const agreed = confirm(`${data.message || 'Rider wants to cancel.'}\n\nAgree to cancel this ride?`);
+          if (agreed) {
+            fetch(`/api/rides/${rideId}/cancel`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ agreeToCancel: true }),
+            }).then(() => setRide(prev => ({ ...prev, status: 'cancelled' })));
+          }
+        }
+        break;
+      }
       default:
         break;
     }
@@ -629,16 +643,25 @@ export default function ActiveRideClient({
     switch (ride.status) {
       case 'matched':
         return ride.cooAt ? (
-          <StatusMessage text="COO sent — waiting for driver to go OTW..." />
+          <>
+            <StatusMessage text="COO sent — waiting for driver to go OTW..." />
+            <CancelButton rideId={rideId} label="Cancel Ride" onCancelled={() => setRide(prev => ({ ...prev, status: 'cancelled' }))} />
+          </>
         ) : (
-          <CooButton rideId={rideId} onCooSent={(lat, lng, text) => {
-            setRide(prev => ({ ...prev, cooAt: new Date().toISOString(), riderLat: lat, riderLng: lng, riderLocationText: text }));
-          }} />
+          <>
+            <CooButton rideId={rideId} onCooSent={(lat, lng, text) => {
+              setRide(prev => ({ ...prev, cooAt: new Date().toISOString(), riderLat: lat, riderLng: lng, riderLocationText: text }));
+            }} />
+            <CancelButton rideId={rideId} label="Cancel" onCancelled={() => setRide(prev => ({ ...prev, status: 'cancelled' }))} />
+          </>
         );
 
       case 'otw':
         return (
-          <StatusMessage text="Driver is on the way" />
+          <>
+            <StatusMessage text="Driver is on the way" />
+            <CancelButton rideId={rideId} label="Request Cancel" needsApproval onCancelled={() => setRide(prev => ({ ...prev, status: 'cancelled' }))} />
+          </>
         );
 
       case 'here':
@@ -1050,5 +1073,57 @@ function CooButton({ rideId, onCooSent }: {
         This confirms your payment and shares your pickup location
       </div>
     </div>
+  );
+}
+
+// ── Cancel Button component ──
+function CancelButton({ rideId, label, needsApproval, onCancelled }: {
+  rideId: string;
+  label: string;
+  needsApproval?: boolean;
+  onCancelled: () => void;
+}) {
+  const [cancelling, setCancelling] = useState(false);
+
+  async function handleCancel() {
+    if (needsApproval) {
+      if (!confirm('The driver is already on the way. Request cancellation? The driver must agree.')) return;
+    } else {
+      if (!confirm('Cancel this ride?')) return;
+    }
+
+    setCancelling(true);
+    try {
+      const res = await fetch(`/api/rides/${rideId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Rider cancelled' }),
+      });
+      const data = await res.json();
+      if (data.status === 'cancelled') {
+        onCancelled();
+      } else if (data.needsDriverApproval) {
+        alert('Cancel request sent to driver. Waiting for their response...');
+      }
+    } catch { /* silent */ }
+    setCancelling(false);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCancel}
+      disabled={cancelling}
+      style={{
+        width: '100%', padding: '12px', marginTop: '8px',
+        borderRadius: '100px', border: '1px solid rgba(255,82,82,0.3)',
+        background: 'transparent', color: '#FF5252',
+        fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+        fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+        opacity: cancelling ? 0.5 : 1,
+      }}
+    >
+      {cancelling ? 'Cancelling...' : label}
+    </button>
   );
 }
