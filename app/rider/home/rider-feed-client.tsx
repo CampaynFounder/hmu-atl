@@ -22,6 +22,7 @@ interface MatchNotification {
   driverName?: string;
   price?: number;
   message?: string;
+  needsPayment?: boolean;
 }
 
 export default function RiderFeedClient({ displayName, userId }: Props) {
@@ -44,14 +45,25 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
           price: data.price as number,
           message: (data.message as string) || 'A driver accepted your ride!',
         });
-        // Update post status
         if (data.postId) {
           setPosts(prev => prev.map(p => p.id === data.postId ? { ...p, status: 'matched' } : p));
         }
-        // Auto-redirect after 3 seconds
-        setTimeout(() => {
-          window.location.href = `/ride/${rideId}`;
-        }, 3000);
+        // Check if rider has payment method before redirecting
+        fetch('/api/rider/payment-methods')
+          .then(r => r.json())
+          .then(pmData => {
+            if (pmData.methods && pmData.methods.length > 0) {
+              // Has payment — redirect to ride
+              setTimeout(() => { window.location.href = `/ride/${rideId}`; }, 2500);
+            } else {
+              // No payment — show payment prompt (handled in overlay)
+              setMatchNotif(prev => prev ? { ...prev, needsPayment: true } : null);
+            }
+          })
+          .catch(() => {
+            // On error, redirect anyway
+            setTimeout(() => { window.location.href = `/ride/${rideId}`; }, 3000);
+          });
       }
     }
   }, []);
@@ -61,8 +73,16 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
     onMessage: handleAblyMessage,
   });
 
-  // Check for active ride on mount
+  // Check for active ride on mount + handle return from payment setup
   useEffect(() => {
+    // Check if returning from payment setup with a pending ride
+    const pendingRide = localStorage.getItem('hmu_pending_ride');
+    if (pendingRide) {
+      localStorage.removeItem('hmu_pending_ride');
+      window.location.href = `/ride/${pendingRide}`;
+      return;
+    }
+
     fetch('/api/rides/active')
       .then(r => r.json())
       .then(data => {
@@ -353,15 +373,49 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
             </p>
           )}
 
-          <p style={{ fontSize: '14px', color: '#888', marginTop: '16px' }}>
-            Loading your ride...
-          </p>
-
-          <div style={{
-            width: '40px', height: '40px', border: '3px solid rgba(0,230,118,0.3)',
-            borderTopColor: '#00E676', borderRadius: '50%',
-            animation: 'spin 0.8s linear infinite', marginTop: '12px',
-          }} />
+          {matchNotif.needsPayment ? (
+            <>
+              <p style={{ fontSize: '14px', color: '#FFB300', fontWeight: 600, marginTop: '16px', textAlign: 'center' }}>
+                Link a payment method to confirm your ride
+              </p>
+              <p style={{ fontSize: '12px', color: '#888', marginTop: '4px', textAlign: 'center' }}>
+                Add payment quickly before driver moves on
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/rider/payment-methods/checkout', { method: 'POST' });
+                    const data = await res.json();
+                    if (data.url) {
+                      // Store ride ID so we can redirect after payment
+                      localStorage.setItem('hmu_pending_ride', matchNotif.rideId);
+                      window.location.href = data.url;
+                    }
+                  } catch { /* silent */ }
+                }}
+                style={{
+                  width: '100%', maxWidth: '300px', padding: '16px', marginTop: '16px',
+                  borderRadius: '100px', border: 'none', background: '#00E676',
+                  color: '#080808', fontWeight: 800, fontSize: '16px', cursor: 'pointer',
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                }}
+              >
+                Link Payment — One Tap
+              </button>
+            </>
+          ) : (
+            <>
+              <p style={{ fontSize: '14px', color: '#888', marginTop: '16px' }}>
+                Loading your ride...
+              </p>
+              <div style={{
+                width: '40px', height: '40px', border: '3px solid rgba(0,230,118,0.3)',
+                borderTopColor: '#00E676', borderRadius: '50%',
+                animation: 'spin 0.8s linear infinite', marginTop: '12px',
+              }} />
+            </>
+          )}
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
