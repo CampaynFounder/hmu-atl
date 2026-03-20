@@ -75,13 +75,20 @@ export async function POST(
 
     const rideId = (rideRows[0] as { id: string }).id;
 
+    // Get driver display name for notification
+    const driverNameRows = await sql`
+      SELECT display_name FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
+    `;
+    const driverName = (driverNameRows[0] as Record<string, unknown>)?.display_name as string || 'A driver';
+
     // Notify rider via Ably
     await notifyUser(riderId, 'booking_accepted', {
       rideId,
       postId,
       driverUserId,
+      driverName,
       price,
-      message: 'Your ride request was accepted!',
+      message: `${driverName} accepted your ride!`,
     }).catch(() => {});
 
     await publishRideUpdate(rideId, 'status_change', {

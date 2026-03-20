@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useAbly } from '@/hooks/use-ably';
 
 interface Props {
   displayName: string;
+  userId: string;
 }
 
 interface PostedRequest {
@@ -15,12 +17,49 @@ interface PostedRequest {
   createdAt: string;
 }
 
-export default function RiderFeedClient({ displayName }: Props) {
+interface MatchNotification {
+  rideId: string;
+  driverName?: string;
+  price?: number;
+  message?: string;
+}
+
+export default function RiderFeedClient({ displayName, userId }: Props) {
   const [input, setInput] = useState('');
   const [posting, setPosting] = useState(false);
   const [posts, setPosts] = useState<PostedRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [matchNotif, setMatchNotif] = useState<MatchNotification | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Ably subscription for real-time notifications
+  const handleAblyMessage = useCallback((msg: { name: string; data: unknown }) => {
+    const data = msg.data as Record<string, unknown>;
+    if (msg.name === 'booking_accepted' || msg.name === 'ride_update') {
+      const rideId = data.rideId as string;
+      if (rideId) {
+        setMatchNotif({
+          rideId,
+          driverName: data.driverName as string,
+          price: data.price as number,
+          message: (data.message as string) || 'A driver accepted your ride!',
+        });
+        // Update post status
+        if (data.postId) {
+          setPosts(prev => prev.map(p => p.id === data.postId ? { ...p, status: 'matched' } : p));
+        }
+        // Auto-redirect after 3 seconds
+        setTimeout(() => {
+          window.location.href = `/ride/${rideId}`;
+        }, 3000);
+      }
+    }
+  }, []);
+
+  useAbly({
+    channelName: userId ? `user:${userId}:notify` : null,
+    onMessage: handleAblyMessage,
+  });
 
   // Check for active ride on mount
   useEffect(() => {
@@ -261,6 +300,71 @@ export default function RiderFeedClient({ displayName }: Props) {
           </Link>
         </div>
       </div>
+
+      {/* Match notification overlay */}
+      {matchNotif && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 100,
+          background: 'rgba(0,0,0,0.9)', backdropFilter: 'blur(12px)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          animation: 'matchFadeIn 0.3s ease-out',
+        }}>
+          <style>{`
+            @keyframes matchFadeIn { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes matchPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+            @keyframes matchBounce { 0% { transform: scale(0); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
+          `}</style>
+
+          <div style={{ animation: 'matchBounce 0.5s ease-out', marginBottom: '20px' }}>
+            <div style={{
+              width: '100px', height: '100px', borderRadius: '50%',
+              background: 'rgba(0,230,118,0.15)', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+            }}>
+              <div style={{
+                width: '70px', height: '70px', borderRadius: '50%',
+                background: '#00E676', display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                fontSize: '32px',
+              }}>
+                {'\uD83D\uDE97'}
+              </div>
+            </div>
+          </div>
+
+          <h2 style={{
+            fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+            fontSize: '36px', color: '#fff', textAlign: 'center', marginBottom: '8px',
+            animation: 'matchPulse 2s ease-in-out infinite',
+          }}>
+            DRIVER FOUND!
+          </h2>
+
+          <p style={{ fontSize: '16px', color: '#00E676', fontWeight: 600, marginBottom: '4px' }}>
+            {matchNotif.message}
+          </p>
+
+          {matchNotif.price && (
+            <p style={{
+              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+              fontSize: '48px', color: '#00E676', margin: '12px 0',
+            }}>
+              ${matchNotif.price}
+            </p>
+          )}
+
+          <p style={{ fontSize: '14px', color: '#888', marginTop: '16px' }}>
+            Loading your ride...
+          </p>
+
+          <div style={{
+            width: '40px', height: '40px', border: '3px solid rgba(0,230,118,0.3)',
+            borderTopColor: '#00E676', borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite', marginTop: '12px',
+          }} />
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
     </>
   );
 }

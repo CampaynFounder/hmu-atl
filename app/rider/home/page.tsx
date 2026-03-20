@@ -12,11 +12,12 @@ export default async function RiderHomePage() {
   // Check if user is logged in
   let isLoggedIn = false;
   let displayName = '';
+  let userId = '';
   try {
     const { userId: clerkId } = await auth();
     if (clerkId) {
       const rows = await sql`
-        SELECT u.profile_type, rp.display_name, rp.first_name
+        SELECT u.id, u.profile_type, rp.display_name, rp.first_name
         FROM users u
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         WHERE u.clerk_id = ${clerkId} LIMIT 1
@@ -26,6 +27,7 @@ export default async function RiderHomePage() {
         if (user.profile_type === 'rider') {
           isLoggedIn = true;
           displayName = (user.display_name as string) || 'Rider';
+          userId = user.id as string;
         }
       }
     }
@@ -34,7 +36,7 @@ export default async function RiderHomePage() {
   }
 
   if (isLoggedIn) {
-    return <RiderFeedClient displayName={displayName} />;
+    return <RiderFeedClient displayName={displayName} userId={userId} />;
   }
 
   return <RiderHomeClient />;
