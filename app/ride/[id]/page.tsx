@@ -9,22 +9,35 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
 
   const { id: rideId } = await params;
 
+  // Validate UUID format
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rideId)) {
+    redirect('/');
+  }
+
   const userRows = await sql`SELECT id, profile_type FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
   if (!userRows.length) redirect('/');
   const user = userRows[0] as { id: string; profile_type: string };
 
-  const rideRows = await sql`
-    SELECT r.*,
-      dp.display_name as driver_name, dp.handle as driver_handle,
-      rp.first_name as rider_first_name
-    FROM rides r
-    LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
-    LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
-    WHERE r.id = ${rideId} AND (r.driver_id = ${user.id} OR r.rider_id = ${user.id})
-    LIMIT 1
-  `;
+  let rideRows;
+  try {
+    rideRows = await sql`
+      SELECT r.*,
+        dp.display_name as driver_name, dp.handle as driver_handle,
+        rp.first_name as rider_first_name
+      FROM rides r
+      LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
+      LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
+      WHERE r.id = ${rideId} AND (r.driver_id = ${user.id} OR r.rider_id = ${user.id})
+      LIMIT 1
+    `;
+  } catch {
+    // Invalid ride ID or DB error
+    redirect(user.profile_type === 'driver' ? '/driver/home' : '/rider/home');
+  }
 
-  if (!rideRows.length) redirect('/');
+  if (!rideRows.length) {
+    redirect(user.profile_type === 'driver' ? '/driver/home' : '/rider/home');
+  }
 
   const ride = rideRows[0] as Record<string, unknown>;
   const isDriver = ride.driver_id === user.id;
