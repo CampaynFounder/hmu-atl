@@ -60,26 +60,42 @@ export async function POST(request: NextRequest) {
 
     const publicUrl = `${R2_PUBLIC_URL}/${fileName}`;
 
-    // Auto-save to driver profile
+    // Auto-save to profile
     const saveToProfile = formData.get('save_to_profile') !== 'false';
-    if (saveToProfile && profileType === 'driver') {
+    if (saveToProfile) {
       const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
       if (userRows.length) {
         const userId = (userRows[0] as { id: string }).id;
         const resolvedType = mediaType === 'auto' ? (isVideo ? 'video' : 'photo') : mediaType;
 
-        if (resolvedType === 'video') {
-          await sql`
-            UPDATE driver_profiles
-            SET video_url = ${publicUrl}, thumbnail_url = ${publicUrl}
-            WHERE user_id = ${userId}
-          `;
-        } else {
-          await sql`
-            UPDATE driver_profiles
-            SET vehicle_info = jsonb_set(COALESCE(vehicle_info, '{}')::jsonb, '{photo_url}', ${JSON.stringify(publicUrl)}::jsonb)
-            WHERE user_id = ${userId}
-          `;
+        if (profileType === 'driver') {
+          if (resolvedType === 'video') {
+            await sql`
+              UPDATE driver_profiles
+              SET video_url = ${publicUrl}, thumbnail_url = ${publicUrl}
+              WHERE user_id = ${userId}
+            `;
+          } else {
+            await sql`
+              UPDATE driver_profiles
+              SET vehicle_info = jsonb_set(COALESCE(vehicle_info, '{}')::jsonb, '{photo_url}', ${JSON.stringify(publicUrl)}::jsonb)
+              WHERE user_id = ${userId}
+            `;
+          }
+        } else if (profileType === 'rider') {
+          if (resolvedType === 'video') {
+            await sql`
+              UPDATE rider_profiles
+              SET video_url = ${publicUrl}, thumbnail_url = ${publicUrl}
+              WHERE user_id = ${userId}
+            `;
+          } else {
+            await sql`
+              UPDATE rider_profiles
+              SET avatar_url = ${publicUrl}
+              WHERE user_id = ${userId}
+            `;
+          }
         }
       }
     }

@@ -44,6 +44,9 @@ export async function POST(request: NextRequest) {
       pricing,
       schedule,
       vehicle_info,
+      license_plate,
+      plate_state,
+      ad_photo_url,
       stripe_connect_id,
       // Driver rider-preference fields
       rider_gender_pref,
@@ -163,7 +166,11 @@ export async function POST(request: NextRequest) {
           areas,
           pricing,
           schedule,
-          vehicle_info,
+          vehicle_info: {
+            ...(vehicle_info || {}),
+            ...(license_plate ? { license_plate, plate_state: plate_state || 'GA' } : {}),
+            ...(ad_photo_url ? { photo_url: ad_photo_url } : {}),
+          },
           stripe_connect_id,
           min_rider_chill_score,
           require_og_status,

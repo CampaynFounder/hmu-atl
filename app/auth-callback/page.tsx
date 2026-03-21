@@ -18,7 +18,7 @@ export default function AuthCallbackPage() {
 
     if (!isSignedIn) {
       // Not signed in, redirect to sign-in page
-      router.push('/sign-in');
+      router.replace('/sign-in');
       return;
     }
 
@@ -46,15 +46,15 @@ export default function AuthCallbackPage() {
       if (hasProfile) {
         // If rider came from a driver share link, send them back there
         if (returnTo && returnTo.startsWith('/d/')) {
-          router.push(`${returnTo}?bookingOpen=1`);
+          router.replace(`${returnTo}?bookingOpen=1`);
           return;
         }
         if (data.profileType === 'driver') {
-          router.push('/driver/home');
+          router.replace('/driver/home');
         } else if (data.profileType === 'rider' || data.profileType === 'both') {
-          router.push('/rider/home');
+          router.replace('/rider/home');
         } else {
-          router.push('/rider/home');
+          router.replace('/rider/home');
         }
       } else {
         // Forward type and returnTo through onboarding so context is never lost
@@ -62,11 +62,11 @@ export default function AuthCallbackPage() {
         if (type) onboardingParams.set('type', type);
         if (returnTo) onboardingParams.set('returnTo', returnTo);
         const onboardingUrl = `/onboarding${onboardingParams.size ? `?${onboardingParams}` : ''}`;
-        router.push(onboardingUrl);
+        router.replace(onboardingUrl);
       }
     } catch (error) {
       console.error('Failed to check onboarding status:', error);
-      router.push('/onboarding');
+      router.replace('/onboarding');
     }
   };
 

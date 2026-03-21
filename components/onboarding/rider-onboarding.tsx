@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Welcome } from './welcome';
 import { RatingIntro } from './rating-intro';
+import { LocationPermission } from './location-permission';
 import { ArrowRight, ArrowLeft, Check } from 'lucide-react';
 
 interface OnboardingStep {
@@ -74,6 +75,13 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
       required: false,
     },
     {
+      id: 'location',
+      title: 'Enable Location 📍',
+      description: 'Share your pickup spot so your driver can find you',
+      component: <LocationPermission userType="rider" />,
+      required: false,
+    },
+    {
       id: 'trust',
       title: 'Your Safety Matters 🛡️',
       description: 'Here\'s how we keep you safe',
@@ -88,8 +96,12 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
     ? validateStep(currentStepData.id, formData)
     : true;
 
+  const [saving, setSaving] = useState(false);
+
   const handleNext = async () => {
+    if (saving) return;
     if (isLastStep) {
+      setSaving(true);
       await saveRiderOnboarding(formData);
       setShowConfirmation(true);
     } else {
@@ -103,9 +115,9 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-gradient-to-b from-zinc-950 to-zinc-900">
+    <div className="flex min-h-screen flex-col" style={{ paddingTop: 56, background: '#0a0a0a' }}>
       {/* Progress Bar */}
-      <div className="sticky top-0 z-10 bg-zinc-900/80 backdrop-blur-sm border-b border-zinc-800">
+      <div className="sticky z-10 bg-zinc-900/80 backdrop-blur-sm border-b border-zinc-800" style={{ top: 56 }}>
         <div className="mx-auto max-w-2xl px-4 py-4">
           <div className="flex items-center gap-2 mb-3">
             <span className="rounded-full bg-[#00E676]/20 px-3 py-1 text-xs font-bold text-[#00E676] uppercase tracking-wide">
@@ -180,10 +192,15 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
 
                 <button
                   onClick={handleNext}
-                  disabled={!canProceed}
+                  disabled={!canProceed || saving}
                   className="flex items-center gap-2 rounded-full bg-[#00E676] px-8 py-3 font-black text-black shadow-lg transition-all hover:shadow-[0_0_24px_rgba(0,230,118,0.3)] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
                 >
-                  {isLastStep ? (
+                  {saving ? (
+                    <>
+                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-black border-t-transparent" />
+                      Setting up...
+                    </>
+                  ) : isLastStep ? (
                     <>
                       <Check className="h-5 w-5" />
                       Let&apos;s Go

@@ -1,6 +1,7 @@
 'use client';
 
-import { Users, Shield, Star, AlertTriangle } from 'lucide-react';
+import { useState } from 'react';
+import { Users, Shield, Star, AlertTriangle, Info, X } from 'lucide-react';
 
 export interface RiderPreferences {
   riderGenderPref: 'any' | 'women_only' | 'men_only';
@@ -29,7 +30,78 @@ const GENDER_OPTIONS = [
 ];
 
 export function RiderPreferencesStep({ preferences, onChange }: RiderPreferencesProps) {
+  const [showChillInfo, setShowChillInfo] = useState(false);
+
   return (
+    <>
+    {/* Chill Score Info Slide-in */}
+    {showChillInfo && (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 100,
+        background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(6px)',
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+      }}
+        onClick={() => setShowChillInfo(false)}
+      >
+        <div
+          style={{
+            width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto',
+            background: '#0a0a0a', borderRadius: '24px 24px 0 0',
+            padding: '24px 20px 40px',
+            animation: 'slideUp 0.3s ease-out',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          <style>{`@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>What is a Chill Score?</h3>
+            <button onClick={() => setShowChillInfo(false)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}>
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <p style={{ fontSize: 14, color: '#bbb', lineHeight: 1.5, marginBottom: 16 }}>
+            Your Chill Score is a percentage based on your ratings.{' '}
+            <strong style={{ color: '#fff' }}>CHILL = 1 point. Cool AF = 1.5 points.</strong>{' '}
+            Kinda Creepy and WEIRDO don&apos;t add points — they just lower your average.
+          </p>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            {[
+              { score: '90%+', label: 'Top tier', color: '#00E676' },
+              { score: '75%+', label: 'Solid', color: '#448AFF' },
+              { score: '50%+', label: 'Decent', color: '#FF9100' },
+              { score: '<50%', label: 'At risk', color: '#FF5252' },
+            ].map(item => (
+              <div key={item.score} style={{
+                flex: 1, textAlign: 'center', background: '#141414',
+                borderRadius: 10, padding: '10px 4px',
+              }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: item.color }}>{item.score}</div>
+                <div style={{ fontSize: 11, color: '#888' }}>{item.label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[
+              { emoji: '\u2705', label: 'CHILL', desc: 'Good vibes, smooth ride', color: '#00E676' },
+              { emoji: '\uD83D\uDE0E', label: 'Cool AF', desc: 'Great energy — 1.5x weight', color: '#448AFF' },
+              { emoji: '\uD83D\uDC40', label: 'Kinda Creepy', desc: 'Something felt off', color: '#FF9100' },
+              { emoji: '\uD83D\uDEA9', label: 'WEIRDO', desc: 'Safety concern — triggers review', color: '#FF5252' },
+            ].map(r => (
+              <div key={r.label} style={{
+                display: 'flex', alignItems: 'center', gap: 12, background: '#141414',
+                border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: '12px 14px',
+              }}>
+                <span style={{ fontSize: 22 }}>{r.emoji}</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: r.color }}>{r.label}</div>
+                  <div style={{ fontSize: 12, color: '#888' }}>{r.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
     <div className="space-y-6">
       <div className="rounded-xl bg-[#00E676]/10 p-4 border border-[#00E676]/30">
         <div className="flex gap-3">
@@ -81,10 +153,19 @@ export function RiderPreferencesStep({ preferences, onChange }: RiderPreferences
 
       {/* Minimum Rider Chill Score */}
       <div>
-        <label className="flex items-center gap-2 text-sm font-semibold mb-3 text-white">
-          <Star className="h-4 w-4 text-[#00E676]" />
-          Minimum Rider Chill Score
-        </label>
+        <div className="flex items-center gap-2 mb-3">
+          <label className="flex items-center gap-2 text-sm font-semibold text-white">
+            <Star className="h-4 w-4 text-[#00E676]" />
+            Minimum Rider Chill Score
+          </label>
+          <button
+            type="button"
+            onClick={() => setShowChillInfo(true)}
+            className="rounded-full border border-zinc-600 p-1 hover:border-[#00E676] transition-colors"
+          >
+            <Info className="h-3.5 w-3.5 text-zinc-400" />
+          </button>
+        </div>
         <div className="grid grid-cols-2 gap-2">
           {CHILL_PRESETS.map((preset) => (
             <button
@@ -175,5 +256,6 @@ export function RiderPreferencesStep({ preferences, onChange }: RiderPreferences
         </label>
       </div>
     </div>
+    </>
   );
 }

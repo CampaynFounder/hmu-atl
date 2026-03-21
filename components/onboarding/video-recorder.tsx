@@ -16,6 +16,7 @@ interface VideoRecorderProps {
   onVideoRecorded: (videoUrl: string, thumbnailUrl: string) => void;
   existingVideoUrl?: string;
   profileType?: 'rider' | 'driver';
+  onUploadStateChange?: (uploading: boolean) => void;
 }
 
 type RecordingMode = 'choose' | 'record' | 'upload';
@@ -23,7 +24,7 @@ type RecordingState = 'idle' | 'countdown' | 'recording' | 'preview' | 'uploadin
 
 const MAX_DURATION = 5000;
 
-export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType = 'rider' }: VideoRecorderProps) {
+export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType = 'rider', onUploadStateChange }: VideoRecorderProps) {
   const [mode, setMode] = useState<RecordingMode>('choose');
   const [state, setState] = useState<RecordingState>('idle');
   const [countdown, setCountdown] = useState(3);
@@ -167,6 +168,7 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
     }
 
     setState('uploading');
+    onUploadStateChange?.(true);
     setError(null);
 
     try {
@@ -189,11 +191,13 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
 
       const savedUrl = data.url || data.videoUrl;
       onVideoRecorded(savedUrl, savedUrl);
+      onUploadStateChange?.(false);
       // Keep preview state so user sees confirmation
     } catch (err) {
       console.error('Upload error:', err);
       setError(err instanceof Error ? err.message : 'Failed to upload video. Try again.');
       setState('preview');
+      onUploadStateChange?.(false);
     }
   };
 

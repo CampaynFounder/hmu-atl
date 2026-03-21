@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { User, Users } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { useUser } from '@clerk/nextjs';
 
 interface WelcomeProps {
   onNext: () => void;
@@ -9,57 +9,90 @@ interface WelcomeProps {
   data: {
     firstName: string;
     lastName: string;
+    displayName: string;
     gender: string;
     pronouns: string;
     lgbtqFriendly: boolean;
+    handleAvailable?: boolean;
   };
   onChange: (data: Partial<WelcomeProps['data']>) => void;
 }
 
 export function Welcome({ onNext, userType = 'rider', data, onChange }: WelcomeProps) {
   const otherRole = userType === 'driver' ? 'riders' : 'drivers';
+  const isDriver = userType === 'driver';
+  const { user } = useUser();
+
+  // Pre-fill from Clerk if available and fields are empty
+  useEffect(() => {
+    if (!user) return;
+    const updates: Partial<WelcomeProps['data']> = {};
+    if (!data.firstName && user.firstName) updates.firstName = user.firstName;
+    if (!data.lastName && user.lastName) updates.lastName = user.lastName;
+    if (Object.keys(updates).length > 0) onChange(updates);
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [handleStatus, setHandleStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
+  const checkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const genderOptions = [
-    { value: 'woman', label: 'Woman', icon: '♀️' },
-    { value: 'man', label: 'Man', icon: '♂️' },
-    { value: 'non-binary', label: 'Non-binary', icon: '⚧️' },
-    { value: 'prefer-not-to-say', label: 'Prefer not to say', icon: '👤' },
+    { value: 'woman', label: 'Woman', icon: '\u2640\uFE0F' },
+    { value: 'man', label: 'Man', icon: '\u2642\uFE0F' },
+    { value: 'non-binary', label: 'Non-binary', icon: '\u26A7\uFE0F' },
+    { value: 'prefer-not-to-say', label: 'Prefer not to say', icon: '\uD83D\uDC64' },
   ];
 
-  const pronounOptions = [
-    'she/her',
-    'he/him',
-    'they/them',
-    'she/they',
-    'he/they',
-    'other',
-  ];
+  const handleFirstNameChange = (val: string) => {
+    onChange({ firstName: val });
+  };
+
+  // Check handle availability with debounce
+  const handleDisplayNameChange = (val: string) => {
+    onChange({ displayName: val, handleAvailable: false });
+    if (checkTimeout.current) clearTimeout(checkTimeout.current);
+    if (!val.trim() || val.trim().length < 2) {
+      setHandleStatus('idle');
+      return;
+    }
+    setHandleStatus('checking');
+    checkTimeout.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/drivers/check-handle?handle=${encodeURIComponent(val)}`);
+        const data = await res.json();
+        setHandleStatus(data.available ? 'available' : 'taken');
+        onChange({ handleAvailable: data.available });
+      } catch {
+        setHandleStatus('idle');
+      }
+    }, 500);
+  };
 
   return (
     <div className="space-y-6">
       {/* Privacy notice for drivers */}
-      {userType === 'driver' && (
+      {isDriver && (
         <div className="rounded-xl bg-zinc-900 border border-zinc-700 p-4">
           <div className="flex gap-3">
-            <span className="text-xl mt-0.5">🔒</span>
+            <span className="text-xl mt-0.5">{'\uD83D\uDD12'}</span>
             <div className="text-sm text-zinc-400">
-              <strong className="text-zinc-200">Your legal name is private.</strong>{' '}
-              Used only for identity verification &amp; payouts. You&apos;ll choose a public driver name next.
+              <strong className="text-zinc-200">Your govt name is always private.</strong>{' '}
+              Riders never see it. The bank needs it to verify deposits and prevent fraud — if it&apos;s not right, they won&apos;t allow payouts.
             </div>
           </div>
         </div>
       )}
 
-      {/* Name */}
+      {/* Govt Name */}
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-semibold text-white mb-2">
-            {userType === 'driver' ? 'Legal First Name' : 'First Name'} <span className="text-red-400">*</span>
+            First Name {isDriver ? '(Government)' : ''} <span className="text-red-400">*</span>
           </label>
           <input
             type="text"
             value={data.firstName}
-            onChange={(e) => onChange({ firstName: e.target.value })}
-            placeholder="Sarah"
+            onChange={(e) => handleFirstNameChange(e.target.value)}
+            placeholder={isDriver ? 'Govt First Name' : 'First Name'}
             className="w-full rounded-xl border border-zinc-600 bg-zinc-900 px-4 py-3 text-lg text-white placeholder:text-zinc-500 focus:border-[#00E676] focus:outline-none focus:ring-2 focus:ring-[#00E676]/20"
             autoFocus
           />
@@ -67,20 +100,67 @@ export function Welcome({ onNext, userType = 'rider', data, onChange }: WelcomeP
 
         <div>
           <label className="block text-sm font-semibold text-white mb-2">
-            {userType === 'driver' ? 'Legal Last Name' : 'Last Name'} <span className="text-red-400">*</span>
+            Last Name {isDriver ? '(Government)' : ''} <span className="text-red-400">*</span>
           </label>
           <input
             type="text"
             value={data.lastName}
             onChange={(e) => onChange({ lastName: e.target.value })}
-            placeholder="Johnson"
+            placeholder={isDriver ? 'Govt Last Name' : 'Last Name'}
             className="w-full rounded-xl border border-zinc-600 bg-zinc-900 px-4 py-3 text-lg text-white placeholder:text-zinc-500 focus:border-[#00E676] focus:outline-none focus:ring-2 focus:ring-[#00E676]/20"
           />
-          <p className="mt-1 text-xs text-zinc-400">
-            Only your display name will be shown to {otherRole} — you&apos;ll choose it next
-          </p>
         </div>
       </div>
+
+      {/* Handle / Display Name — what riders see */}
+      {isDriver && (
+        <div>
+          <div className="rounded-xl bg-[#00E676]/10 border border-[#00E676]/30 p-3 mb-4">
+            <p className="text-sm text-zinc-300">
+              <strong className="text-white">{'\u2B07\uFE0F'} This is what riders see.</strong>{' '}
+              Your govt name above stays private.
+            </p>
+          </div>
+          <label className="block text-sm font-semibold text-white mb-2">
+            Driver Handle <span className="text-red-400">*</span>
+          </label>
+          <input
+            type="text"
+            value={data.displayName}
+            onChange={(e) => handleDisplayNameChange(e.target.value)}
+            placeholder="YungJoc, Suki, Obama"
+            className={`w-full rounded-xl bg-zinc-900 px-4 py-3 text-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#00E676]/20 border ${
+              handleStatus === 'taken' ? 'border-red-500' :
+              handleStatus === 'available' ? 'border-[#00E676]' :
+              'border-[#00E676]/40'
+            }`}
+          />
+          {/* Handle availability status */}
+          <div className="mt-1 flex items-center gap-2">
+            {handleStatus === 'checking' && (
+              <span className="text-xs text-zinc-500">Checking availability...</span>
+            )}
+            {handleStatus === 'available' && (
+              <span className="text-xs text-[#00E676] font-semibold">{'\u2713'} @{data.displayName.toLowerCase().replace(/\s+/g, '')} is available</span>
+            )}
+            {handleStatus === 'taken' && (
+              <span className="text-xs text-red-400 font-semibold">{'\u2717'} That handle is taken — try another</span>
+            )}
+            {handleStatus === 'idle' && data.displayName.length > 0 && data.displayName.length < 2 && (
+              <span className="text-xs text-zinc-500">Handle must be at least 2 characters</span>
+            )}
+          </div>
+
+          {data.displayName && handleStatus !== 'taken' && data.displayName.length >= 2 && (
+            <div className="mt-3 rounded-xl bg-zinc-800 border border-zinc-700 p-4 text-center">
+              <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Your HMU link</p>
+              <p className="text-sm font-mono text-[#00E676]">
+                atl.hmucashride.com/d/{data.displayName.toLowerCase().replace(/\s+/g, '')}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Gender */}
       <div>
@@ -104,72 +184,8 @@ export function Welcome({ onNext, userType = 'rider', data, onChange }: WelcomeP
           ))}
         </div>
         <p className="mt-2 text-xs text-zinc-400">
-          This helps match you with {otherRole} you feel comfortable with
+          Helps match you with {otherRole} you feel comfortable with
         </p>
-      </div>
-
-      {/* Pronouns */}
-      <div>
-        <label className="block text-sm font-semibold text-white mb-3">
-          Pronouns <span className="text-zinc-500">(optional)</span>
-        </label>
-        <div className="flex flex-wrap gap-2">
-          {pronounOptions.map((pronoun) => (
-            <button
-              key={pronoun}
-              onClick={() => onChange({ pronouns: pronoun })}
-              className={`rounded-full border-2 px-4 py-2 text-sm transition-all hover:border-[#00E676] ${
-                data.pronouns === pronoun
-                  ? 'border-[#00E676] bg-[#00E676]/10 font-medium text-white'
-                  : 'border-zinc-600 text-zinc-300'
-              }`}
-            >
-              {pronoun}
-            </button>
-          ))}
-        </div>
-        {data.pronouns === 'other' && (
-          <input
-            type="text"
-            placeholder="Enter your pronouns"
-            onChange={(e) => onChange({ pronouns: e.target.value })}
-            className="mt-3 w-full rounded-xl border border-zinc-600 bg-zinc-900 px-4 py-2 text-sm text-white placeholder:text-zinc-500 focus:border-[#00E676] focus:outline-none focus:ring-2 focus:ring-[#00E676]/20"
-          />
-        )}
-      </div>
-
-      {/* LGBTQ+ Friendly */}
-      <div className="rounded-xl border-2 border-dashed border-purple-600 bg-purple-950/50 p-6">
-        <label className="flex items-start gap-4 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={data.lgbtqFriendly}
-            onChange={(e) => onChange({ lgbtqFriendly: e.target.checked })}
-            className="mt-1 h-5 w-5 rounded border-zinc-600 bg-zinc-900 text-[#00E676] focus:ring-2 focus:ring-[#00E676]/20"
-          />
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-white">I&apos;m LGBTQ+ friendly</span>
-              <span className="text-xl">🏳️‍🌈</span>
-            </div>
-            <p className="mt-1 text-sm text-zinc-400">
-              Show this badge on your profile and connect with {otherRole} who value
-              inclusivity
-            </p>
-          </div>
-        </label>
-      </div>
-
-      {/* Why we ask */}
-      <div className="rounded-xl bg-zinc-900 border border-zinc-700 p-4">
-        <div className="flex gap-3">
-          <Users className="h-5 w-5 shrink-0 text-zinc-400 mt-0.5" />
-          <div className="text-sm text-zinc-400">
-            <strong className="text-zinc-200">Why we ask:</strong> This information
-            helps us match you with {otherRole} you&apos;ll feel comfortable with. Your
-            safety and comfort are our top priority.
-          </div>
-        </div>
       </div>
     </div>
   );

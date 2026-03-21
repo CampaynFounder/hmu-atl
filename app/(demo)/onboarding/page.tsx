@@ -29,7 +29,13 @@ function OnboardingInner() {
   const handleComplete = () => {
     // Full page reload to force Clerk to re-fetch user metadata
     // (client-side router.push keeps stale publicMetadata cache)
-    window.location.href = activeType === 'driver' ? '/driver/home' : '/rider/home';
+    const returnTo = searchParams.get('returnTo');
+    if (returnTo && returnTo.startsWith('/d/')) {
+      // Rider signed up from a driver's HMU link — send them back with booking open
+      window.location.href = `${returnTo}?bookingOpen=1`;
+    } else {
+      window.location.href = activeType === 'driver' ? '/driver/home' : '/rider/home';
+    }
   };
 
   if (!isLoaded) {

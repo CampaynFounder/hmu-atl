@@ -3,7 +3,6 @@
 
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth/get-current-user';
-import { UserButton } from '@clerk/nextjs';
 
 export default async function PendingPage() {
   const user = await getCurrentUser();
@@ -15,7 +14,7 @@ export default async function PendingPage() {
 
   // Redirect if already active (shouldn't happen, but safety check)
   if (user.account_status === 'active') {
-    redirect('/dashboard');
+    redirect(user.profile_type === 'driver' ? '/driver/home' : '/rider/home');
   }
 
   // Redirect if suspended/banned
@@ -26,9 +25,7 @@ export default async function PendingPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900 px-4">
       <div className="max-w-md w-full bg-zinc-800/50 backdrop-blur-sm border border-zinc-700 rounded-2xl p-8 shadow-2xl">
-        <div className="flex justify-end mb-6">
-          <UserButton />
-        </div>
+        <div className="flex justify-end mb-6" />
 
         <div className="text-center space-y-6">
           {/* Icon */}
