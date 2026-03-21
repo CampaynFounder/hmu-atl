@@ -22,8 +22,8 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
   try {
     rideRows = await sql`
       SELECT r.*,
-        dp.display_name as driver_name, dp.handle as driver_handle,
-        rp.first_name as rider_first_name
+        dp.display_name as driver_name, dp.handle as driver_handle, dp.vehicle_info as driver_vehicle_info,
+        rp.first_name as rider_first_name, rp.handle as rider_handle, rp.avatar_url as rider_avatar_url
       FROM rides r
       LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
       LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
@@ -56,6 +56,8 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
         status: ride.status as string,
         driverName: (ride.driver_name as string) || 'Driver',
         riderName: (ride.rider_first_name as string) || 'Rider',
+        riderHandle: (ride.rider_handle as string) || null,
+        riderAvatarUrl: (ride.rider_avatar_url as string) || null,
         agreedPrice: Number(ride.final_agreed_price || ride.amount || 0),
         agreementSummary: ride.agreement_summary as Record<string, unknown> | null,
         pickup: ride.pickup as Record<string, unknown> | null,
@@ -72,6 +74,10 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
         riderLat: ride.rider_lat ? Number(ride.rider_lat) : null,
         riderLng: ride.rider_lng ? Number(ride.rider_lng) : null,
         riderLocationText: (ride.rider_location_text as string) || null,
+        driverPlate: ((ride.driver_vehicle_info as Record<string, unknown>)?.license_plate as string) || null,
+        driverPlateState: ((ride.driver_vehicle_info as Record<string, unknown>)?.plate_state as string) || null,
+        isCash: (ride.is_cash as boolean) || false,
+        waitMinutes: Number(ride.wait_minutes ?? 10),
       }}
       mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''}
     />

@@ -5,7 +5,7 @@ import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -13,6 +13,14 @@ export async function POST(
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id: rideId } = await params;
+
+    let lat: number | null = null;
+    let lng: number | null = null;
+    try {
+      const body = await req.json();
+      lat = body.lat || null;
+      lng = body.lng || null;
+    } catch { /* no body is ok */ }
 
     const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -32,6 +40,9 @@ export async function POST(
       UPDATE rides SET
         status = 'active',
         started_at = COALESCE(started_at, NOW()),
+        rider_confirmed_start = true,
+        rider_start_lat = ${lat},
+        rider_start_lng = ${lng},
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'here'
     `;

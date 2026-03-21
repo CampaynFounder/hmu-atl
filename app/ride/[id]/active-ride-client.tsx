@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useGeolocation } from '@/hooks/use-geolocation';
 import { useAbly } from '@/hooks/use-ably';
 import Link from 'next/link';
+import RideChat from '@/components/ride/ride-chat';
+import RiderProfileOverlay from '@/components/rider/rider-profile-overlay';
 
 // Mapbox GL loaded via CDN script tag — accessed as window.mapboxgl
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,6 +52,12 @@ interface RideData {
   riderLat: number | null;
   riderLng: number | null;
   riderLocationText: string | null;
+  riderHandle: string | null;
+  riderAvatarUrl: string | null;
+  driverPlate: string | null;
+  driverPlateState: string | null;
+  isCash: boolean;
+  waitMinutes: number;
 }
 
 interface ActiveRideClientProps {
@@ -108,7 +116,20 @@ export default function ActiveRideClient({
   const [rated, setRated] = useState(false);
   const [disputeWindowRemaining, setDisputeWindowRemaining] = useState<number | null>(null);
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [notification, setNotification] = useState<string | null>(null);
+  const [eta, setEta] = useState<{ minutes: number; miles: number } | null>(null);
+  const [chatMessages, setChatMessages] = useState<{ id: string; senderId: string; content: string; createdAt: string }[]>([]);
+  const [chatOpen, setChatOpen] = useState(false);
+  const chatOpenRef = useRef(false);
+  const [chatUnread, setChatUnread] = useState(0);
+  const [viewingRiderProfile, setViewingRiderProfile] = useState(false);
+  const [waitCountdown, setWaitCountdown] = useState<number | null>(null);
+  const [showPulloff, setShowPulloff] = useState(false);
+  const [notification, setNotification] = useState<{
+    message: string;
+    emoji: string;
+    color: string;
+    sub?: string;
+  } | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any | null>(null);
@@ -127,7 +148,7 @@ export default function ActiveRideClient({
       case 'status_update': {
         const newStatus = data.status as string;
         setRide(prev => ({ ...prev, status: newStatus }));
-        showNotification(getStatusNotification(newStatus, isDriver));
+        showStatusNotification(newStatus);
         break;
       }
       case 'location_update': {
@@ -145,12 +166,13 @@ export default function ActiveRideClient({
           driverPayoutAmount: Number(data.driver_payout_amount || prev.driverPayoutAmount),
           platformFeeAmount: Number(data.platform_fee_amount || prev.platformFeeAmount),
         }));
-        showNotification('Ride ended');
+        showStatusNotification('ended');
         break;
       }
       case 'dispute_filed': {
         setRide(prev => ({ ...prev, status: 'disputed' }));
-        showNotification('A dispute has been filed');
+        showNotification('A dispute has been filed', '\uD83D\uDEA8', COLORS.red);
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
         break;
       }
       case 'coo': {
@@ -161,17 +183,36 @@ export default function ActiveRideClient({
           riderLng: data.riderLng as number | null,
           riderLocationText: data.riderLocation as string | null,
         }));
-        showNotification('Rider says COO — payment ready!');
+        showNotification('COO — Payment ready!', '\uD83D\uDCB0', COLORS.green, 'Rider confirmed pickup location');
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
         break;
       }
       case 'status_change': {
         const newStatus = data.status as string;
-        if (newStatus) setRide(prev => ({ ...prev, status: newStatus }));
-        if (data.message) showNotification(data.message as string);
+        if (newStatus) {
+          setRide(prev => ({ ...prev, status: newStatus }));
+          showStatusNotification(newStatus);
+        }
         break;
       }
       case 'location': {
         setDriverLocation({ lat: data.lat as number, lng: data.lng as number });
+        break;
+      }
+      case 'chat_message': {
+        const msg = {
+          id: data.id as string,
+          senderId: data.senderId as string,
+          content: data.content as string,
+          createdAt: data.createdAt as string,
+        };
+        setChatMessages(prev => {
+          if (prev.some(m => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
+        if (msg.senderId !== userId && !chatOpenRef.current) {
+          setChatUnread(prev => prev + 1);
+        }
         break;
       }
       case 'cancel_request': {
@@ -206,37 +247,49 @@ export default function ActiveRideClient({
     }
   }, [isDriver, geo.lat, geo.lng]);
 
-  // ── Map initialization ──
+  // ── Map initialization — wait for Mapbox GL to load ──
   useEffect(() => {
     if (!mapContainerRef.current || !mapboxToken || mapRef.current) return;
 
-    mapboxgl.accessToken = mapboxToken;
+    function initMap() {
+      if (typeof mapboxgl === 'undefined') return false;
 
-    const center: [number, number] = driverLocation
-      ? [driverLocation.lng, driverLocation.lat]
-      : [-84.388, 33.749]; // Atlanta default
+      mapboxgl.accessToken = mapboxToken;
 
-    const map = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
-      center,
-      zoom: 14,
-      attributionControl: false,
-    });
+      const center: [number, number] = driverLocation
+        ? [driverLocation.lng, driverLocation.lat]
+        : [-84.388, 33.749]; // Atlanta default
 
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+      const map = new mapboxgl.Map({
+        container: mapContainerRef.current!,
+        style: 'mapbox://styles/mapbox/dark-v11',
+        center,
+        zoom: 14,
+        attributionControl: false,
+      });
 
-    mapRef.current = map;
+      map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+      mapRef.current = map;
+      return true;
+    }
+
+    // Try immediately, then poll until loaded
+    if (initMap()) return () => { mapRef.current?.remove(); mapRef.current = null; };
+
+    const poll = setInterval(() => {
+      if (initMap()) clearInterval(poll);
+    }, 200);
 
     return () => {
-      map.remove();
+      clearInterval(poll);
+      mapRef.current?.remove();
       mapRef.current = null;
     };
   }, [mapboxToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Update driver marker ──
   useEffect(() => {
-    if (!mapRef.current || !driverLocation) return;
+    if (!mapRef.current || !driverLocation || typeof mapboxgl === 'undefined') return;
 
     if (!driverMarkerRef.current) {
       const el = document.createElement('div');
@@ -247,7 +300,7 @@ export default function ActiveRideClient({
       el.style.border = '3px solid ' + COLORS.white;
       el.style.boxShadow = '0 0 12px ' + COLORS.green;
 
-      driverMarkerRef.current = new mapboxgl.Map({ element: el })
+      driverMarkerRef.current = new mapboxgl.Marker({ element: el })
         .setLngLat([driverLocation.lng, driverLocation.lat])
         .addTo(mapRef.current);
     } else {
@@ -263,31 +316,38 @@ export default function ActiveRideClient({
     }
   }, [driverLocation, shouldTrackGps, isDriver]);
 
-  // ── Pickup/dropoff markers ──
+  // ── Rider location marker (from COO or live updates) ──
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!mapRef.current || typeof mapboxgl === 'undefined') return;
 
-    const map = mapRef.current;
+    const lat = ride.riderLat;
+    const lng = ride.riderLng;
+    if (!lat || !lng) return;
 
-    // Add pickup marker
-    if (ride.pickup) {
-      const lat = Number((ride.pickup as Record<string, unknown>).lat || (ride.pickup as Record<string, unknown>).latitude);
-      const lng = Number((ride.pickup as Record<string, unknown>).lng || (ride.pickup as Record<string, unknown>).longitude);
-      if (lat && lng && !riderMarkerRef.current) {
-        const el = document.createElement('div');
-        el.style.width = '14px';
-        el.style.height = '14px';
-        el.style.borderRadius = '50%';
-        el.style.backgroundColor = COLORS.blue;
-        el.style.border = '2px solid ' + COLORS.white;
-        el.style.boxShadow = '0 0 8px ' + COLORS.blue;
+    if (!riderMarkerRef.current) {
+      const el = document.createElement('div');
+      el.style.width = '16px';
+      el.style.height = '16px';
+      el.style.borderRadius = '50%';
+      el.style.backgroundColor = COLORS.blue;
+      el.style.border = '3px solid ' + COLORS.white;
+      el.style.boxShadow = '0 0 10px ' + COLORS.blue;
 
-        riderMarkerRef.current = new mapboxgl.Map({ element: el })
-          .setLngLat([lng, lat])
-          .addTo(map);
-      }
+      riderMarkerRef.current = new mapboxgl.Marker({ element: el })
+        .setLngLat([lng, lat])
+        .addTo(mapRef.current);
+    } else {
+      riderMarkerRef.current.setLngLat([lng, lat]);
     }
-  }, [ride.pickup]);
+
+    // Fit map to show both markers when both exist
+    if (driverLocation && mapRef.current) {
+      const bounds = new mapboxgl.LngLatBounds();
+      bounds.extend([lng, lat]);
+      bounds.extend([driverLocation.lng, driverLocation.lat]);
+      mapRef.current.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 1000 });
+    }
+  }, [ride.riderLat, ride.riderLng, driverLocation]);
 
   // ── Dispute window countdown ──
   useEffect(() => {
@@ -303,15 +363,78 @@ export default function ActiveRideClient({
     return () => clearInterval(interval);
   }, [ride.status, ride.disputeWindowExpiresAt]);
 
+  // ── Wait countdown at HERE ──
+  useEffect(() => {
+    if (ride.status !== 'here' || !ride.hereAt) { setWaitCountdown(null); return; }
+    const waitMs = (ride.waitMinutes || 10) * 60 * 1000;
+    const updateCountdown = () => {
+      const elapsed = Date.now() - new Date(ride.hereAt!).getTime();
+      const remaining = Math.max(0, waitMs - elapsed);
+      setWaitCountdown(remaining);
+      if (remaining <= 0) setShowPulloff(true);
+    };
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [ride.status, ride.hereAt, ride.waitMinutes]);
+
+  // ── ETA calculation ──
+  useEffect(() => {
+    if (!driverLocation || !['otw', 'here'].includes(ride.status)) {
+      setEta(null);
+      return;
+    }
+    // Use rider's COO location for ETA
+    const rLat = ride.riderLat;
+    const rLng = ride.riderLng;
+    if (!rLat || !rLng) { setEta(null); return; }
+
+    const miles = haversineDistance(driverLocation.lat, driverLocation.lng, rLat, rLng);
+    const minutes = Math.max(1, Math.round((miles / 25) * 60)); // 25mph avg
+    setEta({ minutes, miles });
+  }, [driverLocation, ride.status, ride.riderLat, ride.riderLng]);
+
+  // ── Load chat history on mount if applicable ──
+  useEffect(() => {
+    if (['otw', 'here', 'active', 'ended'].includes(ride.status)) {
+      fetch(`/api/rides/${rideId}/messages`)
+        .then(r => r.json())
+        .then(data => { if (data.messages) setChatMessages(data.messages); })
+        .catch(() => {});
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Sync chatOpen ref ──
+  useEffect(() => {
+    chatOpenRef.current = chatOpen;
+    if (chatOpen) setChatUnread(0);
+  }, [chatOpen]);
+
+  // ── Auto-redirect on cancel ──
+  useEffect(() => {
+    if (ride.status !== 'cancelled') return;
+    const t = setTimeout(() => {
+      window.location.replace(isDriver ? '/driver/home' : '/rider/home');
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [ride.status, isDriver]);
+
   // ── Notification auto-dismiss ──
   useEffect(() => {
     if (!notification) return;
-    const t = setTimeout(() => setNotification(null), 4000);
+    const t = setTimeout(() => setNotification(null), 5000);
     return () => clearTimeout(t);
   }, [notification]);
 
-  function showNotification(msg: string) {
-    if (msg) setNotification(msg);
+  function showNotification(msg: string, emoji?: string, color?: string, sub?: string) {
+    if (msg) setNotification({ message: msg, emoji: emoji || '', color: color || COLORS.green, sub });
+  }
+
+  function showStatusNotification(status: string) {
+    const notif = getStatusNotificationData(status, isDriver);
+    if (notif) setNotification(notif);
+    // Vibrate if supported
+    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
   }
 
   // ── API actions ──
@@ -362,6 +485,7 @@ export default function ActiveRideClient({
         throw new Error((body as Record<string, string>).error || 'Failed to submit rating');
       }
       setRated(true);
+      setRide(prev => ({ ...prev, status: 'completed' }));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to rate';
       setError(message);
@@ -399,7 +523,10 @@ export default function ActiveRideClient({
   return (
     <div style={{
       position: 'fixed',
-      inset: 0,
+      top: 56,
+      left: 0,
+      right: 0,
+      bottom: 0,
       backgroundColor: COLORS.black,
       display: 'flex',
       flexDirection: 'column',
@@ -407,24 +534,88 @@ export default function ActiveRideClient({
       fontFamily: FONTS.body,
       color: COLORS.white,
     }}>
-      {/* Notification toast */}
+      {/* Animated notification toast */}
+      <style>{`
+        @keyframes notifSlideIn {
+          0% { transform: translateY(-100%); opacity: 0; }
+          60% { transform: translateY(6px); }
+          100% { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes notifPulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.15); }
+        }
+        @keyframes notifShimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+      `}</style>
       {notification && (
         <div style={{
           position: 'absolute',
-          top: 16,
-          left: 16,
-          right: 16,
+          top: 'max(16px, env(safe-area-inset-top))',
+          left: 12,
+          right: 12,
           zIndex: 50,
-          backgroundColor: COLORS.card,
-          border: '1px solid ' + COLORS.green,
-          borderRadius: 12,
-          padding: '12px 16px',
-          fontFamily: FONTS.body,
-          fontSize: 14,
-          color: COLORS.white,
-          textAlign: 'center',
+          animation: 'notifSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
         }}>
-          {notification}
+          <div style={{
+            backgroundColor: COLORS.card,
+            border: `1.5px solid ${notification.color}40`,
+            borderRadius: 16,
+            padding: '14px 16px',
+            fontFamily: FONTS.body,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            boxShadow: `0 8px 32px ${notification.color}20, 0 2px 8px rgba(0,0,0,0.5)`,
+            background: `linear-gradient(135deg, ${COLORS.card}, ${notification.color}08)`,
+          }}>
+            {/* Animated emoji */}
+            <div style={{
+              width: 44,
+              height: 44,
+              borderRadius: 12,
+              backgroundColor: `${notification.color}15`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 22,
+              flexShrink: 0,
+              animation: 'notifPulse 0.6s ease-out',
+            }}>
+              {notification.emoji}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontSize: 15,
+                fontWeight: 700,
+                color: COLORS.white,
+                lineHeight: 1.2,
+              }}>
+                {notification.message}
+              </div>
+              {notification.sub && (
+                <div style={{
+                  fontSize: 12,
+                  color: COLORS.grayLight,
+                  marginTop: 2,
+                  lineHeight: 1.3,
+                }}>
+                  {notification.sub}
+                </div>
+              )}
+            </div>
+            {/* Accent dot */}
+            <div style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              backgroundColor: notification.color,
+              boxShadow: `0 0 8px ${notification.color}`,
+              flexShrink: 0,
+            }} />
+          </div>
         </div>
       )}
 
@@ -436,22 +627,39 @@ export default function ActiveRideClient({
           style={{ width: '100%', height: '100%' }}
         />
 
-        {/* GPS error overlay */}
+        {/* GPS error overlay — shows settings instructions for denied, retry for other errors */}
         {shouldTrackGps && geo.error && (
           <div style={{
             position: 'absolute',
             bottom: 8,
             left: 8,
             right: 8,
-            backgroundColor: 'rgba(255, 82, 82, 0.9)',
-            borderRadius: 8,
-            padding: '8px 12px',
-            fontSize: 12,
+            backgroundColor: 'rgba(255, 82, 82, 0.95)',
+            borderRadius: 14,
+            padding: '14px',
             fontFamily: FONTS.body,
             color: COLORS.white,
-            textAlign: 'center',
           }}>
-            GPS: {geo.error}
+            {geo.error.toLowerCase().includes('denied') ? (
+              <GeoBlockedHelp onRetry={() => geo.retry()} />
+            ) : (
+              <button
+                type="button"
+                onClick={() => geo.retry()}
+                style={{
+                  width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                  color: COLORS.white, fontSize: 13, fontFamily: FONTS.body,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                }}
+              >
+                <span style={{ fontSize: 16 }}>{'\uD83D\uDCCD'}</span>
+                <span>GPS: {geo.error}</span>
+                <span style={{
+                  background: 'rgba(255,255,255,0.2)', borderRadius: 100,
+                  padding: '2px 10px', fontSize: 11, fontWeight: 700,
+                }}>TAP TO RELOAD</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -502,12 +710,29 @@ export default function ActiveRideClient({
             }}>
               {statusDisplay.label}
             </div>
-            <div style={{
-              fontSize: 14,
-              color: COLORS.grayLight,
-              marginTop: 2,
-            }}>
+            <div
+              onClick={() => {
+                if (isDriver && ride.riderHandle) setViewingRiderProfile(true);
+              }}
+              style={{
+                fontSize: 14,
+                color: COLORS.grayLight,
+                marginTop: 2,
+                cursor: isDriver && ride.riderHandle ? 'pointer' : 'default',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              {isDriver && ride.riderAvatarUrl && (
+                <img src={ride.riderAvatarUrl} alt="" style={{
+                  width: 20, height: 20, borderRadius: '50%', objectFit: 'cover',
+                }} />
+              )}
               {isDriver ? `Rider: ${otherName}` : `Driver: ${otherName}`}
+              {isDriver && ride.riderHandle && (
+                <span style={{ fontSize: 11, color: COLORS.green }}>view</span>
+              )}
             </div>
           </div>
           <div style={{
@@ -571,6 +796,65 @@ export default function ActiveRideClient({
           {renderStatusContent()}
         </div>
       </div>
+
+      {/* Chat bubble — visible from OTW through ride end */}
+      {['otw', 'here', 'active', 'ended'].includes(ride.status) && !chatOpen && (
+        <button
+          onClick={() => setChatOpen(true)}
+          style={{
+            position: 'absolute',
+            bottom: 'max(24px, env(safe-area-inset-bottom))',
+            right: 20,
+            width: 52,
+            height: 52,
+            borderRadius: '50%',
+            border: 'none',
+            backgroundColor: COLORS.card,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 22,
+            zIndex: 30,
+          }}
+        >
+          {'\uD83D\uDCAC'}
+          {chatUnread > 0 && (
+            <span style={{
+              position: 'absolute', top: -4, right: -4,
+              width: 20, height: 20, borderRadius: '50%',
+              backgroundColor: COLORS.green, color: COLORS.black,
+              fontSize: 11, fontWeight: 800,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              {chatUnread > 9 ? '9+' : chatUnread}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Chat panel */}
+      {['otw', 'here', 'active', 'ended'].includes(ride.status) && (
+        <RideChat
+          rideId={rideId}
+          userId={userId}
+          isDriver={isDriver}
+          messages={chatMessages}
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          onSend={() => {/* message arrives via Ably */}}
+        />
+      )}
+
+      {/* Rider profile overlay for drivers */}
+      {isDriver && ride.riderHandle && (
+        <RiderProfileOverlay
+          handle={ride.riderHandle}
+          open={viewingRiderProfile}
+          onClose={() => setViewingRiderProfile(false)}
+        />
+      )}
     </div>
   );
 
@@ -597,6 +881,14 @@ export default function ActiveRideClient({
         case 'otw':
           return (
             <>
+              {eta && (
+                <div style={{
+                  textAlign: 'center', padding: '8px 0', fontSize: 13,
+                  color: COLORS.orange, fontFamily: FONTS.mono,
+                }}>
+                  {eta.minutes} min to pickup ({eta.miles.toFixed(1)} mi)
+                </div>
+              )}
               <StatusMessage text="Heading to rider..." />
               <ActionButton
                 label="I'M HERE"
@@ -607,17 +899,71 @@ export default function ActiveRideClient({
             </>
           );
 
-        case 'here':
+        case 'here': {
+          const waitSecs = waitCountdown !== null ? Math.ceil(waitCountdown / 1000) : null;
+          const waitMins = waitSecs !== null ? Math.floor(waitSecs / 60) : null;
+          const waitSecsRem = waitSecs !== null ? waitSecs % 60 : null;
           return (
-            <StatusMessage text="Waiting for rider to get in..." />
+            <>
+              <StatusMessage text="Waiting for rider to get in..." />
+              {waitSecs !== null && waitSecs > 0 && (
+                <div style={{
+                  textAlign: 'center', padding: '8px 0', fontSize: 13,
+                  color: waitSecs < 60 ? COLORS.red : COLORS.orange,
+                  fontFamily: FONTS.mono,
+                }}>
+                  {waitMins}:{String(waitSecsRem).padStart(2, '0')} until you can pull off
+                </div>
+              )}
+              {showPulloff && (
+                <PulloffButtons
+                  rideId={rideId}
+                  agreedPrice={ride.agreedPrice}
+                  driverLat={geo.lat}
+                  driverLng={geo.lng}
+                  riderLat={ride.riderLat}
+                  riderLng={ride.riderLng}
+                  onPulloff={(data) => {
+                    setRide(prev => ({ ...prev, status: 'ended', endedAt: new Date().toISOString() }));
+                  }}
+                  loading={loading}
+                />
+              )}
+            </>
           );
+        }
 
         case 'active':
           return (
             <ActionButton
               label="END RIDE"
               color={COLORS.red}
-              onPress={() => callAction('end')}
+              onPress={async () => {
+                setLoading(true);
+                try {
+                  // Capture driver GPS at end
+                  let dLat: number | null = null;
+                  let dLng: number | null = null;
+                  if (geo.lat && geo.lng) { dLat = geo.lat; dLng = geo.lng; }
+                  const res = await fetch(`/api/rides/${rideId}/end`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ driverLat: dLat, driverLng: dLng }),
+                  });
+                  const data = await res.json();
+                  if (data.status) setRide(prev => ({ ...prev, status: data.status }));
+                  if (data.driver_payout_amount !== undefined) {
+                    setRide(prev => ({
+                      ...prev,
+                      driverPayoutAmount: Number(data.driverReceives || data.driver_payout_amount),
+                      platformFeeAmount: Number(data.platformFee || prev.platformFeeAmount),
+                    }));
+                  }
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Failed');
+                }
+                setLoading(false);
+              }}
               loading={loading}
             />
           );
@@ -659,24 +1005,92 @@ export default function ActiveRideClient({
       case 'otw':
         return (
           <>
+            {eta && (
+              <div style={{
+                textAlign: 'center', padding: '8px 0', fontSize: 14,
+                color: COLORS.orange, fontWeight: 600,
+              }}>
+                <span style={{ fontFamily: FONTS.display, fontSize: 28, letterSpacing: 1 }}>
+                  {eta.minutes}
+                </span>
+                <span style={{ fontSize: 12, color: COLORS.grayLight, marginLeft: 4 }}>
+                  min away ({eta.miles.toFixed(1)} mi)
+                </span>
+              </div>
+            )}
             <StatusMessage text="Driver is on the way" />
             <CancelButton rideId={rideId} label="Request Cancel" needsApproval onCancelled={() => setRide(prev => ({ ...prev, status: 'cancelled' }))} />
           </>
         );
 
-      case 'here':
+      case 'here': {
+        const rWaitSecs = waitCountdown !== null ? Math.ceil(waitCountdown / 1000) : null;
+        const rWaitMins = rWaitSecs !== null ? Math.floor(rWaitSecs / 60) : null;
+        const rWaitSecsRem = rWaitSecs !== null ? rWaitSecs % 60 : null;
         return (
           <>
             <StatusMessage text="Your driver is here!" />
+            {rWaitSecs !== null && rWaitSecs > 0 && (
+              <div style={{
+                textAlign: 'center', padding: '6px 0', fontSize: 12,
+                color: rWaitSecs < 60 ? COLORS.red : COLORS.orange,
+                fontFamily: FONTS.mono,
+              }}>
+                Get to the car — {rWaitMins}:{String(rWaitSecsRem).padStart(2, '0')} before driver can leave
+              </div>
+            )}
+            {ride.driverPlate && (
+              <div style={{
+                textAlign: 'center', marginBottom: 12, padding: '10px 0',
+              }}>
+                <div style={{ fontSize: 11, color: COLORS.gray, marginBottom: 6 }}>Look for plate</div>
+                <div style={{
+                  display: 'inline-block', background: '#fff', color: '#000',
+                  borderRadius: 8, padding: '8px 18px', border: '3px solid #1a3c8f',
+                }}>
+                  {ride.driverPlateState && (
+                    <div style={{ fontSize: 9, color: '#1a3c8f', fontWeight: 700, textAlign: 'center', marginBottom: 1 }}>
+                      {ride.driverPlateState}
+                    </div>
+                  )}
+                  <div style={{
+                    fontFamily: FONTS.mono, fontSize: 22, fontWeight: 700,
+                    letterSpacing: 3, lineHeight: 1,
+                  }}>
+                    {ride.driverPlate}
+                  </div>
+                </div>
+              </div>
+            )}
             <ActionButton
               label="BET"
               subtitle="heading to car"
               color={COLORS.green}
-              onPress={() => callAction('start')}
+              onPress={async () => {
+                // Capture rider GPS at ride start
+                if (navigator.geolocation) {
+                  navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                      fetch(`/api/rides/${rideId}/start`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+                      }).then(r => r.json()).then(data => {
+                        if (data.status) setRide(prev => ({ ...prev, status: data.status }));
+                      });
+                    },
+                    () => callAction('start'), // Fallback without GPS
+                    { enableHighAccuracy: true, timeout: 5000 }
+                  );
+                } else {
+                  callAction('start');
+                }
+              }}
               loading={loading}
             />
           </>
         );
+      }
 
       case 'active':
         return (
@@ -857,6 +1271,7 @@ export default function ActiveRideClient({
 
   // ── Back home link ──
   function renderBackHome(message: string) {
+    const homeHref = isDriver ? '/driver/home' : '/rider/home';
     return (
       <div style={{ textAlign: 'center' }}>
         <div style={{
@@ -868,7 +1283,7 @@ export default function ActiveRideClient({
           {message}
         </div>
         <Link
-          href="/"
+          href={homeHref}
           style={{
             display: 'inline-block',
             padding: '10px 32px',
@@ -961,22 +1376,118 @@ function StatusMessage({ text }: { text: string }) {
 
 // ── Helpers ──
 
-function getStatusNotification(status: string, isDriver: boolean): string {
+function PulloffButtons({
+  rideId, agreedPrice, driverLat, driverLng, riderLat, riderLng, onPulloff, loading,
+}: {
+  rideId: string; agreedPrice: number;
+  driverLat: number | null; driverLng: number | null;
+  riderLat: number | null; riderLng: number | null;
+  onPulloff: (data: Record<string, unknown>) => void;
+  loading: boolean;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handlePulloff(percent: number) {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/rides/${rideId}/pulloff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chargePercent: percent,
+          driverLat, driverLng, riderLat, riderLng,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) onPulloff(data);
+    } catch { /* silent */ }
+    setSubmitting(false);
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+      <div style={{ fontSize: 12, color: COLORS.gray, textAlign: 'center', marginBottom: 4 }}>
+        Wait time expired — charge no-show fee:
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {[25, 50, 100].map(pct => (
+          <button
+            key={pct}
+            onClick={() => handlePulloff(pct)}
+            disabled={submitting || loading}
+            style={{
+              flex: 1, padding: '12px 4px', borderRadius: 12,
+              border: `1px solid ${pct === 100 ? COLORS.red + '44' : 'rgba(255,255,255,0.1)'}`,
+              backgroundColor: COLORS.card,
+              cursor: submitting ? 'not-allowed' : 'pointer',
+              opacity: submitting ? 0.5 : 1,
+              textAlign: 'center',
+            }}
+          >
+            <div style={{ fontFamily: FONTS.display, fontSize: 18, color: pct === 100 ? COLORS.red : COLORS.white }}>
+              {pct}%
+            </div>
+            <div style={{ fontFamily: FONTS.mono, fontSize: 12, color: COLORS.green }}>
+              ${(agreedPrice * pct / 100).toFixed(2)}
+            </div>
+          </button>
+        ))}
+      </div>
+      <button
+        onClick={() => handlePulloff(0)}
+        disabled={submitting || loading}
+        style={{
+          width: '100%', padding: 10, borderRadius: 100,
+          border: '1px solid rgba(255,255,255,0.08)', background: 'transparent',
+          color: COLORS.gray, fontSize: 13, cursor: 'pointer',
+          fontFamily: FONTS.body,
+        }}
+      >
+        Leave without charging
+      </button>
+    </div>
+  );
+}
+
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function getStatusNotificationData(
+  status: string,
+  isDriver: boolean
+): { message: string; emoji: string; color: string; sub?: string } | null {
   switch (status) {
+    case 'matched':
+      return isDriver
+        ? { message: 'You got a match!', emoji: '\uD83E\uDD1D', color: '#00E676', sub: 'Waiting for rider to send COO' }
+        : { message: 'Matched with a driver!', emoji: '\uD83E\uDD1D', color: '#00E676', sub: 'Send COO to confirm your ride' };
     case 'otw':
-      return isDriver ? 'You are on the way' : 'Driver is on the way!';
+      return isDriver
+        ? { message: 'You\u2019re OTW', emoji: '\uD83D\uDE97', color: '#FF9100', sub: 'GPS tracking is active' }
+        : { message: 'Driver is OTW!', emoji: '\uD83D\uDE97', color: '#FF9100', sub: 'They\u2019re heading to your location now' };
     case 'here':
-      return isDriver ? 'You arrived at pickup' : 'Your driver is here!';
+      return isDriver
+        ? { message: 'You\u2019re HERE', emoji: '\uD83D\uDCCD', color: '#FFD740', sub: 'Waiting for rider to come out' }
+        : { message: 'Your driver is HERE!', emoji: '\uD83D\uDCCD', color: '#FFD740', sub: 'Head to the car and tap BET' };
     case 'active':
-      return 'Ride is now active';
+      return { message: 'Ride Active', emoji: '\u26A1', color: '#00E676', sub: 'Have a safe trip!' };
     case 'ended':
-      return 'Ride has ended';
+      return isDriver
+        ? { message: 'Ride Ended', emoji: '\uD83C\uDFC1', color: '#AAAAAA', sub: 'Rate your rider' }
+        : { message: 'Ride Ended', emoji: '\uD83C\uDFC1', color: '#AAAAAA', sub: 'Rate your driver \u2014 dispute window open' };
     case 'completed':
-      return 'Ride completed';
+      return { message: 'Ride Complete', emoji: '\u2705', color: '#00E676', sub: 'Thanks for riding with HMU!' };
     case 'cancelled':
-      return 'Ride was cancelled';
+      return { message: 'Ride Cancelled', emoji: '\u274C', color: '#FF5252' };
     default:
-      return '';
+      return null;
   }
 }
 
@@ -991,23 +1502,58 @@ function CooButton({ rideId, onCooSent }: {
   const [geoLat, setGeoLat] = useState<number | null>(null);
   const [geoLng, setGeoLng] = useState<number | null>(null);
 
+  const [geoError, setGeoError] = useState<string | null>(null);
+  const [geoPermanentlyDenied, setGeoPermanentlyDenied] = useState(false);
+  const [needsPayment, setNeedsPayment] = useState(false);
+
   function getMyLocation() {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      setGeoError('GPS not available on this device');
+      return;
+    }
     setGettingLocation(true);
+    setGeoError(null);
+    setGeoPermanentlyDenied(false);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setGeoLat(pos.coords.latitude);
         setGeoLng(pos.coords.longitude);
         setGettingLocation(false);
+        setGeoError(null);
+        setGeoPermanentlyDenied(false);
       },
-      () => setGettingLocation(false),
-      { enableHighAccuracy: true, timeout: 10000 }
+      (err) => {
+        setGettingLocation(false);
+        if (err.code === 1) {
+          setGeoError('Location access denied');
+          if ('permissions' in navigator) {
+            navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+              setGeoPermanentlyDenied(result.state === 'denied');
+            }).catch(() => {});
+          }
+        } else if (err.code === 2) {
+          setGeoError('Location unavailable — try again');
+        } else {
+          setGeoError('Location timed out — try again');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }
 
   async function handleCoo() {
-    if (!locationText.trim() && !geoLat) return;
+    // Check payment method first
     setLoading(true);
+    try {
+      const pmRes = await fetch('/api/rider/payment-methods');
+      const pmData = await pmRes.json();
+      if (!pmData.methods || pmData.methods.length === 0) {
+        setNeedsPayment(true);
+        setLoading(false);
+        return;
+      }
+    } catch { /* proceed */ }
+
     try {
       const res = await fetch(`/api/rides/${rideId}/coo`, {
         method: 'POST',
@@ -1019,6 +1565,53 @@ function CooButton({ rideId, onCooSent }: {
       }
     } catch { /* silent */ }
     setLoading(false);
+  }
+
+  async function handleAddPayment() {
+    try {
+      const res = await fetch('/api/rider/payment-methods/checkout', { method: 'POST' });
+      const data = await res.json();
+      if (data.url) {
+        localStorage.setItem('hmu_pending_ride', rideId);
+        window.location.href = data.url;
+      }
+    } catch { /* silent */ }
+  }
+
+  // Payment method needed — show prompt instead of COO form
+  if (needsPayment) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', textAlign: 'center' }}>
+        <div style={{ fontSize: '15px', color: COLORS.white, fontWeight: 600 }}>
+          Link a payment method to continue
+        </div>
+        <div style={{ fontSize: '13px', color: COLORS.grayLight }}>
+          COO requires a linked card so your driver knows payment is secured
+        </div>
+        <button
+          type="button"
+          onClick={handleAddPayment}
+          style={{
+            width: '100%', padding: '16px', borderRadius: '100px',
+            border: 'none', background: COLORS.green, color: COLORS.black,
+            fontWeight: 800, fontSize: '16px', cursor: 'pointer',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          }}
+        >
+          Add Payment Method
+        </button>
+        <button
+          type="button"
+          onClick={() => setNeedsPayment(false)}
+          style={{
+            background: 'transparent', border: 'none', color: COLORS.gray,
+            fontSize: '13px', cursor: 'pointer', padding: '8px',
+          }}
+        >
+          Go back
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -1051,27 +1644,113 @@ function CooButton({ rideId, onCooSent }: {
           fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
         }}
       >
-        {gettingLocation ? 'Getting location...' : geoLat ? `📍 Location shared (${geoLat.toFixed(4)}, ${geoLng?.toFixed(4)})` : '📍 Share my GPS location'}
+        {gettingLocation ? 'Getting location...' : geoLat ? `\uD83D\uDCCD Location shared (${geoLat.toFixed(4)}, ${geoLng?.toFixed(4)})` : '\uD83D\uDCCD Share my GPS location'}
       </button>
+
+      {/* GPS error message — shows settings help for denied, retry for other errors */}
+      {geoError && (
+        geoError.toLowerCase().includes('denied') ? (
+          <div style={{
+            background: 'rgba(255,82,82,0.1)', borderRadius: '14px',
+            border: '1px solid rgba(255,82,82,0.3)', padding: '14px',
+          }}>
+            <GeoBlockedHelp onRetry={() => window.location.reload()} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={getMyLocation}
+            style={{
+              width: '100%', fontSize: '13px', color: COLORS.white, textAlign: 'center',
+              padding: '10px 14px', background: 'rgba(255,82,82,0.15)',
+              borderRadius: '12px', border: '1px solid rgba(255,82,82,0.3)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', gap: '8px',
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            }}
+          >
+            <span style={{ fontSize: '14px' }}>{'\uD83D\uDCCD'}</span>
+            <span style={{ color: COLORS.red }}>{geoError}</span>
+            <span style={{
+              background: 'rgba(255,82,82,0.2)', borderRadius: '100px',
+              padding: '2px 10px', fontSize: '11px', fontWeight: 700, color: COLORS.red,
+            }}>TAP TO RETRY</span>
+          </button>
+        )
+      )}
 
       <button
         type="button"
         onClick={handleCoo}
-        disabled={loading || (!locationText.trim() && !geoLat)}
+        disabled={loading}
         style={{
           width: '100%', padding: '18px', borderRadius: '100px',
           border: 'none', background: COLORS.green, color: COLORS.black,
           fontWeight: 800, fontSize: '18px', cursor: 'pointer',
           fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-          opacity: loading || (!locationText.trim() && !geoLat) ? 0.4 : 1,
+          opacity: loading ? 0.4 : 1,
         }}
       >
-        {loading ? 'Sending...' : 'COO — I\'m ready'}
+        {loading ? 'Sending...' : 'COO \u2014 I\'m ready'}
       </button>
 
       <div style={{ fontSize: '12px', color: COLORS.gray, textAlign: 'center' }}>
         This confirms your payment and shares your pickup location
       </div>
+    </div>
+  );
+}
+
+// ── Geo Blocked Help component ──
+function GeoBlockedHelp({ onRetry }: { onRetry: () => void }) {
+  const isIOS = typeof navigator !== 'undefined' && /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isAndroid = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
+
+  return (
+    <div style={{ fontFamily: "'DM Sans', sans-serif" }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
+        Location is blocked in your settings
+      </div>
+      {isIOS ? (
+        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>To fix on iPhone:</div>
+          <div>1. Open <strong>Settings</strong> &gt; <strong>Privacy &amp; Security</strong> &gt; <strong>Location Services</strong></div>
+          <div>2. Make sure Location Services is <strong>ON</strong></div>
+          <div>3. Scroll to <strong>Safari Websites</strong> &gt; set to <strong>While Using</strong></div>
+          <div style={{ marginTop: 4 }}>Or: <strong>Settings</strong> &gt; <strong>Safari</strong> &gt; <strong>Location</strong> &gt; <strong>Allow</strong></div>
+          <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
+            Then come back here and tap the button below
+          </div>
+        </div>
+      ) : isAndroid ? (
+        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>To fix on Android:</div>
+          <div>1. Open <strong>Settings</strong> &gt; <strong>Apps</strong> &gt; <strong>Chrome</strong></div>
+          <div>2. Tap <strong>Permissions</strong> &gt; <strong>Location</strong> &gt; <strong>Allow</strong></div>
+          <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
+            Search: &quot;Android Chrome enable location permission&quot;
+          </div>
+        </div>
+      ) : (
+        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>
+          <div>Open your browser settings and enable location for this site.</div>
+          <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
+            Search: &quot;enable location permission in browser&quot;
+          </div>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={onRetry}
+        style={{
+          marginTop: 10, width: '100%', padding: '8px', borderRadius: 100,
+          border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.1)',
+          color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+          fontFamily: "'DM Sans', sans-serif",
+        }}
+      >
+        I fixed it — try again
+      </button>
     </div>
   );
 }

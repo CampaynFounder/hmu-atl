@@ -17,13 +17,14 @@ export async function POST(
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     const driverUserId = (userRows[0] as { id: string }).id;
 
-    // Check payout setup
-    const payoutRows = await sql`
-      SELECT payout_setup_complete FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
-    `;
-    if (payoutRows.length && !(payoutRows[0] as Record<string, unknown>).payout_setup_complete) {
-      return NextResponse.json({ error: 'PAYOUT_REQUIRED' }, { status: 403 });
-    }
+    // Payout setup check — warn but don't block (payments not live yet)
+    // TODO: Re-enable when payment flow is live
+    // const payoutRows = await sql`
+    //   SELECT payout_setup_complete FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
+    // `;
+    // if (payoutRows.length && !(payoutRows[0] as Record<string, unknown>).payout_setup_complete) {
+    //   return NextResponse.json({ error: 'PAYOUT_REQUIRED' }, { status: 403 });
+    // }
 
     const postRows = await sql`
       SELECT * FROM hmu_posts
@@ -46,9 +47,66 @@ export async function POST(
     const price = Number(post.price || 0);
     const timeWindow = (post.time_window || {}) as Record<string, unknown>;
     const areas = (post.areas || []) as string[];
+    const isCash = (post.is_cash as boolean) || false;
 
-    // Update post status
+    // ── Cash ride counter check ──
+    if (isCash) {
+      const cashRows = await sql`
+        SELECT dp.cash_rides_remaining, dp.cash_pack_balance, dp.cash_rides_reset_at, u.tier
+        FROM users u
+        JOIN driver_profiles dp ON dp.user_id = u.id
+        WHERE u.id = ${driverUserId} LIMIT 1
+      `;
+      const cashInfo = cashRows[0] as { cash_rides_remaining: number; cash_pack_balance: number; cash_rides_reset_at: string; tier: string } | undefined;
+
+      if (cashInfo && cashInfo.tier !== 'hmu_first') {
+        // Monthly reset check
+        const now = new Date();
+        const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        let freeRemaining = cashInfo.cash_rides_remaining;
+
+        if (cashInfo.cash_rides_reset_at && new Date(cashInfo.cash_rides_reset_at) < firstOfMonth) {
+          freeRemaining = 3; // Would be reset
+        }
+
+        const totalAvailable = freeRemaining + cashInfo.cash_pack_balance;
+        if (totalAvailable <= 0) {
+          return NextResponse.json({
+            error: 'No cash rides remaining. Purchase a Cash Pack or upgrade to HMU First for unlimited.',
+            code: 'no_cash_rides',
+          }, { status: 403 });
+        }
+      }
+    }
+
+    // ── Single-ride invariant: check BOTH rider and driver ──
+    const [riderActiveRides, driverActiveRides] = await Promise.all([
+      sql`SELECT id FROM rides WHERE rider_id = ${riderId} AND status IN ('matched','otw','here','active') LIMIT 1`,
+      sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('matched','otw','here','active') LIMIT 1`,
+    ]);
+
+    if (riderActiveRides.length) {
+      return NextResponse.json({ error: 'This rider already has an active ride' }, { status: 409 });
+    }
+    if (driverActiveRides.length) {
+      return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });
+    }
+
+    // Get driver's wait time setting
+    const waitRows = await sql`SELECT wait_minutes FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1`;
+    const waitMinutes = Number((waitRows[0] as Record<string, unknown>)?.wait_minutes ?? 10);
+
+    // Update this post to matched
     await sql`UPDATE hmu_posts SET status = 'matched' WHERE id = ${postId}`;
+
+    // Cascade: expire all OTHER active posts for this rider (first-accept-wins)
+    await sql`
+      UPDATE hmu_posts SET status = 'expired'
+      WHERE user_id = ${riderId}
+        AND id != ${postId}
+        AND status = 'active'
+        AND post_type IN ('rider_request', 'direct_booking')
+    `;
 
     // Create ride record
     const rideRows = await sql`
@@ -56,7 +114,7 @@ export async function POST(
         driver_id, rider_id, status, amount, final_agreed_price,
         price_mode, proposed_price, price_accepted_at,
         hmu_post_id, agreement_summary,
-        dispute_window_minutes
+        dispute_window_minutes, is_cash, wait_minutes
       ) VALUES (
         ${driverUserId}, ${riderId}, 'matched', ${price}, ${price},
         'proposed', ${price}, NOW(),
@@ -68,7 +126,9 @@ export async function POST(
           areas,
           price,
         })}::jsonb,
-        ${parseInt(process.env.DISPUTE_WINDOW_MINUTES || '15')}
+        ${parseInt(process.env.DISPUTE_WINDOW_MINUTES || '5')},
+        ${isCash},
+        ${waitMinutes}
       )
       RETURNING id
     `;
@@ -99,8 +159,8 @@ export async function POST(
     return NextResponse.json({ status: 'matched', rideId });
   } catch (error) {
     console.error('Accept booking error:', error);
+    console.error('Accept error stack:', error instanceof Error ? error.stack : 'no stack');
     const msg = error instanceof Error ? error.message : 'Failed to accept';
-    // Include more detail for debugging
     return NextResponse.json(
       { error: msg, detail: String(error) },
       { status: 500 }

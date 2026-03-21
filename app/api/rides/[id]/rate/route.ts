@@ -11,7 +11,8 @@ export async function POST(
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id: rideId } = await params;
-    const { rating } = await req.json();
+    const body = await req.json();
+    const rating = body.rating || body.rating_type;
 
     const validRatings = ['chill', 'cool_af', 'kinda_creepy', 'weirdo'];
     if (!validRatings.includes(rating)) {
@@ -33,28 +34,69 @@ export async function POST(
     }
 
     // Determine who is rating whom
-    if (userId === ride.rider_id) {
-      // Rider rating driver
-      await sql`UPDATE rides SET driver_rating = ${rating}, rider_auto_rated = false, updated_at = NOW() WHERE id = ${rideId}`;
-      // Also insert into ratings table
-      await sql`
-        INSERT INTO ratings (ride_id, rater_id, rated_id, rating_type)
-        VALUES (${rideId}, ${userId}, ${ride.driver_id}, ${rating})
-        ON CONFLICT (ride_id, rater_id) DO UPDATE SET rating_type = ${rating}
-      `;
-    } else if (userId === ride.driver_id) {
-      // Driver rating rider
-      await sql`UPDATE rides SET rider_rating = ${rating}, updated_at = NOW() WHERE id = ${rideId}`;
-      await sql`
-        INSERT INTO ratings (ride_id, rater_id, rated_id, rating_type)
-        VALUES (${rideId}, ${userId}, ${ride.rider_id}, ${rating})
-        ON CONFLICT (ride_id, rater_id) DO UPDATE SET rating_type = ${rating}
-      `;
-    } else {
+    const ratedUserId = userId === ride.rider_id ? ride.driver_id : userId === ride.driver_id ? ride.rider_id : null;
+    if (!ratedUserId) {
       return NextResponse.json({ error: 'Not part of this ride' }, { status: 403 });
     }
 
-    return NextResponse.json({ success: true, rating });
+    // Update ride record with rating
+    if (userId === ride.rider_id) {
+      await sql`UPDATE rides SET driver_rating = ${rating}, rider_auto_rated = false, updated_at = NOW() WHERE id = ${rideId}`;
+    } else {
+      await sql`UPDATE rides SET rider_rating = ${rating}, updated_at = NOW() WHERE id = ${rideId}`;
+    }
+
+    // Insert into ratings table (non-blocking — don't let this fail the whole request)
+    try {
+      await sql`
+        INSERT INTO ratings (ride_id, rater_id, rated_id, rating_type)
+        VALUES (${rideId}, ${userId}, ${ratedUserId}, ${rating})
+        ON CONFLICT (ride_id, rater_id) DO UPDATE SET rating_type = ${rating}
+      `;
+    } catch (e) {
+      console.error('Ratings table insert failed:', e);
+    }
+
+    // Move ride to completed after any rating
+    if (ride.status === 'ended') {
+      await sql`UPDATE rides SET status = 'completed', completed_at = NOW(), updated_at = NOW() WHERE id = ${rideId}`;
+
+      // Increment completed_rides for both driver and rider
+      try {
+        await sql`UPDATE users SET completed_rides = COALESCE(completed_rides, 0) + 1 WHERE id IN (${ride.driver_id}, ${ride.rider_id})`;
+      } catch (e) {
+        console.error('Failed to increment completed_rides:', e);
+      }
+
+      // Recalculate chill_score for the rated user
+      try {
+        await sql`
+          UPDATE users SET chill_score = COALESCE((
+            SELECT ROUND(
+              ((COUNT(*) FILTER (WHERE rating_type = 'chill') + COUNT(*) FILTER (WHERE rating_type = 'cool_af') * 1.5)
+              / GREATEST(COUNT(*), 1)) * 100
+            , 2)
+            FROM ratings WHERE rated_id = ${ratedUserId}
+          ), 0)
+          WHERE id = ${ratedUserId}
+        `;
+      } catch (e) {
+        console.error('Failed to recalculate chill_score:', e);
+      }
+    }
+
+    // Also mark the associated hmu_post as completed
+    try {
+      await sql`
+        UPDATE hmu_posts SET status = 'completed'
+        WHERE id = (SELECT hmu_post_id FROM rides WHERE id = ${rideId})
+          AND hmu_post_id IS NOT NULL
+      `;
+    } catch (e) {
+      console.error('Failed to update hmu_post status:', e);
+    }
+
+    return NextResponse.json({ success: true, rating, status: 'completed' });
   } catch (error) {
     console.error('Rate error:', error);
     return NextResponse.json({ error: 'Failed' }, { status: 500 });

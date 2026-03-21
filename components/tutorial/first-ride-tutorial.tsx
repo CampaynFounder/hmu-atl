@@ -182,13 +182,15 @@ export function FirstRideTutorial({
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: -20 }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-zinc-900"
+              className="relative w-full max-w-md overflow-hidden rounded-3xl shadow-2xl"
+              style={{ background: '#141414', color: '#fff' }}
             >
               {/* Skip Button */}
               {!isLastStep && (
                 <button
                   onClick={handleSkip}
-                  className="absolute right-4 top-4 z-10 rounded-full bg-black/10 p-2 text-gray-600 transition-all hover:bg-black/20 dark:bg-white/10 dark:text-gray-400"
+                  className="absolute right-4 top-4 z-10 rounded-full p-2 transition-all"
+                  style={{ background: 'rgba(255,255,255,0.1)', color: '#bbb' }}
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -203,7 +205,7 @@ export function FirstRideTutorial({
                   transition={{ delay: 0.1, type: 'spring', damping: 15 }}
                   className="mb-6 flex justify-center"
                 >
-                  <div className="rounded-full bg-gradient-to-br from-purple-100 to-pink-100 p-6 dark:from-purple-900 dark:to-pink-900">
+                  <div className="rounded-full p-6" style={{ background: 'rgba(168,85,247,0.15)' }}>
                     {currentStepData.icon}
                   </div>
                 </motion.div>
@@ -214,6 +216,7 @@ export function FirstRideTutorial({
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.2 }}
                   className="mb-4 text-center text-2xl font-bold"
+                  style={{ color: '#fff' }}
                 >
                   {currentStepData.title}
                 </motion.h2>
@@ -223,7 +226,8 @@ export function FirstRideTutorial({
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.3 }}
-                  className="mb-6 text-center text-muted-foreground"
+                  className="mb-6 text-center"
+                  style={{ color: '#bbb' }}
                 >
                   {currentStepData.description}
                 </motion.p>
@@ -234,15 +238,16 @@ export function FirstRideTutorial({
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.4 }}
-                    className="mb-6 rounded-xl bg-gradient-to-r from-purple-50 to-pink-50 p-4 dark:from-purple-950 dark:to-pink-950"
+                    className="mb-6 rounded-xl p-4"
+                    style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.2)' }}
                   >
                     <div className="flex gap-3">
-                      <Sparkles className="h-5 w-5 shrink-0 text-purple-600 dark:text-purple-400" />
+                      <Sparkles className="h-5 w-5 shrink-0" style={{ color: '#A855F7' }} />
                       <div>
-                        <p className="text-sm font-semibold text-purple-900 dark:text-purple-100">
+                        <p className="text-sm font-semibold" style={{ color: '#D8B4FE' }}>
                           Pro Tip
                         </p>
-                        <p className="mt-1 text-sm text-purple-700 dark:text-purple-300">
+                        <p className="mt-1 text-sm" style={{ color: '#C4B5FD' }}>
                           {currentStepData.tip}
                         </p>
                       </div>
@@ -260,7 +265,7 @@ export function FirstRideTutorial({
                           ? 'w-8 bg-gradient-to-r from-purple-500 to-pink-500'
                           : index < currentStep
                           ? 'w-2 bg-green-500'
-                          : 'w-2 bg-gray-300 dark:bg-zinc-700'
+                          : 'w-2'
                       }`}
                     />
                   ))}
@@ -272,7 +277,8 @@ export function FirstRideTutorial({
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.5 }}
                   onClick={handleNext}
-                  className="w-full rounded-full bg-gradient-to-r from-purple-500 to-pink-500 px-8 py-4 font-bold text-white shadow-lg transition-all hover:shadow-xl active:scale-95"
+                  className="w-full rounded-full px-8 py-4 font-bold shadow-lg transition-all hover:shadow-xl active:scale-95"
+                  style={{ background: '#00E676', color: '#080808' }}
                 >
                   {isLastStep ? (
                     <span className="flex items-center justify-center gap-2">

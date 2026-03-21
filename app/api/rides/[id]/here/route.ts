@@ -36,10 +36,12 @@ export async function POST(
       WHERE id = ${rideId} AND status = 'otw'
     `;
 
-    await publishRideUpdate(rideId, 'status_change', { status: 'here', message: 'Driver has arrived' }).catch(() => {});
-    await notifyUser(ride.rider_id as string, 'ride_update', { rideId, status: 'here', message: 'Your driver is here!' }).catch(() => {});
+    const waitMinutes = Number(ride.wait_minutes ?? 10);
 
-    return NextResponse.json({ status: 'here', rideId });
+    await publishRideUpdate(rideId, 'status_change', { status: 'here', message: 'Driver has arrived', waitMinutes }).catch(() => {});
+    await notifyUser(ride.rider_id as string, 'ride_update', { rideId, status: 'here', message: 'Your driver is here!', waitMinutes }).catch(() => {});
+
+    return NextResponse.json({ status: 'here', rideId, waitMinutes });
   } catch (error) {
     console.error('HERE error:', error);
     return NextResponse.json(
