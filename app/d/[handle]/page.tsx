@@ -51,19 +51,33 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
   const { bookingOpen } = await searchParams;
 
   const profile = await getDriverProfileByHandle(handle);
-  if (!profile) notFound();
+  if (!profile) {
+    const { DriverOnBreak } = await import('./on-break');
+    return <DriverOnBreak handle={handle} />;
+  }
 
-  // Fetch user-level data (tier, chill_score, account_status)
-  const userRows = await sql`
-    SELECT tier, chill_score, account_status
-    FROM users WHERE id = ${profile.user_id} LIMIT 1
-  `;
+  // Fetch user-level data + live status in parallel
+  const [userRows, liveRows] = await Promise.all([
+    sql`
+      SELECT tier, chill_score, completed_rides, account_status
+      FROM users WHERE id = ${profile.user_id} LIMIT 1
+    `,
+    sql`
+      SELECT id FROM hmu_posts
+      WHERE user_id = ${profile.user_id}
+        AND post_type = 'driver_available'
+        AND status = 'active'
+        AND expires_at > NOW()
+      LIMIT 1
+    `,
+  ]);
 
   if (!userRows.length) notFound();
 
   const user = userRows[0] as {
     tier: string;
     chill_score: number;
+    completed_rides: number;
     account_status: string;
   };
 
@@ -93,10 +107,13 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
     vehiclePhotoUrl: (profile.vehicle_info as Record<string, unknown>)?.photo_url as string | null ?? null,
     isHmuFirst: user.tier === 'hmu_first',
     chillScore: Number(user.chill_score ?? 0),
-    completedRides: 0,
+    completedRides: Number(user.completed_rides ?? 0),
     acceptDirectBookings: profile.accept_direct_bookings,
     minRiderChillScore: Number(profile.min_rider_chill_score),
     requireOgStatus: profile.require_og_status,
+    isLive: liveRows.length > 0,
+    acceptsCash: (profileAny.accepts_cash as boolean) || (profileAny.cash_only as boolean) || false,
+    cashOnly: (profileAny.cash_only as boolean) || false,
   };
 
   return (

@@ -22,6 +22,12 @@ export async function PATCH(req: NextRequest) {
     require_og_status?: boolean;
     show_video_on_link?: boolean;
     profile_visible?: boolean;
+    fwu?: boolean;
+    license_plate?: string;
+    plate_state?: string;
+    accepts_cash?: boolean;
+    cash_only?: boolean;
+    wait_minutes?: number;
   };
   try {
     body = await req.json();
@@ -30,11 +36,37 @@ export async function PATCH(req: NextRequest) {
   }
 
   // Update via direct SQL for fields not in updateDriverProfile
-  if (body.show_video_on_link !== undefined || body.profile_visible !== undefined) {
+  // Save license plate to vehicle_info JSONB
+  if (body.license_plate !== undefined) {
+    await sql`
+      UPDATE driver_profiles SET
+        vehicle_info = jsonb_set(
+          jsonb_set(COALESCE(vehicle_info, '{}')::jsonb, '{license_plate}', ${JSON.stringify(body.license_plate)}::jsonb),
+          '{plate_state}', ${JSON.stringify(body.plate_state || 'GA')}::jsonb
+        ),
+        updated_at = NOW()
+      WHERE user_id = ${userId}
+    `;
+  }
+
+  // Cash mode + wait time settings
+  if (body.accepts_cash !== undefined || body.cash_only !== undefined || body.wait_minutes !== undefined) {
+    await sql`
+      UPDATE driver_profiles SET
+        accepts_cash = COALESCE(${body.accepts_cash ?? null}, accepts_cash),
+        cash_only = COALESCE(${body.cash_only ?? null}, cash_only),
+        wait_minutes = COALESCE(${body.wait_minutes ?? null}, wait_minutes),
+        updated_at = NOW()
+      WHERE user_id = ${userId}
+    `;
+  }
+
+  if (body.show_video_on_link !== undefined || body.profile_visible !== undefined || body.fwu !== undefined) {
     await sql`
       UPDATE driver_profiles SET
         show_video_on_link = COALESCE(${body.show_video_on_link ?? null}, show_video_on_link),
         profile_visible = COALESCE(${body.profile_visible ?? null}, profile_visible),
+        fwu = COALESCE(${body.fwu ?? null}, fwu),
         updated_at = NOW()
       WHERE user_id = ${userId}
     `;

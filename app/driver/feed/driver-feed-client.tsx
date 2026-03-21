@@ -4,11 +4,18 @@ import { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from 'framer-motion';
 import Link from 'next/link';
 import { MapPin, Clock, DollarSign, ArrowRight, ChevronLeft } from 'lucide-react';
+import RiderProfileOverlay from '@/components/rider/rider-profile-overlay';
+import CashPackCard from '@/components/driver/cash-pack-card';
 
 interface RiderRequest {
   id: string;
   type?: string;
   riderName: string;
+  riderHandle?: string | null;
+  riderAvatarUrl?: string | null;
+  riderVideoUrl?: string | null;
+  riderChillScore?: number;
+  riderCompletedRides?: number;
   destination: string;
   time: string;
   stops: string;
@@ -18,6 +25,7 @@ interface RiderRequest {
   createdAt: string;
   areas?: string[];
   riderOnline?: boolean;
+  isCash?: boolean;
 }
 
 interface Props {
@@ -30,6 +38,8 @@ export default function DriverFeedClient({ driverAreas }: Props) {
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [viewingRiderHandle, setViewingRiderHandle] = useState<string | null>(null);
+  const [showCashPackPurchase, setShowCashPackPurchase] = useState(false);
 
   const fetchRequests = useCallback(async () => {
     try {
@@ -54,15 +64,23 @@ export default function DriverFeedClient({ driverAreas }: Props) {
   const handleAccept = async (postId: string) => {
     try {
       const res = await fetch(`/api/bookings/${postId}/accept`, { method: 'POST' });
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         setRequests((prev) => prev.filter((r) => r.id !== postId));
         setActionFeedback('Accepted!');
         if (data.rideId) {
-          window.location.href = `/ride/${data.rideId}`;
+          if (data.rideId) window.location.replace(`/ride/${data.rideId}`);
         }
+      } else if (data.code === 'no_cash_rides') {
+        setShowCashPackPurchase(true);
+      } else {
+        setActionFeedback(data.error || 'Failed to accept');
+        setTimeout(() => setActionFeedback(null), 4000);
       }
-    } catch { /* silent */ }
+    } catch {
+      setActionFeedback('Network error');
+      setTimeout(() => setActionFeedback(null), 4000);
+    }
   };
 
   const handleDecline = async (postId: string) => {
@@ -206,6 +224,7 @@ export default function DriverFeedClient({ driverAreas }: Props) {
                   request={current}
                   onAccept={() => handleAccept(current.id)}
                   onDecline={() => handleDecline(current.id)}
+                  onViewProfile={(h) => setViewingRiderHandle(h)}
                 />
               )}
             </AnimatePresence>
@@ -215,6 +234,52 @@ export default function DriverFeedClient({ driverAreas }: Props) {
         {/* Feedback toast */}
         {actionFeedback && <div className="feed-toast">{actionFeedback}</div>}
       </div>
+
+      {/* Cash pack purchase overlay */}
+      {showCashPackPurchase && (
+        <>
+          <div
+            onClick={() => setShowCashPackPurchase(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(6px)' }}
+          />
+          <div style={{
+            position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 101,
+            background: '#0a0a0a', borderRadius: '24px 24px 0 0', padding: '24px 20px 40px',
+            maxHeight: '80vh', overflowY: 'auto',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '0 0 16px' }}>
+              <div style={{ width: 40, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.2)' }} />
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', marginBottom: 4 }}>
+              No cash rides remaining
+            </div>
+            <div style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>
+              Purchase a Cash Pack to accept this ride, or upgrade to HMU First for unlimited.
+            </div>
+            <CashPackCard />
+            <button
+              onClick={() => setShowCashPackPurchase(false)}
+              style={{
+                width: '100%', padding: 14, borderRadius: 100, marginTop: 8,
+                border: '1px solid rgba(255,255,255,0.1)', background: 'transparent',
+                color: '#888', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Rider profile overlay */}
+      {viewingRiderHandle && (
+        <RiderProfileOverlay
+          handle={viewingRiderHandle}
+          open={true}
+          onClose={() => setViewingRiderHandle(null)}
+        />
+      )}
     </>
   );
 }
@@ -223,10 +288,12 @@ function SwipeableCard({
   request,
   onAccept,
   onDecline,
+  onViewProfile,
 }: {
   request: RiderRequest;
   onAccept: () => void;
   onDecline: () => void;
+  onViewProfile: (handle: string) => void;
 }) {
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 0, 200], [-8, 0, 8]);
@@ -275,54 +342,95 @@ function SwipeableCard({
       transition={{ duration: dismissed ? 0.3 : 0.25 }}
     >
       <div className="rider-card-inner">
-        {/* Hero */}
-        <div className="rc-hero">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <div className="rc-name">
-              {request.riderName}
+        {/* Media hero — video or avatar */}
+        <div style={{
+          position: 'relative', width: '100%', height: '220px',
+          overflow: 'hidden', borderRadius: '28px 28px 0 0',
+          background: '#1a1a1a',
+        }}>
+          {request.riderVideoUrl ? (
+            <video
+              src={request.riderVideoUrl}
+              autoPlay muted loop playsInline
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+          ) : request.riderAvatarUrl ? (
+            <img src={request.riderAvatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            <div style={{
+              width: '100%', height: '100%', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              background: 'linear-gradient(135deg, #1a1a1a, #141414)',
+              fontSize: 64, color: '#333',
+            }}>
+              {request.riderName.charAt(0).toUpperCase()}
+            </div>
+          )}
+          {/* Gradient overlay for text contrast */}
+          <div style={{
+            position: 'absolute', bottom: 0, left: 0, right: 0, height: '50%',
+            background: 'linear-gradient(to top, rgba(0,0,0,0.85), transparent)',
+          }} />
+          {/* Overlay: name + badges + price */}
+          <div style={{
+            position: 'absolute', bottom: 0, left: 0, right: 0,
+            padding: '16px 20px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <div
+                style={{
+                  fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+                  fontSize: 28, lineHeight: 1, color: '#fff',
+                  cursor: request.riderHandle ? 'pointer' : 'default',
+                }}
+                onClick={(e) => { e.stopPropagation(); if (request.riderHandle) onViewProfile(request.riderHandle); }}
+              >
+                {request.riderName}
+              </div>
               <span style={{
-                width: '8px', height: '8px', borderRadius: '50%',
+                width: 8, height: 8, borderRadius: '50%',
                 background: request.riderOnline ? '#00E676' : '#555',
-                display: 'inline-block', marginLeft: '6px', verticalAlign: 'middle',
               }} />
+              {request.type === 'direct' && (
+                <span style={{ fontSize: 10, background: 'rgba(0,230,118,0.2)', color: '#00E676', padding: '2px 8px', borderRadius: 100, fontWeight: 600 }}>
+                  For you
+                </span>
+              )}
+              {request.isCash && (
+                <span style={{ fontSize: 10, background: 'rgba(76,175,80,0.2)', color: '#4CAF50', padding: '2px 8px', borderRadius: 100, fontWeight: 600 }}>
+                  Cash
+                </span>
+              )}
             </div>
-            {request.type === 'broadcast' && (
-              <span style={{ fontSize: '10px', background: 'rgba(68,138,255,0.15)', color: '#448AFF', padding: '2px 8px', borderRadius: '100px', fontWeight: 600 }}>
-                Broadcast
-              </span>
-            )}
-            {request.type === 'direct' && (
-              <span style={{ fontSize: '10px', background: 'rgba(0,230,118,0.15)', color: '#00E676', padding: '2px 8px', borderRadius: '100px', fontWeight: 600 }}>
-                For you
-              </span>
-            )}
-          </div>
-          <div className="rc-time-ago">{timeAgo}</div>
-        </div>
-
-        {/* Route */}
-        <div className="rc-route">
-          <div className="rc-route-box">
-            <div className="rc-route-row">
-              <div className="rc-route-dot rc-route-dot--pickup">
-                <MapPin className="h-4 w-4" />
-              </div>
-              <div>
-                <div className="rc-route-label">Where</div>
-                <div className="rc-route-addr">{request.destination || 'Not specified'}</div>
-              </div>
+            <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
+              {(request.riderChillScore ?? 0) > 0 && (
+                <span><span style={{ color: '#00E676', fontWeight: 700 }}>{request.riderChillScore}%</span> Chill</span>
+              )}
+              {(request.riderCompletedRides ?? 0) > 0 && (
+                <span>{request.riderCompletedRides} rides</span>
+              )}
+              <span>{timeAgo}</span>
             </div>
-
-            {request.stops && request.stops !== 'none' && (
-              <>
-                <div className="rc-route-connector" />
-                <div className="rc-stops">+ {request.stops}</div>
-              </>
-            )}
           </div>
         </div>
 
-        {/* Details */}
+        {/* Ride details */}
+        <div style={{ padding: '16px 20px 0' }}>
+          {/* Destination */}
+          <div style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10,
+            marginBottom: 12,
+          }}>
+            <MapPin className="h-4 w-4" style={{ color: '#00E676', marginTop: 2, flexShrink: 0 }} />
+            <div style={{ fontSize: 15, fontWeight: 500 }}>{request.destination || 'Not specified'}</div>
+          </div>
+
+          {request.stops && request.stops !== 'none' && (
+            <div style={{ fontSize: 13, color: '#888', marginBottom: 8, paddingLeft: 26 }}>+ {request.stops}</div>
+          )}
+        </div>
+
+        {/* Details pills */}
         <div className="rc-details">
           <div className="rc-pill">
             <Clock className="h-3.5 w-3.5 rc-pill-icon" />

@@ -104,7 +104,7 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
           if (data.hasActiveRide && data.rideId) {
             addSystemMessageDirect("driver accepted! redirecting to your ride...");
             setTimeout(() => {
-              window.location.href = `/ride/${data.rideId}`;
+              window.location.replace(`/ride/${data.rideId}`);
             }, 1000);
             clearInterval(pollInterval);
           }

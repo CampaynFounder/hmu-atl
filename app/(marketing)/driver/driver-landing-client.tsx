@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { posthog } from '@/components/analytics/posthog-provider';
 import styles from './driver.module.css';
 
 export default function DriverLandingClient() {
@@ -106,6 +107,7 @@ export default function DriverLandingClient() {
     setEmailError(eErr);
     if (pErr || eErr) return;
     setIsSubmitting(true);
+    posthog.capture('driver_signup_form_submitted', { phone: phone ? 'provided' : 'empty', email: email ? 'provided' : 'empty' });
     setTimeout(() => router.push('/sign-up?type=driver'), 800);
   };
 
@@ -119,7 +121,7 @@ export default function DriverLandingClient() {
         <Link href="/" className={styles.navLogo}>HMU ATL</Link>
         <div className={styles.navActions}>
           <Link href="/sign-in?type=driver" className={styles.navSignIn}>Sign In</Link>
-          <Link href="/sign-up?type=driver" className={styles.navCta}>Lock In Free</Link>
+          <Link href="/sign-up?type=driver" className={styles.navCta} onClick={() => posthog.capture('driver_nav_cta_clicked')}>Lock In Free</Link>
         </div>
       </nav>
 
@@ -144,18 +146,18 @@ export default function DriverLandingClient() {
       {/* HERO */}
       <section className={styles.hero}>
         <div className={`${styles.heroEyebrow} ${styles.fadeUp}`} style={{ animationDelay: '0s' }}>
-          For Driverpreneurs in Metro Atlanta
+          For ATL Driver-Preneurs
         </div>
         <h1 className={styles.heroHeadline}>
           <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0s' }}>&lsquo;Payment Ready&rsquo;</span>
-          <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0.1s' }}>Ride</span>
-          <span className={`${styles.fadeUp} ${styles.lineDim}`} style={{ display: 'block', animationDelay: '0.2s' }}>Platform</span>
+          <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0.1s' }}>App for</span>
+          <span className={`${styles.fadeUp} ${styles.lineDim}`} style={{ display: 'block', animationDelay: '0.2s' }}>Doin Rides</span>
         </h1>
         <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }}>
-          <strong>It&apos;s your ride. Your price.</strong> We Secure the Payment before you even pull up.
+          <strong>It&apos;s your ride. Your bag.</strong> Stop making $20 on a $80 ride. We Secure Their Payment Till You Pull Up.
         </p>
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
-          <Link href="/sign-up?type=driver" className={styles.btnPrimary}>Lock In Now &mdash; It&rsquo;s Free</Link>
+          <Link href="/sign-up?type=driver" className={styles.btnPrimary} onClick={() => posthog.capture('driver_hero_cta_clicked')}>Lock In Now &mdash; It&rsquo;s Free</Link>
           <a href="#how" className={styles.btnGhost}>See how it works ↓</a>
         </div>
         <div className={`${styles.heroTrust} ${styles.fadeUp}`} style={{ animationDelay: '0.5s' }}>
@@ -264,6 +266,98 @@ export default function DriverLandingClient() {
             <div className={styles.paidHeadlineText}>Wastin Your Time</div>
             <div className={styles.paidResult}>Get Paid</div>
           </div>
+        </div>
+      </section>
+
+      {/* ETA TRACKING */}
+      <section className={styles.section}>
+        <p className={`${styles.sectionLabel} ${styles.reveal}`}>Live Tracking</p>
+        <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
+          Stop Guessing<br />Where To<br /><span className={styles.green}>Pull Up</span>
+        </h2>
+        <p className={`${styles.sectionSub} ${styles.reveal}`}>
+          See exactly where the rider is. They see exactly where you are. No more &ldquo;where you at&rdquo; texts. ETA updates in real-time.
+        </p>
+
+        <div className={styles.reveal} style={{
+          background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: 20, padding: '32px 24px', position: 'relative', overflow: 'hidden',
+          marginBottom: 20,
+        }}>
+          {/* Faux map grid */}
+          <div style={{ position: 'absolute', inset: 0, opacity: 0.04 }}>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={`v${i}`} style={{
+                position: 'absolute', top: 0, bottom: 0,
+                left: `${(i + 1) * 12.5}%`, width: 1, background: '#fff',
+              }} />
+            ))}
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={`h${i}`} style={{
+                position: 'absolute', left: 0, right: 0,
+                top: `${(i + 1) * 16.6}%`, height: 1, background: '#fff',
+              }} />
+            ))}
+          </div>
+
+          {/* Route animation */}
+          <svg viewBox="0 0 300 120" style={{ width: '100%', height: 'auto', position: 'relative', zIndex: 1 }}>
+            <path
+              d="M 40 90 C 80 90, 100 40, 150 50 S 220 20, 260 30"
+              fill="none" stroke="rgba(0,230,118,0.3)" strokeWidth="2" strokeDasharray="6,4"
+            />
+            <path
+              d="M 40 90 C 80 90, 100 40, 150 50 S 220 20, 260 30"
+              fill="none" stroke="#00E676" strokeWidth="2.5"
+              strokeDasharray="180" strokeDashoffset="60" strokeLinecap="round"
+            >
+              <animate attributeName="stroke-dashoffset" from="180" to="0" dur="3s" repeatCount="indefinite" />
+            </path>
+            {/* Driver dot (you - moving) */}
+            <circle r="8" fill="#00E676" opacity="0.9">
+              <animateMotion path="M 40 90 C 80 90, 100 40, 150 50 S 220 20, 260 30" dur="3s" repeatCount="indefinite" />
+            </circle>
+            <circle r="4" fill="#fff">
+              <animateMotion path="M 40 90 C 80 90, 100 40, 150 50 S 220 20, 260 30" dur="3s" repeatCount="indefinite" />
+            </circle>
+            {/* Rider dot (stationary) */}
+            <circle cx="260" cy="30" r="8" fill="#448AFF" opacity="0.9" />
+            <circle cx="260" cy="30" r="4" fill="#fff" />
+            <text x="40" y="110" fill="#888" fontSize="9" fontFamily="monospace" textAnchor="middle">YOU</text>
+            <text x="260" y="18" fill="#888" fontSize="9" fontFamily="monospace" textAnchor="middle">RIDER</text>
+          </svg>
+
+          {/* ETA display */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 24, marginTop: 20 }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 36, color: '#00E676', lineHeight: 1 }}>4 MIN</div>
+              <div style={{ fontSize: 10, color: '#888', letterSpacing: 2, textTransform: 'uppercase', marginTop: 4 }}>ETA</div>
+            </div>
+            <div style={{ width: 1, background: 'rgba(255,255,255,0.08)' }} />
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 36, color: '#fff', lineHeight: 1 }}>1.2 MI</div>
+              <div style={{ fontSize: 10, color: '#888', letterSpacing: 2, textTransform: 'uppercase', marginTop: 4 }}>To Pickup</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Feature bullets */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {[
+            { icon: '\uD83D\uDCCD', text: 'Real-time GPS — rider sees you OTW, you see their pin' },
+            { icon: '\u23F1\uFE0F', text: '10-min no-show timer starts when you tap HERE' },
+            { icon: '\uD83D\uDCAC', text: 'In-ride chat — no need to share your phone number' },
+            { icon: '\uD83D\uDCB5', text: 'Cash Mode — accept cash rides with ETA tracking. 3 free/month, unlimited with HMU First' },
+            { icon: '\uD83D\uDD10', text: 'Rider info stays private — you see display name only' },
+          ].map(f => (
+            <div key={f.text} className={styles.reveal} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              fontSize: 14, color: '#bbb', lineHeight: 1.4,
+            }}>
+              <span style={{ fontSize: 18, flexShrink: 0 }}>{f.icon}</span>
+              {f.text}
+            </div>
+          ))}
         </div>
       </section>
 
@@ -406,9 +500,11 @@ export default function DriverLandingClient() {
               <li>Payment secured upfront</li>
               <li>No-show protection</li>
               <li>Payout next morning (6am batch)</li>
+              <li>3 cash rides/month included</li>
               <li className={styles.featureLocked}>Priority placement in driver feed</li>
               <li className={styles.featureLocked}>Instant payouts</li>
               <li className={styles.featureLocked}>Read rider comments</li>
+              <li className={styles.featureLocked}>Unlimited cash rides</li>
             </ul>
           </div>
           <div className={`${styles.tierCard} ${styles.tierCardFeatured} ${styles.reveal}`}>
@@ -423,6 +519,7 @@ export default function DriverLandingClient() {
               <li>Priority placement — shown first to riders</li>
               <li>Read what riders said about you</li>
               <li>HMU First badge on your profile</li>
+              <li>Unlimited cash rides — no counter, no packs needed</li>
             </ul>
             <div className={styles.savingsCallout}>
               3 rides/day at $20? HMU First pays for itself and you pocket{' '}

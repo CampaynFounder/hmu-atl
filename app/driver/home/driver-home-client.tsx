@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useAbly } from '@/hooks/use-ably';
 import CashoutCard from '@/components/driver/cashout-card';
 
 interface BookingRequest {
@@ -17,20 +18,28 @@ interface BookingRequest {
 }
 
 interface Props {
+  userId: string;
   handle: string;
   displayName: string;
   shareUrl: string;
   areas: string[];
   pricing: Record<string, unknown>;
   isHmuFirst: boolean;
+  completedRides: number;
+  payoutSetup: boolean;
+  cashOnly: boolean;
 }
 
 export default function DriverHomeClient({
+  userId,
   handle,
   displayName,
   shareUrl,
   areas,
   isHmuFirst,
+  completedRides,
+  payoutSetup,
+  cashOnly,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [requests, setRequests] = useState<BookingRequest[]>([]);
@@ -55,6 +64,25 @@ export default function DriverHomeClient({
     fetchRequests();
     const interval = setInterval(fetchRequests, 30000);
     return () => clearInterval(interval);
+  }, [fetchRequests]);
+
+  // Re-fetch immediately on any Ably notification (cancelled ride, new request, etc.)
+  const handleAblyMessage = useCallback(() => {
+    fetchRequests();
+  }, [fetchRequests]);
+
+  useAbly({
+    channelName: `user:${userId}:notify`,
+    onMessage: handleAblyMessage,
+  });
+
+  // Re-fetch when page becomes visible (returning from ride page after cancel)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') fetchRequests();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [fetchRequests]);
 
   const handleCopy = async () => {
@@ -101,7 +129,7 @@ export default function DriverHomeClient({
       if (res.ok) {
         setRequests((prev) => prev.filter((r) => r.id !== postId));
         if (action === 'accept' && data.rideId) {
-          window.location.href = `/ride/${data.rideId}`;
+          if (data.rideId) window.location.replace(`/ride/${data.rideId}`);
         }
       } else if (data.error === 'PAYOUT_REQUIRED') {
         if (confirm('Set up your payout account to accept rides. Go to payout setup?')) {
@@ -175,8 +203,114 @@ export default function DriverHomeClient({
           </div>
         )}
 
-        {/* Cash Out */}
-        <CashoutCard />
+        {/* Lifecycle Card */}
+        {!payoutSetup && !cashOnly ? (
+          /* SETUP: Link payout */
+          <div style={{
+            background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
+            borderRadius: 20, padding: '24px 20px', marginBottom: 32,
+          }}>
+            <div style={{ fontSize: 22, marginBottom: 8 }}>{'\uD83D\uDCB3'}</div>
+            <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 24, lineHeight: 1, marginBottom: 6 }}>
+              LINK YOUR PAYOUT ACCOUNT
+            </div>
+            <p style={{ fontSize: 13, color: '#888', lineHeight: 1.5, marginBottom: 16 }}>
+              Get paid same-day after your first ride. Cash App, Venmo, Zelle, or bank — always free.
+            </p>
+            <a
+              href="/driver/payout-setup"
+              style={{
+                display: 'block', width: '100%', padding: 16, borderRadius: 100,
+                border: 'none', background: '#00E676', color: '#080808',
+                fontWeight: 700, fontSize: 16, textDecoration: 'none', textAlign: 'center',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Set Up Payouts
+            </a>
+          </div>
+        ) : completedRides === 0 ? (
+          /* READY: First ride */
+          <div style={{
+            background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
+            borderRadius: 20, padding: '24px 20px', marginBottom: 32,
+          }}>
+            <div style={{ fontSize: 22, marginBottom: 8 }}>{'\uD83D\uDE80'}</div>
+            <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 24, lineHeight: 1, marginBottom: 6 }}>
+              SHARE YOUR LINK. GET YOUR FIRST RIDE.
+            </div>
+            <p style={{ fontSize: 13, color: '#888', lineHeight: 1.5, marginBottom: 16 }}>
+              Your payout is ready. Now share your HMU link — drop it in group chats, IG bio, anywhere. Your first payout is one ride away.
+            </p>
+            <button
+              onClick={handleShare}
+              style={{
+                display: 'block', width: '100%', padding: 16, borderRadius: 100,
+                border: 'none', background: '#00E676', color: '#080808',
+                fontWeight: 700, fontSize: 16, cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Share My HMU Link
+            </button>
+          </div>
+        ) : completedRides <= 5 ? (
+          /* GROWING: Keep going */
+          <div style={{ marginBottom: 32 }}>
+            <div style={{
+              background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
+              borderRadius: 20, padding: '20px', marginBottom: 12,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 24, lineHeight: 1 }}>
+                    {completedRides} RIDE{completedRides > 1 ? 'S' : ''} DONE {'\uD83D\uDD25'}
+                  </div>
+                  <p style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+                    Drivers who share their link get 3x more bookings
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleShare}
+                style={{
+                  width: '100%', padding: 14, borderRadius: 100,
+                  border: '1px solid rgba(0,230,118,0.3)', background: 'transparent',
+                  color: '#00E676', fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                }}
+              >
+                Share Link for More Rides
+              </button>
+            </div>
+            <CashoutCard />
+          </div>
+        ) : (
+          /* ESTABLISHED: Cashout + subtle upgrade */
+          <div style={{ marginBottom: 32 }}>
+            <CashoutCard />
+            {!isHmuFirst && (
+              <div style={{
+                background: 'rgba(0,230,118,0.04)', border: '1px solid rgba(0,230,118,0.1)',
+                borderRadius: 14, padding: '14px 18px', marginTop: 12,
+                display: 'flex', alignItems: 'center', gap: 10,
+              }}>
+                <span style={{ fontSize: 16 }}>{'\uD83E\uDD47'}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, color: '#bbb', lineHeight: 1.3 }}>
+                    Drivers like you save ~$180/mo with <strong style={{ color: '#00E676' }}>HMU First</strong>
+                  </div>
+                </div>
+                <a
+                  href="/driver/settings?tab=hmu-first"
+                  style={{ fontSize: 12, color: '#00E676', fontWeight: 600, textDecoration: 'none', flexShrink: 0 }}
+                >
+                  Learn more
+                </a>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Share Link Card */}
         <div className="share-card">

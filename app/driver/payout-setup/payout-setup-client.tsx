@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
+
+const DriverPaymentForm = dynamic(() => import('@/components/payments/driver-payment-form'), { ssr: false });
 
 interface PayoutStatus {
   stripeAccountId: string | null;
@@ -250,102 +253,8 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
             )}
           </div>
 
-          {/* Step 2 */}
-          <div style={{
-            background: '#141414',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: '20px',
-            padding: '24px 20px',
-            opacity: status.stripeComplete ? 1 : 0.4,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-              <div style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '16px',
-                fontWeight: 700,
-                background: status.hasExternalAccount ? '#00E676' : '#1a1a1a',
-                color: status.hasExternalAccount ? '#080808' : '#888',
-                border: `2px solid ${status.hasExternalAccount ? '#00E676' : 'rgba(255,255,255,0.15)'}`,
-                flexShrink: 0,
-              }}>
-                {status.hasExternalAccount ? '\u2713' : '2'}
-              </div>
-              <div>
-                <div style={{ fontSize: '18px', fontWeight: 700 }}>Add Payout Account</div>
-                <div style={{ fontSize: '13px', color: '#888' }}>Choose how you get paid</div>
-              </div>
-            </div>
-
-            {status.hasExternalAccount ? (
-              <div style={{ color: '#00E676', fontWeight: 600, fontSize: '14px' }}>
-                &#x2713; {status.bankName || 'Account'} ending in {status.last4}
-              </div>
-            ) : status.stripeComplete ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <button
-                  type="button"
-                  onClick={startOnboarding}
-                  disabled={loading}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '14px',
-                    width: '100%',
-                    padding: '18px 20px',
-                    background: '#1a1a1a',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: '16px',
-                    cursor: 'pointer',
-                    color: '#fff',
-                    textAlign: 'left',
-                    fontFamily: 'var(--font-body, DM Sans, sans-serif)',
-                  }}
-                >
-                  <span style={{ fontSize: '28px' }}>{'\uD83C\uDFE6'}</span>
-                  <span style={{ flex: 1 }}>
-                    <span style={{ display: 'block', fontSize: '16px', fontWeight: 600 }}>Bank Account</span>
-                    <span style={{ display: 'block', fontSize: '12px', color: '#00E676', fontWeight: 600 }}>FREE</span>
-                  </span>
-                  <span style={{ color: '#888', fontSize: '18px' }}>{'\u203A'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={startOnboarding}
-                  disabled={loading}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '14px',
-                    width: '100%',
-                    padding: '18px 20px',
-                    background: '#1a1a1a',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: '16px',
-                    cursor: 'pointer',
-                    color: '#fff',
-                    textAlign: 'left',
-                    fontFamily: 'var(--font-body, DM Sans, sans-serif)',
-                  }}
-                >
-                  <span style={{ fontSize: '28px' }}>{'\uD83D\uDCB3'}</span>
-                  <span style={{ flex: 1 }}>
-                    <span style={{ display: 'block', fontSize: '16px', fontWeight: 600 }}>Debit Card</span>
-                    <span style={{ display: 'block', fontSize: '12px', color: '#888' }}>0.5% fee</span>
-                  </span>
-                  <span style={{ color: '#888', fontSize: '18px' }}>{'\u203A'}</span>
-                </button>
-              </div>
-            ) : (
-              <p style={{ fontSize: '13px', color: '#888', fontStyle: 'italic' }}>
-                Complete Step 1 first
-              </p>
-            )}
-          </div>
+          {/* Step 2: Payment method for purchases */}
+          <Step2PaymentMethod stripeComplete={status.stripeComplete} />
 
           {/* Refresh button */}
           <button
@@ -368,6 +277,92 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
             Refresh Status
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+function Step2PaymentMethod({ stripeComplete }: { stripeComplete: boolean }) {
+  const [hasMethod, setHasMethod] = useState<boolean | null>(null);
+  const [brand, setBrand] = useState<string | null>(null);
+  const [last4, setLast4] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/driver/payment-setup')
+      .then(r => r.json())
+      .then(data => {
+        setHasMethod(data.hasPaymentMethod || false);
+        setBrand(data.brand || null);
+        setLast4(data.last4 || null);
+      })
+      .catch(() => setHasMethod(false));
+  }, []);
+
+  return (
+    <div style={{
+      background: '#141414',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '20px',
+      padding: '24px 20px',
+      opacity: stripeComplete ? 1 : 0.4,
+      marginBottom: 16,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+        <div style={{
+          width: '36px', height: '36px', borderRadius: '50%',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: '16px', fontWeight: 700,
+          background: hasMethod ? '#00E676' : '#1a1a1a',
+          color: hasMethod ? '#080808' : '#888',
+          border: `2px solid ${hasMethod ? '#00E676' : 'rgba(255,255,255,0.15)'}`,
+          flexShrink: 0,
+        }}>
+          {hasMethod ? '\u2713' : '2'}
+        </div>
+        <div>
+          <div style={{ fontSize: '18px', fontWeight: 700 }}>Payment Method</div>
+          <div style={{ fontSize: '13px', color: '#888' }}>For HMU First + Cash Pack purchases</div>
+        </div>
+      </div>
+
+      {hasMethod && !showForm ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ color: '#00E676', fontWeight: 600, fontSize: '14px' }}>
+            {'\u2713'} {(brand || 'Card').charAt(0).toUpperCase() + (brand || 'card').slice(1)} ending in {last4}
+          </div>
+          <button
+            onClick={() => setShowForm(true)}
+            style={{
+              background: 'none', border: '1px solid rgba(0,230,118,0.3)',
+              color: '#00E676', fontSize: 12, fontWeight: 600,
+              padding: '6px 14px', borderRadius: 100, cursor: 'pointer',
+              fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+            }}
+          >
+            Update
+          </button>
+        </div>
+      ) : stripeComplete ? (
+        showForm || !hasMethod ? (
+          <DriverPaymentForm onSuccess={() => {
+            setShowForm(false);
+            setHasMethod(true);
+            // Refresh details
+            fetch('/api/driver/payment-setup')
+              .then(r => r.json())
+              .then(data => { setBrand(data.brand); setLast4(data.last4); setHasMethod(true); })
+              .catch(() => {});
+          }} />
+        ) : (
+          <div style={{ textAlign: 'center', padding: '12px', color: '#888', fontSize: 13 }}>
+            Checking...
+          </div>
+        )
+      ) : (
+        <p style={{ fontSize: '13px', color: '#888', fontStyle: 'italic' }}>
+          Complete Step 1 first
+        </p>
       )}
     </div>
   );

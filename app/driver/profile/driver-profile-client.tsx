@@ -18,11 +18,17 @@ interface ProfileData {
   schedule: Record<string, unknown>;
   videoUrl: string;
   vehiclePhotoUrl: string;
+  licensePlate: string;
+  plateState: string;
   acceptDirectBookings: boolean;
   minRiderChillScore: number;
   requireOgStatus: boolean;
   showVideoOnLink: boolean;
   profileVisible: boolean;
+  fwu: boolean;
+  acceptsCash: boolean;
+  cashOnly: boolean;
+  waitMinutes: number;
 }
 
 interface UserData {
@@ -38,10 +44,16 @@ interface PayoutData {
   bankName: string | null;
 }
 
+interface SubscriptionData {
+  status: string | null;
+  subscriptionId: string | null;
+}
+
 interface Props {
   profile: ProfileData;
   user: UserData;
   payout: PayoutData;
+  subscription: SubscriptionData;
 }
 
 const ATLANTA_AREAS = [
@@ -57,7 +69,7 @@ const DAY_LABELS: Record<string, string> = {
   friday: 'Fri', saturday: 'Sat', sunday: 'Sun',
 };
 
-export default function DriverProfileClient({ profile, user, payout }: Props) {
+export default function DriverProfileClient({ profile, user, payout, subscription }: Props) {
   const [data, setData] = useState(profile);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState('');
@@ -74,7 +86,7 @@ export default function DriverProfileClient({ profile, user, payout }: Props) {
     try {
       let res: Response;
 
-      if ('acceptDirectBookings' in patch || 'minRiderChillScore' in patch || 'requireOgStatus' in patch || 'showVideoOnLink' in patch || 'profileVisible' in patch) {
+      if ('acceptDirectBookings' in patch || 'minRiderChillScore' in patch || 'requireOgStatus' in patch || 'showVideoOnLink' in patch || 'profileVisible' in patch || 'fwu' in patch || 'acceptsCash' in patch || 'cashOnly' in patch || 'waitMinutes' in patch) {
         res = await fetch('/api/drivers/booking-settings', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -84,6 +96,10 @@ export default function DriverProfileClient({ profile, user, payout }: Props) {
             require_og_status: patch.requireOgStatus ?? data.requireOgStatus,
             show_video_on_link: patch.showVideoOnLink ?? data.showVideoOnLink,
             profile_visible: patch.profileVisible ?? data.profileVisible,
+            fwu: patch.fwu ?? data.fwu,
+            accepts_cash: patch.acceptsCash ?? data.acceptsCash,
+            cash_only: patch.cashOnly ?? data.cashOnly,
+            wait_minutes: patch.waitMinutes ?? data.waitMinutes,
           }),
         });
       } else {
@@ -312,6 +328,35 @@ export default function DriverProfileClient({ profile, user, payout }: Props) {
           tier={user.tier}
         />
 
+        {/* HMU First Subscription */}
+        {user.tier === 'hmu_first' && (
+          <div className="dp-section">
+            <div className="dp-section-title">HMU First Subscription</div>
+            <div className="dp-row">
+              <div className="dp-row-left">
+                <div className="dp-row-label">Status</div>
+                <div className="dp-row-sub">$9.99/mo — active</div>
+              </div>
+              <span style={{
+                background: '#00E676', color: '#080808', fontSize: 10, fontWeight: 800,
+                padding: '4px 12px', borderRadius: 100, letterSpacing: 1, textTransform: 'uppercase',
+              }}>
+                Active
+              </span>
+            </div>
+            {subscription.subscriptionId && (
+              <div className="dp-row">
+                <div className="dp-row-left">
+                  <div className="dp-row-label">Subscription ID</div>
+                  <div className="dp-row-sub" style={{ fontFamily: "var(--font-mono, 'Space Mono', monospace)", fontSize: 11 }}>
+                    {subscription.subscriptionId.slice(0, 20)}...
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Booking Settings */}
         <div className="dp-section">
           <div className="dp-section-title">Booking Settings</div>
@@ -356,6 +401,67 @@ export default function DriverProfileClient({ profile, user, payout }: Props) {
             >
               <div className="toggle-thumb" />
             </button>
+          </div>
+
+          <div className="dp-row">
+            <div className="dp-row-left">
+              <div className="dp-row-label">FWU</div>
+              <div className="dp-row-sub">Signal you might accept less than your minimum</div>
+            </div>
+            <button
+              className={`toggle ${data.fwu ? 'on' : 'off'}`}
+              onClick={() => update({ fwu: !data.fwu })}
+            >
+              <div className="toggle-thumb" />
+            </button>
+          </div>
+
+          <div className="dp-row">
+            <div className="dp-row-left">
+              <div className="dp-row-label">Accepts Cash</div>
+              <div className="dp-row-sub">Show riders you take cash payments</div>
+            </div>
+            <button
+              className={`toggle ${data.acceptsCash ? 'on' : 'off'}`}
+              onClick={() => {
+                const newVal = !data.acceptsCash;
+                update({ acceptsCash: newVal, ...(newVal ? {} : { cashOnly: false }) });
+              }}
+            >
+              <div className="toggle-thumb" />
+            </button>
+          </div>
+
+          {data.acceptsCash && (
+            <div className="dp-row">
+              <div className="dp-row-left">
+                <div className="dp-row-label">Cash Only</div>
+                <div className="dp-row-sub">Only show cash ride requests — no digital payments</div>
+              </div>
+              <button
+                className={`toggle ${data.cashOnly ? 'on' : 'off'}`}
+                onClick={() => update({ cashOnly: !data.cashOnly })}
+              >
+                <div className="toggle-thumb" />
+              </button>
+            </div>
+          )}
+
+          <div className="dp-row">
+            <div className="dp-row-left">
+              <div className="dp-row-label">Wait Time</div>
+              <div className="dp-row-sub">Minutes you&apos;ll wait at pickup before you can leave</div>
+            </div>
+            <select
+              value={data.waitMinutes}
+              onChange={(e) => update({ waitMinutes: Number(e.target.value) })}
+              className="score-input"
+              style={{ width: 70 }}
+            >
+              {[5, 7, 10, 15, 20].map(m => (
+                <option key={m} value={m}>{m} min</option>
+              ))}
+            </select>
           </div>
 
           <div className="dp-row">
@@ -485,17 +591,35 @@ export default function DriverProfileClient({ profile, user, payout }: Props) {
               <div className="media-preview">
                 <video
                   src={data.videoUrl}
-                  loop
-                  muted
+                  controls
                   playsInline
-                  autoPlay
+                  style={{ borderRadius: '12px' }}
                 />
               </div>
               <div className="media-actions">
                 <button className="media-btn media-btn--outline" onClick={() => setShowVideoEditor(true)}>
                   Record New
                 </button>
-                <button className="media-btn media-btn--outline" onClick={() => setShowVideoEditor(true)}>
+                <button className="media-btn media-btn--outline" onClick={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = 'video/*';
+                  input.onchange = async (e) => {
+                    const file = (e.target as HTMLInputElement).files?.[0];
+                    if (!file) return;
+                    const formData = new FormData();
+                    formData.append('video', file);
+                    formData.append('profile_type', 'driver');
+                    formData.append('media_type', 'video');
+                    formData.append('save_to_profile', 'true');
+                    try {
+                      const res = await fetch('/api/upload/video', { method: 'POST', body: formData });
+                      const data = await res.json();
+                      if (res.ok && data.url) handleVideoSaved(data.url);
+                    } catch { /* silent */ }
+                  };
+                  input.click();
+                }}>
                   Upload New
                 </button>
               </div>
@@ -570,6 +694,60 @@ export default function DriverProfileClient({ profile, user, payout }: Props) {
             onChange={handlePhotoUpload}
             style={{ display: 'none' }}
           />
+        </div>
+
+        {/* License Plate */}
+        <div className="dp-section">
+          <div className="dp-section-title">License Plate</div>
+          <div style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
+            Riders see this when you&apos;re close. Update anytime if you switch cars.
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <input
+              type="text"
+              value={data.licensePlate}
+              onChange={(e) => setData(d => ({ ...d, licensePlate: e.target.value.toUpperCase() }))}
+              onBlur={() => {
+                if (data.licensePlate !== profile.licensePlate) {
+                  fetch('/api/drivers/booking-settings', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ license_plate: data.licensePlate, plate_state: data.plateState }),
+                  });
+                  setSaved('Plate saved');
+                  setTimeout(() => setSaved(''), 2000);
+                }
+              }}
+              placeholder="ABC 1234"
+              maxLength={10}
+              style={{
+                flex: 1, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 12, padding: '12px 14px', color: '#fff', fontSize: 16,
+                fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+                letterSpacing: 3, textTransform: 'uppercase', outline: 'none',
+              }}
+            />
+            <select
+              value={data.plateState}
+              onChange={(e) => {
+                setData(d => ({ ...d, plateState: e.target.value }));
+                fetch('/api/drivers/booking-settings', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ license_plate: data.licensePlate, plate_state: e.target.value }),
+                });
+              }}
+              style={{
+                width: 70, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 12, padding: '12px 8px', color: '#fff', fontSize: 14,
+                outline: 'none',
+              }}
+            >
+              {['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'].map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {/* Display Identity */}

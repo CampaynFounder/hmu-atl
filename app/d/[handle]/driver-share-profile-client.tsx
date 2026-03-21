@@ -3,8 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
+import { posthog } from '@/components/analytics/posthog-provider';
 import ChatBooking from './chat-booking';
 import type { EligibilityResult } from '@/lib/db/direct-bookings';
+
+const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
 interface DriverData {
   handle: string;
@@ -20,6 +24,9 @@ interface DriverData {
   acceptDirectBookings: boolean;
   minRiderChillScore: number;
   requireOgStatus: boolean;
+  isLive: boolean;
+  acceptsCash: boolean;
+  cashOnly: boolean;
 }
 
 interface Props {
@@ -33,6 +40,17 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [videoMuted, setVideoMuted] = useState(true);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+
+  // Track profile view
+  useEffect(() => {
+    posthog.capture('driver_profile_viewed', {
+      driverHandle: driver.handle,
+      driverName: driver.displayName,
+      isLive: driver.isLive,
+      viewerSignedIn: isSignedIn,
+    });
+  }, [driver.handle]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch eligibility once auth is known
   useEffect(() => {
@@ -65,13 +83,54 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
 
     if (!isSignedIn) {
       return (
-        <Link href={signUpUrl} className="cta-btn cta-btn--primary">
+        <Link href={signUpUrl} className="cta-btn cta-btn--primary" onClick={() => {
+          posthog.capture('signup_from_driver_link', { driverHandle: driver.handle, driverName: driver.displayName });
+        }}>
           Sign up to Book {driver.displayName}
         </Link>
       );
     }
 
     if (eligibility && !eligibility.eligible) {
+      // Payment method missing — but if driver accepts cash, let them through
+      if (eligibility.code === 'no_payment_method' && (driver.acceptsCash || driver.cashOnly)) {
+        return (
+          <button className="cta-btn cta-btn--primary" onClick={() => {
+            posthog.capture('hmu_button_clicked', { driverHandle: driver.handle, isCash: true });
+            setDrawerOpen(true);
+          }}>
+            HMU {driver.displayName} (Cash)
+          </button>
+        );
+      }
+      if (eligibility.code === 'no_payment_method') {
+        return showPaymentForm ? (
+          <InlinePaymentForm
+            onSuccess={() => {
+              setShowPaymentForm(false);
+              setEligibility(null);
+              setEligibilityLoading(true);
+              fetch(`/api/drivers/${driver.handle}/eligibility`)
+                .then(r => r.json())
+                .then(data => setEligibility(data))
+                .finally(() => setEligibilityLoading(false));
+            }}
+            onCancel={() => setShowPaymentForm(false)}
+            compact
+          />
+        ) : (
+          <div className="ineligible-block">
+            <p className="ineligible-reason">{eligibility.reason}</p>
+            <button
+              className="cta-btn cta-btn--primary"
+              onClick={() => setShowPaymentForm(true)}
+            >
+              Link Payment Method
+            </button>
+          </div>
+        );
+      }
+
       return (
         <div className="ineligible-block">
           <button className="cta-btn cta-btn--disabled" disabled>
@@ -99,8 +158,11 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
     }
 
     return (
-      <button className="cta-btn cta-btn--primary" onClick={() => setDrawerOpen(true)}>
-        Book {driver.displayName}
+      <button className="cta-btn cta-btn--primary" onClick={() => {
+        posthog.capture('hmu_button_clicked', { driverHandle: driver.handle, driverName: driver.displayName });
+        setDrawerOpen(true);
+      }}>
+        HMU {driver.displayName}
       </button>
     );
   };
@@ -109,8 +171,9 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
     <>
       <style>{`
         :root { --green: #00E676; --black: #080808; --card: #141414; --card2: #1a1a1a; --border: rgba(255,255,255,0.08); --gray: #888; --gray-light: #bbb; }
-        .profile-page { background: var(--black); color: #fff; min-height: 100svh; font-family: var(--font-body, 'DM Sans', sans-serif); padding-bottom: 100px; }
+        .profile-page { background: var(--black); color: #fff; min-height: 100svh; font-family: var(--font-body, 'DM Sans', sans-serif); padding-bottom: 100px; padding-top: 56px; }
         .hero-photo { width: 100%; display: block; background: var(--black); }
+        .hero-photo-img { width: 100%; display: block; background: var(--black); }
         .hero-photo-placeholder { width: 100%; aspect-ratio: 4/3; background: linear-gradient(135deg, #141414, #1a1a1a); display: flex; align-items: center; justify-content: center; font-size: 64px; }
         .profile-body { padding: 24px 20px 0; }
         .name-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
@@ -169,8 +232,34 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
       `}</style>
 
       <div className="profile-page">
-        {/* Hero: video intro or vehicle photo */}
-        {driver.videoUrl ? (
+        {/* Hero: show both video + photo if both exist, otherwise one or placeholder */}
+        {driver.videoUrl && driver.vehiclePhotoUrl ? (
+          <>
+            {/* Vehicle photo first */}
+            <img src={driver.vehiclePhotoUrl} alt={`${driver.displayName}'s vehicle`} className="hero-photo-img" />
+            {/* Video intro below */}
+            <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setVideoMuted(!videoMuted)}>
+              <video
+                src={driver.videoUrl}
+                className="hero-photo"
+                autoPlay
+                loop
+                muted={videoMuted}
+                playsInline
+                style={{ objectFit: 'cover', maxHeight: '300px' }}
+              />
+              <div style={{
+                position: 'absolute', bottom: '16px', right: '16px',
+                background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
+                borderRadius: '100px', padding: '8px 14px',
+                fontSize: '13px', color: '#fff', fontWeight: 600,
+                display: 'flex', alignItems: 'center', gap: '6px',
+              }}>
+                {videoMuted ? '\uD83D\uDD07 Tap for sound' : '\uD83D\uDD0A Sound on'}
+              </div>
+            </div>
+          </>
+        ) : driver.videoUrl ? (
           <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setVideoMuted(!videoMuted)}>
             <video
               src={driver.videoUrl}
@@ -192,17 +281,49 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
             </div>
           </div>
         ) : driver.vehiclePhotoUrl ? (
-          <img src={driver.vehiclePhotoUrl} alt={`${driver.displayName}'s vehicle`} className="hero-photo" />
+          <img src={driver.vehiclePhotoUrl} alt={`${driver.displayName}'s vehicle`} className="hero-photo-img" />
         ) : (
-          <div className="hero-photo-placeholder">🚗</div>
+          <div className="hero-photo-placeholder">{'\uD83D\uDE97'}</div>
         )}
 
         <div className="profile-body">
-          {/* Name + badge */}
-          <div className="name-row">
-            <h1 className="driver-name">{driver.displayName}</h1>
-            {driver.isHmuFirst && <span className="hmu-first-badge">HMU First</span>}
+          {/* Name row + driver CTA */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+            <div className="name-row" style={{ marginBottom: 0 }}>
+              <h1 className="driver-name">{driver.displayName}</h1>
+              {driver.isHmuFirst && <span className="hmu-first-badge">HMU First</span>}
+            {driver.acceptsCash && (
+              <span style={{
+                background: 'rgba(76,175,80,0.15)', color: '#4CAF50',
+                fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 100,
+                letterSpacing: 1, textTransform: 'uppercase', whiteSpace: 'nowrap',
+              }}>
+                {driver.cashOnly ? 'Cash Only' : 'Cash OK'}
+              </span>
+            )}
+            </div>
+            {/* Driver sign up CTA */}
+            <DriverSignUpCta />
           </div>
+          {driver.isLive && (
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.25)',
+              borderRadius: 100, padding: '5px 14px', marginBottom: 12,
+            }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%', background: '#00E676',
+                animation: 'pulse 1.2s ease-in-out infinite',
+              }} />
+              <span style={{
+                fontSize: 11, fontWeight: 700, color: '#00E676',
+                letterSpacing: 2, textTransform: 'uppercase',
+                fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+              }}>
+                Doin Rides Now
+              </span>
+            </div>
+          )}
 
           {/* Stats */}
           <div className="stats-row">
@@ -304,5 +425,97 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
         />
       )}
     </>
+  );
+}
+
+const DRIVER_PAIN_POINTS = [
+  'Time Wasters',
+  'No Payment',
+  'Uber Fees',
+  'Finessers',
+  'Scammers',
+  'Surge Pricing',
+  'No-Shows',
+];
+
+function DriverSignUpCta() {
+  const [currentPain, setCurrentPain] = useState(0);
+  const [animating, setAnimating] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAnimating(true);
+      setTimeout(() => {
+        setCurrentPain(prev => (prev + 1) % DRIVER_PAIN_POINTS.length);
+        setAnimating(false);
+      }, 400);
+    }, 2200);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <Link
+      href="/sign-up?type=driver"
+      onClick={() => posthog.capture('driver_cta_on_hmu_link')}
+      style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        textDecoration: 'none', flexShrink: 0,
+        gap: 8,
+      }}
+    >
+      <style>{`
+        @keyframes fadeSwap {
+          0% { opacity: 1; transform: translateY(0); }
+          40% { opacity: 0; transform: translateY(-6px); }
+          60% { opacity: 0; transform: translateY(6px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes prohibitGlow {
+          0%, 100% { box-shadow: 0 0 0 rgba(255,82,82,0); }
+          50% { box-shadow: 0 0 12px rgba(255,82,82,0.4); }
+        }
+      `}</style>
+
+      {/* Prohibited circle with pain point */}
+      <div style={{
+        position: 'relative', width: 68, height: 68,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        borderRadius: '50%',
+        border: '3px solid #FF5252',
+        animation: 'prohibitGlow 2.2s ease-in-out infinite',
+        overflow: 'hidden',
+      }}>
+        {/* Diagonal strike — connects edge to edge */}
+        <div style={{
+          position: 'absolute',
+          width: '140%', height: 3, background: '#FF5252',
+          transform: 'rotate(-45deg)',
+          zIndex: 2,
+        }} />
+        {/* Pain point text */}
+        <div style={{
+          fontSize: 10, fontWeight: 800, color: '#FF5252',
+          textAlign: 'center', lineHeight: 1.15,
+          padding: '0 8px',
+          textTransform: 'uppercase', letterSpacing: 0.3,
+          animation: animating ? 'fadeSwap 0.4s ease-in-out' : 'none',
+          zIndex: 1,
+        }}>
+          {DRIVER_PAIN_POINTS[currentPain]}
+        </div>
+      </div>
+
+      {/* CTA button */}
+      <div style={{
+        background: '#00E676', color: '#080808',
+        fontSize: 10, fontWeight: 800, letterSpacing: 0.5,
+        padding: '6px 12px', borderRadius: 100,
+        textAlign: 'center', lineHeight: 1.2,
+        textTransform: 'uppercase',
+        whiteSpace: 'nowrap',
+      }}>
+        Drive with HMU
+      </div>
+    </Link>
   );
 }

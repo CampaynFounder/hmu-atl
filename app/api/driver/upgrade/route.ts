@@ -99,9 +99,53 @@ export async function GET() {
 
     const user = rows[0] as { user_id: string; tier: string };
 
+    // Create the subscription using the customer's default payment method
+    let subscriptionId: string | null = null;
+    try {
+      const custRows = await sql`SELECT stripe_customer_id FROM driver_profiles WHERE user_id = ${user.user_id} LIMIT 1`;
+      const custId = (custRows[0] as Record<string, unknown>)?.stripe_customer_id as string;
+
+      if (custId && !isMock) {
+        // Check if already has active subscription
+        const existingSubs = await stripe.subscriptions.list({ customer: custId, status: 'active', limit: 1 });
+        if (existingSubs.data.length > 0) {
+          subscriptionId = existingSubs.data[0].id;
+        } else {
+          // Get the customer's default payment method
+          const customer = await stripe.customers.retrieve(custId);
+          const defaultPm = (customer as { invoice_settings?: { default_payment_method?: string } })
+            .invoice_settings?.default_payment_method;
+
+          // List payment methods if no default
+          let paymentMethodId = defaultPm as string | null;
+          if (!paymentMethodId) {
+            const pms = await stripe.paymentMethods.list({ customer: custId, type: 'card', limit: 1 });
+            paymentMethodId = pms.data[0]?.id || null;
+          }
+
+          if (paymentMethodId && process.env.HMU_FIRST_PRICE_ID) {
+            const sub = await stripe.subscriptions.create({
+              customer: custId,
+              items: [{ price: process.env.HMU_FIRST_PRICE_ID }],
+              default_payment_method: paymentMethodId,
+              metadata: { userId: user.user_id },
+            });
+            subscriptionId = sub.id;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Subscription creation failed:', e);
+    }
+
     // Update tier
     await sql`UPDATE users SET tier = 'hmu_first', updated_at = NOW() WHERE id = ${user.user_id}`;
-    await sql`UPDATE driver_profiles SET subscription_status = 'hmu_first' WHERE user_id = ${user.user_id}`;
+    await sql`
+      UPDATE driver_profiles SET
+        subscription_status = 'hmu_first',
+        stripe_subscription_id = ${subscriptionId}
+      WHERE user_id = ${user.user_id}
+    `;
 
     // Update Clerk metadata
     try {

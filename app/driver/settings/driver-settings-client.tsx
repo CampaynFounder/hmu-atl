@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { UserProfile } from '@clerk/nextjs';
+import { useState, useEffect } from 'react';
+import { useUser, useClerk } from '@clerk/nextjs';
 import UpgradeOverlay from '@/components/driver/upgrade-overlay';
+import CashPackCard from '@/components/driver/cash-pack-card';
 import Link from 'next/link';
-import { ChevronLeft, Shield, Zap, Clock, MessageCircle } from 'lucide-react';
+import { ChevronLeft, Shield, Zap, Clock, MessageCircle, DollarSign } from 'lucide-react';
 
 interface Props {
   tier: string;
@@ -13,6 +13,7 @@ interface Props {
 
 const TABS = [
   { id: 'security', label: 'Security', icon: Shield },
+  { id: 'cash', label: 'Cash Rides', icon: DollarSign },
   { id: 'hmu-first', label: 'HMU First', icon: Zap },
   { id: 'history', label: 'Ride History', icon: Clock },
   { id: 'support', label: 'Support', icon: MessageCircle },
@@ -21,9 +22,15 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id'];
 
 export default function DriverSettingsClient({ tier }: Props) {
-  const searchParams = useSearchParams();
-  const initialTab = (searchParams.get('tab') as TabId) || 'security';
-  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
+  const [activeTab, setActiveTab] = useState<TabId>('security');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab') as TabId | null;
+    if (tab && ['security', 'cash', 'hmu-first', 'history', 'support'].includes(tab)) {
+      setActiveTab(tab);
+    }
+  }, []);
 
   return (
     <>
@@ -121,6 +128,7 @@ export default function DriverSettingsClient({ tier }: Props) {
         {/* Tab content */}
         <div className="tab-content">
           {activeTab === 'security' && <SecurityTab />}
+          {activeTab === 'cash' && <CashPackCard />}
           {activeTab === 'hmu-first' && <HmuFirstTab tier={tier} />}
           {activeTab === 'history' && <HistoryTab />}
           {activeTab === 'support' && <SupportTab />}
@@ -131,46 +139,47 @@ export default function DriverSettingsClient({ tier }: Props) {
 }
 
 function SecurityTab() {
+  const { user } = useUser();
+  const { signOut } = useClerk();
+  const phone = user?.primaryPhoneNumber?.phoneNumber;
+  const email = user?.primaryEmailAddress?.emailAddress;
+
   return (
-    <div className="clerk-wrap">
-      <UserProfile
-        appearance={{
-          baseTheme: undefined,
-          variables: {
-            colorBackground: '#141414',
-            colorText: '#ffffff',
-            colorTextSecondary: '#888888',
-            colorPrimary: '#00E676',
-            colorInputBackground: '#1a1a1a',
-            colorInputText: '#ffffff',
-            borderRadius: '12px',
-          },
-          elements: {
-            rootBox: { width: '100%' },
-            card: { boxShadow: 'none', border: '1px solid rgba(255,255,255,0.08)' },
-            headerTitle: { color: '#ffffff' },
-            headerSubtitle: { color: '#888888' },
-            profileSectionTitle: { color: '#888888' },
-            profileSectionContent: { color: '#ffffff' },
-            formButtonPrimary: { backgroundColor: '#00E676', color: '#080808' },
-            navbarButton: { color: '#ffffff', fontWeight: 600 },
-            navbarButtonIcon: { color: '#00E676' },
-            navbarButton__active: { color: '#00E676', borderColor: '#00E676' },
-            badge: { backgroundColor: '#00E676', color: '#080808' },
-            profileSectionPrimaryButton: { color: '#00E676' },
-            menuButton: { color: '#ffffff' },
-            menuItem: { color: '#ffffff' },
-            accordionTriggerButton: { color: '#ffffff' },
-            navbarMobileMenuRow: { color: '#ffffff' },
-            navbarMobileMenuButton: { color: '#ffffff' },
-            pageScrollBox: { color: '#ffffff' },
-            page: { color: '#ffffff' },
-            breadcrumbs: { color: '#ffffff' },
-            breadcrumbsItem: { color: '#ffffff' },
-            breadcrumbsItemDivider: { color: '#888' },
-          },
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {/* Phone */}
+      <div className="support-section">
+        <div className="support-title">Phone Number</div>
+        <div className="support-sub">{phone || 'Not set'}</div>
+      </div>
+
+      {/* Email */}
+      {email && (
+        <div className="support-section">
+          <div className="support-title">Email</div>
+          <div className="support-sub">{email}</div>
+        </div>
+      )}
+
+      {/* Passkeys */}
+      {user?.passkeys && user.passkeys.length > 0 && (
+        <div className="support-section">
+          <div className="support-title">Passkeys</div>
+          <div className="support-sub">{user.passkeys.length} passkey{user.passkeys.length > 1 ? 's' : ''} configured</div>
+        </div>
+      )}
+
+      {/* Sign out */}
+      <button
+        onClick={() => signOut({ redirectUrl: '/driver' })}
+        className="support-btn"
+        style={{
+          display: 'block', width: '100%', textAlign: 'center',
+          color: '#FF5252', borderColor: 'rgba(255,82,82,0.2)',
+          marginTop: '8px',
         }}
-      />
+      >
+        Sign Out
+      </button>
     </div>
   );
 }
@@ -251,13 +260,149 @@ function HmuFirstTab({ tier }: { tier: string }) {
   );
 }
 
+interface RideHistory {
+  id: string;
+  status: string;
+  rider_name: string | null;
+  amount: number;
+  final_agreed_price: number | null;
+  driver_payout_amount: number | null;
+  platform_fee_amount: number | null;
+  driver_rating: string | null;
+  rider_rating: string | null;
+  pickup_address: string | null;
+  dropoff_address: string | null;
+  destination: string | null;
+  created_at: string;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+const RATING_DISPLAY: Record<string, { label: string; emoji: string; color: string }> = {
+  chill: { label: 'CHILL', emoji: '\u2705', color: '#00E676' },
+  cool_af: { label: 'Cool AF', emoji: '\uD83D\uDE0E', color: '#448AFF' },
+  kinda_creepy: { label: 'Kinda Creepy', emoji: '\uD83D\uDC40', color: '#FFD740' },
+  weirdo: { label: 'WEIRDO', emoji: '\uD83D\uDEA9', color: '#FF5252' },
+};
+
 function HistoryTab() {
-  // TODO: Fetch from /api/driver/transactions
+  const [rides, setRides] = useState<RideHistory[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/rides/history')
+      .then(r => r.json())
+      .then(data => { if (data.rides) setRides(data.rides); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 0', color: '#888', fontSize: '14px' }}>
+        Loading rides...
+      </div>
+    );
+  }
+
+  if (rides.length === 0) {
+    return (
+      <div className="history-empty">
+        <div className="history-empty-icon">{'\uD83D\uDCCB'}</div>
+        <div className="history-empty-text">
+          No rides yet. Complete your first ride and it&apos;ll show here.
+        </div>
+      </div>
+    );
+  }
+
+  const totalEarned = rides
+    .filter(r => ['ended', 'completed'].includes(r.status))
+    .reduce((sum, r) => sum + (r.driver_payout_amount || Number(r.final_agreed_price || r.amount) || 0), 0);
+  const completedCount = rides.filter(r => ['ended', 'completed'].includes(r.status)).length;
+
   return (
-    <div className="history-empty">
-      <div className="history-empty-icon">{'\uD83D\uDCCB'}</div>
-      <div className="history-empty-text">
-        Your completed rides and earnings will show here.
+    <div>
+      {/* Stats row */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
+        <div style={{
+          flex: 1, background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '14px', padding: '14px', textAlign: 'center',
+        }}>
+          <div style={{ fontFamily: "var(--font-mono, 'Space Mono', monospace)", fontSize: '24px', fontWeight: 700, color: '#00E676' }}>
+            {completedCount}
+          </div>
+          <div style={{ fontSize: '11px', color: '#888', letterSpacing: '1px', textTransform: 'uppercase', marginTop: '2px' }}>Rides</div>
+        </div>
+        <div style={{
+          flex: 1, background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '14px', padding: '14px', textAlign: 'center',
+        }}>
+          <div style={{ fontFamily: "var(--font-mono, 'Space Mono', monospace)", fontSize: '24px', fontWeight: 700, color: '#00E676' }}>
+            ${totalEarned.toFixed(2)}
+          </div>
+          <div style={{ fontSize: '11px', color: '#888', letterSpacing: '1px', textTransform: 'uppercase', marginTop: '2px' }}>Earned</div>
+        </div>
+      </div>
+
+      {/* Ride list */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {rides.map(ride => {
+          const price = Number(ride.final_agreed_price || ride.amount || 0);
+          const payout = ride.driver_payout_amount != null ? Number(ride.driver_payout_amount) : price;
+          const fee = ride.platform_fee_amount != null ? Number(ride.platform_fee_amount) : 0;
+          const ratingInfo = ride.rider_rating ? RATING_DISPLAY[ride.rider_rating] : null;
+          const destination = ride.destination || ride.dropoff_address || 'Ride';
+          const date = new Date(ride.created_at);
+          const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+          return (
+            <Link
+              key={ride.id}
+              href={`/ride/${ride.id}`}
+              style={{
+                background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '16px', padding: '16px', textDecoration: 'none', color: '#fff',
+                display: 'block',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                <div>
+                  <div style={{ fontSize: '15px', fontWeight: 600 }}>{destination}</div>
+                  <div style={{ fontSize: '12px', color: '#888', marginTop: '2px' }}>
+                    {ride.rider_name || 'Rider'} &middot; {dateStr} {timeStr}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: "var(--font-mono, 'Space Mono', monospace)", fontSize: '18px', fontWeight: 700, color: '#00E676' }}>
+                    ${payout.toFixed(2)}
+                  </div>
+                  {fee > 0 && (
+                    <div style={{ fontSize: '11px', color: '#555', fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
+                      -${fee.toFixed(2)} fee
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{
+                  fontSize: '11px', padding: '3px 10px', borderRadius: '100px',
+                  background: ride.status === 'completed' ? 'rgba(0,230,118,0.1)' : ride.status === 'cancelled' ? 'rgba(255,82,82,0.1)' : 'rgba(255,255,255,0.05)',
+                  color: ride.status === 'completed' ? '#00E676' : ride.status === 'cancelled' ? '#FF5252' : '#888',
+                  fontWeight: 600,
+                }}>
+                  {ride.status.toUpperCase()}
+                </span>
+                {ratingInfo && (
+                  <span style={{ fontSize: '12px', color: ratingInfo.color }}>
+                    {ratingInfo.emoji} {ratingInfo.label}
+                  </span>
+                )}
+              </div>
+            </Link>
+          );
+        })}
       </div>
     </div>
   );

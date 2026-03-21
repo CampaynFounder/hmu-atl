@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     }
 
     const [keyId, keySecret] = apiKey.split(':');
-    const authHeader = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+    const authHeader = btoa(`${keyId}:${keySecret}`);
 
     const ablyRes = await fetch(`https://rest.ably.io/keys/${keyId}/requestToken`, {
       method: 'POST',
@@ -48,9 +48,11 @@ export async function POST(req: NextRequest) {
         'Authorization': `Basic ${authHeader}`,
       },
       body: JSON.stringify({
+        keyName: keyId,
         capability: JSON.stringify(capability),
         clientId: userId,
         ttl: 3600000, // 1 hour
+        timestamp: Date.now(),
       }),
     });
 

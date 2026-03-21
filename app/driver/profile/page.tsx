@@ -9,7 +9,7 @@ export default async function DriverProfilePage() {
   if (!clerkId) redirect('/sign-in');
 
   const userRows = await sql`
-    SELECT id, tier, chill_score
+    SELECT id, tier, chill_score, completed_rides
     FROM users WHERE clerk_id = ${clerkId} LIMIT 1
   `;
   if (!userRows.length) redirect('/onboarding?type=driver');
@@ -18,6 +18,7 @@ export default async function DriverProfilePage() {
     id: string;
     tier: string;
     chill_score: number;
+    completed_rides: number;
   };
 
   const profile = await getDriverProfileByUserId(user.id);
@@ -40,22 +41,32 @@ export default async function DriverProfilePage() {
         schedule: (p.schedule as Record<string, unknown>) || {},
         videoUrl: (p.video_url as string) || '',
         vehiclePhotoUrl: ((p.vehicle_info as Record<string, unknown>)?.photo_url as string) || '',
+        licensePlate: ((p.vehicle_info as Record<string, unknown>)?.license_plate as string) || '',
+        plateState: ((p.vehicle_info as Record<string, unknown>)?.plate_state as string) || 'GA',
         acceptDirectBookings: (p.accept_direct_bookings as boolean) ?? true,
         minRiderChillScore: Number(p.min_rider_chill_score ?? 0),
         requireOgStatus: (p.require_og_status as boolean) || false,
         showVideoOnLink: (p.show_video_on_link as boolean) ?? true,
         profileVisible: (p.profile_visible as boolean) ?? true,
+        fwu: (p.fwu as boolean) || false,
+        acceptsCash: (p.accepts_cash as boolean) || false,
+        cashOnly: (p.cash_only as boolean) || false,
+        waitMinutes: Number((p as Record<string, unknown>).wait_minutes ?? 10),
       }}
       user={{
         tier: user.tier,
         chillScore: Number(user.chill_score ?? 0),
-        completedRides: 0,
+        completedRides: Number(user.completed_rides ?? 0),
       }}
       payout={{
         setupComplete: !!(p.payout_setup_complete),
         last4: (p.stripe_external_account_last4 as string) || null,
         accountType: (p.stripe_external_account_type as string) || null,
         bankName: (p.stripe_external_account_bank as string) || null,
+      }}
+      subscription={{
+        status: (p.subscription_status as string) || null,
+        subscriptionId: (p.stripe_subscription_id as string) || null,
       }}
     />
   );

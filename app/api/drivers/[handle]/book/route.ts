@@ -6,6 +6,7 @@ import {
   createDirectBookingPost,
   getActiveDirectBooking,
 } from '@/lib/db/direct-bookings';
+import { notifyUser } from '@/lib/ably/server';
 
 export async function POST(
   req: NextRequest,
@@ -31,21 +32,35 @@ export async function POST(
   // Resolve IDs
   const [riderRows, driverRows] = await Promise.all([
     sql`SELECT id, account_status FROM users WHERE clerk_id = ${clerkId} LIMIT 1`,
-    sql`SELECT user_id, areas FROM driver_profiles WHERE handle = ${handle} LIMIT 1`,
+    sql`SELECT user_id, areas, enforce_minimum, (pricing->>'minimum')::numeric as min_ride_price FROM driver_profiles WHERE handle = ${handle} LIMIT 1`,
   ]);
 
   if (!riderRows.length) return NextResponse.json({ error: 'Rider not found' }, { status: 404 });
   if (!driverRows.length) return NextResponse.json({ error: 'Driver not found' }, { status: 404 });
 
   const rider = riderRows[0] as { id: string; account_status: string };
-  const driverProfile = driverRows[0] as { user_id: string; areas: string[] };
+  const driverProfile = driverRows[0] as { user_id: string; areas: string[]; enforce_minimum: boolean; min_ride_price: number | null };
   const driverUserId = driverProfile.user_id;
+
+  // Enforce minimum price if driver has it enabled
+  if (driverProfile.enforce_minimum !== false && driverProfile.min_ride_price && price < Number(driverProfile.min_ride_price)) {
+    return NextResponse.json(
+      { error: `dont hmu for less than $${Number(driverProfile.min_ride_price)}`, code: 'below_minimum', minimum: Number(driverProfile.min_ride_price) },
+      { status: 400 }
+    );
+  }
 
   // Fall back to driver's areas if not provided
   const areas = body.areas?.length ? body.areas : (Array.isArray(driverProfile.areas) ? driverProfile.areas : ['ATL']);
 
   if (rider.account_status !== 'active') {
     return NextResponse.json({ error: 'Account not active' }, { status: 403 });
+  }
+
+  // Block if rider already has an active ride
+  const activeRides = await sql`SELECT id FROM rides WHERE rider_id = ${rider.id} AND status IN ('matched','otw','here','active') LIMIT 1`;
+  if (activeRides.length) {
+    return NextResponse.json({ error: 'You already have an active ride', code: 'active_ride' }, { status: 409 });
   }
 
   // Check for an existing active booking to this driver
@@ -71,10 +86,14 @@ export async function POST(
     timeWindow: timeWindow || {},
   });
 
-  // TODO: Fire Ably notification to user:{driverUserId}:notify when Ably is wired
-  // await ablyServer.channels.get(`user:${driverUserId}:notify`).publish('direct_booking_request', {
-  //   postId: post.id, price, areas, expiresAt: post.booking_expires_at
-  // });
+  // Fire Ably notification to driver
+  try {
+    await notifyUser(driverUserId, 'direct_booking_request', {
+      postId: post.id, price, areas, expiresAt: post.booking_expires_at,
+    });
+  } catch (e) {
+    console.error('Ably notify failed:', e);
+  }
 
   return NextResponse.json({ postId: post.id, expiresAt: post.booking_expires_at }, { status: 201 });
 }
