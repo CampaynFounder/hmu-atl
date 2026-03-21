@@ -9,6 +9,11 @@ export function calculateFare(..._args: unknown[]) { return { amount: 0, total: 
 export function createEscrow(..._args: unknown[]) { return Promise.resolve('mock_escrow'); }
 export function validateEscrowParams(..._args: unknown[]) { return true; }
 
+/**
+ * Hold rider payment via Direct Charge on driver's connected account.
+ * Uses manual capture (escrow hold) — funds are authorized but not captured.
+ * application_fee_amount is set at capture time (when ride ends).
+ */
 export async function holdRiderPayment(params: {
   rideId: string;
   agreedPrice: number;
@@ -36,16 +41,39 @@ export async function holdRiderPayment(params: {
     return { paymentIntentId: mockId, status: 'requires_capture' };
   }
 
+  // Clone the rider's payment method to the connected account for Direct Charges
+  const clonedPm = await stripe.paymentMethods.create({
+    customer: params.stripeCustomerId,
+    payment_method: params.paymentMethodId,
+  }, {
+    stripeAccount: params.driverStripeAccountId,
+  });
+
+  // Create a customer on the connected account to attach the cloned PM
+  const connectedCustomer = await stripe.customers.create({
+    payment_method: clonedPm.id,
+    metadata: { platformCustomerId: params.stripeCustomerId, riderId: params.riderId },
+  }, {
+    stripeAccount: params.driverStripeAccountId,
+  });
+
+  // Direct Charge: PaymentIntent created ON the connected account
   const paymentIntent = await stripe.paymentIntents.create({
     amount: amountInCents,
     currency: 'usd',
-    customer: params.stripeCustomerId,
-    payment_method: params.paymentMethodId,
+    customer: connectedCustomer.id,
+    payment_method: clonedPm.id,
     capture_method: 'manual',
     confirm: true,
-    transfer_data: { destination: params.driverStripeAccountId },
-    statement_descriptor_suffix: 'RIDE',
-    metadata: { rideId: params.rideId, riderId: params.riderId, driverId: params.driverId },
+    statement_descriptor_suffix: 'HMU RIDE',
+    metadata: {
+      rideId: params.rideId,
+      riderId: params.riderId,
+      driverId: params.driverId,
+      platformCustomerId: params.stripeCustomerId,
+    },
+  }, {
+    stripeAccount: params.driverStripeAccountId,  // ← Direct Charge
   });
 
   if (paymentIntent.status !== 'requires_capture') {
@@ -68,6 +96,11 @@ export async function holdRiderPayment(params: {
   return { paymentIntentId: paymentIntent.id, status: paymentIntent.status };
 }
 
+/**
+ * Capture the held payment on the driver's connected account.
+ * application_fee_amount = platform's cut (transferred to platform account).
+ * Stripe processing fee is deducted from the connected account by Stripe.
+ */
 export async function captureRiderPayment(rideId: string): Promise<{
   driverReceives: number;
   platformReceives: number;
@@ -85,6 +118,7 @@ export async function captureRiderPayment(rideId: string): Promise<{
     WHERE user_id = ${ride.driver_id} LIMIT 1
   `;
   const driver = driverRows[0] as Record<string, unknown>;
+  const driverStripeAccountId = driver?.stripe_account_id as string;
 
   const userRows = await sql`SELECT tier FROM users WHERE id = ${ride.driver_id} LIMIT 1`;
   const tier = ((userRows[0] as Record<string, unknown>)?.tier as string) || 'free';
@@ -99,12 +133,15 @@ export async function captureRiderPayment(rideId: string): Promise<{
     earnings.weeklyFeePaid
   );
 
-  const platformFeeInCents = Math.round(breakdown.platformFee * 100);
+  // application_fee = platform fee only (Stripe fee is absorbed by connected account)
+  const applicationFeeCents = Math.round(breakdown.platformFee * 100);
 
-  if (!isMock) {
-    await stripe.paymentIntents.capture(ride.payment_intent_id as string, {
-      application_fee_amount: platformFeeInCents,
-    });
+  if (!isMock && ride.payment_intent_id && driverStripeAccountId) {
+    await stripe.paymentIntents.capture(
+      ride.payment_intent_id as string,
+      { application_fee_amount: applicationFeeCents },
+      { stripeAccount: driverStripeAccountId }  // ← Direct Charge capture
+    );
   }
 
   await sql`
@@ -140,6 +177,9 @@ export async function captureRiderPayment(rideId: string): Promise<{
   return { driverReceives: breakdown.driverReceives, platformReceives: breakdown.platformReceives, capHit: breakdown.dailyCapHit };
 }
 
+/**
+ * Cancel the payment hold (release authorized funds).
+ */
 export async function cancelPaymentHold(rideId: string, reason: string): Promise<void> {
   const rideRows = await sql`
     SELECT payment_intent_id, final_agreed_price, rider_id, driver_id
@@ -149,16 +189,31 @@ export async function cancelPaymentHold(rideId: string, reason: string): Promise
   const ride = rideRows[0] as Record<string, unknown>;
 
   if (!isMock && ride.payment_intent_id) {
-    await stripe.paymentIntents.cancel(ride.payment_intent_id as string);
+    // Get driver's stripe account for Direct Charge cancel
+    const driverRows = await sql`
+      SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1
+    `;
+    const driverStripeId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string;
+
+    if (driverStripeId) {
+      await stripe.paymentIntents.cancel(
+        ride.payment_intent_id as string,
+        {},
+        { stripeAccount: driverStripeId }
+      );
+    }
   }
 
   await sql`UPDATE rides SET funds_held = false, status = 'cancelled' WHERE id = ${rideId}`;
   await insertLedger(rideId, ride.rider_id as string, 'rider', 'hold_released', Number(ride.final_agreed_price || 0), 'release', 'Payment hold released: ' + reason, ride.payment_intent_id as string);
 }
 
+/**
+ * Refund rider — either release hold (if not captured) or full refund (if captured).
+ */
 export async function refundRider(rideId: string, reason: string): Promise<void> {
   const rideRows = await sql`
-    SELECT payment_intent_id, payment_captured, final_agreed_price, rider_id
+    SELECT payment_intent_id, payment_captured, final_agreed_price, rider_id, driver_id
     FROM rides WHERE id = ${rideId} LIMIT 1
   `;
   if (!rideRows.length) return;
@@ -170,7 +225,17 @@ export async function refundRider(rideId: string, reason: string): Promise<void>
   }
 
   if (!isMock && ride.payment_intent_id) {
-    await stripe.refunds.create({ payment_intent: ride.payment_intent_id as string });
+    const driverRows = await sql`
+      SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1
+    `;
+    const driverStripeId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string;
+
+    if (driverStripeId) {
+      await stripe.refunds.create(
+        { payment_intent: ride.payment_intent_id as string },
+        { stripeAccount: driverStripeId }
+      );
+    }
   }
 
   await sql`UPDATE rides SET status = 'refunded' WHERE id = ${rideId}`;
@@ -182,10 +247,14 @@ async function insertLedger(
   eventType: string, amount: number, direction: string,
   description: string, stripeReference: string | null
 ) {
-  await sql`
-    INSERT INTO transaction_ledger (ride_id, user_id, user_role, event_type, amount, direction, description, stripe_reference)
-    VALUES (${rideId}, ${userId}, ${userRole}, ${eventType}, ${amount}, ${direction}, ${description}, ${stripeReference})
-  `;
+  try {
+    await sql`
+      INSERT INTO transaction_ledger (ride_id, user_id, user_role, event_type, amount, direction, description, stripe_reference)
+      VALUES (${rideId}, ${userId}, ${userRole}, ${eventType}, ${amount}, ${direction}, ${description}, ${stripeReference})
+    `;
+  } catch (e) {
+    console.error('Ledger insert failed:', e);
+  }
 }
 
 function getWeekStart(dateStr: string): string {

@@ -30,9 +30,12 @@ export interface CreateRiderProfileParams {
 export interface UpdateRiderProfileParams {
   first_name?: string;
   last_name?: string;
+  display_name?: string;
+  handle?: string;
   gender?: string;
   pronouns?: string;
   lgbtq_friendly?: boolean;
+  avatar_url?: string;
   video_url?: string;
   thumbnail_url?: string;
   driver_gender_pref?: string;
@@ -131,9 +134,12 @@ export async function updateRiderProfile(
     SET
       first_name = COALESCE(${params.first_name}, first_name),
       last_name = COALESCE(${params.last_name}, last_name),
+      display_name = COALESCE(${params.display_name || null}, display_name),
+      handle = COALESCE(${params.handle || null}, handle),
       gender = COALESCE(${params.gender || null}, gender),
       pronouns = COALESCE(${params.pronouns || null}, pronouns),
       lgbtq_friendly = COALESCE(${params.lgbtq_friendly}, lgbtq_friendly),
+      avatar_url = COALESCE(${params.avatar_url || null}, avatar_url),
       video_url = COALESCE(${params.video_url || null}, video_url),
       thumbnail_url = COALESCE(${params.thumbnail_url || null}, thumbnail_url),
       safety_preferences = ${JSON.stringify(safetyPrefs)},

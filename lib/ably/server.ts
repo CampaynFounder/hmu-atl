@@ -1,17 +1,20 @@
-const ABLY_API_KEY = process.env.ABLY_API_KEY || '';
+function getAblyApiKey(): string {
+  return process.env.ABLY_API_KEY || '';
+}
 
 export async function publishToChannel(
   channel: string,
   event: string,
   data: unknown
 ): Promise<void> {
-  if (!ABLY_API_KEY) {
+  const apiKey = getAblyApiKey();
+  if (!apiKey) {
     console.warn('Ably not configured — skipping publish');
     return;
   }
 
-  const [keyId, keySecret] = ABLY_API_KEY.split(':');
-  const authHeader = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+  const [keyId, keySecret] = apiKey.split(':');
+  const authHeader = btoa(`${keyId}:${keySecret}`);
 
   const res = await fetch(`https://rest.ably.io/channels/${encodeURIComponent(channel)}/messages`, {
     method: 'POST',

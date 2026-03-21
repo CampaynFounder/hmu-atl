@@ -3,7 +3,7 @@ import type { HmuPost } from './types';
 
 export type EligibilityCode =
   | 'ok'
-  | 'account_new'
+  | 'no_payment_method'
   | 'chill_score_low'
   | 'og_required'
   | 'driver_closed'
@@ -23,18 +23,19 @@ const BOOKING_EXPIRY_MINUTES = 15;
 
 export async function checkRiderEligibility(
   riderId: string,
-  driverUserId: string
+  driverUserId: string,
+  isCash: boolean = false
 ): Promise<EligibilityResult> {
-  // Fetch rider + driver data in parallel
-  const [riderRows, driverRows, dailyCountRows] = await Promise.all([
+  // Fetch rider + driver + payment + daily count in parallel
+  const [riderRows, driverRows, dailyCountRows, paymentRows] = await Promise.all([
     sql`
-      SELECT created_at, chill_score, og_status
+      SELECT chill_score, og_status
       FROM users
       WHERE id = ${riderId}
       LIMIT 1
     `,
     sql`
-      SELECT accept_direct_bookings, min_rider_chill_score, require_og_status
+      SELECT accept_direct_bookings, min_rider_chill_score, require_og_status, handle
       FROM driver_profiles
       WHERE user_id = ${driverUserId}
       LIMIT 1
@@ -46,10 +47,14 @@ export async function checkRiderEligibility(
         AND post_type = 'direct_booking'
         AND created_at > NOW() - INTERVAL '24 hours'
     `,
+    sql`
+      SELECT id FROM rider_payment_methods
+      WHERE rider_id = ${riderId}
+      LIMIT 1
+    `,
   ]);
 
   const rider = riderRows[0] as {
-    created_at: Date;
     chill_score: number;
     og_status: boolean;
   } | undefined;
@@ -58,27 +63,26 @@ export async function checkRiderEligibility(
     accept_direct_bookings: boolean;
     min_rider_chill_score: number;
     require_og_status: boolean;
+    handle: string | null;
   } | undefined;
 
   const dailyCount = Number((dailyCountRows[0] as { count: string }).count);
+  const hasPaymentMethod = paymentRows.length > 0;
 
   const riderChillScore = rider?.chill_score ?? 0;
   const riderOgStatus = rider?.og_status ?? false;
 
-  // 1. Account age check
-  if (rider) {
-    const ageMs = Date.now() - new Date(rider.created_at).getTime();
-    const ageHours = ageMs / (1000 * 60 * 60);
-    if (ageHours < 24) {
-      return {
-        eligible: false,
-        code: 'account_new',
-        reason: 'New accounts must wait 24 hours before booking',
-        riderChillScore,
-        riderOgStatus,
-        dailyBookingsUsed: dailyCount,
-      };
-    }
+  // 1. Payment method check — skip for cash rides
+  if (!isCash && !hasPaymentMethod) {
+    const driverHandle = driver?.handle || 'This driver';
+    return {
+      eligible: false,
+      code: 'no_payment_method',
+      reason: `${driverHandle} only accepts payment ready riders`,
+      riderChillScore,
+      riderOgStatus,
+      dailyBookingsUsed: dailyCount,
+    };
   }
 
   // 2. Driver availability check
@@ -165,8 +169,8 @@ export async function createDirectBookingPost(params: {
       ${JSON.stringify(params.timeWindow)},
       'active',
       ${params.driverUserId},
-      NOW() + INTERVAL '${BOOKING_EXPIRY_MINUTES} minutes',
-      NOW() + INTERVAL '${BOOKING_EXPIRY_MINUTES} minutes'
+      NOW() + INTERVAL '15 minutes',
+      NOW() + INTERVAL '15 minutes'
     )
     RETURNING *
   `;

@@ -2,9 +2,11 @@
 // Configures Clerk authentication provider
 
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { ClerkProvider } from '@clerk/nextjs';
 import { Inter, Bebas_Neue, DM_Sans, Space_Mono } from 'next/font/google';
 import { Header } from '@/components/layout/header';
+import { PostHogProvider } from '@/components/analytics/posthog-provider';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
@@ -26,8 +28,12 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en">
         <body className={`${inter.variable} ${bebasNeue.variable} ${dmSans.variable} ${spaceMono.variable} font-sans antialiased`}>
-          <Header />
-          {children}
+          <Suspense>
+            <PostHogProvider>
+              <Header />
+              {children}
+            </PostHogProvider>
+          </Suspense>
         </body>
       </html>
     </ClerkProvider>
