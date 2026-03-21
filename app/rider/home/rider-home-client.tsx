@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useUser } from '@clerk/nextjs';
+import { posthog } from '@/components/analytics/posthog-provider';
 
 const COMPARE_RIDES = [
   { label: 'Work commute (10 mi)', uber: 18, hmu: 10 },
@@ -119,8 +120,9 @@ export default function RiderHomeClient() {
             Skip the surge pricing and corporate fees. Book local ATL drivers directly — you name the price, they accept or pass.
           </p>
           <Link
-            href={isSignedIn ? '/sign-up?type=rider' : '/sign-up?type=rider'}
+            href={isSignedIn ? '/rider/browse' : '/sign-up?type=rider'}
             className="hero-cta"
+            onClick={() => posthog.capture('rider_hero_cta_clicked', { signedIn: !!isSignedIn })}
           >
             {isSignedIn ? 'Browse Drivers' : 'Get Started — Free'}
           </Link>
@@ -242,11 +244,155 @@ export default function RiderHomeClient() {
           </div>
         </div>
 
+        {/* Feature highlights */}
+        <div className="section">
+          <p className="section-mono">Why HMU</p>
+          <h2 className="section-head">BUILT FOR HOW YOU ACTUALLY MOVE</h2>
+          <p className="section-sub">
+            Not another rideshare app. A real platform built for ATL.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[
+              { icon: '\uD83D\uDCB0', title: 'Name Your Price', desc: 'No algorithms. You say what you\'re paying. Driver accepts or passes.' },
+              { icon: '\uD83D\uDD12', title: 'Payment Secured Before Pickup', desc: 'Your card is held when you tap COO. Driver knows funds are real before they pull up.' },
+              { icon: '\uD83D\uDCCD', title: 'Live ETA Tracking', desc: 'See your driver\'s location in real-time once they\'re OTW. Know exactly when they\'re pulling up.' },
+              { icon: '\uD83D\uDCAC', title: 'In-Ride Chat', desc: 'Message your driver during the ride. No need to share your phone number.' },
+              { icon: '\uD83D\uDD10', title: 'Your Info Stays Private', desc: 'Drivers see your display name only. Legal name, phone, and payment details are never shared.' },
+              { icon: '\uD83D\uDCB5', title: 'Cash Rides Available', desc: 'Some drivers accept cash. Look for the CASH OK badge. No card needed — just agree on price and pay in person.' },
+              { icon: '\uD83D\uDEE1\uFE0F', title: 'Verified Drivers Only', desc: 'Video intro + identity check required. Every driver\'s rating history is public.' },
+            ].map(f => (
+              <div key={f.title} style={{
+                background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 14, padding: '16px 18px', display: 'flex', alignItems: 'flex-start', gap: 14,
+              }}>
+                <span style={{ fontSize: 24, flexShrink: 0 }}>{f.icon}</span>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{f.title}</div>
+                  <div style={{ fontSize: 13, color: '#888', lineHeight: 1.4 }}>{f.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ETA Map Visual */}
+        <div className="section">
+          <p className="section-mono">Live Tracking</p>
+          <h2 className="section-head">KNOW EXACTLY WHEN THEY&apos;RE PULLING UP</h2>
+          <p className="section-sub">
+            Real-time ETA updates from the moment your driver goes OTW.
+          </p>
+
+          {/* Mini map illustration */}
+          <div style={{
+            background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 20, padding: '32px 24px', position: 'relative', overflow: 'hidden',
+            marginBottom: 20,
+          }}>
+            {/* Faux map grid */}
+            <div style={{ position: 'absolute', inset: 0, opacity: 0.04 }}>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} style={{
+                  position: 'absolute', top: 0, bottom: 0,
+                  left: `${(i + 1) * 12.5}%`, width: 1, background: '#fff',
+                }} />
+              ))}
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} style={{
+                  position: 'absolute', left: 0, right: 0,
+                  top: `${(i + 1) * 16.6}%`, height: 1, background: '#fff',
+                }} />
+              ))}
+            </div>
+
+            {/* Route line */}
+            <svg viewBox="0 0 300 120" style={{ width: '100%', height: 'auto', position: 'relative', zIndex: 1 }}>
+              {/* Dashed route path */}
+              <path
+                d="M 40 90 C 80 90, 100 40, 150 50 S 220 20, 260 30"
+                fill="none"
+                stroke="rgba(0,230,118,0.3)"
+                strokeWidth="2"
+                strokeDasharray="6,4"
+              />
+              {/* Animated progress line */}
+              <path
+                d="M 40 90 C 80 90, 100 40, 150 50 S 220 20, 260 30"
+                fill="none"
+                stroke="#00E676"
+                strokeWidth="2.5"
+                strokeDasharray="180"
+                strokeDashoffset="60"
+                strokeLinecap="round"
+              >
+                <animate attributeName="stroke-dashoffset" from="180" to="0" dur="3s" repeatCount="indefinite" />
+              </path>
+
+              {/* Driver dot (moving) */}
+              <circle r="8" fill="#00E676" opacity="0.9">
+                <animateMotion
+                  path="M 40 90 C 80 90, 100 40, 150 50 S 220 20, 260 30"
+                  dur="3s"
+                  repeatCount="indefinite"
+                />
+              </circle>
+              <circle r="4" fill="#fff">
+                <animateMotion
+                  path="M 40 90 C 80 90, 100 40, 150 50 S 220 20, 260 30"
+                  dur="3s"
+                  repeatCount="indefinite"
+                />
+              </circle>
+
+              {/* Rider dot (stationary) */}
+              <circle cx="260" cy="30" r="8" fill="#448AFF" opacity="0.9" />
+              <circle cx="260" cy="30" r="4" fill="#fff" />
+
+              {/* Labels */}
+              <text x="40" y="110" fill="#888" fontSize="9" fontFamily="var(--font-mono, monospace)" textAnchor="middle">DRIVER</text>
+              <text x="260" y="18" fill="#888" fontSize="9" fontFamily="var(--font-mono, monospace)" textAnchor="middle">YOU</text>
+            </svg>
+
+            {/* ETA display */}
+            <div style={{
+              display: 'flex', justifyContent: 'center', gap: 24, marginTop: 20,
+            }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{
+                  fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+                  fontSize: 36, color: '#00E676', lineHeight: 1,
+                }}>
+                  4 MIN
+                </div>
+                <div style={{ fontSize: 10, color: '#888', letterSpacing: 2, textTransform: 'uppercase', marginTop: 4 }}>
+                  ETA
+                </div>
+              </div>
+              <div style={{ width: 1, background: 'rgba(255,255,255,0.08)' }} />
+              <div style={{ textAlign: 'center' }}>
+                <div style={{
+                  fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+                  fontSize: 36, color: '#fff', lineHeight: 1,
+                }}>
+                  1.2 MI
+                </div>
+                <div style={{ fontSize: 10, color: '#888', letterSpacing: 2, textTransform: 'uppercase', marginTop: 4 }}>
+                  Away
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Safety details */}
         <div className="section">
           <p className="section-mono">Built Different</p>
-          <h2 className="section-head">DRIVERS ARE VERIFIED. RIDES ARE TRACKED.</h2>
+          <h2 className="section-head">DRIVERS ARE VERIFIED. ETA IS TRACKED.</h2>
           <div className="safety-list">
+            <div className="safety-item">
+              <span className="safety-check">{'\u2713'}</span>
+              Know how far away your driver is and ETA. They no show, you no pay.
+            </div>
             <div className="safety-item">
               <span className="safety-check">{'\u2713'}</span>
               Payment held in escrow — you&apos;re never charged until the ride is done
@@ -254,10 +400,6 @@ export default function RiderHomeClient() {
             <div className="safety-item">
               <span className="safety-check">{'\u2713'}</span>
               Video intros — see your driver before they pull up
-            </div>
-            <div className="safety-item">
-              <span className="safety-check">{'\u2713'}</span>
-              Real-time GPS tracking on every active ride
             </div>
             <div className="safety-item">
               <span className="safety-check">{'\u2713'}</span>
@@ -281,7 +423,7 @@ export default function RiderHomeClient() {
             <p className="driver-callout-sub">
               Drivers on HMU keep 88-100% of every ride. No corporate cut eating your earnings. Set your own areas, prices, and hours.
             </p>
-            <Link href="/sign-up?type=driver" className="driver-callout-cta">
+            <Link href="/sign-up?type=driver" className="driver-callout-cta" onClick={() => posthog.capture('rider_page_driver_cta_clicked')}>
               Start Driving
             </Link>
           </div>
@@ -290,10 +432,11 @@ export default function RiderHomeClient() {
         {/* Sticky bottom CTA */}
         <div className="bottom-cta">
           <Link
-            href={isSignedIn ? '#' : '/sign-up?type=rider'}
+            href={isSignedIn ? '/rider/browse' : '/sign-up?type=rider'}
             className="bottom-cta-btn"
+            onClick={() => posthog.capture('rider_sticky_cta_clicked', { signedIn: !!isSignedIn })}
           >
-            {isSignedIn ? 'Browse Drivers' : 'Sign Up Free'}
+            {isSignedIn ? 'Browse Drivers' : 'Stop Overpaying For Rides'}
           </Link>
         </div>
       </div>

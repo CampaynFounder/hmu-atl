@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAbly } from '@/hooks/use-ably';
+import { posthog } from '@/components/analytics/posthog-provider';
 
 interface Props {
   displayName: string;
@@ -11,9 +12,12 @@ interface Props {
 
 interface PostedRequest {
   id: string;
+  type?: string;
   message: string;
   price: number;
   status: string;
+  driverName?: string | null;
+  driverHandle?: string | null;
   createdAt: string;
 }
 
@@ -25,13 +29,22 @@ interface MatchNotification {
   needsPayment?: boolean;
 }
 
+const ACTIVE_STATUSES = ['active', 'matched'];
+
 export default function RiderFeedClient({ displayName, userId }: Props) {
   const [input, setInput] = useState('');
   const [posting, setPosting] = useState(false);
   const [posts, setPosts] = useState<PostedRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isCash, setIsCash] = useState(false);
   const [matchNotif, setMatchNotif] = useState<MatchNotification | null>(null);
+  const [pastExpanded, setPastExpanded] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const activePosts = posts.filter(p => ACTIVE_STATUSES.includes(p.status));
+  const pastPosts = posts.filter(p => !ACTIVE_STATUSES.includes(p.status));
+  // Matched posts mean a ride exists — rider shouldn't post more
+  const hasActiveRide = activePosts.some(p => p.status === 'matched');
 
   // Ably subscription for real-time notifications
   const handleAblyMessage = useCallback((msg: { name: string; data: unknown }) => {
@@ -48,22 +61,24 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
         if (data.postId) {
           setPosts(prev => prev.map(p => p.id === data.postId ? { ...p, status: 'matched' } : p));
         }
-        // Check if rider has payment method before redirecting
-        fetch('/api/rider/payment-methods')
-          .then(r => r.json())
-          .then(pmData => {
-            if (pmData.methods && pmData.methods.length > 0) {
-              // Has payment — redirect to ride
-              setTimeout(() => { window.location.href = `/ride/${rideId}`; }, 2500);
-            } else {
-              // No payment — show payment prompt (handled in overlay)
-              setMatchNotif(prev => prev ? { ...prev, needsPayment: true } : null);
-            }
-          })
-          .catch(() => {
-            // On error, redirect anyway
-            setTimeout(() => { window.location.href = `/ride/${rideId}`; }, 3000);
-          });
+        // Cash rides don't need payment check
+        const isCashRide = data.isCash === true;
+        if (isCashRide) {
+          setTimeout(() => { window.location.replace(`/ride/${rideId}`); }, 2500);
+        } else {
+          fetch('/api/rider/payment-methods')
+            .then(r => r.json())
+            .then(pmData => {
+              if (pmData.methods && pmData.methods.length > 0) {
+                setTimeout(() => { window.location.replace(`/ride/${rideId}`); }, 2500);
+              } else {
+                setMatchNotif(prev => prev ? { ...prev, needsPayment: true } : null);
+              }
+            })
+            .catch(() => {
+              if (rideId) setTimeout(() => { window.location.replace(`/ride/${rideId}`); }, 3000);
+            });
+        }
       }
     }
   }, []);
@@ -73,22 +88,20 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
     onMessage: handleAblyMessage,
   });
 
-  // Check for active ride on mount + handle return from payment setup
+  // Check for active ride on mount
   useEffect(() => {
-    // Check if returning from payment setup with a pending ride
     const pendingRide = localStorage.getItem('hmu_pending_ride');
     if (pendingRide) {
       localStorage.removeItem('hmu_pending_ride');
-      window.location.href = `/ride/${pendingRide}`;
+      if (pendingRide && pendingRide !== 'undefined' && pendingRide !== 'null') {
+        window.location.replace(`/ride/${pendingRide}`);
+      }
       return;
     }
-
     fetch('/api/rides/active')
       .then(r => r.json())
       .then(data => {
-        if (data.hasActiveRide) {
-          window.location.href = `/ride/${data.rideId}`;
-        }
+        if (data.hasActiveRide && data.rideId) window.location.replace(`/ride/${data.rideId}`);
       })
       .catch(() => {});
   }, []);
@@ -97,45 +110,38 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
   useEffect(() => {
     fetch('/api/rider/posts')
       .then(r => r.json())
-      .then(data => {
-        if (data.posts) setPosts(data.posts);
-      })
+      .then(data => { if (data.posts) setPosts(data.posts); })
       .catch(() => {});
   }, []);
 
   async function handleDelete(postId: string) {
     try {
       const res = await fetch(`/api/rider/posts?postId=${postId}`, { method: 'DELETE' });
-      if (res.ok) {
-        setPosts(prev => prev.filter(p => p.id !== postId));
-      }
+      if (res.ok) setPosts(prev => prev.filter(p => p.id !== postId));
     } catch { /* silent */ }
   }
 
   async function handlePost() {
     const text = input.trim();
     if (!text) return;
-
-    // Parse the message for price and destination
     const priceMatch = text.match(/\$(\d+)/);
     const price = priceMatch ? parseInt(priceMatch[1]) : 0;
-
-    if (price < 10) {
-      setError('Include a price of at least $10 (e.g. "midtown > airport $25")');
+    if (price < 1) {
+      setError('Include a price (e.g. "midtown > airport $25")');
       return;
     }
-
     setPosting(true);
     setError(null);
     try {
       const res = await fetch('/api/rider/posts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, price }),
+        body: JSON.stringify({ message: text, price, is_cash: isCash }),
       });
       const data = await res.json();
       if (res.ok) {
-        setPosts(prev => [{ id: data.postId, message: text, price, status: 'active', createdAt: new Date().toISOString() }, ...prev]);
+        posthog.capture('ride_request_posted', { price, message: text });
+        setPosts(prev => [{ id: data.postId, type: 'open', message: text, price, status: 'active', createdAt: new Date().toISOString() }, ...prev]);
         setInput('');
       } else {
         setError(data.error || 'Failed to post');
@@ -155,7 +161,6 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
         .rf-header { padding: 20px 20px 0; }
         .rf-greeting { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 32px; line-height: 1.1; margin-bottom: 4px; }
         .rf-sub { font-size: 14px; color: var(--gray); margin-bottom: 20px; }
-
         .rf-composer { padding: 0 20px 16px; position: relative; }
         .rf-input-wrap { display: flex; gap: 10px; align-items: center; }
         .rf-input { flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 100px; padding: 16px 20px; color: #fff; font-size: 16px; outline: none; font-family: var(--font-body, 'DM Sans', sans-serif); transition: border-color 0.2s; }
@@ -164,35 +169,9 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
         .rf-send { width: 50px; height: 50px; border-radius: 50%; border: none; background: var(--green); color: var(--black); font-size: 20px; font-weight: 700; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: transform 0.15s; }
         .rf-send:hover { transform: scale(1.05); }
         .rf-send:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-        .rf-examples { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 0; -webkit-overflow-scrolling: touch; }
-        .rf-examples::-webkit-scrollbar { display: none; }
-        .rf-example { background: var(--card2); border: 1px solid var(--border); border-radius: 100px; padding: 8px 14px; font-size: 12px; color: var(--gray-light); white-space: nowrap; cursor: pointer; flex-shrink: 0; transition: all 0.15s; }
-        .rf-example:hover { border-color: rgba(0,230,118,0.3); color: var(--green); }
         .rf-error { font-size: 13px; color: #FF5252; margin-top: 8px; padding: 0 4px; }
-
-        .rf-section-title { font-family: var(--font-mono, 'Space Mono', monospace); font-size: 10px; color: var(--gray); letter-spacing: 3px; text-transform: uppercase; padding: 20px 20px 10px; }
-
-        .rf-post { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 20px; margin: 0 20px 12px; }
-        .rf-post-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-        .rf-post-name { font-weight: 700; font-size: 15px; }
-        .rf-post-time { font-size: 12px; color: var(--gray); }
-        .rf-post-message { font-size: 17px; line-height: 1.4; margin-bottom: 12px; }
-        .rf-post-price { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 36px; color: var(--green); line-height: 1; margin-bottom: 8px; }
-        .rf-post-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 12px; border-radius: 100px; }
-        .rf-post-status--active { background: rgba(0,230,118,0.1); color: var(--green); }
-        .rf-post-status--matched { background: rgba(68,138,255,0.1); color: #448AFF; }
-        .rf-post-status--expired { background: rgba(255,255,255,0.05); color: var(--gray); }
-        .rf-post-dot { width: 6px; height: 6px; border-radius: 50%; animation: pulse 1.5s ease-in-out infinite; }
-        .rf-post-dot--active { background: var(--green); }
+        .rf-section { font-family: var(--font-mono, 'Space Mono', monospace); font-size: 10px; color: var(--gray); letter-spacing: 3px; text-transform: uppercase; padding: 20px 20px 10px; }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-
-        .rf-empty { text-align: center; padding: 40px 20px; }
-        .rf-empty-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.4; }
-        .rf-empty-text { font-size: 15px; color: var(--gray); line-height: 1.5; max-width: 280px; margin: 0 auto; }
-
-        .rf-tip { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 16px 20px; margin: 0 20px 12px; }
-        .rf-tip-title { font-size: 13px; font-weight: 700; color: var(--green); margin-bottom: 4px; }
-        .rf-tip-text { font-size: 12px; color: var(--gray); line-height: 1.5; }
       `}</style>
 
       <div className="rf">
@@ -203,99 +182,186 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
 
         {/* Composer */}
         <div className="rf-composer">
-          <div className="rf-input-wrap">
-            <input
-              ref={inputRef}
-              className="rf-input"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handlePost()}
-              placeholder="e.g. buckhead > airport $25"
-              disabled={posting}
-            />
-            <button
-              className="rf-send"
-              onClick={handlePost}
-              disabled={posting || !input.trim()}
-            >
-              {posting ? '...' : '\u2191'}
-            </button>
-          </div>
-
-          <div className="rf-examples">
-            {[
-              'midtown > airport $30',
-              'who downtown? $15',
-              'decatur > buckhead $20',
-              'bankhead > gresham 2 stops $35',
-              'marietta > airport $40 round trip',
-            ].map((ex) => (
-              <button key={ex} className="rf-example" onClick={() => {
-                setInput(ex);
-                // Focus and select so typing replaces
-                setTimeout(() => {
-                  if (inputRef.current) {
-                    inputRef.current.focus();
-                    inputRef.current.select();
-                  }
-                }, 50);
-              }}>
-                {ex}
-              </button>
-            ))}
-          </div>
-
+          {hasActiveRide ? (
+            <div style={{
+              background: 'rgba(68,138,255,0.08)', border: '1px solid rgba(68,138,255,0.2)',
+              borderRadius: 16, padding: '14px 18px', fontSize: 13, color: '#bbb', lineHeight: 1.4,
+            }}>
+              You have a matched ride. Head to your ride or wait for it to complete.
+            </div>
+          ) : (
+            <>
+              <div className="rf-input-wrap">
+                <input
+                  ref={inputRef}
+                  className="rf-input"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handlePost()}
+                  placeholder="e.g. buckhead > airport $25"
+                  disabled={posting}
+                />
+                <button className="rf-send" onClick={handlePost} disabled={posting || !input.trim()}>
+                  {posting ? '...' : '\u2191'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button
+                  onClick={() => setIsCash(!isCash)}
+                  style={{
+                    padding: '6px 14px', borderRadius: 100, fontSize: 12, fontWeight: 600,
+                    border: 'none', cursor: 'pointer',
+                    background: isCash ? 'rgba(76,175,80,0.15)' : '#1a1a1a',
+                    color: isCash ? '#4CAF50' : '#888',
+                    fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {'\uD83D\uDCB5'} {isCash ? 'Cash Ride' : 'Cash?'}
+                </button>
+              </div>
+            </>
+          )}
           {error && <div className="rf-error">{error}</div>}
         </div>
 
         {/* How it works tip */}
         {posts.length === 0 && (
-          <div className="rf-tip">
-            <div className="rf-tip-title">How it works</div>
-            <div className="rf-tip-text">
-              Post where you&apos;re going and your price. Drivers in the area see your request and tap HMU to offer you a ride. You pick the driver you want.
+          <div style={{
+            background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 16, padding: '16px 20px', margin: '0 20px 12px',
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#00E676', marginBottom: 4 }}>How it works</div>
+            <div style={{ fontSize: 12, color: '#888', lineHeight: 1.5 }}>
+              Post where you&apos;re going and your price. Drivers see your request and tap HMU. You can also browse and HMU drivers directly.
             </div>
           </div>
         )}
 
-        {/* Posts */}
-        {posts.length > 0 && (
-          <div className="rf-section-title">Your Requests</div>
+        {/* ── ACTIVE REQUESTS ── */}
+        {activePosts.length > 0 && (
+          <>
+            <div className="rf-section">Active ({activePosts.length})</div>
+            {activePosts.map(post => (
+              <ActivePostCard
+                key={post.id}
+                post={post}
+                displayName={displayName}
+                onDelete={handleDelete}
+              />
+            ))}
+          </>
         )}
 
-        {posts.map((post) => (
-          <div key={post.id} className="rf-post">
-            <div className="rf-post-header">
-              <span className="rf-post-name">@{displayName}</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span className="rf-post-time">{getTimeAgo(post.createdAt)}</span>
-                {post.status === 'active' && (
+        {/* ── PAST REQUESTS (collapsible) ── */}
+        {pastPosts.length > 0 && (
+          <>
+            <button
+              onClick={() => setPastExpanded(!pastExpanded)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                width: '100%', padding: '14px 20px', margin: '8px 0 0',
+                background: 'none', border: 'none', cursor: 'pointer', color: '#888',
+                fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+                fontSize: 10, letterSpacing: 3, textTransform: 'uppercase',
+              }}
+            >
+              <span>Past ({pastPosts.length})</span>
+              <span style={{ fontSize: 14, transition: 'transform 0.2s', transform: pastExpanded ? 'rotate(180deg)' : 'rotate(0)' }}>
+                {'\u25BE'}
+              </span>
+            </button>
+
+            {!pastExpanded ? (
+              /* Collapsed: compact summary rows */
+              <div style={{ padding: '0 20px 8px' }}>
+                {pastPosts.slice(0, 5).map(post => (
+                  <div key={post.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  }}>
+                    <StatusDot status={post.status} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 13, color: '#bbb', whiteSpace: 'nowrap',
+                        overflow: 'hidden', textOverflow: 'ellipsis',
+                      }}>
+                        {post.type === 'direct' && post.driverHandle
+                          ? <span style={{ color: '#448AFF' }}>@{post.driverHandle}</span>
+                          : null}
+                        {post.type === 'direct' && post.driverHandle ? ' ' : ''}
+                        {post.message || 'Ride request'}
+                      </div>
+                    </div>
+                    <div style={{
+                      fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+                      fontSize: 13, fontWeight: 700, color: '#555', flexShrink: 0,
+                    }}>
+                      ${post.price}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#555', flexShrink: 0 }}>
+                      {statusLabel(post.status)}
+                    </div>
+                  </div>
+                ))}
+                {pastPosts.length > 5 && (
                   <button
-                    onClick={() => handleDelete(post.id)}
+                    onClick={() => setPastExpanded(true)}
                     style={{
-                      background: 'none', border: 'none', color: '#FF5252',
-                      fontSize: '12px', cursor: 'pointer', padding: '2px 6px',
-                      fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+                      display: 'block', width: '100%', padding: '8px 0',
+                      background: 'none', border: 'none', color: '#00E676',
+                      fontSize: 12, fontWeight: 600, cursor: 'pointer', textAlign: 'center',
+                      fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
                     }}
                   >
-                    Cancel
+                    Show all {pastPosts.length} past requests
                   </button>
                 )}
               </div>
-            </div>
-            <div className="rf-post-message">{post.message}</div>
-            <div className="rf-post-price">${post.price}</div>
-            <span className={`rf-post-status rf-post-status--${post.status}`}>
-              {post.status === 'active' && <span className="rf-post-dot rf-post-dot--active" />}
-              {post.status === 'active' ? 'Looking for drivers...' : post.status === 'matched' ? 'Driver found!' : 'Expired'}
-            </span>
-          </div>
-        ))}
+            ) : (
+              /* Expanded: full cards */
+              <div style={{ padding: '0 20px 8px' }}>
+                {pastPosts.map(post => (
+                  <div key={post.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  }}>
+                    <StatusDot status={post.status} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 13, color: '#bbb', whiteSpace: 'nowrap',
+                        overflow: 'hidden', textOverflow: 'ellipsis',
+                      }}>
+                        {post.type === 'direct' && post.driverHandle
+                          ? <span style={{ color: '#448AFF' }}>@{post.driverHandle}</span>
+                          : null}
+                        {post.type === 'direct' && post.driverHandle ? ' ' : ''}
+                        {post.message || 'Ride request'}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
+                        {getTimeAgo(post.createdAt)}
+                      </div>
+                    </div>
+                    <div style={{
+                      fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+                      fontSize: 13, fontWeight: 700, color: '#555', flexShrink: 0,
+                    }}>
+                      ${post.price}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#555', flexShrink: 0 }}>
+                      {statusLabel(post.status)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
 
         {posts.length === 0 && (
-          <div className="rf-empty">
-            <div className="rf-empty-icon">{'\uD83D\uDE97'}</div>
-            <div className="rf-empty-text">
+          <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+            <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.4 }}>{'\uD83D\uDE97'}</div>
+            <div style={{ fontSize: 15, color: '#888', lineHeight: 1.5, maxWidth: 280, margin: '0 auto' }}>
               Post your first ride request above. Type where you&apos;re going and include a price.
             </div>
           </div>
@@ -306,14 +372,9 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
           <Link
             href="/rider/browse"
             style={{
-              display: 'inline-block',
-              padding: '12px 24px',
-              borderRadius: '100px',
-              border: '1px solid rgba(0,230,118,0.2)',
-              color: '#00E676',
-              fontSize: '13px',
-              fontWeight: 600,
-              textDecoration: 'none',
+              display: 'inline-block', padding: '12px 24px', borderRadius: 100,
+              border: '1px solid rgba(0,230,118,0.2)', color: '#00E676',
+              fontSize: 13, fontWeight: 600, textDecoration: 'none',
             }}
           >
             Browse available drivers
@@ -335,17 +396,16 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
             @keyframes matchBounce { 0% { transform: scale(0); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
           `}</style>
 
-          <div style={{ animation: 'matchBounce 0.5s ease-out', marginBottom: '20px' }}>
+          <div style={{ animation: 'matchBounce 0.5s ease-out', marginBottom: 20 }}>
             <div style={{
-              width: '100px', height: '100px', borderRadius: '50%',
+              width: 100, height: 100, borderRadius: '50%',
               background: 'rgba(0,230,118,0.15)', display: 'flex',
               alignItems: 'center', justifyContent: 'center',
             }}>
               <div style={{
-                width: '70px', height: '70px', borderRadius: '50%',
+                width: 70, height: 70, borderRadius: '50%',
                 background: '#00E676', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-                fontSize: '32px',
+                alignItems: 'center', justifyContent: 'center', fontSize: 32,
               }}>
                 {'\uD83D\uDE97'}
               </div>
@@ -354,20 +414,20 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
 
           <h2 style={{
             fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-            fontSize: '36px', color: '#fff', textAlign: 'center', marginBottom: '8px',
+            fontSize: 36, color: '#fff', textAlign: 'center', marginBottom: 8,
             animation: 'matchPulse 2s ease-in-out infinite',
           }}>
             DRIVER FOUND!
           </h2>
 
-          <p style={{ fontSize: '16px', color: '#00E676', fontWeight: 600, marginBottom: '4px' }}>
+          <p style={{ fontSize: 16, color: '#00E676', fontWeight: 600, marginBottom: 4 }}>
             {matchNotif.message}
           </p>
 
           {matchNotif.price && (
             <p style={{
               fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-              fontSize: '48px', color: '#00E676', margin: '12px 0',
+              fontSize: 48, color: '#00E676', margin: '12px 0',
             }}>
               ${matchNotif.price}
             </p>
@@ -375,10 +435,10 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
 
           {matchNotif.needsPayment ? (
             <>
-              <p style={{ fontSize: '14px', color: '#FFB300', fontWeight: 600, marginTop: '16px', textAlign: 'center' }}>
+              <p style={{ fontSize: 14, color: '#FFB300', fontWeight: 600, marginTop: 16, textAlign: 'center' }}>
                 Link a payment method to confirm your ride
               </p>
-              <p style={{ fontSize: '12px', color: '#888', marginTop: '4px', textAlign: 'center' }}>
+              <p style={{ fontSize: 12, color: '#888', marginTop: 4, textAlign: 'center' }}>
                 Add payment quickly before driver moves on
               </p>
               <button
@@ -388,16 +448,15 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
                     const res = await fetch('/api/rider/payment-methods/checkout', { method: 'POST' });
                     const data = await res.json();
                     if (data.url) {
-                      // Store ride ID so we can redirect after payment
                       localStorage.setItem('hmu_pending_ride', matchNotif.rideId);
                       window.location.href = data.url;
                     }
                   } catch { /* silent */ }
                 }}
                 style={{
-                  width: '100%', maxWidth: '300px', padding: '16px', marginTop: '16px',
-                  borderRadius: '100px', border: 'none', background: '#00E676',
-                  color: '#080808', fontWeight: 800, fontSize: '16px', cursor: 'pointer',
+                  width: '100%', maxWidth: 300, padding: 16, marginTop: 16,
+                  borderRadius: 100, border: 'none', background: '#00E676',
+                  color: '#080808', fontWeight: 800, fontSize: 16, cursor: 'pointer',
                   fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
                 }}
               >
@@ -406,13 +465,11 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
             </>
           ) : (
             <>
-              <p style={{ fontSize: '14px', color: '#888', marginTop: '16px' }}>
-                Loading your ride...
-              </p>
+              <p style={{ fontSize: 14, color: '#888', marginTop: 16 }}>Loading your ride...</p>
               <div style={{
-                width: '40px', height: '40px', border: '3px solid rgba(0,230,118,0.3)',
+                width: 40, height: 40, border: '3px solid rgba(0,230,118,0.3)',
                 borderTopColor: '#00E676', borderRadius: '50%',
-                animation: 'spin 0.8s linear infinite', marginTop: '12px',
+                animation: 'spin 0.8s linear infinite', marginTop: 12,
               }} />
             </>
           )}
@@ -423,10 +480,107 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
   );
 }
 
+// ── Active post card (full size) ──
+function ActivePostCard({
+  post,
+  displayName,
+  onDelete,
+}: {
+  post: PostedRequest;
+  displayName: string;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div style={{
+      background: '#141414', border: post.status === 'matched' ? '1px solid rgba(68,138,255,0.3)' : '1px solid rgba(0,230,118,0.2)',
+      borderRadius: 20, padding: '16px 20px', margin: '0 20px 12px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {post.type === 'direct' ? (
+            <span style={{ fontSize: 11, background: 'rgba(68,138,255,0.15)', color: '#448AFF', padding: '2px 8px', borderRadius: 100, fontWeight: 600 }}>
+              Direct
+            </span>
+          ) : (
+            <span style={{ fontSize: 11, background: 'rgba(0,230,118,0.1)', color: '#00E676', padding: '2px 8px', borderRadius: 100, fontWeight: 600 }}>
+              Open
+            </span>
+          )}
+          {post.driverHandle && (
+            <Link href={`/d/${post.driverHandle}`} style={{ fontSize: 13, color: '#448AFF', textDecoration: 'none', fontWeight: 600 }}>
+              @{post.driverHandle}
+            </Link>
+          )}
+          <span style={{ fontSize: 12, color: '#888' }}>{getTimeAgo(post.createdAt)}</span>
+        </div>
+        {post.status === 'active' && (
+          <button
+            onClick={() => onDelete(post.id)}
+            style={{
+              background: 'none', border: 'none', color: '#FF5252',
+              fontSize: 12, cursor: 'pointer', padding: '2px 6px',
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            }}
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+
+      <div style={{ fontSize: 16, lineHeight: 1.4, marginBottom: 8 }}>{post.message}</div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{
+          fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+          fontSize: 32, color: '#00E676', lineHeight: 1,
+        }}>
+          ${post.price}
+        </div>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          fontSize: 12, padding: '4px 12px', borderRadius: 100,
+          background: post.status === 'matched' ? 'rgba(68,138,255,0.1)' : 'rgba(0,230,118,0.1)',
+          color: post.status === 'matched' ? '#448AFF' : '#00E676',
+        }}>
+          {post.status === 'active' && (
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%', background: '#00E676',
+              animation: 'pulse 1.5s ease-in-out infinite',
+            }} />
+          )}
+          {post.status === 'active' ? 'Looking for drivers...' : 'Driver found!'}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Helpers ──
+function StatusDot({ status }: { status: string }) {
+  const color = status === 'completed' ? '#00E676' : status === 'matched' ? '#448AFF' : status === 'cancelled' ? '#FF5252' : '#555';
+  return (
+    <div style={{
+      width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0,
+    }} />
+  );
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'completed': return 'Done';
+    case 'matched': return 'Matched';
+    case 'expired': return 'Expired';
+    case 'cancelled': return 'Cancelled';
+    default: return status;
+  }
+}
+
 function getTimeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'Just now';
   if (mins < 60) return `${mins}m ago`;
-  return `${Math.floor(mins / 60)}h ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }

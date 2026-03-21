@@ -1,13 +1,17 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { UserProfile } from '@clerk/nextjs';
+import { useUser, useClerk } from '@clerk/nextjs';
 import Link from 'next/link';
-import { ChevronLeft, Shield, CreditCard, MessageCircle } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { ChevronLeft, Shield, CreditCard, Clock, MessageCircle } from 'lucide-react';
+
+const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
 const TABS = [
   { id: 'security', label: 'Security', icon: Shield },
   { id: 'payment', label: 'Payment', icon: CreditCard },
+  { id: 'history', label: 'Ride History', icon: Clock },
   { id: 'support', label: 'Support', icon: MessageCircle },
 ] as const;
 
@@ -16,11 +20,10 @@ type TabId = (typeof TABS)[number]['id'];
 export default function RiderSettingsClient() {
   const [activeTab, setActiveTab] = useState<TabId>('security');
 
-  // Check URL for tab param on mount (without useSearchParams)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as TabId | null;
-    if (tab && ['security', 'payment', 'support'].includes(tab)) {
+    if (tab && ['security', 'payment', 'history', 'support'].includes(tab)) {
       setActiveTab(tab);
     }
   }, []);
@@ -95,6 +98,7 @@ export default function RiderSettingsClient() {
         <div style={{ padding: '20px' }}>
           {activeTab === 'security' && <SecurityTab />}
           {activeTab === 'payment' && <PaymentTab />}
+          {activeTab === 'history' && <RiderHistoryTab />}
           {activeTab === 'support' && <SupportTab />}
         </div>
       </div>
@@ -103,46 +107,56 @@ export default function RiderSettingsClient() {
 }
 
 function SecurityTab() {
+  const { user } = useUser();
+  const { signOut } = useClerk();
+  const phone = user?.primaryPhoneNumber?.phoneNumber;
+  const email = user?.primaryEmailAddress?.emailAddress;
+
+  const cardStyle = {
+    background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '16px', padding: '20px', marginBottom: '12px' as const,
+  };
+  const titleStyle = { fontSize: '15px', fontWeight: 700, marginBottom: '4px' } as const;
+  const subStyle = { fontSize: '13px', color: '#888', lineHeight: 1.4 } as const;
+
   return (
-    <div style={{ borderRadius: '20px', overflow: 'hidden' }}>
-      <UserProfile
-        appearance={{
-          baseTheme: undefined,
-          variables: {
-            colorBackground: '#141414',
-            colorText: '#ffffff',
-            colorTextSecondary: '#888888',
-            colorPrimary: '#00E676',
-            colorInputBackground: '#1a1a1a',
-            colorInputText: '#ffffff',
-            borderRadius: '12px',
-          },
-          elements: {
-            rootBox: { width: '100%' },
-            card: { boxShadow: 'none', border: '1px solid rgba(255,255,255,0.08)' },
-            headerTitle: { color: '#ffffff' },
-            headerSubtitle: { color: '#888888' },
-            profileSectionTitle: { color: '#888888' },
-            profileSectionContent: { color: '#ffffff' },
-            formButtonPrimary: { backgroundColor: '#00E676', color: '#080808' },
-            navbarButton: { color: '#ffffff', fontWeight: 600 },
-            navbarButtonIcon: { color: '#00E676' },
-            navbarButton__active: { color: '#00E676', borderColor: '#00E676' },
-            badge: { backgroundColor: '#00E676', color: '#080808' },
-            profileSectionPrimaryButton: { color: '#00E676' },
-            menuButton: { color: '#ffffff' },
-            menuItem: { color: '#ffffff' },
-            accordionTriggerButton: { color: '#ffffff' },
-            navbarMobileMenuRow: { color: '#ffffff' },
-            navbarMobileMenuButton: { color: '#ffffff' },
-            pageScrollBox: { color: '#ffffff' },
-            page: { color: '#ffffff' },
-            breadcrumbs: { color: '#ffffff' },
-            breadcrumbsItem: { color: '#ffffff' },
-            breadcrumbsItemDivider: { color: '#888' },
-          },
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {/* Phone */}
+      <div style={cardStyle}>
+        <div style={titleStyle}>Phone Number</div>
+        <div style={subStyle}>{phone || 'Not set'}</div>
+      </div>
+
+      {/* Email */}
+      {email && (
+        <div style={cardStyle}>
+          <div style={titleStyle}>Email</div>
+          <div style={subStyle}>{email}</div>
+        </div>
+      )}
+
+      {/* Passkeys */}
+      {user?.passkeys && user.passkeys.length > 0 && (
+        <div style={cardStyle}>
+          <div style={titleStyle}>Passkeys</div>
+          <div style={subStyle}>{user.passkeys.length} passkey{user.passkeys.length > 1 ? 's' : ''} configured</div>
+        </div>
+      )}
+
+      {/* Sign out */}
+      <button
+        onClick={() => signOut({ redirectUrl: '/rider/home' })}
+        style={{
+          display: 'block', width: '100%', padding: '14px 20px',
+          borderRadius: '100px', border: '1px solid rgba(255,82,82,0.2)',
+          background: 'transparent', color: '#FF5252', fontSize: '14px',
+          fontWeight: 600, cursor: 'pointer', textAlign: 'center',
+          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          marginTop: '8px',
         }}
-      />
+      >
+        Sign Out
+      </button>
     </div>
   );
 }
@@ -152,7 +166,7 @@ function PaymentTab() {
     id: string; brand: string | null; last4: string; expMonth: number | null; expYear: number | null; isDefault: boolean;
   }>>([]);
   const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Fetch saved payment methods on mount
@@ -163,27 +177,6 @@ function PaymentTab() {
       .catch(() => {})
       .finally(() => setLoading(false));
   });
-
-  async function handleAddMethod() {
-    setAdding(true);
-    setError(null);
-    try {
-      // Create a Stripe Checkout session in setup mode
-      const res = await fetch('/api/rider/payment-methods/checkout', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'Failed to start payment setup');
-        setAdding(false);
-        return;
-      }
-      if (data.url) {
-        window.location.href = data.url;
-      }
-    } catch {
-      setError('Network error');
-      setAdding(false);
-    }
-  }
 
   async function handleSetDefault(id: string) {
     await fetch(`/api/rider/payment-methods/${id}/default`, { method: 'PATCH' });
@@ -276,23 +269,163 @@ function PaymentTab() {
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={handleAddMethod}
-        disabled={adding}
-        style={{
-          display: 'block', width: '100%', padding: '16px', borderRadius: '100px',
-          border: 'none', background: '#00E676', color: '#080808',
-          fontWeight: 700, fontSize: '15px', cursor: adding ? 'not-allowed' : 'pointer',
-          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-          opacity: adding ? 0.5 : 1,
-        }}
-      >
-        {adding ? 'Opening Stripe...' : methods.length > 0 ? 'Add Another Method' : 'Link Payment Method'}
-      </button>
+      {showAddForm ? (
+        <InlinePaymentForm
+          onSuccess={() => { setShowAddForm(false); window.location.reload(); }}
+          onCancel={() => setShowAddForm(false)}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowAddForm(true)}
+          style={{
+            display: 'block', width: '100%', padding: '16px', borderRadius: '100px',
+            border: 'none', background: '#00E676', color: '#080808',
+            fontWeight: 700, fontSize: '15px', cursor: 'pointer',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          }}
+        >
+          {methods.length > 0 ? 'Add Another Method' : 'Link Payment Method'}
+        </button>
+      )}
+    </div>
+  );
+}
 
-      <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '12px', color: '#555' }}>
-        Secure payment via Stripe. Apple Pay, Google Pay, and cards supported.
+interface RideHistory {
+  id: string;
+  status: string;
+  driver_name: string | null;
+  amount: number;
+  final_agreed_price: number | null;
+  driver_rating: string | null;
+  pickup_address: string | null;
+  dropoff_address: string | null;
+  destination: string | null;
+  created_at: string;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+const RATING_DISPLAY: Record<string, { label: string; emoji: string; color: string }> = {
+  chill: { label: 'CHILL', emoji: '\u2705', color: '#00E676' },
+  cool_af: { label: 'Cool AF', emoji: '\uD83D\uDE0E', color: '#448AFF' },
+  kinda_creepy: { label: 'Kinda Creepy', emoji: '\uD83D\uDC40', color: '#FFD740' },
+  weirdo: { label: 'WEIRDO', emoji: '\uD83D\uDEA9', color: '#FF5252' },
+};
+
+function RiderHistoryTab() {
+  const [rides, setRides] = useState<RideHistory[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/rides/history')
+      .then(r => r.json())
+      .then(data => { if (data.rides) setRides(data.rides); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 0', color: '#888', fontSize: '14px' }}>
+        Loading rides...
+      </div>
+    );
+  }
+
+  if (rides.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+        <div style={{ fontSize: '48px', marginBottom: '12px', opacity: 0.4 }}>{'\uD83D\uDE97'}</div>
+        <div style={{ fontSize: '15px', color: '#888' }}>
+          No rides yet. Your completed rides will show here.
+        </div>
+      </div>
+    );
+  }
+
+  const totalSpent = rides
+    .filter(r => ['ended', 'completed'].includes(r.status))
+    .reduce((sum, r) => sum + Number(r.final_agreed_price || r.amount || 0), 0);
+  const completedCount = rides.filter(r => ['ended', 'completed'].includes(r.status)).length;
+
+  return (
+    <div>
+      {/* Stats */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
+        <div style={{
+          flex: 1, background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '14px', padding: '14px', textAlign: 'center',
+        }}>
+          <div style={{ fontFamily: "var(--font-mono, 'Space Mono', monospace)", fontSize: '24px', fontWeight: 700, color: '#00E676' }}>
+            {completedCount}
+          </div>
+          <div style={{ fontSize: '11px', color: '#888', letterSpacing: '1px', textTransform: 'uppercase', marginTop: '2px' }}>Rides</div>
+        </div>
+        <div style={{
+          flex: 1, background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '14px', padding: '14px', textAlign: 'center',
+        }}>
+          <div style={{ fontFamily: "var(--font-mono, 'Space Mono', monospace)", fontSize: '24px', fontWeight: 700, color: '#00E676' }}>
+            ${totalSpent.toFixed(2)}
+          </div>
+          <div style={{ fontSize: '11px', color: '#888', letterSpacing: '1px', textTransform: 'uppercase', marginTop: '2px' }}>Spent</div>
+        </div>
+      </div>
+
+      {/* Ride list */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {rides.map(ride => {
+          const price = Number(ride.final_agreed_price || ride.amount || 0);
+          const ratingInfo = ride.driver_rating ? RATING_DISPLAY[ride.driver_rating] : null;
+          const destination = ride.destination || ride.dropoff_address || 'Ride';
+          const date = new Date(ride.created_at);
+          const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+          return (
+            <Link
+              key={ride.id}
+              href={`/ride/${ride.id}`}
+              style={{
+                background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '16px', padding: '16px', textDecoration: 'none', color: '#fff',
+                display: 'block',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                <div>
+                  <div style={{ fontSize: '15px', fontWeight: 600 }}>{destination}</div>
+                  <div style={{ fontSize: '12px', color: '#888', marginTop: '2px' }}>
+                    {ride.driver_name || 'Driver'} &middot; {dateStr} {timeStr}
+                  </div>
+                </div>
+                <div style={{
+                  fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+                  fontSize: '18px', fontWeight: 700, color: '#00E676',
+                }}>
+                  ${price.toFixed(2)}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{
+                  fontSize: '11px', padding: '3px 10px', borderRadius: '100px',
+                  background: ride.status === 'completed' ? 'rgba(0,230,118,0.1)' : ride.status === 'cancelled' ? 'rgba(255,82,82,0.1)' : 'rgba(255,255,255,0.05)',
+                  color: ride.status === 'completed' ? '#00E676' : ride.status === 'cancelled' ? '#FF5252' : '#888',
+                  fontWeight: 600,
+                }}>
+                  {ride.status.toUpperCase()}
+                </span>
+                {ratingInfo && (
+                  <span style={{ fontSize: '12px', color: ratingInfo.color }}>
+                    {ratingInfo.emoji} {ratingInfo.label}
+                  </span>
+                )}
+              </div>
+            </Link>
+          );
+        })}
       </div>
     </div>
   );

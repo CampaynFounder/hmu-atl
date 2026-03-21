@@ -125,7 +125,7 @@ export default function RiderDemoPage() {
   };
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-black">
+    <div className="dark h-screen w-screen overflow-hidden bg-black">
       {/* Main Feed */}
       <DriverFeed
         initialDrivers={mockDrivers}
