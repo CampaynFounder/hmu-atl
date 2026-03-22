@@ -505,71 +505,74 @@ function SupportTab() {
 }
 
 /* ── Menu Tab Types ── */
-interface CatalogItem {
+// API returns raw DB rows — use loose types
+interface MenuApiResponse {
+  menu: Record<string, unknown>[];
+  catalog: Record<string, unknown>[];
+  counts: { total: number; custom: number };
+  tier: string;
+  limits: { maxItems: number | null; maxCustom: number | null };
+}
+
+interface ActiveItem {
   id: string;
   name: string;
   icon: string;
-  default_price: number;
-  pricing_type: string;
-  unit_label: string | null;
-  category: string;
-}
-
-interface MenuItem {
-  menu_item_id: string;
-  platform_item_id: string | null;
-  name: string;
-  icon: string | null;
   price: number;
   pricing_type: string;
   unit_label: string | null;
-  is_custom: boolean;
-  is_active: boolean;
+  item_id: string | null; // null = custom
 }
 
-interface MenuData {
-  menu: MenuItem[];
-  catalog: CatalogItem[];
-  counts: { active: number; custom: number };
-  tier: string;
-  limits: { max_items: number | null; max_custom: number | null };
-}
+// Quick-add presets riders commonly need
+const QUICK_LABELS = [
+  { label: 'Extra Stop', icon: '📍', pricing_type: 'per_unit', unit_label: 'stop', default_price: 3 },
+  { label: 'Wait Time', icon: '⏱', pricing_type: 'per_minute', unit_label: 'min', default_price: 2 },
+  { label: 'Late Night', icon: '🌙', pricing_type: 'flat', unit_label: null, default_price: 5 },
+  { label: '420 Friendly', icon: '🌿', pricing_type: 'flat', unit_label: null, default_price: 5 },
+  { label: 'Round Trip', icon: '🔄', pricing_type: 'flat', unit_label: null, default_price: 10 },
+  { label: 'Airport', icon: '✈️', pricing_type: 'flat', unit_label: null, default_price: 5 },
+  { label: 'Pet Friendly', icon: '🐾', pricing_type: 'flat', unit_label: null, default_price: 5 },
+  { label: 'Luggage', icon: '🧳', pricing_type: 'per_unit', unit_label: 'bag', default_price: 3 },
+  { label: 'Large Vehicle', icon: '🚙', pricing_type: 'flat', unit_label: null, default_price: 10 },
+  { label: 'Grocery Run', icon: '🛒', pricing_type: 'flat', unit_label: null, default_price: 8 },
+];
 
 const PRICING_LABELS: Record<string, string> = {
-  flat: 'Flat Rate',
-  per_mile: 'Per Mile',
-  per_minute: 'Per Minute',
-  per_stop: 'Per Stop',
-  per_unit: 'Per Unit',
+  flat: 'Flat',
+  per_mile: '/ mile',
+  per_minute: '/ min',
+  per_stop: '/ stop',
+  per_unit: '/ unit',
 };
 
 function MenuTab({ tier }: { tier: string }) {
-  const [data, setData] = useState<MenuData | null>(null);
+  const [items, setItems] = useState<ActiveItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [toggling, setToggling] = useState<string | null>(null);
-  const [prices, setPrices] = useState<Record<string, string>>({});
-  const [names, setNames] = useState<Record<string, string>>({});
-  const [showCustomForm, setShowCustomForm] = useState(false);
-  const [customName, setCustomName] = useState('');
-  const [customPrice, setCustomPrice] = useState('');
-  const [customPricingType, setCustomPricingType] = useState('flat');
-  const [customUnitLabel, setCustomUnitLabel] = useState('');
-  const [savingCustom, setSavingCustom] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  // Add form state
+  const [name, setName] = useState('');
+  const [price, setPrice] = useState('');
+  const [pricingType, setPricingType] = useState('flat');
+  const [unitLabel, setUnitLabel] = useState('');
+  const [error, setError] = useState('');
 
   const fetchMenu = () => {
     fetch('/api/driver/service-menu')
       .then(r => r.json())
-      .then((d: MenuData) => {
-        setData(d);
-        // Initialize price overrides from existing menu items
-        const priceMap: Record<string, string> = {};
-        d.menu.forEach(item => {
-          if (item.platform_item_id) {
-            priceMap[item.platform_item_id] = String(item.price);
-          }
-        });
-        setPrices(priceMap);
+      .then((d: MenuApiResponse) => {
+        const mapped: ActiveItem[] = (d.menu || []).map((m) => ({
+          id: String(m.id),
+          name: (m.custom_name as string) || (m.name as string) || 'Service',
+          icon: (m.custom_icon as string) || (m.icon as string) || '💲',
+          price: Number(m.price || 0),
+          pricing_type: (m.pricing_type as string) || 'flat',
+          unit_label: (m.unit_label as string) || null,
+          item_id: (m.item_id as string) || null,
+        }));
+        setItems(mapped);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -577,294 +580,240 @@ function MenuTab({ tier }: { tier: string }) {
 
   useEffect(() => { fetchMenu(); }, []);
 
-  const handleToggleOn = async (catalogItem: CatalogItem) => {
-    const priceStr = prices[catalogItem.id];
-    const price = priceStr ? parseFloat(priceStr) : Number(catalogItem.default_price);
-    if (isNaN(price) || price <= 0) return;
-
-    const customName = names[catalogItem.id]?.trim() || undefined;
-
-    setToggling(catalogItem.id);
+  const handleAdd = async () => {
+    if (!name.trim()) { setError('Name required'); return; }
+    if (!price) { setError('Price required'); return; }
+    const p = parseFloat(price);
+    if (isNaN(p) || p <= 0) { setError('Enter a valid price'); return; }
+    setError('');
+    setSaving(true);
     try {
       const res = await fetch('/api/driver/service-menu', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          item_id: catalogItem.id,
-          price,
-          pricing_type: catalogItem.pricing_type,
-          unit_label: catalogItem.unit_label || undefined,
-          custom_name: customName,
+          custom_name: name.trim(),
+          price: p,
+          pricing_type: pricingType,
+          unit_label: ['per_unit', 'per_minute'].includes(pricingType) ? unitLabel.trim() || null : null,
         }),
       });
       const result = await res.json();
-      if (result.upgrade_required) {
+      if (res.status === 403 || result.error === 'upgrade_required') {
         setShowUpgrade(true);
-      } else {
+      } else if (res.ok) {
+        setName(''); setPrice(''); setPricingType('flat'); setUnitLabel('');
         fetchMenu();
+      } else {
+        setError(result.error || 'Failed to add');
       }
-    } catch {
-      // silent
-    } finally {
-      setToggling(null);
-    }
+    } catch { setError('Network error'); }
+    finally { setSaving(false); }
   };
 
-  const handleToggleOff = async (menuItemId: string) => {
-    setToggling(menuItemId);
+  const handleDelete = async (itemId: string) => {
+    setDeleting(itemId);
     try {
       await fetch('/api/driver/service-menu', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ menu_item_id: menuItemId }),
+        body: JSON.stringify({ menu_item_id: itemId }),
       });
       fetchMenu();
-    } catch {
-      // silent
-    } finally {
-      setToggling(null);
-    }
+    } catch { /* silent */ }
+    finally { setDeleting(null); }
   };
 
-  const handleAddCustom = async () => {
-    if (!customName.trim() || !customPrice) return;
-    const price = parseFloat(customPrice);
-    if (isNaN(price) || price <= 0) return;
-
-    setSavingCustom(true);
-    try {
-      const res = await fetch('/api/driver/service-menu', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          custom_name: customName.trim(),
-          price,
-          pricing_type: customPricingType,
-          unit_label: ['per_unit', 'per_minute'].includes(customPricingType) ? customUnitLabel.trim() || null : null,
-        }),
-      });
-      const result = await res.json();
-      if (result.upgrade_required) {
-        setShowUpgrade(true);
-      } else {
-        setCustomName('');
-        setCustomPrice('');
-        setCustomPricingType('flat');
-        setCustomUnitLabel('');
-        setShowCustomForm(false);
-        fetchMenu();
-      }
-    } catch {
-      // silent
-    } finally {
-      setSavingCustom(false);
-    }
+  const handleQuickAdd = (preset: typeof QUICK_LABELS[0]) => {
+    setName(preset.label);
+    setPrice(String(preset.default_price));
+    setPricingType(preset.pricing_type);
+    setUnitLabel(preset.unit_label || '');
   };
-
-  const handleDeleteCustom = async (menuItemId: string) => {
-    setToggling(menuItemId);
-    try {
-      await fetch('/api/driver/service-menu', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ menu_item_id: menuItemId }),
-      });
-      fetchMenu();
-    } catch {
-      // silent
-    } finally {
-      setToggling(null);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div style={{ textAlign: 'center', padding: '40px 0', color: '#888', fontSize: '14px' }}>
-        Loading menu...
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div style={{ textAlign: 'center', padding: '40px 0', color: '#888', fontSize: '14px' }}>
-        Failed to load menu.
-      </div>
-    );
-  }
 
   const isFirst = tier === 'hmu_first';
-  const activeCount = data.counts.active;
-  const maxItems = data.limits.max_items;
-  const menuByPlatformId = new Map(data.menu.filter(m => m.platform_item_id).map(m => [m.platform_item_id, m]));
-  const customItems = data.menu.filter(m => m.is_custom);
+  const maxItems = isFirst ? Infinity : 5;
+
+  if (loading) {
+    return <div style={{ textAlign: 'center', padding: '40px 0', color: '#888', fontSize: '14px' }}>Loading menu...</div>;
+  }
 
   return (
-    <div>
+    <div style={{ padding: '0 20px 20px' }}>
       {/* Header */}
-      <div className="menu-header">
-        <div className="menu-header-title">Service Menu</div>
-        <div className="menu-header-sub">Set your prices. Riders add services from your menu.</div>
-        <span className={`menu-limit ${isFirst ? 'menu-limit--first' : 'menu-limit--free'}`}>
-          {isFirst ? 'Unlimited' : `${activeCount} of ${maxItems || 5} items active`}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 28, marginBottom: 4 }}>
+          Service Menu
+        </div>
+        <div style={{ fontSize: 13, color: '#888', marginBottom: 10 }}>
+          Add services you offer. Riders pick from your menu when booking.
+        </div>
+        <span style={{
+          display: 'inline-block', fontSize: 11, fontWeight: 700, letterSpacing: 1,
+          padding: '4px 12px', borderRadius: 100,
+          background: isFirst ? 'rgba(0,230,118,0.1)' : 'rgba(255,255,255,0.05)',
+          color: isFirst ? '#00E676' : '#888',
+          border: `1px solid ${isFirst ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.08)'}`,
+        }}>
+          {isFirst ? 'UNLIMITED' : `${items.length} / ${maxItems} ITEMS`}
         </span>
       </div>
 
-      {/* Platform Items */}
-      <div className="menu-grid">
-        {data.catalog.map(item => {
-          const existing = menuByPlatformId.get(item.id);
-          const isActive = !!existing && existing.is_active;
-          const isThisToggling = toggling === item.id || toggling === existing?.menu_item_id;
-
-          return (
-            <div key={item.id} className={`menu-card ${isActive ? 'menu-card--active' : ''}`}>
-              <div className="menu-card-icon">{item.icon}</div>
-              <div className="menu-card-info">
-                <input
-                  className="menu-name-input"
-                  type="text"
-                  placeholder={item.name}
-                  value={names[item.id] || ''}
-                  onChange={e => setNames(prev => ({ ...prev, [item.id]: e.target.value }))}
-                />
-                <div className="menu-card-type">{PRICING_LABELS[item.pricing_type] || item.pricing_type}</div>
-              </div>
-              <div className="menu-card-right">
-                <button
-                  className={`menu-toggle ${isActive ? 'menu-toggle--on' : 'menu-toggle--off'}`}
-                  disabled={isThisToggling}
-                  onClick={() => {
-                    if (isActive && existing) {
-                      handleToggleOff(existing.menu_item_id);
-                    } else {
-                      handleToggleOn(item);
-                    }
-                  }}
-                  style={{ opacity: isThisToggling ? 0.5 : 1 }}
-                >
-                  <div className="menu-toggle-knob" />
-                </button>
-                <div className="menu-price-input-wrap">
-                  <span className="menu-price-prefix">$</span>
-                  <input
-                    className="menu-price-input"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder={Number(item.default_price).toFixed(2)}
-                    value={prices[item.id] || ''}
-                    onChange={e => setPrices(prev => ({ ...prev, [item.id]: e.target.value }))}
-                  />
-                </div>
-              </div>
-            </div>
-          );
-        })}
+      {/* Quick Labels */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: '#555', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
+          Quick Add
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {QUICK_LABELS.map(q => (
+            <button
+              key={q.label}
+              onClick={() => handleQuickAdd(q)}
+              style={{
+                padding: '6px 12px', borderRadius: 100, fontSize: 12, fontWeight: 600,
+                border: '1px solid rgba(255,255,255,0.1)', background: '#1a1a1a', color: '#bbb',
+                cursor: 'pointer', fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              <span>{q.icon}</span> {q.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Custom Items Section */}
-      <div className="menu-section-divider">Custom Services</div>
-      <div className="menu-grid">
-        {customItems.map(item => (
-          <div key={item.menu_item_id} className="menu-card menu-card--active">
-            <div className="menu-card-icon">{item.icon || '\u2728'}</div>
-            <div className="menu-card-info">
-              <div className="menu-card-name">{item.name}</div>
-              <div className="menu-card-type">
-                {PRICING_LABELS[item.pricing_type] || item.pricing_type}
-                {item.unit_label ? ` / ${item.unit_label}` : ''}
-              </div>
-            </div>
-            <div className="menu-card-right">
-              <div style={{ fontFamily: "var(--font-mono, 'Space Mono', monospace)", fontSize: '14px', fontWeight: 700, color: '#00E676' }}>
-                ${Number(item.price).toFixed(2)}
-              </div>
-              <button
-                className="menu-delete-btn"
-                disabled={toggling === item.menu_item_id}
-                onClick={() => handleDeleteCustom(item.menu_item_id)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        ))}
-
-        {/* Add Custom Form */}
-        {showCustomForm ? (
-          <div className="menu-custom-form">
+      {/* Add Form */}
+      <div style={{
+        background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 16, padding: 16, marginBottom: 20,
+      }}>
+        <input
+          type="text"
+          placeholder="Service name (e.g. Extra Stop, Late Night)"
+          value={name}
+          onChange={e => { setName(e.target.value); setError(''); }}
+          style={{
+            width: '100%', background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 10, padding: '12px 14px', color: '#fff', fontSize: 15, outline: 'none',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)", marginBottom: 10,
+          }}
+        />
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '0 12px' }}>
+            <span style={{ color: '#555', fontFamily: "var(--font-mono, 'Space Mono', monospace)", fontSize: 14 }}>$</span>
             <input
-              className="menu-input"
-              placeholder="Service name"
-              value={customName}
-              onChange={e => setCustomName(e.target.value)}
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0.00"
+              value={price}
+              onChange={e => { setPrice(e.target.value); setError(''); }}
+              style={{
+                flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                color: '#fff', fontSize: 15, padding: '12px 8px',
+                fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+              }}
             />
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <div className="menu-price-input-wrap" style={{ flex: 1, height: '42px' }}>
-                <span className="menu-price-prefix">$</span>
-                <input
-                  className="menu-price-input"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  value={customPrice}
-                  onChange={e => setCustomPrice(e.target.value)}
-                  style={{ flex: 1, width: '100%' }}
-                />
-              </div>
-              <select
-                className="menu-select"
-                style={{ flex: 1 }}
-                value={customPricingType}
-                onChange={e => setCustomPricingType(e.target.value)}
-              >
-                <option value="flat">Flat Rate</option>
-                <option value="per_unit">Per Unit</option>
-                <option value="per_minute">Per Minute</option>
-                <option value="per_mile">Per Mile</option>
-                <option value="per_stop">Per Stop</option>
-              </select>
-            </div>
-            {['per_unit', 'per_minute'].includes(customPricingType) && (
-              <input
-                className="menu-input"
-                placeholder="Unit label (e.g. hour, item)"
-                value={customUnitLabel}
-                onChange={e => setCustomUnitLabel(e.target.value)}
-              />
-            )}
-            <div className="menu-form-actions">
-              <button className="menu-form-cancel" onClick={() => setShowCustomForm(false)}>
-                Cancel
-              </button>
-              <button
-                className="menu-form-save"
-                disabled={savingCustom || !customName.trim() || !customPrice}
-                onClick={handleAddCustom}
-              >
-                {savingCustom ? 'Saving...' : 'Add Service'}
-              </button>
-            </div>
           </div>
-        ) : (
-          <button className="menu-add-btn" onClick={() => setShowCustomForm(true)}>
-            <Plus className="h-4 w-4" />
-            Add Custom
-          </button>
+          <select
+            value={pricingType}
+            onChange={e => setPricingType(e.target.value)}
+            style={{
+              background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 10, padding: '10px 12px', color: '#bbb', fontSize: 13,
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)", outline: 'none',
+            }}
+          >
+            <option value="flat">Flat</option>
+            <option value="per_unit">Per Unit</option>
+            <option value="per_minute">Per Min</option>
+          </select>
+        </div>
+        {['per_unit', 'per_minute'].includes(pricingType) && (
+          <input
+            type="text"
+            placeholder="Unit label (e.g. stop, min, bag)"
+            value={unitLabel}
+            onChange={e => setUnitLabel(e.target.value)}
+            style={{
+              width: '100%', background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 10, padding: '10px 14px', color: '#fff', fontSize: 14, outline: 'none',
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)", marginBottom: 10,
+            }}
+          />
         )}
+        {error && <div style={{ fontSize: 13, color: '#FF5252', marginBottom: 8 }}>{error}</div>}
+        <button
+          onClick={handleAdd}
+          disabled={saving}
+          style={{
+            width: '100%', padding: 14, borderRadius: 100,
+            background: '#00E676', color: '#080808', border: 'none',
+            fontSize: 15, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            opacity: saving ? 0.5 : 1,
+          }}
+        >
+          {saving ? 'Adding...' : 'Add to Menu'}
+        </button>
       </div>
+
+      {/* Active Items */}
+      {items.length > 0 && (
+        <>
+          <div style={{ fontSize: 11, color: '#555', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
+            Your Menu ({items.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {items.map(item => (
+              <div
+                key={item.id}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  background: '#141414', border: '1px solid rgba(0,230,118,0.15)',
+                  borderRadius: 14, padding: '12px 16px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>{item.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{item.name}</div>
+                    <div style={{ fontSize: 11, color: '#888' }}>
+                      ${item.price.toFixed(2)} {PRICING_LABELS[item.pricing_type] || item.pricing_type}
+                      {item.unit_label ? ` / ${item.unit_label}` : ''}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleDelete(item.id)}
+                  disabled={deleting === item.id}
+                  style={{
+                    background: 'rgba(255,82,82,0.1)', border: '1px solid rgba(255,82,82,0.2)',
+                    borderRadius: 8, width: 32, height: 32, display: 'flex',
+                    alignItems: 'center', justifyContent: 'center',
+                    color: '#FF5252', cursor: 'pointer', opacity: deleting === item.id ? 0.4 : 1,
+                  }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {items.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '32px 0', color: '#555', fontSize: 14 }}>
+          No menu items yet. Tap a quick label or add your own above.
+        </div>
+      )}
 
       {/* Upgrade Overlay */}
       {showUpgrade && (
         <UpgradeOverlay
           open={showUpgrade}
           onClose={() => setShowUpgrade(false)}
-          onUpgraded={() => {
-            setShowUpgrade(false);
-            fetchMenu();
-          }}
+          onUpgraded={() => { setShowUpgrade(false); fetchMenu(); }}
         />
       )}
     </div>
