@@ -233,6 +233,23 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
       `}</style>
 
       <div className="profile-page">
+        {/* Back to browse — logged-in riders */}
+        {isLoggedIn && (
+          <Link
+            href="/rider/browse"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '10px 20px',
+              fontSize: 14, fontWeight: 600,
+              color: '#00E676',
+              textDecoration: 'none',
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            }}
+          >
+            <span style={{ fontSize: 18 }}>&larr;</span> Browse Drivers
+          </Link>
+        )}
+
         {/* Hero: show both video + photo if both exist, otherwise one or placeholder */}
         {driver.videoUrl && driver.vehiclePhotoUrl ? (
           <>
