@@ -181,3 +181,55 @@ export interface DriverOfferEnrollment {
   exhausted_at: Date | null;
   exhausted_reason: string | null;
 }
+
+// Service Menu
+export type PricingType = 'flat' | 'per_unit' | 'per_minute';
+export type ServiceCategory = 'ride' | 'vibe' | 'vehicle' | 'errand' | 'custom';
+export type AddOnStatus = 'pre_selected' | 'confirmed' | 'disputed' | 'adjusted' | 'removed';
+
+export interface ServiceMenuItem {
+  id: string;
+  name: string;
+  default_price: number;
+  pricing_type: PricingType;
+  unit_label: string | null;
+  category: ServiceCategory;
+  icon: string | null;
+  sort_order: number;
+  is_active: boolean;
+}
+
+export interface DriverServiceMenuItem {
+  id: string;
+  driver_id: string;
+  item_id: string | null;
+  custom_name: string | null;
+  custom_icon: string | null;
+  price: number;
+  pricing_type: PricingType;
+  unit_label: string | null;
+  is_active: boolean;
+  sort_order: number;
+  created_at: Date;
+  // Resolved from join with service_menu_items
+  name?: string;
+  icon?: string;
+  category?: ServiceCategory;
+}
+
+export interface RideAddOn {
+  id: string;
+  ride_id: string;
+  menu_item_id: string;
+  name: string;
+  unit_price: number;
+  quantity: number;
+  subtotal: number;
+  added_by: 'rider' | 'system';
+  status: AddOnStatus;
+  rider_adjusted_amount: number | null;
+  dispute_reason: string | null;
+  final_amount: number | null;
+  added_at: Date;
+  confirmed_at: Date | null;
+}

@@ -5,7 +5,7 @@ import { useUser, useClerk } from '@clerk/nextjs';
 import UpgradeOverlay from '@/components/driver/upgrade-overlay';
 import CashPackCard from '@/components/driver/cash-pack-card';
 import Link from 'next/link';
-import { ChevronLeft, Shield, Zap, Clock, MessageCircle, DollarSign } from 'lucide-react';
+import { ChevronLeft, Shield, Zap, Clock, MessageCircle, DollarSign, UtensilsCrossed, Plus, Trash2 } from 'lucide-react';
 
 interface Props {
   tier: string;
@@ -17,6 +17,7 @@ const TABS = [
   { id: 'hmu-first', label: 'HMU First', icon: Zap },
   { id: 'history', label: 'Ride History', icon: Clock },
   { id: 'support', label: 'Support', icon: MessageCircle },
+  { id: 'menu', label: 'Menu', icon: UtensilsCrossed },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -27,7 +28,7 @@ export default function DriverSettingsClient({ tier }: Props) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as TabId | null;
-    if (tab && ['security', 'cash', 'hmu-first', 'history', 'support'].includes(tab)) {
+    if (tab && ['security', 'cash', 'hmu-first', 'history', 'support', 'menu'].includes(tab)) {
       setActiveTab(tab);
     }
   }, []);
@@ -98,6 +99,46 @@ export default function DriverSettingsClient({ tier }: Props) {
         .support-sub { font-size: 13px; color: var(--gray); line-height: 1.4; }
         .support-btn { display: inline-block; margin-top: 12px; padding: 10px 20px; border-radius: 100px; border: 1px solid var(--border); color: var(--gray-light); font-size: 13px; font-weight: 600; cursor: pointer; background: transparent; font-family: var(--font-body, 'DM Sans', sans-serif); transition: all 0.15s; text-decoration: none; }
         .support-btn:hover { background: var(--card2); color: #fff; }
+
+        /* Menu tab */
+        .menu-header { margin-bottom: 20px; }
+        .menu-header-title { font-family: var(--font-mono, 'Space Mono', monospace); font-size: 11px; color: var(--gray); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px; }
+        .menu-header-sub { font-size: 13px; color: var(--gray); line-height: 1.4; }
+        .menu-limit { display: inline-block; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 100px; margin-top: 8px; }
+        .menu-limit--free { background: rgba(255,255,255,0.06); color: var(--gray-light); }
+        .menu-limit--first { background: rgba(0,230,118,0.12); color: var(--green); }
+        .menu-grid { display: flex; flex-direction: column; gap: 10px; margin-bottom: 28px; }
+        .menu-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; transition: border-color 0.15s; }
+        .menu-card--active { border-color: rgba(0,230,118,0.3); }
+        .menu-card-icon { width: 36px; height: 36px; border-radius: 10px; background: rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+        .menu-card-info { flex: 1; min-width: 0; }
+        .menu-card-name { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+        .menu-card-type { font-size: 11px; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; }
+        .menu-card-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0; }
+        .menu-price-input-wrap { display: flex; align-items: center; gap: 0; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; height: 32px; }
+        .menu-price-prefix { padding: 0 6px 0 8px; font-family: var(--font-mono, 'Space Mono', monospace); font-size: 13px; color: var(--gray); }
+        .menu-price-input { width: 60px; background: transparent; border: none; outline: none; color: #fff; font-family: var(--font-mono, 'Space Mono', monospace); font-size: 13px; text-align: right; padding: 0 8px 0 0; height: 100%; }
+        .menu-price-input::placeholder { color: #555; }
+        .menu-toggle { position: relative; width: 44px; height: 24px; border-radius: 12px; border: none; cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
+        .menu-toggle--on { background: var(--green); }
+        .menu-toggle--off { background: #333; }
+        .menu-toggle-knob { position: absolute; top: 2px; width: 20px; height: 20px; border-radius: 10px; background: #fff; transition: left 0.2s; }
+        .menu-toggle--on .menu-toggle-knob { left: 22px; }
+        .menu-toggle--off .menu-toggle-knob { left: 2px; }
+        .menu-section-divider { font-family: var(--font-mono, 'Space Mono', monospace); font-size: 11px; color: var(--gray); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12px; }
+        .menu-add-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 12px; border-radius: 12px; border: 1px dashed rgba(255,255,255,0.12); background: transparent; color: var(--gray-light); font-size: 13px; font-weight: 600; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); transition: all 0.15s; }
+        .menu-add-btn:hover { background: var(--card); border-color: rgba(0,230,118,0.3); color: var(--green); }
+        .menu-custom-form { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 10px; }
+        .menu-input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: #fff; font-size: 14px; font-family: var(--font-body, 'DM Sans', sans-serif); outline: none; }
+        .menu-input:focus { border-color: rgba(0,230,118,0.4); }
+        .menu-input::placeholder { color: #555; }
+        .menu-select { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: #fff; font-size: 14px; font-family: var(--font-body, 'DM Sans', sans-serif); outline: none; appearance: none; }
+        .menu-form-actions { display: flex; gap: 8px; }
+        .menu-form-save { flex: 1; padding: 10px; border-radius: 100px; border: none; background: var(--green); color: var(--black); font-weight: 700; font-size: 14px; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .menu-form-save:disabled { opacity: 0.5; cursor: not-allowed; }
+        .menu-form-cancel { padding: 10px 16px; border-radius: 100px; border: 1px solid var(--border); background: transparent; color: var(--gray-light); font-size: 14px; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .menu-delete-btn { background: transparent; border: none; color: #555; cursor: pointer; padding: 4px; transition: color 0.15s; }
+        .menu-delete-btn:hover { color: #FF5252; }
       `}</style>
 
       <div className="settings-page">
@@ -132,6 +173,7 @@ export default function DriverSettingsClient({ tier }: Props) {
           {activeTab === 'hmu-first' && <HmuFirstTab tier={tier} />}
           {activeTab === 'history' && <HistoryTab />}
           {activeTab === 'support' && <SupportTab />}
+          {activeTab === 'menu' && <MenuTab tier={tier} />}
         </div>
       </div>
     </>
@@ -434,6 +476,359 @@ function SupportTab() {
         <div className="support-sub">support@hmucashride.com</div>
         <a href="mailto:support@hmucashride.com" className="support-btn">Send Email</a>
       </div>
+    </div>
+  );
+}
+
+/* ── Menu Tab Types ── */
+interface CatalogItem {
+  id: string;
+  name: string;
+  icon: string;
+  default_price: number;
+  pricing_type: string;
+  unit_label: string | null;
+  category: string;
+}
+
+interface MenuItem {
+  menu_item_id: string;
+  platform_item_id: string | null;
+  name: string;
+  icon: string | null;
+  price: number;
+  pricing_type: string;
+  unit_label: string | null;
+  is_custom: boolean;
+  is_active: boolean;
+}
+
+interface MenuData {
+  menu: MenuItem[];
+  catalog: CatalogItem[];
+  counts: { active: number; custom: number };
+  tier: string;
+  limits: { max_items: number | null; max_custom: number | null };
+}
+
+const PRICING_LABELS: Record<string, string> = {
+  flat: 'Flat Rate',
+  per_mile: 'Per Mile',
+  per_minute: 'Per Minute',
+  per_stop: 'Per Stop',
+  per_unit: 'Per Unit',
+};
+
+function MenuTab({ tier }: { tier: string }) {
+  const [data, setData] = useState<MenuData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [toggling, setToggling] = useState<string | null>(null);
+  const [prices, setPrices] = useState<Record<string, string>>({});
+  const [showCustomForm, setShowCustomForm] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customPrice, setCustomPrice] = useState('');
+  const [customPricingType, setCustomPricingType] = useState('flat');
+  const [customUnitLabel, setCustomUnitLabel] = useState('');
+  const [savingCustom, setSavingCustom] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
+
+  const fetchMenu = () => {
+    fetch('/api/driver/service-menu')
+      .then(r => r.json())
+      .then((d: MenuData) => {
+        setData(d);
+        // Initialize price overrides from existing menu items
+        const priceMap: Record<string, string> = {};
+        d.menu.forEach(item => {
+          if (item.platform_item_id) {
+            priceMap[item.platform_item_id] = String(item.price);
+          }
+        });
+        setPrices(priceMap);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { fetchMenu(); }, []);
+
+  const handleToggleOn = async (catalogItem: CatalogItem) => {
+    const priceStr = prices[catalogItem.id];
+    const price = priceStr ? parseFloat(priceStr) : catalogItem.default_price;
+    if (isNaN(price) || price <= 0) return;
+
+    setToggling(catalogItem.id);
+    try {
+      const res = await fetch('/api/driver/service-menu', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: catalogItem.id, price }),
+      });
+      const result = await res.json();
+      if (result.upgrade_required) {
+        setShowUpgrade(true);
+      } else {
+        fetchMenu();
+      }
+    } catch {
+      // silent
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  const handleToggleOff = async (menuItemId: string) => {
+    setToggling(menuItemId);
+    try {
+      await fetch('/api/driver/service-menu', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ menu_item_id: menuItemId }),
+      });
+      fetchMenu();
+    } catch {
+      // silent
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  const handleAddCustom = async () => {
+    if (!customName.trim() || !customPrice) return;
+    const price = parseFloat(customPrice);
+    if (isNaN(price) || price <= 0) return;
+
+    setSavingCustom(true);
+    try {
+      const res = await fetch('/api/driver/service-menu', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          custom: true,
+          name: customName.trim(),
+          price,
+          pricing_type: customPricingType,
+          unit_label: ['per_unit', 'per_minute'].includes(customPricingType) ? customUnitLabel.trim() || null : null,
+        }),
+      });
+      const result = await res.json();
+      if (result.upgrade_required) {
+        setShowUpgrade(true);
+      } else {
+        setCustomName('');
+        setCustomPrice('');
+        setCustomPricingType('flat');
+        setCustomUnitLabel('');
+        setShowCustomForm(false);
+        fetchMenu();
+      }
+    } catch {
+      // silent
+    } finally {
+      setSavingCustom(false);
+    }
+  };
+
+  const handleDeleteCustom = async (menuItemId: string) => {
+    setToggling(menuItemId);
+    try {
+      await fetch('/api/driver/service-menu', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ menu_item_id: menuItemId }),
+      });
+      fetchMenu();
+    } catch {
+      // silent
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 0', color: '#888', fontSize: '14px' }}>
+        Loading menu...
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 0', color: '#888', fontSize: '14px' }}>
+        Failed to load menu.
+      </div>
+    );
+  }
+
+  const isFirst = tier === 'hmu_first';
+  const activeCount = data.counts.active;
+  const maxItems = data.limits.max_items;
+  const menuByPlatformId = new Map(data.menu.filter(m => m.platform_item_id).map(m => [m.platform_item_id, m]));
+  const customItems = data.menu.filter(m => m.is_custom);
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="menu-header">
+        <div className="menu-header-title">Service Menu</div>
+        <div className="menu-header-sub">Set your prices. Riders add services from your menu.</div>
+        <span className={`menu-limit ${isFirst ? 'menu-limit--first' : 'menu-limit--free'}`}>
+          {isFirst ? 'Unlimited' : `${activeCount} of ${maxItems || 5} items active`}
+        </span>
+      </div>
+
+      {/* Platform Items */}
+      <div className="menu-grid">
+        {data.catalog.map(item => {
+          const existing = menuByPlatformId.get(item.id);
+          const isActive = !!existing && existing.is_active;
+          const isThisToggling = toggling === item.id || toggling === existing?.menu_item_id;
+
+          return (
+            <div key={item.id} className={`menu-card ${isActive ? 'menu-card--active' : ''}`}>
+              <div className="menu-card-icon">{item.icon}</div>
+              <div className="menu-card-info">
+                <div className="menu-card-name">{item.name}</div>
+                <div className="menu-card-type">{PRICING_LABELS[item.pricing_type] || item.pricing_type}</div>
+              </div>
+              <div className="menu-card-right">
+                <button
+                  className={`menu-toggle ${isActive ? 'menu-toggle--on' : 'menu-toggle--off'}`}
+                  disabled={isThisToggling}
+                  onClick={() => {
+                    if (isActive && existing) {
+                      handleToggleOff(existing.menu_item_id);
+                    } else {
+                      handleToggleOn(item);
+                    }
+                  }}
+                  style={{ opacity: isThisToggling ? 0.5 : 1 }}
+                >
+                  <div className="menu-toggle-knob" />
+                </button>
+                <div className="menu-price-input-wrap">
+                  <span className="menu-price-prefix">$</span>
+                  <input
+                    className="menu-price-input"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder={item.default_price.toFixed(2)}
+                    value={prices[item.id] || ''}
+                    onChange={e => setPrices(prev => ({ ...prev, [item.id]: e.target.value }))}
+                  />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Custom Items Section */}
+      <div className="menu-section-divider">Custom Services</div>
+      <div className="menu-grid">
+        {customItems.map(item => (
+          <div key={item.menu_item_id} className="menu-card menu-card--active">
+            <div className="menu-card-icon">{item.icon || '\u2728'}</div>
+            <div className="menu-card-info">
+              <div className="menu-card-name">{item.name}</div>
+              <div className="menu-card-type">
+                {PRICING_LABELS[item.pricing_type] || item.pricing_type}
+                {item.unit_label ? ` / ${item.unit_label}` : ''}
+              </div>
+            </div>
+            <div className="menu-card-right">
+              <div style={{ fontFamily: "var(--font-mono, 'Space Mono', monospace)", fontSize: '14px', fontWeight: 700, color: '#00E676' }}>
+                ${Number(item.price).toFixed(2)}
+              </div>
+              <button
+                className="menu-delete-btn"
+                disabled={toggling === item.menu_item_id}
+                onClick={() => handleDeleteCustom(item.menu_item_id)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        ))}
+
+        {/* Add Custom Form */}
+        {showCustomForm ? (
+          <div className="menu-custom-form">
+            <input
+              className="menu-input"
+              placeholder="Service name"
+              value={customName}
+              onChange={e => setCustomName(e.target.value)}
+            />
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <div className="menu-price-input-wrap" style={{ flex: 1, height: '42px' }}>
+                <span className="menu-price-prefix">$</span>
+                <input
+                  className="menu-price-input"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  value={customPrice}
+                  onChange={e => setCustomPrice(e.target.value)}
+                  style={{ flex: 1, width: '100%' }}
+                />
+              </div>
+              <select
+                className="menu-select"
+                style={{ flex: 1 }}
+                value={customPricingType}
+                onChange={e => setCustomPricingType(e.target.value)}
+              >
+                <option value="flat">Flat Rate</option>
+                <option value="per_unit">Per Unit</option>
+                <option value="per_minute">Per Minute</option>
+                <option value="per_mile">Per Mile</option>
+                <option value="per_stop">Per Stop</option>
+              </select>
+            </div>
+            {['per_unit', 'per_minute'].includes(customPricingType) && (
+              <input
+                className="menu-input"
+                placeholder="Unit label (e.g. hour, item)"
+                value={customUnitLabel}
+                onChange={e => setCustomUnitLabel(e.target.value)}
+              />
+            )}
+            <div className="menu-form-actions">
+              <button className="menu-form-cancel" onClick={() => setShowCustomForm(false)}>
+                Cancel
+              </button>
+              <button
+                className="menu-form-save"
+                disabled={savingCustom || !customName.trim() || !customPrice}
+                onClick={handleAddCustom}
+              >
+                {savingCustom ? 'Saving...' : 'Add Service'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className="menu-add-btn" onClick={() => setShowCustomForm(true)}>
+            <Plus className="h-4 w-4" />
+            Add Custom
+          </button>
+        )}
+      </div>
+
+      {/* Upgrade Overlay */}
+      {showUpgrade && (
+        <UpgradeOverlay
+          open={showUpgrade}
+          onClose={() => setShowUpgrade(false)}
+          onUpgraded={() => {
+            setShowUpgrade(false);
+            fetchMenu();
+          }}
+        />
+      )}
     </div>
   );
 }
