@@ -113,6 +113,10 @@ export default function DriverSettingsClient({ tier }: Props) {
         .menu-card-icon { width: 36px; height: 36px; border-radius: 10px; background: rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
         .menu-card-info { flex: 1; min-width: 0; }
         .menu-card-name { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+        .menu-name-input { font-size: 14px; font-weight: 600; background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.08); outline: none; color: #fff; padding: 2px 0; margin-bottom: 2px; width: 100%; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .menu-name-input::placeholder { color: #fff; }
+        .menu-name-input:focus { border-bottom-color: #00E676; }
+        .menu-name-input:focus::placeholder { color: #555; }
         .menu-card-type { font-size: 11px; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; }
         .menu-card-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0; }
         .menu-price-input-wrap { display: flex; align-items: center; gap: 0; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; height: 32px; }
@@ -544,6 +548,7 @@ function MenuTab({ tier }: { tier: string }) {
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState<string | null>(null);
   const [prices, setPrices] = useState<Record<string, string>>({});
+  const [names, setNames] = useState<Record<string, string>>({});
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customPrice, setCustomPrice] = useState('');
@@ -577,12 +582,20 @@ function MenuTab({ tier }: { tier: string }) {
     const price = priceStr ? parseFloat(priceStr) : Number(catalogItem.default_price);
     if (isNaN(price) || price <= 0) return;
 
+    const customName = names[catalogItem.id]?.trim() || undefined;
+
     setToggling(catalogItem.id);
     try {
       const res = await fetch('/api/driver/service-menu', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_id: catalogItem.id, price }),
+        body: JSON.stringify({
+          item_id: catalogItem.id,
+          price,
+          pricing_type: catalogItem.pricing_type,
+          unit_label: catalogItem.unit_label || undefined,
+          custom_name: customName,
+        }),
       });
       const result = await res.json();
       if (result.upgrade_required) {
@@ -624,8 +637,7 @@ function MenuTab({ tier }: { tier: string }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          custom: true,
-          name: customName.trim(),
+          custom_name: customName.trim(),
           price,
           pricing_type: customPricingType,
           unit_label: ['per_unit', 'per_minute'].includes(customPricingType) ? customUnitLabel.trim() || null : null,
@@ -709,7 +721,13 @@ function MenuTab({ tier }: { tier: string }) {
             <div key={item.id} className={`menu-card ${isActive ? 'menu-card--active' : ''}`}>
               <div className="menu-card-icon">{item.icon}</div>
               <div className="menu-card-info">
-                <div className="menu-card-name">{item.name}</div>
+                <input
+                  className="menu-name-input"
+                  type="text"
+                  placeholder={item.name}
+                  value={names[item.id] || ''}
+                  onChange={e => setNames(prev => ({ ...prev, [item.id]: e.target.value }))}
+                />
                 <div className="menu-card-type">{PRICING_LABELS[item.pricing_type] || item.pricing_type}</div>
               </div>
               <div className="menu-card-right">

@@ -108,11 +108,11 @@ export async function upsertDriverMenuItem(
   if (item.item_id) {
     // Platform item — upsert by driver_id + item_id
     const rows = await sql`
-      INSERT INTO driver_service_menu (driver_id, item_id, price, pricing_type, unit_label, is_active)
-      VALUES (${driverId}, ${item.item_id}, ${item.price}, ${item.pricing_type}, ${item.unit_label ?? null}, true)
+      INSERT INTO driver_service_menu (driver_id, item_id, custom_name, price, pricing_type, unit_label, is_active)
+      VALUES (${driverId}, ${item.item_id}, ${item.custom_name ?? null}, ${item.price}, ${item.pricing_type}, ${item.unit_label ?? null}, true)
       ON CONFLICT (driver_id, item_id)
       DO UPDATE SET price = EXCLUDED.price, pricing_type = EXCLUDED.pricing_type,
-        unit_label = EXCLUDED.unit_label, is_active = true
+        unit_label = EXCLUDED.unit_label, custom_name = EXCLUDED.custom_name, is_active = true
       RETURNING *
     `;
     return rows[0] as DriverServiceMenuItem;
