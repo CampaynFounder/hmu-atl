@@ -47,7 +47,7 @@ export default async function SignUpPage({ searchParams }: Props) {
           lineHeight: 1.4,
         }}>
           {isDriver
-            ? 'They Request. We Verify. You Push Up. No Goofy Ish.'
+            ? 'They Request. We Verify. You Push Up. Funds Release. No Goofy Ish.'
             : isRider
             ? 'Sign up to ride. Skip the surge, book local drivers at your price.'
             : 'Create your account to get started.'}
