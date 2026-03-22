@@ -190,12 +190,12 @@ export default function DriverLandingClient() {
           For ATL Driver-Preneurs
         </div>
         <h1 className={styles.heroHeadline}>
-          <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0s' }}>&lsquo;Payment Ready&rsquo;</span>
-          <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0.1s' }}>App for</span>
-          <span className={`${styles.fadeUp} ${styles.lineDim}`} style={{ display: 'block', animationDelay: '0.2s' }}>Doin Rides</span>
+          <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0s' }}>Passenger Pre-Ride</span>
+          <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0.1s' }}>Payment</span>
+          <span className={`${styles.fadeUp} ${styles.lineDim}`} style={{ display: 'block', animationDelay: '0.2s' }}>Verification</span>
         </h1>
         <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }}>
-          <strong>It&apos;s your ride. Your bag.</strong> Stop making $20 on a $80 ride. We Secure Their Payment Till You Pull Up.
+          Drive Time Protection. <strong>Know Before You Go. Don&apos;t Push Up Without It.</strong>
         </p>
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
           <Link href="/sign-up?type=driver" className={styles.btnPrimary} onClick={() => posthog.capture('driver_hero_cta_clicked')}>Lock In Now &mdash; It&rsquo;s Free</Link>
