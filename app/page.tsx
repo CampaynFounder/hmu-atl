@@ -393,6 +393,9 @@ export default function HomePage() {
             </div>
 
             <div className={`${styles.dualCtaCard} ${styles.dualCtaCardDriver}`}>
+              <div className={`${styles.ogBanner} ${isDark ? styles.ogBannerDark : styles.ogBannerLight}`}>
+                FIRST $500 FREE &bull; OG PRICING FOR OG DRIVERS
+              </div>
               <h3 className={styles.dualCtaHeading}>
                 WANT TO <span className={styles.green}>DRIVE?</span>
               </h3>
@@ -400,7 +403,7 @@ export default function HomePage() {
                 Set your price. Keep up to 90%. Daily fee cap means more money in your pocket.
               </p>
               <Link href="/sign-up?type=driver" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnFilled}`}>
-                SIGN UP AS DRIVER
+                SIGN UP NOW
               </Link>
             </div>
           </div>
