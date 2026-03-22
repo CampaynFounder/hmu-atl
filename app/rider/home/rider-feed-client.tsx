@@ -256,6 +256,23 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
           {error && <div className="rf-error">{error}</div>}
         </div>
 
+        {/* My Rides quick link */}
+        <a
+          href="/rider/settings?tab=history"
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 16, padding: '14px 20px', margin: '0 20px 12px',
+            textDecoration: 'none', color: '#fff',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 18 }}>{'\uD83D\uDCCB'}</span>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>My Rides</span>
+          </div>
+          <span style={{ fontSize: 13, color: '#00E676' }}>{'\u2192'}</span>
+        </a>
+
         {/* How it works tip */}
         {posts.length === 0 && (
           <div style={{
