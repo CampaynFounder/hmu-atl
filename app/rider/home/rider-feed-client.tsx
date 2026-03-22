@@ -39,12 +39,13 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
   const [isCash, setIsCash] = useState(false);
   const [matchNotif, setMatchNotif] = useState<MatchNotification | null>(null);
   const [pastExpanded, setPastExpanded] = useState(false);
+  const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const activePosts = posts.filter(p => ACTIVE_STATUSES.includes(p.status));
   const pastPosts = posts.filter(p => !ACTIVE_STATUSES.includes(p.status));
   // Matched posts mean a ride exists — rider shouldn't post more
-  const hasActiveRide = activePosts.some(p => p.status === 'matched');
+  const hasActiveRide = activePosts.some(p => p.status === 'matched') || !!activeRideId;
 
   // Ably subscription for real-time notifications
   const handleAblyMessage = useCallback((msg: { name: string; data: unknown }) => {
@@ -101,7 +102,7 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
     fetch('/api/rides/active')
       .then(r => r.json())
       .then(data => {
-        if (data.hasActiveRide && data.rideId) window.location.replace(`/ride/${data.rideId}`);
+        if (data.hasActiveRide && data.rideId) setActiveRideId(data.rideId);
       })
       .catch(() => {});
   }, []);
@@ -183,12 +184,36 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
         {/* Composer */}
         <div className="rf-composer">
           {hasActiveRide ? (
-            <div style={{
-              background: 'rgba(68,138,255,0.08)', border: '1px solid rgba(68,138,255,0.2)',
-              borderRadius: 16, padding: '14px 18px', fontSize: 13, color: '#bbb', lineHeight: 1.4,
-            }}>
-              You have a matched ride. Head to your ride or wait for it to complete.
-            </div>
+            <a
+              href={activeRideId ? `/ride/${activeRideId}` : '#'}
+              onClick={(e) => {
+                if (!activeRideId) {
+                  e.preventDefault();
+                  fetch('/api/rides/active')
+                    .then(r => r.json())
+                    .then(data => {
+                      if (data.hasActiveRide && data.rideId) {
+                        setActiveRideId(data.rideId);
+                        window.location.href = `/ride/${data.rideId}`;
+                      }
+                    })
+                    .catch(() => {});
+                }
+              }}
+              style={{
+                display: 'block', textDecoration: 'none',
+                background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.25)',
+                borderRadius: 16, padding: '14px 18px', lineHeight: 1.4,
+                cursor: 'pointer',
+              }}
+            >
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#00E676', marginBottom: 4 }}>
+                You have an active ride
+              </div>
+              <div style={{ fontSize: 13, color: '#bbb' }}>
+                Tap here to view your ride &rarr;
+              </div>
+            </a>
           ) : (
             <>
               <div className="rf-input-wrap">
