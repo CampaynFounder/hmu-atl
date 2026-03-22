@@ -25,7 +25,7 @@ export default async function SignUpPage({ searchParams }: Props) {
       alignItems: 'center',
       justifyContent: 'center',
       background: '#080808',
-      padding: '20px',
+      padding: '60px 20px 20px',
     }}>
       <SignUpTypeStore type={type} returnTo={returnTo} />
 
