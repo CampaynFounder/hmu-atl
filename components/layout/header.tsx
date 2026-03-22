@@ -7,7 +7,7 @@ import { useClerk, useUser } from '@clerk/nextjs';
 import { Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const MARKETING_PATHS = ['/driver', '/rider'];
+const MARKETING_PATHS = ['/', '/driver', '/rider'];
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
