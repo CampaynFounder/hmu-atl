@@ -16,7 +16,7 @@ export async function GET() {
       SELECT id, status, driver_id, rider_id
       FROM rides
       WHERE (driver_id = ${userId} OR rider_id = ${userId})
-        AND status IN ('matched', 'otw', 'here', 'active', 'ended')
+        AND status IN ('pending', 'accepted', 'matched', 'otw', 'here', 'active', 'in_progress', 'ended')
       ORDER BY created_at DESC
       LIMIT 1
     `;

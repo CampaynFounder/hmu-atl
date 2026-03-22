@@ -184,11 +184,11 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
         {/* Composer */}
         <div className="rf-composer">
           {hasActiveRide ? (
-            <a
-              href={activeRideId ? `/ride/${activeRideId}` : '#'}
-              onClick={(e) => {
-                if (!activeRideId) {
-                  e.preventDefault();
+            <div
+              onClick={() => {
+                if (activeRideId) {
+                  window.location.href = `/ride/${activeRideId}`;
+                } else {
                   fetch('/api/rides/active')
                     .then(r => r.json())
                     .then(data => {
@@ -201,19 +201,20 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
                 }
               }}
               style={{
-                display: 'block', textDecoration: 'none',
-                background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.25)',
+                display: 'block',
+                background: activeRideId ? 'rgba(0,230,118,0.08)' : 'rgba(68,138,255,0.08)',
+                border: `1px solid ${activeRideId ? 'rgba(0,230,118,0.25)' : 'rgba(68,138,255,0.2)'}`,
                 borderRadius: 16, padding: '14px 18px', lineHeight: 1.4,
-                cursor: 'pointer',
+                cursor: activeRideId ? 'pointer' : 'default',
               }}
             >
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#00E676', marginBottom: 4 }}>
-                You have an active ride
+              <div style={{ fontSize: 15, fontWeight: 700, color: activeRideId ? '#00E676' : '#448AFF', marginBottom: 4 }}>
+                {activeRideId ? 'You have an active ride' : 'Ride matched — waiting on driver'}
               </div>
               <div style={{ fontSize: 13, color: '#bbb' }}>
-                Tap here to view your ride &rarr;
+                {activeRideId ? 'Tap here to view your ride \u2192' : 'We\u2019ll notify you when they\u2019re OTW.'}
               </div>
-            </a>
+            </div>
           ) : (
             <>
               <div className="rf-input-wrap">
