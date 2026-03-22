@@ -44,8 +44,8 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
 
   const activePosts = posts.filter(p => ACTIVE_STATUSES.includes(p.status));
   const pastPosts = posts.filter(p => !ACTIVE_STATUSES.includes(p.status));
-  // Matched posts mean a ride exists — rider shouldn't post more
-  const hasActiveRide = activePosts.some(p => p.status === 'matched') || !!activeRideId;
+  // Only trust the API for active ride status — post status can be stale
+  const hasActiveRide = !!activeRideId;
 
   // Ably subscription for real-time notifications
   const handleAblyMessage = useCallback((msg: { name: string; data: unknown }) => {
@@ -102,7 +102,12 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
     fetch('/api/rides/active')
       .then(r => r.json())
       .then(data => {
-        if (data.hasActiveRide && data.rideId) setActiveRideId(data.rideId);
+        if (data.hasActiveRide && data.rideId) {
+          setActiveRideId(data.rideId);
+        } else {
+          // No active ride — clear any stale matched posts from local state
+          setPosts(prev => prev.map(p => p.status === 'matched' ? { ...p, status: 'expired' } : p));
+        }
       })
       .catch(() => {});
   }, []);
