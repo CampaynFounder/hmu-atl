@@ -190,12 +190,12 @@ export default function DriverLandingClient() {
           For ATL Driver-Preneurs
         </div>
         <h1 className={styles.heroHeadline}>
-          <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0s' }}>Passenger Pre-Ride</span>
+          <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0s' }}>Passenger</span>
           <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0.1s' }}>Payment</span>
           <span className={`${styles.fadeUp} ${styles.lineDim}`} style={{ display: 'block', animationDelay: '0.2s' }}>Verification</span>
         </h1>
         <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }}>
-          Drive Time Protection. <strong>Know Before You Go. Don&apos;t Push Up Without It.</strong>
+          Quit Raw Doggin&apos; Your Rides. <strong>Know Before You Go. Don&apos;t Push Up Without It.</strong>
         </p>
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
           <Link href="/sign-up?type=driver" className={styles.btnPrimary} onClick={() => posthog.capture('driver_hero_cta_clicked')}>Verify My Passenger&apos;s Payment</Link>
