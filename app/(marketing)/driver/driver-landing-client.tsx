@@ -180,7 +180,7 @@ export default function DriverLandingClient() {
           lineHeight: 1.5,
         }}>
           Keep <strong style={{ color: '#fff' }}>100% of your earnings</strong> while you get started.
-          Zero platform fees on your first rides.
+          Zero platform fees.
         </div>
       </div>
 
