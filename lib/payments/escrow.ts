@@ -1,6 +1,7 @@
 import { stripe } from '@/lib/stripe/connect';
 import { sql } from '@/lib/db/client';
 import { calculateFullBreakdown, getDailyEarnings } from './fee-calculator';
+import { getDriverEnrollment, updateEnrollmentProgress, isDriverInFreeWindow, getOfferProgress } from '@/lib/db/enrollment-offers';
 
 const isMock = process.env.STRIPE_MOCK === 'true';
 
@@ -105,6 +106,18 @@ export async function captureRiderPayment(rideId: string): Promise<{
   driverReceives: number;
   platformReceives: number;
   capHit: boolean;
+  waivedFee: number;
+  offerActive: boolean;
+  offerProgress: {
+    ridesRemaining: number;
+    ridesTotal: number;
+    earningsRemaining: number;
+    earningsTotal: number;
+    daysRemaining: number;
+    expiresAt: Date;
+    totalSaved: number;
+  } | null;
+  offerJustExhausted: boolean;
 }> {
   const rideRows = await sql`
     SELECT payment_intent_id, final_agreed_price, driver_id, rider_id
@@ -133,34 +146,49 @@ export async function captureRiderPayment(rideId: string): Promise<{
     earnings.weeklyFeePaid
   );
 
+  // Check enrollment offer — driver may be in free window
+  const inFreeWindow = await isDriverInFreeWindow(ride.driver_id as string);
+  const normalFee = breakdown.platformFee;
+  const actualFee = inFreeWindow ? 0 : normalFee;
+  const waivedFee = inFreeWindow ? normalFee : 0;
+
   // application_fee = platform fee only (Stripe fee is absorbed by connected account)
-  const applicationFeeCents = Math.round(breakdown.platformFee * 100);
+  const applicationFeeCents = Math.round(actualFee * 100);
 
   if (!isMock && ride.payment_intent_id && driverStripeAccountId) {
     await stripe.paymentIntents.capture(
       ride.payment_intent_id as string,
       { application_fee_amount: applicationFeeCents },
-      { stripeAccount: driverStripeAccountId }  // ← Direct Charge capture
+      { stripeAccount: driverStripeAccountId }
     );
   }
+
+  // Calculate driver receives with actual fee (0 if in free window)
+  const driverReceives = inFreeWindow
+    ? Math.round((breakdown.netAfterStripe) * 100) / 100
+    : breakdown.driverReceives;
+  const platformReceives = inFreeWindow
+    ? Math.round(breakdown.stripeFee * 100) / 100
+    : breakdown.platformReceives;
 
   await sql`
     UPDATE rides SET
       payment_captured = true,
       payment_captured_at = NOW(),
-      platform_fee_amount = ${breakdown.platformFee},
-      driver_payout_amount = ${breakdown.driverReceives},
+      platform_fee_amount = ${actualFee},
+      driver_payout_amount = ${driverReceives},
       stripe_fee_amount = ${breakdown.stripeFee},
+      waived_fee_amount = ${waivedFee},
       status = 'completed'
     WHERE id = ${rideId}
   `;
 
-  // Upsert daily earnings
+  // Upsert daily earnings (with actual fee, not waived)
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
   const weekStart = getWeekStart(today);
   await sql`
     INSERT INTO daily_earnings (driver_id, earnings_date, week_start_date, gross_earnings, platform_fee_paid, rides_completed, daily_cap_hit)
-    VALUES (${ride.driver_id}, ${today}, ${weekStart}, ${Number(ride.final_agreed_price)}, ${breakdown.platformFee}, 1, ${breakdown.dailyCapHit})
+    VALUES (${ride.driver_id}, ${today}, ${weekStart}, ${Number(ride.final_agreed_price)}, ${actualFee}, 1, ${!inFreeWindow && breakdown.dailyCapHit})
     ON CONFLICT (driver_id, earnings_date)
     DO UPDATE SET
       gross_earnings = daily_earnings.gross_earnings + EXCLUDED.gross_earnings,
@@ -170,11 +198,37 @@ export async function captureRiderPayment(rideId: string): Promise<{
       updated_at = NOW()
   `;
 
-  await insertLedger(rideId, ride.rider_id as string, 'rider', 'payment_captured', Number(ride.final_agreed_price), 'debit', 'Ride payment charged', ride.payment_intent_id as string);
-  await insertLedger(rideId, ride.driver_id as string, 'driver', 'earnings', breakdown.driverReceives, 'credit', 'Ride earnings', ride.payment_intent_id as string);
-  await insertLedger(rideId, ride.driver_id as string, 'platform', 'platform_fee', breakdown.platformFee, 'credit', 'Platform fee', ride.payment_intent_id as string);
+  // Update enrollment progress if in free window
+  let offerProgress = null;
+  let offerJustExhausted = false;
+  if (inFreeWindow) {
+    const { enrollment, justExhausted } = await updateEnrollmentProgress(
+      ride.driver_id as string,
+      driverReceives,
+      waivedFee
+    );
+    offerJustExhausted = justExhausted;
+    offerProgress = getOfferProgress(enrollment);
+  }
 
-  return { driverReceives: breakdown.driverReceives, platformReceives: breakdown.platformReceives, capHit: breakdown.dailyCapHit };
+  await insertLedger(rideId, ride.rider_id as string, 'rider', 'payment_captured', Number(ride.final_agreed_price), 'debit', 'Ride payment charged', ride.payment_intent_id as string);
+  await insertLedger(rideId, ride.driver_id as string, 'driver', 'earnings', driverReceives, 'credit', inFreeWindow ? 'Ride earnings (Launch Offer — $0 fee)' : 'Ride earnings', ride.payment_intent_id as string);
+  if (actualFee > 0) {
+    await insertLedger(rideId, ride.driver_id as string, 'platform', 'platform_fee', actualFee, 'credit', 'Platform fee', ride.payment_intent_id as string);
+  }
+  if (waivedFee > 0) {
+    await insertLedger(rideId, ride.driver_id as string, 'platform', 'fee_waived', waivedFee, 'waiver', 'Launch Offer — fee waived', ride.payment_intent_id as string);
+  }
+
+  return {
+    driverReceives,
+    platformReceives,
+    capHit: !inFreeWindow && breakdown.dailyCapHit,
+    waivedFee,
+    offerActive: inFreeWindow,
+    offerProgress,
+    offerJustExhausted,
+  };
 }
 
 /**

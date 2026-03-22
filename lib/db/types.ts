@@ -151,3 +151,33 @@ export interface Notification {
   read: boolean;
   created_at: Date;
 }
+
+export type EnrollmentOfferStatus = 'active' | 'exhausted' | 'expired';
+
+export interface DriverEnrollmentOffer {
+  id: string;
+  name: string;
+  free_rides: number;
+  free_earnings_cap: number;
+  free_days: number;
+  headline: string;
+  fine_print: string;
+  is_active: boolean;
+  created_at: Date;
+}
+
+export interface DriverOfferEnrollment {
+  id: string;
+  driver_id: string;
+  offer_id: string;
+  free_rides: number;
+  free_earnings_cap: number;
+  free_days: number;
+  enrolled_at: Date;
+  rides_used: number;
+  earnings_used: number;
+  total_waived_fees: number;
+  status: EnrollmentOfferStatus;
+  exhausted_at: Date | null;
+  exhausted_reason: string | null;
+}

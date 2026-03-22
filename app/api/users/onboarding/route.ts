@@ -10,6 +10,7 @@ import {
   getDriverProfileByUserId
 } from '@/lib/db/profiles';
 import { sql } from '@/lib/db/client';
+import { getActiveOffer, enrollDriver } from '@/lib/db/enrollment-offers';
 
 export async function POST(request: NextRequest) {
   try {
@@ -176,6 +177,23 @@ export async function POST(request: NextRequest) {
           require_og_status,
         });
         results.profiles.driver = driverProfile;
+
+        // Auto-enroll in active launch offer (snapshot terms at signup)
+        try {
+          const activeOffer = await getActiveOffer();
+          if (activeOffer) {
+            const enrollment = await enrollDriver(userId, activeOffer);
+            results.enrollment = {
+              offerName: activeOffer.name,
+              headline: activeOffer.headline,
+              freeRides: enrollment.free_rides,
+              freeEarningsCap: Number(enrollment.free_earnings_cap),
+              freeDays: enrollment.free_days,
+            };
+          }
+        } catch (enrollErr) {
+          console.error('[ONBOARDING] Failed to enroll driver in offer:', enrollErr);
+        }
       } else {
         results.profiles.driver = existingDriver;
         results.message = results.message

@@ -143,8 +143,49 @@ export default function DriverLandingClient() {
         </div>
       </div>
 
+      {/* LAUNCH OFFER BANNER */}
+      <div className={`${styles.fadeUp}`} style={{
+        animationDelay: '0s',
+        background: 'linear-gradient(135deg, rgba(0,230,118,0.08) 0%, rgba(0,230,118,0.02) 100%)',
+        border: '1px solid rgba(0,230,118,0.25)',
+        borderRadius: 16,
+        padding: '24px 20px',
+        margin: '100px 20px 0',
+        textAlign: 'center',
+        position: 'relative',
+        zIndex: 2,
+      }}>
+        <div style={{
+          fontFamily: 'var(--font-display, Bebas Neue, sans-serif)',
+          fontSize: 'clamp(28px, 7vw, 42px)',
+          lineHeight: 1,
+          color: 'var(--green)',
+          marginBottom: 8,
+        }}>
+          GET $500 IN FREE RIDES*
+        </div>
+        <div style={{
+          fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+          fontSize: 15,
+          color: 'var(--gray-light)',
+          lineHeight: 1.5,
+          marginBottom: 12,
+        }}>
+          Sign up now and keep <strong style={{ color: '#fff' }}>100% of your earnings</strong> while you get started.
+          Zero platform fees on your first rides.
+        </div>
+        <div style={{
+          fontFamily: 'var(--font-mono, Space Mono, monospace)',
+          fontSize: 11,
+          color: 'var(--gray)',
+          letterSpacing: 0.5,
+        }}>
+          *0% platform fees until 15 rides, $500 earned, or 30 days &mdash; whichever comes first. Terms locked at signup.
+        </div>
+      </div>
+
       {/* HERO */}
-      <section className={styles.hero}>
+      <section className={styles.hero} style={{ paddingTop: 40 }}>
         <div className={`${styles.heroEyebrow} ${styles.fadeUp}`} style={{ animationDelay: '0s' }}>
           For ATL Driver-Preneurs
         </div>
