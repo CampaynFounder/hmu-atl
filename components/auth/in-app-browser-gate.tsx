@@ -105,7 +105,7 @@ export function InAppBrowserGate({ children }: { children: React.ReactNode }) {
         maxWidth: 320,
         marginBottom: 28,
       }}>
-        This app&apos;s browser blocks secure sign-in.
+        This app&apos;s browser blocks secure sign-up / sign-in.
         Tap below to open in Safari or Chrome — takes 2 seconds.
       </div>
 
