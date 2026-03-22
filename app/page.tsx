@@ -87,7 +87,7 @@ export default function HomePage() {
             <span className={styles.themeIcon}>{isDark ? '🌙' : '☀️'}</span>
           </div>
           <Link href="/sign-in" className={styles.navSignIn}>Sign In</Link>
-          <Link href="/sign-up" className={styles.navCta}>Sign Up</Link>
+          <a href="#get-started" className={styles.navCta}>Sign Up</a>
         </div>
       </nav>
 
@@ -371,8 +371,14 @@ export default function HomePage() {
       </section>
 
       {/* DUAL CTA */}
-      <section className={styles.section}>
+      <section className={styles.section} id="get-started">
         <div className={styles.sectionInner}>
+          <div className={styles.reveal}>
+            <h2 className={styles.sectionHeadline}>
+              GET <span className={styles.green}>STARTED</span>
+            </h2>
+          </div>
+
           <div className={`${styles.dualCtaGrid} ${styles.reveal}`}>
             <div className={`${styles.dualCtaCard} ${styles.dualCtaCardRider}`}>
               <h3 className={styles.dualCtaHeading}>
@@ -381,8 +387,8 @@ export default function HomePage() {
               <p className={styles.dualCtaDesc}>
                 Skip the surge. Save up to 60% on every ride across Metro Atlanta.
               </p>
-              <Link href="/rider" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnOutline}`}>
-                EXPLORE RIDER
+              <Link href="/sign-up?type=rider" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnOutline}`}>
+                SIGN UP AS RIDER
               </Link>
             </div>
 
@@ -393,8 +399,8 @@ export default function HomePage() {
               <p className={styles.dualCtaDesc}>
                 Set your price. Keep up to 90%. Daily fee cap means more money in your pocket.
               </p>
-              <Link href="/driver" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnFilled}`}>
-                EXPLORE DRIVER
+              <Link href="/sign-up?type=driver" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnFilled}`}>
+                SIGN UP AS DRIVER
               </Link>
             </div>
           </div>
