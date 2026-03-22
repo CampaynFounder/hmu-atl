@@ -121,7 +121,7 @@ export default function DriverLandingClient() {
         <Link href="/" className={styles.navLogo}>HMU ATL</Link>
         <div className={styles.navActions}>
           <Link href="/sign-in?type=driver" className={styles.navSignIn}>Sign In</Link>
-          <Link href="/sign-up?type=driver" className={styles.navCta} onClick={() => posthog.capture('driver_nav_cta_clicked')}>Lock In Free</Link>
+          <Link href="/sign-up?type=driver" className={styles.navCta} onClick={() => posthog.capture('driver_nav_cta_clicked')}>Verify Payments</Link>
         </div>
       </nav>
 
@@ -198,7 +198,7 @@ export default function DriverLandingClient() {
           Drive Time Protection. <strong>Know Before You Go. Don&apos;t Push Up Without It.</strong>
         </p>
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
-          <Link href="/sign-up?type=driver" className={styles.btnPrimary} onClick={() => posthog.capture('driver_hero_cta_clicked')}>Lock In Now &mdash; It&rsquo;s Free</Link>
+          <Link href="/sign-up?type=driver" className={styles.btnPrimary} onClick={() => posthog.capture('driver_hero_cta_clicked')}>Verify My Passenger&apos;s Payment</Link>
           <a href="#how" className={styles.btnGhost}>See how it works ↓</a>
         </div>
         <div className={`${styles.heroTrust} ${styles.fadeUp}`} style={{ animationDelay: '0.5s' }}>
@@ -688,7 +688,7 @@ export default function DriverLandingClient() {
       <section className={styles.ctaSection} id="signup">
         <p className={`${styles.ctaEyebrow} ${styles.reveal}`}>Ready to Run It?</p>
         <h2 className={`${styles.ctaHeadline} ${styles.reveal}`}>
-          Sign Up Now<br /><span className={styles.blockGreen}>Try It Free</span>
+          Start Verifying<br /><span className={styles.blockGreen}>Passenger Payments</span>
         </h2>
         <p className={`${styles.ctaSub} ${styles.reveal}`}>
           No subscription required to start.<br />
@@ -721,7 +721,7 @@ export default function DriverLandingClient() {
             type="submit"
             className={`${styles.ctaSubmit} ${isSubmitting ? styles.ctaSubmitLoading : ''}`}
           >
-            {isSubmitting ? 'Creating your account...' : 'Get \u2018Payment Ready\u2019 Riders \u2014 Free'}
+            {isSubmitting ? 'Setting up verification...' : 'Verify My Passenger\u2019s Payment \u2014 Free'}
           </button>
           <p className={styles.ctaFine}>Free to start. No credit card. Cancel anytime.</p>
         </form>
