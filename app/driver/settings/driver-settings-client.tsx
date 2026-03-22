@@ -203,12 +203,32 @@ function SecurityTab() {
       )}
 
       {/* Passkeys */}
-      {user?.passkeys && user.passkeys.length > 0 && (
-        <div className="support-section">
-          <div className="support-title">Passkeys</div>
+      <div className="support-section">
+        <div className="support-title">Passkeys</div>
+        {user?.passkeys && user.passkeys.length > 0 ? (
           <div className="support-sub">{user.passkeys.length} passkey{user.passkeys.length > 1 ? 's' : ''} configured</div>
-        </div>
-      )}
+        ) : (
+          <div className="support-sub">Sign in faster with Face ID, Touch ID, or your device</div>
+        )}
+        <button
+          onClick={async () => {
+            try {
+              await user?.createPasskey();
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : 'Could not create passkey';
+              if (!msg.includes('canceled') && !msg.includes('abort')) alert(msg);
+            }
+          }}
+          style={{
+            marginTop: 10, padding: '10px 20px', borderRadius: 100,
+            border: '1px solid rgba(0,230,118,0.3)', background: 'rgba(0,230,118,0.08)',
+            color: '#00E676', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          }}
+        >
+          {user?.passkeys && user.passkeys.length > 0 ? 'Add Another Passkey' : 'Add Passkey'}
+        </button>
+      </div>
 
       {/* Sign out */}
       <button
