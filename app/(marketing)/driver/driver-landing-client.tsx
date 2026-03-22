@@ -155,32 +155,32 @@ export default function DriverLandingClient() {
         position: 'relative',
         zIndex: 2,
       }}>
+        <div style={{ marginBottom: 10 }}>
+          <span style={{
+            display: 'inline-block', background: '#fff', color: '#080808',
+            fontSize: 10, fontWeight: 800, letterSpacing: 1.5, textTransform: 'uppercase',
+            padding: '4px 12px', borderRadius: 100, marginBottom: 8,
+          }}>
+            DRIVERS
+          </span>
+        </div>
         <div style={{
           fontFamily: 'var(--font-display, Bebas Neue, sans-serif)',
-          fontSize: 'clamp(28px, 7vw, 42px)',
+          fontSize: 'clamp(32px, 8vw, 52px)',
           lineHeight: 1,
           color: 'var(--green)',
           marginBottom: 8,
         }}>
-          GET $500 IN FREE RIDES<span style={{ fontSize: '0.5em', verticalAlign: 'super' }}>*</span>
+          FREE $500<a href="#offer-details" style={{ fontSize: '0.45em', verticalAlign: 'super', color: 'var(--gray)', textDecoration: 'none' }}>*</a>
         </div>
         <div style={{
           fontFamily: 'var(--font-body, DM Sans, sans-serif)',
           fontSize: 15,
           color: 'var(--gray-light)',
           lineHeight: 1.5,
-          marginBottom: 12,
         }}>
-          Sign up now and keep <strong style={{ color: '#fff' }}>100% of your earnings</strong> while you get started.
+          Keep <strong style={{ color: '#fff' }}>100% of your earnings</strong> while you get started.
           Zero platform fees on your first rides.
-        </div>
-        <div style={{
-          fontFamily: 'var(--font-mono, Space Mono, monospace)',
-          fontSize: 11,
-          color: 'var(--gray)',
-          letterSpacing: 0.5,
-        }}>
-          *0% platform fees until 15 rides, $500 earned, or 30 days &mdash; whichever comes first. Terms locked at signup.
         </div>
       </div>
 
@@ -725,6 +725,46 @@ export default function DriverLandingClient() {
           </button>
           <p className={styles.ctaFine}>Free to start. No credit card. Cancel anytime.</p>
         </form>
+      </section>
+
+      {/* OFFER DETAILS */}
+      <section id="offer-details" style={{
+        padding: '40px 20px', borderTop: '1px solid rgba(255,255,255,0.06)',
+      }}>
+        <div style={{ maxWidth: 600, margin: '0 auto' }}>
+          <div style={{
+            fontFamily: 'var(--font-mono, Space Mono, monospace)',
+            fontSize: 10, letterSpacing: 2, textTransform: 'uppercase',
+            color: 'var(--gray)', marginBottom: 12,
+          }}>
+            * Launch Offer Details
+          </div>
+          <div style={{
+            fontSize: 13, color: 'var(--gray)', lineHeight: 1.7,
+          }}>
+            <p style={{ marginBottom: 10 }}>
+              <strong style={{ color: 'var(--gray-light)' }}>FREE $500 Launch Offer:</strong> New drivers
+              pay 0% platform fees until any of the following conditions are met &mdash; whichever comes first:
+            </p>
+            <ul style={{ paddingLeft: 20, marginBottom: 10 }}>
+              <li>15 completed rides</li>
+              <li>$500 in total earnings</li>
+              <li>30 days from signup</li>
+            </ul>
+            <p style={{ marginBottom: 10 }}>
+              Offer terms are <strong style={{ color: 'var(--gray-light)' }}>locked at the time you sign up</strong>.
+              If we change the offer later, your original terms are honored in full.
+            </p>
+            <p style={{ marginBottom: 10 }}>
+              After the offer period, standard progressive platform fees apply (10&ndash;25% with daily and weekly caps).
+              Drivers on HMU First ($9.99/mo) pay a flat 12% with lower caps.
+            </p>
+            <p>
+              This offer applies to driver platform fees only. Stripe processing fees (2.9% + $0.30) are always
+              absorbed by the platform and never charged to drivers or riders.
+            </p>
+          </div>
+        </div>
       </section>
 
       {/* FOOTER */}
