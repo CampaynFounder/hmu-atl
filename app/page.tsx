@@ -1,10 +1,32 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import styles from './page.module.css';
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function HomePage() {
+  const [isDark, setIsDark] = useState(true);
+  const [userType, setUserType] = useState<'rider' | 'driver'>('rider');
+  const [email, setEmail] = useState('');
+  const [city, setCity] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [cityError, setCityError] = useState('');
+  const [waitlistSubmitted, setWaitlistSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Time-based theme: 6am-6pm = light, 6pm-6am = dark
+  useEffect(() => {
+    const checkTime = () => {
+      const hour = new Date().getHours();
+      setIsDark(hour < 6 || hour >= 18);
+    };
+    checkTime();
+    const interval = setInterval(checkTime, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Scroll reveal
   useEffect(() => {
     const reveals = document.querySelectorAll(`.${styles.reveal}`);
@@ -23,15 +45,47 @@ export default function HomePage() {
     return () => observer.disconnect();
   }, []);
 
+  const handleWaitlistSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    let hasError = false;
+
+    if (!email || !EMAIL_REGEX.test(email.trim())) {
+      setEmailError('Enter a valid email');
+      hasError = true;
+    } else {
+      setEmailError('');
+    }
+
+    if (!city.trim()) {
+      setCityError('Enter your city');
+      hasError = true;
+    } else {
+      setCityError('');
+    }
+
+    if (hasError) return;
+
+    setIsSubmitting(true);
+    try {
+      // For now, log to console — wire up to API/PostHog later
+      console.log('Waitlist signup:', { email, city, userType });
+      setWaitlistSubmitted(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
-    <div className={styles.container}>
-      {/* Noise overlay */}
+    <div className={`${styles.container} ${!isDark ? styles.light : ''}`}>
       <div className={styles.noiseBg} />
 
       {/* NAV */}
       <nav className={styles.nav}>
         <Link href="/" className={styles.navLogo}>HMU ATL</Link>
         <div className={styles.navActions}>
+          <div className={styles.themeToggle}>
+            <span className={styles.themeIcon}>{isDark ? '🌙' : '☀️'}</span>
+          </div>
           <Link href="/sign-in" className={styles.navSignIn}>Sign In</Link>
           <Link href="/sign-up" className={styles.navCta}>Sign Up</Link>
         </div>
@@ -89,7 +143,6 @@ export default function HomePage() {
           </div>
 
           <div className={`${styles.howGrid} ${styles.reveal}`}>
-            {/* FOR RIDERS */}
             <div className={styles.howColumn}>
               <div className={styles.howColumnTitle}>
                 <span className={styles.howColumnTitleIcon}>🚗</span>
@@ -123,7 +176,6 @@ export default function HomePage() {
               </Link>
             </div>
 
-            {/* FOR DRIVERS */}
             <div className={styles.howColumn}>
               <div className={styles.howColumnTitle}>
                 <span className={styles.howColumnTitleIcon}>💰</span>
@@ -242,6 +294,79 @@ export default function HomePage() {
               <div className={styles.pricingSave}>Save $23 (61%)</div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* CITY WAITLIST */}
+      <section className={`${styles.waitlistSection} ${styles.reveal}`}>
+        <div className={styles.waitlistInner}>
+          <h2 className={styles.waitlistHeadline}>
+            NOT IN <span className={styles.green}>ATLANTA?</span>
+          </h2>
+          <p className={styles.waitlistSub}>
+            We&apos;re starting in Metro Atlanta, but HMU is coming to more cities.
+            Drop your info and we&apos;ll let you know when we launch near you.
+          </p>
+
+          {waitlistSubmitted ? (
+            <div className={styles.waitlistSuccess}>
+              <div className={styles.waitlistSuccessIcon}>✅</div>
+              <div className={styles.waitlistSuccessTitle}>YOU&apos;RE ON THE LIST</div>
+              <div className={styles.waitlistSuccessMsg}>
+                We&apos;ll hit you up when HMU launches in your city. Stay tuned.
+              </div>
+            </div>
+          ) : (
+            <form className={styles.waitlistForm} onSubmit={handleWaitlistSubmit}>
+              <div className={styles.waitlistRow}>
+                <div style={{ flex: 1 }}>
+                  <input
+                    type="email"
+                    className={styles.waitlistInput}
+                    placeholder="Email address"
+                    value={email}
+                    onChange={(e) => { setEmail(e.target.value); setEmailError(''); }}
+                  />
+                  {emailError && <div className={styles.waitlistError}>{emailError}</div>}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <input
+                    type="text"
+                    className={styles.waitlistInput}
+                    placeholder="Your city (e.g. Houston, Dallas)"
+                    value={city}
+                    onChange={(e) => { setCity(e.target.value); setCityError(''); }}
+                  />
+                  {cityError && <div className={styles.waitlistError}>{cityError}</div>}
+                </div>
+              </div>
+
+              <div className={styles.waitlistTypeRow}>
+                <button
+                  type="button"
+                  className={`${styles.waitlistTypeBtn} ${userType === 'rider' ? styles.waitlistTypeBtnActive : ''}`}
+                  onClick={() => setUserType('rider')}
+                >
+                  🚗 I want to ride
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.waitlistTypeBtn} ${userType === 'driver' ? styles.waitlistTypeBtnActive : ''}`}
+                  onClick={() => setUserType('driver')}
+                >
+                  💰 I want to drive
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                className={styles.waitlistSubmit}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'JOINING...' : 'JOIN THE WAITLIST'}
+              </button>
+            </form>
+          )}
         </div>
       </section>
 
