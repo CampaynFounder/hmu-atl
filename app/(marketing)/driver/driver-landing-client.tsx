@@ -162,7 +162,7 @@ export default function DriverLandingClient() {
           color: 'var(--green)',
           marginBottom: 8,
         }}>
-          GET $500 IN FREE RIDES*
+          GET $500 IN FREE RIDES<span style={{ fontSize: '0.5em', verticalAlign: 'super' }}>*</span>
         </div>
         <div style={{
           fontFamily: 'var(--font-body, DM Sans, sans-serif)',
