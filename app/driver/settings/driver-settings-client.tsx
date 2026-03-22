@@ -574,7 +574,7 @@ function MenuTab({ tier }: { tier: string }) {
 
   const handleToggleOn = async (catalogItem: CatalogItem) => {
     const priceStr = prices[catalogItem.id];
-    const price = priceStr ? parseFloat(priceStr) : catalogItem.default_price;
+    const price = priceStr ? parseFloat(priceStr) : Number(catalogItem.default_price);
     if (isNaN(price) || price <= 0) return;
 
     setToggling(catalogItem.id);
@@ -734,7 +734,7 @@ function MenuTab({ tier }: { tier: string }) {
                     type="number"
                     step="0.01"
                     min="0"
-                    placeholder={item.default_price.toFixed(2)}
+                    placeholder={Number(item.default_price).toFixed(2)}
                     value={prices[item.id] || ''}
                     onChange={e => setPrices(prev => ({ ...prev, [item.id]: e.target.value }))}
                   />
