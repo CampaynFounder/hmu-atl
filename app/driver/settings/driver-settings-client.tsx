@@ -552,7 +552,8 @@ function MenuTab({ tier }: { tier: string }) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [showUpgrade, setShowUpgrade] = useState(false);
-  // Add form state
+  // Add/edit form state
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
   const [pricingType, setPricingType] = useState('flat');
@@ -580,7 +581,11 @@ function MenuTab({ tier }: { tier: string }) {
 
   useEffect(() => { fetchMenu(); }, []);
 
-  const handleAdd = async () => {
+  const clearForm = () => {
+    setEditingId(null); setName(''); setPrice(''); setPricingType('flat'); setUnitLabel(''); setError('');
+  };
+
+  const handleSave = async () => {
     if (!name.trim()) { setError('Name required'); return; }
     if (!price) { setError('Price required'); return; }
     const p = parseFloat(price);
@@ -588,27 +593,50 @@ function MenuTab({ tier }: { tier: string }) {
     setError('');
     setSaving(true);
     try {
-      const res = await fetch('/api/driver/service-menu', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          custom_name: name.trim(),
-          price: p,
-          pricing_type: pricingType,
-          unit_label: ['per_unit', 'per_minute'].includes(pricingType) ? unitLabel.trim() || null : null,
-        }),
-      });
-      const result = await res.json();
-      if (res.status === 403 || result.error === 'upgrade_required') {
-        setShowUpgrade(true);
-      } else if (res.ok) {
-        setName(''); setPrice(''); setPricingType('flat'); setUnitLabel('');
-        fetchMenu();
+      if (editingId) {
+        // Update existing
+        const res = await fetch('/api/driver/service-menu', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            menu_item_id: editingId,
+            custom_name: name.trim(),
+            price: p,
+          }),
+        });
+        if (res.ok) { clearForm(); fetchMenu(); }
+        else { const r = await res.json(); setError(r.error || 'Failed to update'); }
       } else {
-        setError(result.error || 'Failed to add');
+        // Add new
+        const res = await fetch('/api/driver/service-menu', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            custom_name: name.trim(),
+            price: p,
+            pricing_type: pricingType,
+            unit_label: ['per_unit', 'per_minute'].includes(pricingType) ? unitLabel.trim() || null : null,
+          }),
+        });
+        const result = await res.json();
+        if (res.status === 403 || result.error === 'upgrade_required') {
+          setShowUpgrade(true);
+        } else if (res.ok) { clearForm(); fetchMenu(); }
+        else { setError(result.error || 'Failed to add'); }
       }
     } catch { setError('Network error'); }
     finally { setSaving(false); }
+  };
+
+  const handleEdit = (item: ActiveItem) => {
+    setEditingId(item.id);
+    setName(item.name);
+    setPrice(String(item.price));
+    setPricingType(item.pricing_type);
+    setUnitLabel(item.unit_label || '');
+    setError('');
+    // Scroll to form
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDelete = async (itemId: string) => {
@@ -743,19 +771,36 @@ function MenuTab({ tier }: { tier: string }) {
           />
         )}
         {error && <div style={{ fontSize: 13, color: '#FF5252', marginBottom: 8 }}>{error}</div>}
-        <button
-          onClick={handleAdd}
-          disabled={saving}
-          style={{
-            width: '100%', padding: 14, borderRadius: 100,
-            background: '#00E676', color: '#080808', border: 'none',
-            fontSize: 15, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer',
-            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-            opacity: saving ? 0.5 : 1,
-          }}
-        >
-          {saving ? 'Adding...' : 'Add to Menu'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {editingId && (
+            <button
+              onClick={clearForm}
+              style={{
+                padding: 14, borderRadius: 100, flex: 1,
+                background: 'transparent', color: '#888',
+                border: '1px solid rgba(255,255,255,0.1)',
+                fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Cancel
+            </button>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              flex: 2, padding: 14, borderRadius: 100,
+              background: editingId ? '#448AFF' : '#00E676',
+              color: editingId ? '#fff' : '#080808', border: 'none',
+              fontSize: 15, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer',
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              opacity: saving ? 0.5 : 1,
+            }}
+          >
+            {saving ? 'Saving...' : editingId ? 'Update Item' : 'Add to Menu'}
+          </button>
+        </div>
       </div>
 
       {/* Active Items */}
@@ -784,18 +829,31 @@ function MenuTab({ tier }: { tier: string }) {
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDelete(item.id)}
-                  disabled={deleting === item.id}
-                  style={{
-                    background: 'rgba(255,82,82,0.1)', border: '1px solid rgba(255,82,82,0.2)',
-                    borderRadius: 8, width: 32, height: 32, display: 'flex',
-                    alignItems: 'center', justifyContent: 'center',
-                    color: '#FF5252', cursor: 'pointer', opacity: deleting === item.id ? 0.4 : 1,
-                  }}
-                >
-                  <Trash2 size={14} />
-                </button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={() => handleEdit(item)}
+                    style={{
+                      background: 'rgba(68,138,255,0.1)', border: '1px solid rgba(68,138,255,0.2)',
+                      borderRadius: 8, width: 32, height: 32, display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                      color: '#448AFF', cursor: 'pointer', fontSize: 14,
+                    }}
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    onClick={() => handleDelete(item.id)}
+                    disabled={deleting === item.id}
+                    style={{
+                      background: 'rgba(255,82,82,0.1)', border: '1px solid rgba(255,82,82,0.2)',
+                      borderRadius: 8, width: 32, height: 32, display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                      color: '#FF5252', cursor: 'pointer', opacity: deleting === item.id ? 0.4 : 1,
+                    }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
