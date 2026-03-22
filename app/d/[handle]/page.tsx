@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
+import { auth } from '@clerk/nextjs/server';
 import { getDriverProfileByHandle } from '@/lib/db/profiles';
 import { sql } from '@/lib/db/client';
 import DriverShareProfileClient from './driver-share-profile-client';
@@ -49,6 +50,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function DriverSharePage({ params, searchParams }: Props) {
   const { handle } = await params;
   const { bookingOpen } = await searchParams;
+  const { userId: clerkId } = await auth();
+  const isLoggedIn = !!clerkId;
 
   const profile = await getDriverProfileByHandle(handle);
   if (!profile) {
@@ -120,6 +123,7 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
     <DriverShareProfileClient
       driver={driverData}
       autoOpenBooking={bookingOpen === '1'}
+      isLoggedIn={isLoggedIn}
     />
   );
 }

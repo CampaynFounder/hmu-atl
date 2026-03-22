@@ -32,9 +32,10 @@ interface DriverData {
 interface Props {
   driver: DriverData;
   autoOpenBooking: boolean;
+  isLoggedIn?: boolean;
 }
 
-export default function DriverShareProfileClient({ driver, autoOpenBooking }: Props) {
+export default function DriverShareProfileClient({ driver, autoOpenBooking, isLoggedIn }: Props) {
   const { isLoaded, isSignedIn } = useUser();
   const [eligibility, setEligibility] = useState<EligibilityResult | null>(null);
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
@@ -302,8 +303,8 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking }: Pr
               </span>
             )}
             </div>
-            {/* Driver sign up CTA */}
-            <DriverSignUpCta />
+            {/* Driver sign up CTA — only for logged out visitors */}
+            {!isLoggedIn && <DriverSignUpCta />}
           </div>
           {driver.isLive && (
             <div style={{
