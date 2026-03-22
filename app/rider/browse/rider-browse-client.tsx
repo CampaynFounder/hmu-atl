@@ -21,6 +21,7 @@ interface DriverCard {
   cashOnly?: boolean;
   liveMessage: string | null;
   livePrice: number | null;
+  serviceIcons?: string[];
 }
 
 interface Props {
@@ -243,6 +244,17 @@ export default function RiderBrowseClient({ drivers }: Props) {
                         letterSpacing: '1px', textTransform: 'uppercase',
                       }}>
                         LGBTQ+
+                      </span>
+                    )}
+                    {driver.serviceIcons && driver.serviceIcons.length > 0 && (
+                      <span style={{
+                        display: 'inline-flex', gap: '2px', background: 'rgba(0,230,118,0.08)',
+                        border: '1px solid rgba(0,230,118,0.2)', borderRadius: '100px',
+                        padding: '2px 8px', fontSize: '12px', lineHeight: 1,
+                      }}>
+                        {driver.serviceIcons.slice(0, 5).map((icon, i) => (
+                          <span key={i}>{icon}</span>
+                        ))}
                       </span>
                     )}
                   </div>

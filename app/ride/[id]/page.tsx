@@ -78,6 +78,8 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
         driverPlateState: ((ride.driver_vehicle_info as Record<string, unknown>)?.plate_state as string) || null,
         isCash: (ride.is_cash as boolean) || false,
         waitMinutes: Number(ride.wait_minutes ?? 10),
+        addOns: [],
+        addOnTotal: 0,
       }}
       mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''}
     />

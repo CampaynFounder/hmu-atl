@@ -12,7 +12,12 @@ export default async function RiderBrowsePage() {
     SELECT dp.handle, dp.display_name, dp.areas, dp.pricing, dp.video_url,
            dp.vehicle_info, dp.lgbtq_friendly, dp.enforce_minimum, dp.fwu, dp.accepts_cash, dp.cash_only,
            u.chill_score, u.tier,
-           hp.time_window as live_post, hp.price as live_price, hp.expires_at as live_expires
+           hp.time_window as live_post, hp.price as live_price, hp.expires_at as live_expires,
+           (SELECT COALESCE(array_agg(DISTINCT COALESCE(smi.icon, dsm.custom_icon)), '{}')
+            FROM driver_service_menu dsm
+            LEFT JOIN service_menu_items smi ON dsm.item_id = smi.id
+            WHERE dsm.driver_id = dp.user_id AND dsm.is_active = true
+           ) as service_icons
     FROM driver_profiles dp
     JOIN users u ON u.id = dp.user_id
     LEFT JOIN hmu_posts hp ON hp.user_id = dp.user_id
@@ -47,6 +52,7 @@ export default async function RiderBrowsePage() {
           cashOnly: (d.cash_only as boolean) || false,
           liveMessage: livePost?.message as string || null,
           livePrice: d.live_price ? Number(d.live_price) : null,
+          serviceIcons: Array.isArray(d.service_icons) ? (d.service_icons as string[]).filter(Boolean) : [],
         };
       })}
     />

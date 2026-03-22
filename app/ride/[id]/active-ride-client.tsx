@@ -58,6 +58,8 @@ interface RideData {
   driverPlateState: string | null;
   isCash: boolean;
   waitMinutes: number;
+  addOns: { id: string; name: string; unitPrice: number; quantity: number; subtotal: number; status: string; addedBy: string }[];
+  addOnTotal: number;
 }
 
 interface ActiveRideClientProps {
@@ -124,6 +126,9 @@ export default function ActiveRideClient({
   const [viewingRiderProfile, setViewingRiderProfile] = useState(false);
   const [waitCountdown, setWaitCountdown] = useState<number | null>(null);
   const [showPulloff, setShowPulloff] = useState(false);
+  const [addOnReview, setAddOnReview] = useState<Map<string, string>>(new Map());
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [notification, setNotification] = useState<{
     message: string;
     emoji: string;
@@ -403,6 +408,21 @@ export default function ActiveRideClient({
         .catch(() => {});
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load add-ons for this ride ──
+  useEffect(() => {
+    if (['active', 'ended', 'completed'].includes(ride.status)) {
+      fetch(`/api/rides/${rideId}/add-ons`)
+        .then(r => { if (r.ok) return r.json(); return null; })
+        .then(data => {
+          if (data && data.addOns) {
+            const total = (data.addOns as RideData['addOns']).reduce((s: number, a: { subtotal: number; status: string }) => a.status !== 'removed' ? s + a.subtotal : s, 0);
+            setRide(prev => ({ ...prev, addOns: data.addOns, addOnTotal: total }));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [ride.status, rideId]);
 
   // ── Sync chatOpen ref ──
   useEffect(() => {
@@ -1094,7 +1114,10 @@ export default function ActiveRideClient({
 
       case 'active':
         return (
-          <StatusMessage text="Ride in progress" />
+          <>
+            <StatusMessage text="Ride in progress" />
+            {ride.addOns.length > 0 && renderAddOnSummary()}
+          </>
         );
 
       case 'ended':
@@ -1173,10 +1196,156 @@ export default function ActiveRideClient({
     );
   }
 
+  // ── Add-on summary (shown during active ride) ──
+  function renderAddOnSummary() {
+    return (
+      <div style={{ backgroundColor: COLORS.card, borderRadius: 14, padding: '14px 16px', marginTop: 8 }}>
+        <div style={{ fontSize: 11, color: COLORS.gray, textTransform: 'uppercase', letterSpacing: 1, fontFamily: FONTS.mono, marginBottom: 8 }}>
+          Add-Ons
+        </div>
+        {ride.addOns.map(a => (
+          <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 14, color: COLORS.grayLight }}>
+            <span>{a.name}{a.quantity > 1 ? ` \u00D7${a.quantity}` : ''}</span>
+            <span style={{ fontFamily: FONTS.mono, color: COLORS.green }}>${a.subtotal.toFixed(2)}</span>
+          </div>
+        ))}
+        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', fontWeight: 700 }}>
+          <span style={{ fontSize: 13, color: COLORS.grayLight }}>Add-on total</span>
+          <span style={{ fontFamily: FONTS.mono, color: COLORS.green }}>${ride.addOnTotal.toFixed(2)}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Add-on review (shown post-ride before rating) ──
+  function renderAddOnReview() {
+    const handleReviewSubmit = async () => {
+      setReviewSubmitting(true);
+      try {
+        for (const [addOnId, action] of addOnReview.entries()) {
+          if (action !== 'keep') {
+            await fetch(`/api/rides/${rideId}/add-ons`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ add_on_id: addOnId, action: action === 'dispute' ? 'disputed' : 'remove' }),
+            });
+          }
+        }
+        await fetch(`/api/rides/${rideId}/add-ons`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'confirm_all' }),
+        });
+        setReviewSubmitted(true);
+      } catch (err) {
+        console.error('Review submit error:', err);
+      } finally {
+        setReviewSubmitting(false);
+      }
+    };
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Base ride - locked */}
+        <div style={{ backgroundColor: COLORS.card, borderRadius: 16, padding: '16px' }}>
+          <div style={{ fontSize: 11, color: COLORS.gray, textTransform: 'uppercase', letterSpacing: 1, fontFamily: FONTS.mono, marginBottom: 8 }}>
+            REVIEW YOUR RIDE
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <span style={{ fontSize: 15, color: COLORS.white }}>Base Ride</span>
+            <span style={{ fontFamily: FONTS.mono, fontSize: 15, color: COLORS.white, fontWeight: 700 }}>
+              ${ride.agreedPrice.toFixed(2)}
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: COLORS.gray, marginTop: 4 }}>Locked — non-editable</div>
+        </div>
+
+        {/* Add-ons review */}
+        <div style={{ backgroundColor: COLORS.card, borderRadius: 16, padding: '16px' }}>
+          <div style={{ fontSize: 11, color: COLORS.gray, textTransform: 'uppercase', letterSpacing: 1, fontFamily: FONTS.mono, marginBottom: 12 }}>
+            ADD-ONS
+          </div>
+          {ride.addOns.filter(a => a.status !== 'removed').map(addOn => {
+            const decision = addOnReview.get(addOn.id) || 'keep';
+            return (
+              <div key={addOn.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                <div>
+                  <div style={{ fontSize: 14, color: decision === 'remove' ? COLORS.gray : COLORS.white, textDecoration: decision === 'remove' ? 'line-through' : 'none' }}>
+                    {addOn.name}{addOn.quantity > 1 ? ` \u00D7${addOn.quantity}` : ''}
+                  </div>
+                  <div style={{ fontSize: 12, color: COLORS.gray }}>{addOn.addedBy === 'system' ? 'Auto-tracked' : 'You added this'}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontFamily: FONTS.mono, fontSize: 14, color: decision === 'remove' ? COLORS.gray : COLORS.green }}>
+                    ${addOn.subtotal.toFixed(2)}
+                  </span>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      onClick={() => setAddOnReview(prev => { const n = new Map(prev); n.set(addOn.id, 'keep'); return n; })}
+                      style={{ padding: '4px 10px', borderRadius: 8, border: `1px solid ${decision === 'keep' ? COLORS.green : 'rgba(255,255,255,0.1)'}`, background: decision === 'keep' ? 'rgba(0,230,118,0.1)' : 'transparent', color: decision === 'keep' ? COLORS.green : COLORS.gray, fontSize: 12, cursor: 'pointer', fontFamily: FONTS.body }}
+                    >keep</button>
+                    <button
+                      onClick={() => setAddOnReview(prev => { const n = new Map(prev); n.set(addOn.id, 'remove'); return n; })}
+                      style={{ padding: '4px 10px', borderRadius: 8, border: `1px solid ${decision === 'remove' ? COLORS.red : 'rgba(255,255,255,0.1)'}`, background: decision === 'remove' ? 'rgba(255,82,82,0.1)' : 'transparent', color: decision === 'remove' ? COLORS.red : COLORS.gray, fontSize: 12, cursor: 'pointer', fontFamily: FONTS.body }}
+                    >remove</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Total */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, marginTop: 8, fontWeight: 700 }}>
+            <span style={{ fontSize: 15, color: COLORS.white }}>Total</span>
+            <span style={{ fontFamily: FONTS.mono, fontSize: 18, color: COLORS.green }}>
+              ${(ride.agreedPrice + ride.addOns.filter(a => (addOnReview.get(a.id) || 'keep') === 'keep' && a.status !== 'removed').reduce((s, a) => s + a.subtotal, 0)).toFixed(2)}
+            </span>
+          </div>
+        </div>
+
+        {/* Confirm button */}
+        <button
+          onClick={handleReviewSubmit}
+          disabled={reviewSubmitting}
+          style={{
+            width: '100%', padding: 16, borderRadius: 100,
+            background: COLORS.green, color: COLORS.black,
+            fontFamily: FONTS.body, fontSize: 16, fontWeight: 700,
+            border: 'none', cursor: reviewSubmitting ? 'not-allowed' : 'pointer',
+            opacity: reviewSubmitting ? 0.5 : 1,
+          }}
+        >
+          {reviewSubmitting ? 'Confirming...' : 'CONFIRM & PAY'}
+        </button>
+
+        {/* Dispute link */}
+        {disputeWindowRemaining !== null && disputeWindowRemaining > 0 && (
+          <button
+            onClick={handleDispute}
+            disabled={loading}
+            style={{
+              width: '100%', padding: 12, borderRadius: 12,
+              border: `1px solid ${COLORS.red}`, backgroundColor: 'transparent',
+              color: COLORS.red, fontFamily: FONTS.body, fontSize: 14, fontWeight: 600,
+              cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1,
+            }}
+          >
+            Nah fam, that&apos;s not right
+          </button>
+        )}
+      </div>
+    );
+  }
+
   // ── Rider post-ride: rating + dispute ──
   function renderRiderPostRide() {
     if (rated) {
       return renderBackHome('Thanks! Ride complete.');
+    }
+
+    // Show add-on review if there are add-ons and not yet reviewed
+    if (ride.addOns.length > 0 && !reviewSubmitted) {
+      return renderAddOnReview();
     }
 
     return (

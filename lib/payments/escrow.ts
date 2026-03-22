@@ -2,6 +2,7 @@ import { stripe } from '@/lib/stripe/connect';
 import { sql } from '@/lib/db/client';
 import { calculateFullBreakdown, getDailyEarnings } from './fee-calculator';
 import { getDriverEnrollment, updateEnrollmentProgress, isDriverInFreeWindow, getOfferProgress } from '@/lib/db/enrollment-offers';
+import { calculateAddOnTotal } from '@/lib/db/service-menu';
 
 const isMock = process.env.STRIPE_MOCK === 'true';
 
@@ -18,13 +19,16 @@ export function validateEscrowParams(..._args: unknown[]) { return true; }
 export async function holdRiderPayment(params: {
   rideId: string;
   agreedPrice: number;
+  addOnReserve?: number;
   stripeCustomerId: string;
   paymentMethodId: string;
   driverStripeAccountId: string;
   riderId: string;
   driverId: string;
 }): Promise<{ paymentIntentId: string; status: string }> {
-  const amountInCents = Math.round(params.agreedPrice * 100);
+  const reserve = params.addOnReserve ?? 0;
+  const totalHold = params.agreedPrice + reserve;
+  const amountInCents = Math.round(totalHold * 100);
 
   if (isMock) {
     const mockId = 'pi_mock_' + Date.now();
@@ -34,11 +38,12 @@ export async function holdRiderPayment(params: {
         funds_held = true,
         payment_authorized = true,
         payment_authorized_at = NOW(),
-        final_agreed_price = ${params.agreedPrice}
+        final_agreed_price = ${params.agreedPrice},
+        add_on_reserve = ${reserve}
       WHERE id = ${params.rideId}
     `;
-    await insertLedger(params.rideId, params.riderId, 'rider', 'payment_hold', params.agreedPrice, 'hold', 'Ride payment held', mockId);
-    await insertLedger(params.rideId, params.driverId, 'driver', 'payment_pending', params.agreedPrice, 'pending', 'Incoming ride payment pending', mockId);
+    await insertLedger(params.rideId, params.riderId, 'rider', 'payment_hold', totalHold, 'hold', `Ride payment held (base: $${params.agreedPrice}, add-on reserve: $${reserve})`, mockId);
+    await insertLedger(params.rideId, params.driverId, 'driver', 'payment_pending', totalHold, 'pending', 'Incoming ride payment pending', mockId);
     return { paymentIntentId: mockId, status: 'requires_capture' };
   }
 
@@ -87,12 +92,13 @@ export async function holdRiderPayment(params: {
       funds_held = true,
       payment_authorized = true,
       payment_authorized_at = NOW(),
-      final_agreed_price = ${params.agreedPrice}
+      final_agreed_price = ${params.agreedPrice},
+      add_on_reserve = ${reserve}
     WHERE id = ${params.rideId}
   `;
 
-  await insertLedger(params.rideId, params.riderId, 'rider', 'payment_hold', params.agreedPrice, 'hold', 'Ride payment held', paymentIntent.id);
-  await insertLedger(params.rideId, params.driverId, 'driver', 'payment_pending', params.agreedPrice, 'pending', 'Incoming ride payment pending', paymentIntent.id);
+  await insertLedger(params.rideId, params.riderId, 'rider', 'payment_hold', totalHold, 'hold', `Ride payment held (base: $${params.agreedPrice}, add-on reserve: $${reserve})`, paymentIntent.id);
+  await insertLedger(params.rideId, params.driverId, 'driver', 'payment_pending', totalHold, 'pending', 'Incoming ride payment pending', paymentIntent.id);
 
   return { paymentIntentId: paymentIntent.id, status: paymentIntent.status };
 }
@@ -136,9 +142,13 @@ export async function captureRiderPayment(rideId: string): Promise<{
   const userRows = await sql`SELECT tier FROM users WHERE id = ${ride.driver_id} LIMIT 1`;
   const tier = ((userRows[0] as Record<string, unknown>)?.tier as string) || 'free';
 
+  // Calculate confirmed add-on total
+  const addOnTotal = await calculateAddOnTotal(rideId);
+  const totalRideAmount = Number(ride.final_agreed_price) + addOnTotal;
+
   const earnings = await getDailyEarnings(ride.driver_id as string);
   const breakdown = calculateFullBreakdown(
-    Number(ride.final_agreed_price),
+    totalRideAmount,
     tier as 'free' | 'hmu_first',
     (driver?.payout_method as string) || 'bank',
     earnings.cumulativeDailyEarnings,
@@ -155,10 +165,16 @@ export async function captureRiderPayment(rideId: string): Promise<{
   // application_fee = platform fee only (Stripe fee is absorbed by connected account)
   const applicationFeeCents = Math.round(actualFee * 100);
 
+  // Capture amount = base + confirmed add-ons (may be less than original hold if add-ons removed)
+  const captureAmountCents = Math.round(totalRideAmount * 100);
+
   if (!isMock && ride.payment_intent_id && driverStripeAccountId) {
     await stripe.paymentIntents.capture(
       ride.payment_intent_id as string,
-      { application_fee_amount: applicationFeeCents },
+      {
+        amount_to_capture: captureAmountCents,
+        application_fee_amount: applicationFeeCents,
+      },
       { stripeAccount: driverStripeAccountId }
     );
   }
@@ -179,6 +195,7 @@ export async function captureRiderPayment(rideId: string): Promise<{
       driver_payout_amount = ${driverReceives},
       stripe_fee_amount = ${breakdown.stripeFee},
       waived_fee_amount = ${waivedFee},
+      add_on_total = ${addOnTotal},
       status = 'completed'
     WHERE id = ${rideId}
   `;
@@ -188,7 +205,7 @@ export async function captureRiderPayment(rideId: string): Promise<{
   const weekStart = getWeekStart(today);
   await sql`
     INSERT INTO daily_earnings (driver_id, earnings_date, week_start_date, gross_earnings, platform_fee_paid, rides_completed, daily_cap_hit)
-    VALUES (${ride.driver_id}, ${today}, ${weekStart}, ${Number(ride.final_agreed_price)}, ${actualFee}, 1, ${!inFreeWindow && breakdown.dailyCapHit})
+    VALUES (${ride.driver_id}, ${today}, ${weekStart}, ${totalRideAmount}, ${actualFee}, 1, ${!inFreeWindow && breakdown.dailyCapHit})
     ON CONFLICT (driver_id, earnings_date)
     DO UPDATE SET
       gross_earnings = daily_earnings.gross_earnings + EXCLUDED.gross_earnings,

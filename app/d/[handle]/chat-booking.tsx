@@ -15,7 +15,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Step = 'destination' | 'time' | 'stops' | 'trip_type' | 'price' | 'confirm' | 'pending' | 'expired';
+type Step = 'destination' | 'time' | 'stops' | 'trip_type' | 'price' | 'add_ons' | 'confirm' | 'pending' | 'expired';
 
 interface Message {
   id: string;
@@ -29,6 +29,8 @@ interface Message {
     stops: string;
     roundTrip: boolean;
     price: number;
+    addOns?: { name: string; quantity: number; subtotal: number }[];
+    addOnTotal?: number;
   };
 }
 
@@ -48,6 +50,11 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const initRef = useRef(false);
 
+  const [driverMenu, setDriverMenu] = useState<any[]>([]);
+  const [selectedAddOns, setSelectedAddOns] = useState<Map<string, { item: any; quantity: number }>>(new Map());
+  const [menuSearch, setMenuSearch] = useState('');
+  const [menuLoading, setMenuLoading] = useState(false);
+
   // Collected data
   const dataRef = useRef({
     destination: '',
@@ -55,6 +62,7 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
     stops: '',
     roundTrip: false,
     price: 0,
+    addOns: [] as { menuItemId: string; name: string; quantity: number; subtotal: number }[],
   });
 
   const minPrice = Number(driver.pricing.minimum ?? driver.pricing.base_rate ?? 15);
@@ -74,7 +82,10 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
         setMessages([]);
         setStep('destination');
         setInputValue('');
-        dataRef.current = { destination: '', time: '', stops: '', roundTrip: false, price: 0 };
+        dataRef.current = { destination: '', time: '', stops: '', roundTrip: false, price: 0, addOns: [] };
+        setSelectedAddOns(new Map());
+        setDriverMenu([]);
+        setMenuSearch('');
         initRef.current = false;
       }
     }
@@ -117,6 +128,45 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
       clearInterval(pollInterval);
     };
   }, [step, expiresAt]);
+
+  // Fetch driver menu for add_ons step
+  useEffect(() => {
+    if (step !== 'add_ons' || driverMenu.length > 0) return;
+    setMenuLoading(true);
+    fetch(`/api/drivers/${driver.handle}`)
+      .then((r) => r.json())
+      .then((data) => setDriverMenu(data.menu || []))
+      .catch(() => setDriverMenu([]))
+      .finally(() => setMenuLoading(false));
+  }, [step, driver.handle, driverMenu.length]);
+
+  // If no menu items after loading, skip add_ons and go to confirm
+  const proceedToConfirm = () => {
+    const d = dataRef.current;
+    addSystemMessage(
+      "here's the rundown — look good?",
+      'confirm',
+      [
+        { label: "Send it", value: "send" },
+        { label: "Nah, lemme fix something", value: "restart" },
+      ],
+      {
+        destination: d.destination,
+        time: d.time,
+        stops: d.stops,
+        roundTrip: d.roundTrip,
+        price: d.price,
+        addOns: d.addOns.length > 0 ? d.addOns.map((a) => ({ name: a.name, quantity: a.quantity, subtotal: a.subtotal })) : undefined,
+        addOnTotal: d.addOns.length > 0 ? d.addOns.reduce((sum, a) => sum + a.subtotal, 0) : undefined,
+      }
+    );
+  };
+
+  useEffect(() => {
+    if (step === 'add_ons' && !menuLoading && driverMenu.length === 0) {
+      proceedToConfirm();
+    }
+  }, [step, menuLoading, driverMenu.length]);
 
   // Auto-scroll
   useEffect(() => {
@@ -217,21 +267,9 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
           return;
         }
         dataRef.current.price = num;
-        const d = dataRef.current;
         addSystemMessage(
-          "here's the rundown — look good?",
-          'confirm',
-          [
-            { label: "Send it", value: "send" },
-            { label: "Nah, lemme fix something", value: "restart" },
-          ],
-          {
-            destination: d.destination,
-            time: d.time,
-            stops: d.stops,
-            roundTrip: d.roundTrip,
-            price: d.price,
-          }
+          `want any extras from ${driver.displayName}'s menu?`,
+          'add_ons'
         );
         break;
       }
@@ -241,7 +279,10 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
           submitBooking();
         } else {
           // Restart
-          dataRef.current = { destination: '', time: '', stops: '', roundTrip: false, price: 0 };
+          dataRef.current = { destination: '', time: '', stops: '', roundTrip: false, price: 0, addOns: [] };
+          setSelectedAddOns(new Map());
+          setDriverMenu([]);
+          setMenuSearch('');
           addSystemMessage("aight let's run it back — where you tryna go?", 'destination');
         }
         break;
@@ -267,6 +308,7 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
             stops: d.stops,
             round_trip: d.roundTrip,
           },
+          addOns: d.addOns,
         }),
       });
       const data = await res.json();
@@ -291,7 +333,65 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
 
   if (!open) return null;
 
-  const showInput = step !== 'pending' && step !== 'expired' && !submitting;
+  const showInput = step !== 'pending' && step !== 'expired' && step !== 'add_ons' && !submitting;
+
+  // Add-on helpers
+  const filteredMenu = driverMenu.filter((item: any) =>
+    item.name?.toLowerCase().includes(menuSearch.toLowerCase())
+  );
+  const menuByCategory = filteredMenu.reduce((acc: Record<string, any[]>, item: any) => {
+    const cat = item.category || 'Other';
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(item);
+    return acc;
+  }, {} as Record<string, any[]>);
+
+  const addOnTotal = Array.from(selectedAddOns.values()).reduce(
+    (sum, { item, quantity }) => sum + (Number(item.price) || 0) * quantity,
+    0
+  );
+
+  const handleAddOnAdd = (item: any) => {
+    setSelectedAddOns((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(item.id);
+      if (existing) {
+        next.set(item.id, { item, quantity: existing.quantity + 1 });
+      } else {
+        next.set(item.id, { item, quantity: 1 });
+      }
+      return next;
+    });
+  };
+
+  const handleAddOnRemove = (itemId: string) => {
+    setSelectedAddOns((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(itemId);
+      if (existing && existing.quantity > 1) {
+        next.set(itemId, { ...existing, quantity: existing.quantity - 1 });
+      } else {
+        next.delete(itemId);
+      }
+      return next;
+    });
+  };
+
+  const handleAddOnsContinue = () => {
+    const addOns = Array.from(selectedAddOns.entries()).map(([id, { item, quantity }]) => ({
+      menuItemId: id,
+      name: item.name,
+      quantity,
+      subtotal: (Number(item.price) || 0) * quantity,
+    }));
+    dataRef.current.addOns = addOns;
+    proceedToConfirm();
+  };
+
+  const handleAddOnsSkip = () => {
+    dataRef.current.addOns = [];
+    proceedToConfirm();
+  };
 
   return (
     <>
@@ -333,6 +433,26 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
         .timer-bar { height: 3px; background: #1a1a1a; border-radius: 100px; margin: 16px 0; overflow: hidden; }
         .timer-fill { height: 100%; background: #00E676; border-radius: 100px; transition: width 1s linear; }
         .chat-done-btn { width: 100%; padding: 14px; background: transparent; border: 1px solid rgba(255,255,255,0.12); border-radius: 100px; color: #bbb; font-size: 15px; cursor: pointer; margin-top: 12px; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .addons-panel { background: #0f0f0f; border-top: 1px solid rgba(255,255,255,0.08); padding: 16px; max-height: 60vh; overflow-y: auto; }
+        .addons-search { width: 100%; background: #1a1a1a; border: 1px solid rgba(255,255,255,0.12); border-radius: 100px; padding: 12px 16px; color: #fff; font-size: 14px; outline: none; margin-bottom: 12px; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .addons-search:focus { border-color: #00E676; }
+        .addons-search::placeholder { color: #555; }
+        .addons-category { font-family: var(--font-mono, 'Space Mono', monospace); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #555; padding: 8px 0 4px; }
+        .addons-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: #1a1a1a; border-radius: 12px; margin-bottom: 6px; }
+        .addons-item-left { display: flex; align-items: center; gap: 10px; }
+        .addons-item-icon { font-size: 18px; }
+        .addons-item-name { font-size: 14px; color: #e0e0e0; font-weight: 500; }
+        .addons-item-price { font-family: var(--font-mono, 'Space Mono', monospace); font-size: 13px; color: #00E676; }
+        .addons-item-unit { font-size: 11px; color: #666; }
+        .addons-add-btn { background: rgba(0,230,118,0.1); border: 1px solid rgba(0,230,118,0.3); color: #00E676; border-radius: 8px; width: 32px; height: 32px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .addons-remove-btn { background: rgba(255,82,82,0.1); border: 1px solid rgba(255,82,82,0.3); color: #FF5252; border-radius: 8px; width: 32px; height: 32px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .addons-selected { background: #141414; border: 1px solid rgba(0,230,118,0.2); border-radius: 14px; padding: 12px; margin-top: 12px; }
+        .addons-selected-header { display: flex; justify-content: space-between; font-size: 12px; color: #888; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; font-family: var(--font-mono, 'Space Mono', monospace); }
+        .addons-selected-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; font-size: 14px; color: #e0e0e0; }
+        .addons-selected-total { display: flex; justify-content: space-between; padding-top: 8px; margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.08); font-weight: 700; color: #00E676; font-family: var(--font-mono, 'Space Mono', monospace); }
+        .addons-actions { display: flex; gap: 8px; margin-top: 16px; }
+        .addons-continue { flex: 1; padding: 14px; background: #00E676; color: #080808; border: none; border-radius: 100px; font-size: 15px; font-weight: 700; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .addons-skip { flex: 1; padding: 14px; background: transparent; border: 1px solid rgba(255,255,255,0.12); color: #bbb; border-radius: 100px; font-size: 15px; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); }
       `}</style>
 
       <div className="chat-overlay" onClick={onClose} />
@@ -367,6 +487,24 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
                     <span className="summary-value">{msg.summary.roundTrip ? 'Round trip' : 'One way'}</span>
                   </div>
                   <div className="summary-price">${msg.summary.price}</div>
+                  {msg.summary.addOns && msg.summary.addOns.length > 0 && (
+                    <>
+                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '8px 0' }} />
+                      <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4, fontFamily: 'var(--font-mono, "Space Mono", monospace)' }}>Extras</div>
+                      {msg.summary.addOns.map((a, i) => (
+                        <div key={i} className="summary-row">
+                          <span className="summary-label">{a.name} x{a.quantity}</span>
+                          <span className="summary-value" style={{ color: '#00E676' }}>${a.subtotal.toFixed(2)}</span>
+                        </div>
+                      ))}
+                      <div className="summary-row" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8, marginTop: 4 }}>
+                        <span className="summary-label" style={{ fontWeight: 700, color: '#e0e0e0' }}>Total</span>
+                        <span className="summary-value" style={{ fontWeight: 700, color: '#00E676', fontFamily: 'var(--font-display, "Bebas Neue", sans-serif)', fontSize: 20 }}>
+                          ${(msg.summary.price + (msg.summary.addOnTotal || 0)).toFixed(2)}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
               {msg.type === 'buttons' && msg.buttons && (
@@ -412,6 +550,70 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
             </div>
           )}
         </div>
+
+        {step === 'add_ons' && !menuLoading && driverMenu.length > 0 && (
+          <div className="addons-panel">
+            <input
+              className="addons-search"
+              placeholder="search extras..."
+              value={menuSearch}
+              onChange={(e) => setMenuSearch(e.target.value)}
+            />
+            {Object.entries(menuByCategory).map(([category, items]) => (
+              <div key={category}>
+                <div className="addons-category">{category}</div>
+                {(items as any[]).map((item: any) => (
+                  <div key={item.id} className="addons-item">
+                    <div className="addons-item-left">
+                      <span className="addons-item-icon">{item.icon || '\u2728'}</span>
+                      <div>
+                        <div className="addons-item-name">{item.name}</div>
+                        <div className="addons-item-price">
+                          ${Number(item.price).toFixed(2)}
+                          {item.pricing_type && <span className="addons-item-unit"> / {item.pricing_type}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <button className="addons-add-btn" onClick={() => handleAddOnAdd(item)}>+</button>
+                  </div>
+                ))}
+              </div>
+            ))}
+
+            {selectedAddOns.size > 0 && (
+              <div className="addons-selected">
+                <div className="addons-selected-header">
+                  <span>Your selections</span>
+                  <span>${addOnTotal.toFixed(2)}</span>
+                </div>
+                {Array.from(selectedAddOns.entries()).map(([id, { item, quantity }]) => (
+                  <div key={id} className="addons-selected-item">
+                    <span>{item.icon || '\u2728'} {item.name} x{quantity}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ color: '#00E676', fontFamily: 'var(--font-mono, "Space Mono", monospace)', fontSize: 13 }}>
+                        ${(Number(item.price) * quantity).toFixed(2)}
+                      </span>
+                      <button className="addons-remove-btn" onClick={() => handleAddOnRemove(id)}>-</button>
+                    </div>
+                  </div>
+                ))}
+                <div className="addons-selected-total">
+                  <span>Extras total</span>
+                  <span>${addOnTotal.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="addons-actions">
+              <button className="addons-continue" onClick={handleAddOnsContinue}>
+                {selectedAddOns.size > 0 ? `Continue (+$${addOnTotal.toFixed(2)})` : 'Continue'}
+              </button>
+              <button className="addons-skip" onClick={handleAddOnsSkip}>
+                Skip — no extras
+              </button>
+            </div>
+          </div>
+        )}
 
         {showInput && (
           <div className="chat-input-area">
