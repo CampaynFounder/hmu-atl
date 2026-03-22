@@ -760,8 +760,7 @@ export default function DriverLandingClient() {
               Drivers on HMU First ($9.99/mo) pay a flat 12% with lower caps.
             </p>
             <p>
-              This offer applies to driver platform fees only. Stripe processing fees (2.9% + $0.30) are always
-              absorbed by the platform and never charged to drivers or riders.
+              Standard payment processing applies to all transactions. Platform fees are separate and are what this offer waives.
             </p>
           </div>
         </div>
