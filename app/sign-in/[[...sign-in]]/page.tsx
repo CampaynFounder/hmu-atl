@@ -1,6 +1,7 @@
 // Sign In Page — type-aware branding for riders vs drivers
 import { SignIn } from '@clerk/nextjs';
 import { SignUpTypeStore } from '../../sign-up/[[...sign-up]]/type-store';
+import { InAppBrowserGate } from '@/components/auth/in-app-browser-gate';
 
 interface Props {
   searchParams: Promise<{ type?: string; returnTo?: string }>;
@@ -18,6 +19,7 @@ export default async function SignInPage({ searchParams }: Props) {
   const isRider = type === 'rider';
 
   return (
+    <InAppBrowserGate>
     <div style={{
       minHeight: '100svh',
       display: 'flex',
@@ -96,5 +98,6 @@ export default async function SignInPage({ searchParams }: Props) {
         }}
       />
     </div>
+    </InAppBrowserGate>
   );
 }
