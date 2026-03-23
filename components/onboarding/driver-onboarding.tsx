@@ -31,6 +31,11 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
     displayName: string;
     licensePlate: string;
     plateState: string;
+    vehicleMake: string;
+    vehicleModel: string;
+    vehicleYear: string;
+    maxAdults: number;
+    maxChildren: number;
     gender: string;
     pronouns: string;
     lgbtqFriendly: boolean;
@@ -47,6 +52,11 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
     displayName: '',
     licensePlate: '',
     plateState: 'GA',
+    vehicleMake: '',
+    vehicleModel: '',
+    vehicleYear: '',
+    maxAdults: 4,
+    maxChildren: 0,
     gender: '',
     pronouns: '',
     lgbtqFriendly: false,
@@ -89,6 +99,22 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
           plate={formData.licensePlate}
           state={formData.plateState}
           onChange={(plate, state) => setFormData((prev) => ({ ...prev, licensePlate: plate, plateState: state }))}
+        />
+      ),
+      required: true,
+    },
+    {
+      id: 'vehicle-details',
+      title: 'Your Vehicle 🚗',
+      description: 'Riders see this on your card — what are they getting into?',
+      component: (
+        <VehicleDetailsStep
+          make={formData.vehicleMake}
+          model={formData.vehicleModel}
+          year={formData.vehicleYear}
+          maxAdults={formData.maxAdults}
+          maxChildren={formData.maxChildren}
+          onChange={(updates) => setFormData((prev) => ({ ...prev, ...updates }))}
         />
       ),
       required: true,
@@ -308,9 +334,10 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
 }
 
 
-function validateStep(stepId: string, data: { firstName: string; lastName: string; gender: string; displayName: string; licensePlate: string; plateState: string; handleAvailable: boolean }): boolean {
+function validateStep(stepId: string, data: { firstName: string; lastName: string; gender: string; displayName: string; licensePlate: string; plateState: string; handleAvailable: boolean; vehicleMake: string; vehicleModel: string; vehicleYear: string }): boolean {
   if (stepId === 'welcome') return Boolean(data.firstName && data.lastName && data.gender && data.displayName.trim().length >= 2 && data.handleAvailable);
   if (stepId === 'license-plate') return Boolean(data.licensePlate.trim() && data.plateState);
+  if (stepId === 'vehicle-details') return Boolean(data.vehicleMake.trim() && data.vehicleModel.trim() && data.vehicleYear.trim());
   return true;
 }
 
@@ -320,6 +347,11 @@ async function saveDriverOnboarding(data: {
   displayName: string;
   licensePlate: string;
   plateState: string;
+  vehicleMake: string;
+  vehicleModel: string;
+  vehicleYear: string;
+  maxAdults: number;
+  maxChildren: number;
   gender: string;
   pronouns: string;
   lgbtqFriendly: boolean;
@@ -350,6 +382,15 @@ async function saveDriverOnboarding(data: {
         ad_photo_url: data.adPhotoUrl || null,
         license_plate: data.licensePlate || null,
         plate_state: data.plateState || null,
+        vehicle_info: {
+          make: data.vehicleMake,
+          model: data.vehicleModel,
+          year: data.vehicleYear,
+          max_adults: data.maxAdults,
+          max_children: data.maxChildren,
+          license_plate: data.licensePlate,
+          plate_state: data.plateState,
+        },
       }),
     });
 
@@ -472,6 +513,99 @@ function AdPhotoStep({ photoUrl, onUploaded, onUploadStateChange }: { photoUrl: 
 }
 
 const US_STATES =['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
+
+function VehicleDetailsStep({
+  make, model, year, maxAdults, maxChildren, onChange,
+}: {
+  make: string;
+  model: string;
+  year: string;
+  maxAdults: number;
+  maxChildren: number;
+  onChange: (updates: Partial<{ vehicleMake: string; vehicleModel: string; vehicleYear: string; maxAdults: number; maxChildren: number }>) => void;
+}) {
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 30 }, (_, i) => String(currentYear - i));
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 12, padding: '14px 16px', color: '#fff', fontSize: 16, outline: 'none',
+    fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 13, color: '#888', marginBottom: 6, display: 'block', fontWeight: 600,
+  };
+
+  const counterStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 12, background: '#1a1a1a',
+    border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '10px 16px',
+  };
+
+  const counterBtn: React.CSSProperties = {
+    width: 36, height: 36, borderRadius: 8, border: '1px solid rgba(0,230,118,0.3)',
+    background: 'rgba(0,230,118,0.08)', color: '#00E676', fontSize: 20,
+    fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', fontFamily: 'monospace',
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div>
+        <label style={labelStyle}>Make</label>
+        <input
+          type="text"
+          placeholder="e.g. Honda, Toyota, Tesla"
+          value={make}
+          onChange={e => onChange({ vehicleMake: e.target.value })}
+          style={inputStyle}
+        />
+      </div>
+      <div>
+        <label style={labelStyle}>Model</label>
+        <input
+          type="text"
+          placeholder="e.g. Accord, Camry, Model 3"
+          value={model}
+          onChange={e => onChange({ vehicleModel: e.target.value })}
+          style={inputStyle}
+        />
+      </div>
+      <div>
+        <label style={labelStyle}>Year</label>
+        <select
+          value={year}
+          onChange={e => onChange({ vehicleYear: e.target.value })}
+          style={{ ...inputStyle, appearance: 'none', backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'12\' height=\'8\' viewBox=\'0 0 12 8\' fill=\'none\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M1 1.5L6 6.5L11 1.5\' stroke=\'%23888\' stroke-width=\'1.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 16px center', paddingRight: 40 }}
+        >
+          <option value="">Select year</option>
+          {years.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+      </div>
+      <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Max Adults</label>
+          <div style={counterStyle}>
+            <button type="button" style={counterBtn} onClick={() => onChange({ maxAdults: Math.max(1, maxAdults - 1) })}>-</button>
+            <span style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: 700, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>{maxAdults}</span>
+            <button type="button" style={counterBtn} onClick={() => onChange({ maxAdults: Math.min(8, maxAdults + 1) })}>+</button>
+          </div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Max Children</label>
+          <div style={counterStyle}>
+            <button type="button" style={counterBtn} onClick={() => onChange({ maxChildren: Math.max(0, maxChildren - 1) })}>-</button>
+            <span style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: 700, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>{maxChildren}</span>
+            <button type="button" style={counterBtn} onClick={() => onChange({ maxChildren: Math.min(6, maxChildren + 1) })}>+</button>
+          </div>
+        </div>
+      </div>
+      <div style={{ fontSize: 12, color: '#555', textAlign: 'center' }}>
+        Riders see this on your card so they know if they&apos;ll fit.
+      </div>
+    </div>
+  );
+}
 
 function LicensePlateStep({
   plate,

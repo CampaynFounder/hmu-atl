@@ -53,6 +53,13 @@ export default async function RiderBrowsePage() {
           liveMessage: livePost?.message as string || null,
           livePrice: d.live_price ? Number(d.live_price) : null,
           serviceIcons: Array.isArray(d.service_icons) ? (d.service_icons as string[]).filter(Boolean) : [],
+          vehicleSummary: (() => {
+            const vi = d.vehicle_info as Record<string, unknown> | null;
+            if (!vi?.make) return null;
+            const parts = [vi.year, vi.make, vi.model].filter(Boolean).join(' ');
+            const maxR = Number(vi.max_adults || 0) + Number(vi.max_children || 0);
+            return { label: parts, maxRiders: maxR || null };
+          })(),
         };
       })}
     />

@@ -22,6 +22,7 @@ interface DriverCard {
   liveMessage: string | null;
   livePrice: number | null;
   serviceIcons?: string[];
+  vehicleSummary?: { label: string; maxRiders: number | null } | null;
 }
 
 interface Props {
@@ -258,6 +259,26 @@ export default function RiderBrowseClient({ drivers }: Props) {
                       </span>
                     )}
                   </div>
+
+                  {/* Vehicle summary */}
+                  {driver.vehicleSummary && (
+                    <div style={{
+                      fontSize: '13px', color: '#888', marginBottom: '8px',
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                    }}>
+                      <span>🚗</span>
+                      <span>{driver.vehicleSummary.label}</span>
+                      {driver.vehicleSummary.maxRiders && driver.vehicleSummary.maxRiders > 0 && (
+                        <span style={{
+                          fontSize: '11px', color: '#555', background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(255,255,255,0.08)', borderRadius: '100px',
+                          padding: '1px 8px',
+                        }}>
+                          {driver.vehicleSummary.maxRiders} riders
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   {/* Live availability message */}
                   {driver.liveMessage && (
