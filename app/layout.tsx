@@ -16,8 +16,11 @@ const dmSans = DM_Sans({ weight: ['400', '500', '600'], subsets: ['latin'], vari
 const spaceMono = Space_Mono({ weight: ['400', '700'], subsets: ['latin'], variable: '--font-mono' });
 
 export const metadata: Metadata = {
-  title: 'HMU Cash Ride - Metro Atlanta Peer-to-Peer Rideshare',
+  title: 'HMU Cash Ride - Payment Ready Passenger Verification',
   description: 'Skip the surge. Build community. Metro Atlanta\'s affordable peer-to-peer ride network.',
+  other: {
+    'facebook-domain-verification': 'mttfsmzqmugljmd7ybwy3vgb2mzl8i',
+  },
 };
 
 export default function RootLayout({

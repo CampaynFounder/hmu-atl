@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import Script from 'next/script';
 
-const PIXEL_ID = '1300694758576988';
+const PIXEL_ID = '1437833431458797';
 
 // Declare fbq on window
 declare global {
