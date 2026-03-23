@@ -57,6 +57,7 @@ interface Props {
 }
 
 const ATLANTA_AREAS = [
+  'Any Area', 'East Side', 'West Side', 'North Side', 'South Side', 'Long Distance OK',
   'Midtown', 'Buckhead', 'Downtown', 'East Atlanta', 'West End',
   'Decatur', 'College Park', 'Sandy Springs', 'Marietta', 'Stone Mountain',
   'Dunwoody', 'Brookhaven', 'Smyrna', 'Kennesaw', 'Alpharetta',
