@@ -59,8 +59,8 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
     return <DriverOnBreak handle={handle} />;
   }
 
-  // Fetch user-level data + live status in parallel
-  const [userRows, liveRows] = await Promise.all([
+  // Fetch user-level data + live status + active ride + service menu in parallel
+  const [userRows, liveRows, activeRideRows, serviceRows] = await Promise.all([
     sql`
       SELECT tier, chill_score, completed_rides, account_status
       FROM users WHERE id = ${profile.user_id} LIMIT 1
@@ -72,6 +72,19 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
         AND status = 'active'
         AND expires_at > NOW()
       LIMIT 1
+    `,
+    sql`
+      SELECT id FROM rides
+      WHERE driver_id = ${profile.user_id}
+        AND status IN ('matched', 'otw', 'here', 'active', 'in_progress')
+      LIMIT 1
+    `,
+    sql`
+      SELECT COALESCE(dsm.custom_name, smi.name) as name, COALESCE(dsm.custom_icon, smi.icon) as icon
+      FROM driver_service_menu dsm
+      LEFT JOIN service_menu_items smi ON dsm.item_id = smi.id
+      WHERE dsm.driver_id = ${profile.user_id} AND dsm.is_active = true
+      ORDER BY dsm.sort_order LIMIT 10
     `,
   ]);
 
@@ -115,8 +128,22 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
     minRiderChillScore: Number(profile.min_rider_chill_score),
     requireOgStatus: profile.require_og_status,
     isLive: liveRows.length > 0,
+    onRide: activeRideRows.length > 0,
+    advanceNoticeHours: Number(profileAny.advance_notice_hours ?? 0),
     acceptsCash: (profileAny.accepts_cash as boolean) || (profileAny.cash_only as boolean) || false,
     cashOnly: (profileAny.cash_only as boolean) || false,
+    vehicleInfo: (() => {
+      const vi = profile.vehicle_info as Record<string, unknown> | null;
+      if (!vi?.make) return null;
+      return {
+        label: [vi.year, vi.make, vi.model].filter(Boolean).join(' '),
+        maxRiders: (Number(vi.max_adults || 0) + Number(vi.max_children || 0)) || null,
+      };
+    })(),
+    services: serviceRows.map((s: Record<string, unknown>) => ({
+      name: s.name as string,
+      icon: s.icon as string,
+    })),
   };
 
   return (

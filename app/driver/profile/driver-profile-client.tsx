@@ -29,6 +29,7 @@ interface ProfileData {
   acceptsCash: boolean;
   cashOnly: boolean;
   waitMinutes: number;
+  advanceNoticeHours: number;
 }
 
 interface UserData {
@@ -87,7 +88,7 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
     try {
       let res: Response;
 
-      if ('acceptDirectBookings' in patch || 'minRiderChillScore' in patch || 'requireOgStatus' in patch || 'showVideoOnLink' in patch || 'profileVisible' in patch || 'fwu' in patch || 'acceptsCash' in patch || 'cashOnly' in patch || 'waitMinutes' in patch) {
+      if ('acceptDirectBookings' in patch || 'minRiderChillScore' in patch || 'requireOgStatus' in patch || 'showVideoOnLink' in patch || 'profileVisible' in patch || 'fwu' in patch || 'acceptsCash' in patch || 'cashOnly' in patch || 'waitMinutes' in patch || 'advanceNoticeHours' in patch) {
         res = await fetch('/api/drivers/booking-settings', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -101,6 +102,7 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             accepts_cash: patch.acceptsCash ?? data.acceptsCash,
             cash_only: patch.cashOnly ?? data.cashOnly,
             wait_minutes: patch.waitMinutes ?? data.waitMinutes,
+            advance_notice_hours: patch.advanceNoticeHours ?? data.advanceNoticeHours,
           }),
         });
       } else {
@@ -461,6 +463,23 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             >
               {[5, 7, 10, 15, 20].map(m => (
                 <option key={m} value={m}>{m} min</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="dp-row">
+            <div className="dp-row-left">
+              <div className="dp-row-label">Advance Notice</div>
+              <div className="dp-row-sub">How far ahead riders need to book. 0 = no notice needed.</div>
+            </div>
+            <select
+              value={data.advanceNoticeHours}
+              onChange={(e) => update({ advanceNoticeHours: Number(e.target.value) })}
+              className="score-input"
+              style={{ width: 70 }}
+            >
+              {[0, 1, 2, 3, 4, 6, 8, 12, 24].map(h => (
+                <option key={h} value={h}>{h === 0 ? 'None' : `${h}hr`}</option>
               ))}
             </select>
           </div>

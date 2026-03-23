@@ -52,6 +52,7 @@ export default async function DriverProfilePage() {
         acceptsCash: (p.accepts_cash as boolean) || false,
         cashOnly: (p.cash_only as boolean) || false,
         waitMinutes: Number((p as Record<string, unknown>).wait_minutes ?? 10),
+        advanceNoticeHours: Number((p as Record<string, unknown>).advance_notice_hours ?? 0),
       }}
       user={{
         tier: user.tier,

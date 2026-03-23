@@ -28,6 +28,7 @@ export async function PATCH(req: NextRequest) {
     accepts_cash?: boolean;
     cash_only?: boolean;
     wait_minutes?: number;
+    advance_notice_hours?: number;
   };
   try {
     body = await req.json();
@@ -50,12 +51,13 @@ export async function PATCH(req: NextRequest) {
   }
 
   // Cash mode + wait time settings
-  if (body.accepts_cash !== undefined || body.cash_only !== undefined || body.wait_minutes !== undefined) {
+  if (body.accepts_cash !== undefined || body.cash_only !== undefined || body.wait_minutes !== undefined || body.advance_notice_hours !== undefined) {
     await sql`
       UPDATE driver_profiles SET
         accepts_cash = COALESCE(${body.accepts_cash ?? null}, accepts_cash),
         cash_only = COALESCE(${body.cash_only ?? null}, cash_only),
         wait_minutes = COALESCE(${body.wait_minutes ?? null}, wait_minutes),
+        advance_notice_hours = COALESCE(${body.advance_notice_hours ?? null}, advance_notice_hours),
         updated_at = NOW()
       WHERE user_id = ${userId}
     `;

@@ -25,8 +25,12 @@ interface DriverData {
   minRiderChillScore: number;
   requireOgStatus: boolean;
   isLive: boolean;
+  onRide: boolean;
+  advanceNoticeHours: number;
   acceptsCash: boolean;
   cashOnly: boolean;
+  vehicleInfo: { label: string; maxRiders: number | null } | null;
+  services: { name: string; icon: string }[];
 }
 
 interface Props {
@@ -323,23 +327,54 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
             {/* Driver sign up CTA — only for logged out visitors */}
             {!isLoggedIn && <DriverSignUpCta />}
           </div>
-          {driver.isLive && (
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.25)',
-              borderRadius: 100, padding: '5px 14px', marginBottom: 12,
+          {/* Availability Status */}
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            background: driver.isLive && !driver.onRide
+              ? 'rgba(0,230,118,0.1)' : driver.onRide
+              ? 'rgba(255,179,0,0.1)' : 'rgba(255,255,255,0.05)',
+            border: `1px solid ${driver.isLive && !driver.onRide
+              ? 'rgba(0,230,118,0.25)' : driver.onRide
+              ? 'rgba(255,179,0,0.25)' : 'rgba(255,255,255,0.1)'}`,
+            borderRadius: 100, padding: '5px 14px', marginBottom: 12,
+          }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: driver.isLive && !driver.onRide ? '#00E676' : driver.onRide ? '#FFB300' : '#555',
+              animation: driver.isLive && !driver.onRide ? 'pulse 1.2s ease-in-out infinite' : 'none',
+            }} />
+            <span style={{
+              fontSize: 11, fontWeight: 700,
+              color: driver.isLive && !driver.onRide ? '#00E676' : driver.onRide ? '#FFB300' : '#888',
+              letterSpacing: 2, textTransform: 'uppercase',
+              fontFamily: "var(--font-mono, 'Space Mono', monospace)",
             }}>
-              <span style={{
-                width: 8, height: 8, borderRadius: '50%', background: '#00E676',
-                animation: 'pulse 1.2s ease-in-out infinite',
-              }} />
-              <span style={{
-                fontSize: 11, fontWeight: 700, color: '#00E676',
-                letterSpacing: 2, textTransform: 'uppercase',
-                fontFamily: "var(--font-mono, 'Space Mono', monospace)",
-              }}>
-                Doin Rides Now
-              </span>
+              {driver.isLive && !driver.onRide ? 'HMU Now' : driver.onRide ? 'On a Ride' : 'Offline'}
+            </span>
+          </div>
+          {driver.advanceNoticeHours > 0 && (
+            <div style={{ fontSize: 12, color: '#888', marginBottom: 8, marginTop: -4 }}>
+              Requires {driver.advanceNoticeHours}hr advance notice
+            </div>
+          )}
+
+          {/* Vehicle + Capacity */}
+          {driver.vehicleInfo && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12,
+              fontSize: 14, color: '#bbb',
+            }}>
+              <span>🚗</span>
+              <span style={{ fontWeight: 600 }}>{driver.vehicleInfo.label}</span>
+              {driver.vehicleInfo.maxRiders && (
+                <span style={{
+                  fontSize: 11, color: '#888', background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.08)', borderRadius: 100,
+                  padding: '2px 8px',
+                }}>
+                  {driver.vehicleInfo.maxRiders} riders max
+                </span>
+              )}
             </div>
           )}
 
@@ -352,6 +387,24 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
               <span className="value">{driver.completedRides}</span> rides
             </div>
           </div>
+
+          {/* Services */}
+          {driver.services.length > 0 && (
+            <>
+              <p className="section-label">Services</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+                {driver.services.map((s, i) => (
+                  <span key={i} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.15)',
+                    borderRadius: 100, padding: '4px 12px', fontSize: 12, color: '#bbb',
+                  }}>
+                    <span>{s.icon}</span> {s.name}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
 
           {/* Pricing */}
           <p className="section-label">Pricing</p>
