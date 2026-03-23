@@ -10,6 +10,7 @@ interface WelcomeProps {
     firstName: string;
     lastName: string;
     displayName: string;
+    phone?: string;
     gender: string;
     pronouns: string;
     lgbtqFriendly: boolean;
@@ -29,6 +30,7 @@ export function Welcome({ onNext, userType = 'rider', data, onChange }: WelcomeP
     const updates: Partial<WelcomeProps['data']> = {};
     if (!data.firstName && user.firstName) updates.firstName = user.firstName;
     if (!data.lastName && user.lastName) updates.lastName = user.lastName;
+    if (!data.phone && user.primaryPhoneNumber?.phoneNumber) updates.phone = user.primaryPhoneNumber.phoneNumber;
     if (Object.keys(updates).length > 0) onChange(updates);
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -111,6 +113,29 @@ export function Welcome({ onNext, userType = 'rider', data, onChange }: WelcomeP
           />
         </div>
       </div>
+
+      {/* Phone — from Clerk auth, read-only */}
+      {data.phone && (
+        <div>
+          <label className="block text-sm font-semibold text-white mb-2">
+            Phone <span style={{ fontSize: 10, color: '#00E676', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginLeft: 6 }}>Verified</span>
+          </label>
+          <div
+            style={{
+              width: '100%', borderRadius: 12, border: '1px solid rgba(0,230,118,0.2)',
+              background: 'rgba(0,230,118,0.05)', padding: '12px 16px',
+              fontSize: 16, color: '#bbb', fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+            }}
+          >
+            {data.phone}
+          </div>
+          {isDriver && (
+            <p style={{ fontSize: 11, color: '#555', marginTop: 4 }}>
+              From your sign-up. Used for ride notifications and Stripe payout verification.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Handle / Display Name — what riders see */}
       {isDriver && (

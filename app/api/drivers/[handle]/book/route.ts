@@ -7,6 +7,7 @@ import {
   getActiveDirectBooking,
 } from '@/lib/db/direct-bookings';
 import { notifyUser } from '@/lib/ably/server';
+import { notifyDriverNewBooking } from '@/lib/sms/textbee';
 
 export async function POST(
   req: NextRequest,
@@ -93,6 +94,23 @@ export async function POST(
     });
   } catch (e) {
     console.error('Ably notify failed:', e);
+  }
+
+  // SMS notification to driver (non-blocking)
+  try {
+    const driverPhoneRows = await sql`
+      SELECT phone FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
+    `;
+    const driverPhone = (driverPhoneRows[0] as Record<string, unknown>)?.phone as string;
+    const riderNameRows = await sql`
+      SELECT first_name FROM rider_profiles WHERE user_id = ${rider.id} LIMIT 1
+    `;
+    const riderName = (riderNameRows[0] as Record<string, unknown>)?.first_name as string || 'A rider';
+    if (driverPhone) {
+      notifyDriverNewBooking(driverPhone, riderName).catch(e => console.error('SMS failed:', e));
+    }
+  } catch (e) {
+    console.error('SMS lookup failed:', e);
   }
 
   return NextResponse.json({ postId: post.id, expiresAt: post.booking_expires_at }, { status: 201 });

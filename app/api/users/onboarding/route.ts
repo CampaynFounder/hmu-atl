@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
       first_name,
       last_name,
       display_name,
+      phone,
       gender,
       pronouns,
       lgbtq_friendly,
@@ -177,6 +178,11 @@ export async function POST(request: NextRequest) {
           require_og_status,
         });
         results.profiles.driver = driverProfile;
+
+        // Save phone from Clerk auth
+        if (phone) {
+          await sql`UPDATE driver_profiles SET phone = ${phone} WHERE user_id = ${userId}`;
+        }
 
         // Auto-enroll in active launch offer (snapshot terms at signup)
         try {

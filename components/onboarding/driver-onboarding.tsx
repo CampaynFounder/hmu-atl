@@ -29,6 +29,7 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
     firstName: string;
     lastName: string;
     displayName: string;
+    phone: string;
     licensePlate: string;
     plateState: string;
     vehicleMake: string;
@@ -50,6 +51,7 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
     firstName: '',
     lastName: '',
     displayName: '',
+    phone: '',
     licensePlate: '',
     plateState: 'GA',
     vehicleMake: '',
@@ -345,6 +347,7 @@ async function saveDriverOnboarding(data: {
   firstName: string;
   lastName: string;
   displayName: string;
+  phone: string;
   licensePlate: string;
   plateState: string;
   vehicleMake: string;
@@ -370,6 +373,7 @@ async function saveDriverOnboarding(data: {
         first_name: data.firstName,
         last_name: data.lastName,
         display_name: data.displayName || `${data.firstName} ${data.lastName.charAt(0)}.`,
+        phone: data.phone || null,
         gender: data.gender,
         pronouns: data.pronouns,
         lgbtq_friendly: data.riderPreferences.lgbtqFriendly,
