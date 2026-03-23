@@ -7,6 +7,7 @@ import { ClerkProvider } from '@clerk/nextjs';
 import { Inter, Bebas_Neue, DM_Sans, Space_Mono } from 'next/font/google';
 import { Header } from '@/components/layout/header';
 import { PostHogProvider } from '@/components/analytics/posthog-provider';
+import { MetaPixel } from '@/components/analytics/meta-pixel';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
@@ -30,6 +31,7 @@ export default function RootLayout({
         <body className={`${inter.variable} ${bebasNeue.variable} ${dmSans.variable} ${spaceMono.variable} font-sans antialiased`}>
           <Suspense>
             <PostHogProvider>
+              <MetaPixel />
               <Header />
               {children}
             </PostHogProvider>

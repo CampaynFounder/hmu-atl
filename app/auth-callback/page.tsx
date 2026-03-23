@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
 import { Loader2 } from 'lucide-react';
+import { fbEvent } from '@/components/analytics/meta-pixel';
 
 /**
  * Post-authentication callback page
@@ -57,6 +58,9 @@ export default function AuthCallbackPage() {
           router.replace('/rider/home');
         }
       } else {
+        // New user — fire CompleteRegistration pixel event
+        fbEvent('CompleteRegistration', { content_name: type || 'unknown', content_category: type === 'driver' ? 'driver_funnel' : 'rider_funnel' });
+
         // Forward type and returnTo through onboarding so context is never lost
         const onboardingParams = new URLSearchParams();
         if (type) onboardingParams.set('type', type);

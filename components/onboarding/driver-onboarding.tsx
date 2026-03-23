@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { fbEvent } from '@/components/analytics/meta-pixel';
 import { Welcome } from './welcome';
 import { VideoRecorder } from './video-recorder';
 import { RiderPreferencesStep, type RiderPreferences } from './rider-preferences';
@@ -190,6 +191,7 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
     if (isLastStep) {
       setSaving(true);
       await saveDriverOnboarding(formData);
+      fbEvent('StartTrial', { content_name: 'Driver Onboarding Complete', content_category: 'driver_funnel' });
       setShowConfirmation(true);
     } else {
       setCurrentStep((prev) => prev + 1);

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { posthog } from '@/components/analytics/posthog-provider';
+import { fbEvent, fbCustomEvent } from '@/components/analytics/meta-pixel';
 import styles from './driver.module.css';
 
 export default function DriverLandingClient() {
@@ -32,6 +33,11 @@ export default function DriverLandingClient() {
     if (!EMAIL_REGEX.test(val.trim())) return 'Enter a valid email address';
     return '';
   };
+
+  // Meta Pixel: driver landing viewed
+  useEffect(() => {
+    fbEvent('ViewContent', { content_name: 'Driver Landing', content_category: 'driver_funnel' });
+  }, []);
 
   // Scroll reveal
   useEffect(() => {
@@ -108,6 +114,7 @@ export default function DriverLandingClient() {
     if (pErr || eErr) return;
     setIsSubmitting(true);
     posthog.capture('driver_signup_form_submitted', { phone: phone ? 'provided' : 'empty', email: email ? 'provided' : 'empty' });
+    fbEvent('Lead', { content_name: 'Driver Signup Form', content_category: 'driver_funnel' });
     setTimeout(() => router.push('/sign-up?type=driver'), 800);
   };
 
@@ -121,7 +128,7 @@ export default function DriverLandingClient() {
         <Link href="/" className={styles.navLogo}>HMU ATL</Link>
         <div className={styles.navActions}>
           <Link href="/sign-in?type=driver" className={styles.navSignIn}>Sign In</Link>
-          <Link href="/sign-up?type=driver" className={styles.navCta} onClick={() => posthog.capture('driver_nav_cta_clicked')}>Verify Payments</Link>
+          <Link href="/sign-up?type=driver" className={styles.navCta} onClick={() => { posthog.capture('driver_nav_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'nav' }); }}>Verify Payments</Link>
         </div>
       </nav>
 
@@ -198,7 +205,7 @@ export default function DriverLandingClient() {
           Quit Raw Doggin&apos; Your Cash Rides. <strong>Know Before You Go.</strong> Don&apos;t Push Up Without It.
         </p>
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
-          <Link href="/sign-up?type=driver" className={styles.btnPrimary} onClick={() => posthog.capture('driver_hero_cta_clicked')}>Verify My Passenger&apos;s Payment</Link>
+          <Link href="/sign-up?type=driver" className={styles.btnPrimary} onClick={() => { posthog.capture('driver_hero_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'hero' }); }}>Verify My Passenger&apos;s Payment</Link>
           <a href="#how" className={styles.btnGhost}>See how it works ↓</a>
         </div>
         <div className={`${styles.heroTrust} ${styles.fadeUp}`} style={{ animationDelay: '0.5s' }}>
