@@ -33,6 +33,7 @@
     "enabled": true
   },
   "routes": [
-    { "pattern": "atl.hmucashride.com", "custom_domain": true }
+    { "pattern": "atl.hmucashride.com", "custom_domain": true },
+    { "pattern": "hmucashride.com", "custom_domain": true }
   ]
 }
