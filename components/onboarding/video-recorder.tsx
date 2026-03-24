@@ -20,7 +20,7 @@ interface VideoRecorderProps {
 }
 
 type RecordingMode = 'choose' | 'record' | 'upload';
-type RecordingState = 'idle' | 'countdown' | 'recording' | 'preview' | 'uploading';
+type RecordingState = 'idle' | 'countdown' | 'recording' | 'preview' | 'uploading' | 'saved';
 
 const MAX_DURATION = 5000;
 
@@ -192,7 +192,7 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
       const savedUrl = data.url || data.videoUrl;
       onVideoRecorded(savedUrl, savedUrl);
       onUploadStateChange?.(false);
-      // Keep preview state so user sees confirmation
+      setState('saved');
     } catch (err) {
       console.error('Upload error:', err);
       setError(err instanceof Error ? err.message : 'Failed to upload video. Try again.');
@@ -225,7 +225,7 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
   }, [stopCamera]);
 
   const showCamera = mode === 'record' && state !== 'preview' && state !== 'uploading';
-  const showPreview = (state === 'preview' || state === 'uploading') && videoUrl;
+  const showPreview = (state === 'preview' || state === 'uploading' || state === 'saved') && videoUrl;
 
   return (
     <div className="space-y-4">
@@ -384,10 +384,11 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
             className="space-y-4"
           >
             <div
-              className="relative aspect-[9/16] max-h-[350px] mx-auto overflow-hidden rounded-2xl bg-black cursor-pointer"
+              className="relative aspect-[9/16] max-h-[400px] mx-auto overflow-hidden rounded-2xl bg-black cursor-pointer"
               onClick={() => {
                 if (previewRef.current) {
                   if (previewRef.current.paused) {
+                    previewRef.current.muted = false;
                     previewRef.current.play().catch(() => {});
                   } else {
                     previewRef.current.pause();
@@ -398,15 +399,23 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
               <video
                 ref={previewRef}
                 src={videoUrl || undefined}
-                className="h-full w-full object-cover"
+                className="h-full w-full object-cover scale-x-[-1]"
                 loop
                 playsInline
+                autoPlay
+                muted
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
               />
               {!isPlaying && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/30 pointer-events-none gap-2">
                   <Play className="h-12 w-12 text-white" />
+                  <span className="text-white/70 text-xs font-medium">Tap to replay with sound</span>
+                </div>
+              )}
+              {isPlaying && (
+                <div className="absolute top-3 left-3 rounded-full bg-black/60 px-3 py-1 text-white text-xs font-bold pointer-events-none">
+                  Preview
                 </div>
               )}
             </div>
@@ -418,25 +427,32 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
                 className="flex items-center gap-2 rounded-full border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
               >
                 <RotateCcw className="h-4 w-4" />
-                Retake
+                {state === 'saved' ? 'Re-record' : 'Retake'}
               </button>
-              <button
-                onClick={uploadVideo}
-                disabled={state === 'uploading'}
-                className="flex items-center gap-2 rounded-full bg-[#00E676] px-8 py-3 font-bold text-black disabled:opacity-40"
-              >
-                {state === 'uploading' ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Check className="h-5 w-5" />
-                    Use This Video
-                  </>
-                )}
-              </button>
+              {state === 'saved' ? (
+                <div className="flex items-center gap-2 rounded-full bg-[#00E676]/15 border border-[#00E676]/30 px-8 py-3 font-bold text-[#00E676]">
+                  <Check className="h-5 w-5" />
+                  Saved — tap Next
+                </div>
+              ) : (
+                <button
+                  onClick={uploadVideo}
+                  disabled={state === 'uploading'}
+                  className="flex items-center gap-2 rounded-full bg-[#00E676] px-8 py-3 font-bold text-black disabled:opacity-40"
+                >
+                  {state === 'uploading' ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-5 w-5" />
+                      Use This Video
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </motion.div>
         )}
