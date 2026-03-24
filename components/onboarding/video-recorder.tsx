@@ -9,7 +9,9 @@ import {
   Check,
   AlertCircle,
   Play,
+  Pause,
   Loader2,
+  Volume2,
 } from 'lucide-react';
 
 interface VideoRecorderProps {
@@ -19,46 +21,52 @@ interface VideoRecorderProps {
   onUploadStateChange?: (uploading: boolean) => void;
 }
 
-type RecordingMode = 'choose' | 'record' | 'upload';
-type RecordingState = 'idle' | 'countdown' | 'recording' | 'preview' | 'uploading' | 'saved';
+type Step = 'choose' | 'camera' | 'upload' | 'review' | 'uploading' | 'saved';
 
 const MAX_DURATION = 5000;
 
 export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType = 'rider', onUploadStateChange }: VideoRecorderProps) {
-  const [mode, setMode] = useState<RecordingMode>('choose');
-  const [state, setState] = useState<RecordingState>('idle');
-  const [countdown, setCountdown] = useState(3);
+  const [step, setStep] = useState<Step>('choose');
+  const [countdown, setCountdown] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
   const [recordingProgress, setRecordingProgress] = useState(0);
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(existingVideoUrl || null);
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [cameraReady, setCameraReady] = useState(false);
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const previewRef = useRef<HTMLVideoElement>(null);
+  const liveVideoRef = useRef<HTMLVideoElement>(null);
+  const previewVideoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Camera management (video only — no mic until recording) ──
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
     setCameraReady(false);
   }, []);
 
   const startCamera = useCallback(async () => {
-    // Stop any existing stream first
     stopCamera();
-
     try {
+      // Video only — no audio until recording starts
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } },
-        audio: true,
+        audio: false,
       });
       streamRef.current = stream;
+      if (liveVideoRef.current) {
+        liveVideoRef.current.srcObject = stream;
+      }
       setCameraReady(true);
       setError(null);
     } catch {
@@ -66,20 +74,37 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
     }
   }, [stopCamera]);
 
-  // Attach stream to video element whenever camera becomes ready or videoRef changes
+  // Attach stream when ref becomes available
   useEffect(() => {
-    if (cameraReady && streamRef.current && videoRef.current) {
-      videoRef.current.srcObject = streamRef.current;
+    if (cameraReady && streamRef.current && liveVideoRef.current) {
+      liveVideoRef.current.srcObject = streamRef.current;
     }
-  }, [cameraReady, state, mode]);
+  }, [cameraReady]);
+
+  // Auto-start camera when entering camera step
+  useEffect(() => {
+    if (step === 'camera' && !cameraReady) {
+      startCamera();
+    }
+  }, [step, cameraReady, startCamera]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopCamera();
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      if (progressRef.current) clearInterval(progressRef.current);
+    };
+  }, [stopCamera]);
+
+  // ── Recording ──
 
   const startRecording = () => {
-    setState('countdown');
     setCountdown(3);
-    const interval = setInterval(() => {
+    countdownRef.current = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          clearInterval(interval);
+          if (countdownRef.current) clearInterval(countdownRef.current);
           beginRecording();
           return 0;
         }
@@ -88,20 +113,33 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
     }, 1000);
   };
 
-  const beginRecording = () => {
-    if (!streamRef.current) return;
+  const beginRecording = async () => {
+    // Stop video-only stream and get a new one with audio
+    stopCamera();
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } },
+        audio: true,
+      });
+      streamRef.current = stream;
+
+      if (liveVideoRef.current) {
+        liveVideoRef.current.srcObject = stream;
+      }
+      setCameraReady(true);
+    } catch {
+      setError('Unable to access microphone.');
+      return;
+    }
+
     chunksRef.current = [];
 
-    // Try different mime types for browser compatibility
     let mimeType = 'video/webm;codecs=vp9';
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-      mimeType = 'video/webm';
-    }
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-      mimeType = 'video/mp4';
-    }
+    if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+    if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/mp4';
 
-    const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType });
+    const mediaRecorder = new MediaRecorder(streamRef.current!, { mimeType });
 
     mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunksRef.current.push(event.data);
@@ -113,21 +151,22 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
       setVideoBlob(blob);
       const url = URL.createObjectURL(blob);
       setVideoUrl(url);
-      setState('preview');
       stopCamera();
+      setIsRecording(false);
+      setStep('review');
     };
 
     mediaRecorderRef.current = mediaRecorder;
     mediaRecorder.start();
-    setState('recording');
+    setIsRecording(true);
     setRecordingProgress(0);
 
     const startTime = Date.now();
-    const progressInterval = setInterval(() => {
+    progressRef.current = setInterval(() => {
       const elapsed = Date.now() - startTime;
       setRecordingProgress(Math.min((elapsed / MAX_DURATION) * 100, 100));
       if (elapsed >= MAX_DURATION) {
-        clearInterval(progressInterval);
+        if (progressRef.current) clearInterval(progressRef.current);
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
           mediaRecorderRef.current.stop();
         }
@@ -135,14 +174,51 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
     }, 50);
   };
 
+  // ── Preview playback ──
+
+  const playPreview = useCallback(() => {
+    const vid = previewVideoRef.current;
+    if (!vid) return;
+    if (vid.paused) {
+      vid.muted = isMuted;
+      vid.play().catch(() => {});
+    } else {
+      vid.pause();
+    }
+  }, [isMuted]);
+
+  const toggleMute = useCallback(() => {
+    setIsMuted((prev) => {
+      const next = !prev;
+      if (previewVideoRef.current) previewVideoRef.current.muted = next;
+      return next;
+    });
+  }, []);
+
+  // Auto-play preview when entering review/saved step
+  useEffect(() => {
+    if ((step === 'review' || step === 'saved') && videoUrl && previewVideoRef.current) {
+      const vid = previewVideoRef.current;
+      vid.src = videoUrl;
+      vid.muted = true;
+      setIsMuted(true);
+      vid.load();
+      vid.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+    }
+  }, [step, videoUrl]);
+
+  // ── Actions ──
+
   const retake = useCallback(() => {
     if (videoUrl && !existingVideoUrl) URL.revokeObjectURL(videoUrl);
     setVideoBlob(null);
     setVideoUrl(null);
     setRecordingProgress(0);
     setIsPlaying(false);
-    setMode('record');
-    setState('idle');
+    setIsRecording(false);
+    setIsMuted(true);
+    setStep('camera');
+    setCameraReady(false); // Force camera restart
   }, [videoUrl, existingVideoUrl]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -152,22 +228,17 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
       setError('Please upload a video file');
       return;
     }
-
     setVideoBlob(file);
     const url = URL.createObjectURL(file);
     setVideoUrl(url);
-    setState('preview');
+    setStep('review');
     setError(null);
   };
 
-  // Upload to R2 and save to profile
   const uploadVideo = async () => {
-    if (!videoBlob) {
-      setError('No video to save');
-      return;
-    }
+    if (!videoBlob) { setError('No video to save'); return; }
 
-    setState('uploading');
+    setStep('uploading');
     onUploadStateChange?.(true);
     setError(null);
 
@@ -182,64 +253,32 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
         method: 'POST',
         body: formData,
       });
-
       const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Upload failed');
-      }
+      if (!response.ok) throw new Error(data.error || 'Upload failed');
 
       const savedUrl = data.url || data.videoUrl;
       onVideoRecorded(savedUrl, savedUrl);
       onUploadStateChange?.(false);
-      setState('saved');
+      setStep('saved');
     } catch (err) {
       console.error('Upload error:', err);
       setError(err instanceof Error ? err.message : 'Failed to upload video. Try again.');
-      setState('preview');
+      setStep('review');
       onUploadStateChange?.(false);
     }
   };
 
-  // Auto-play preview when video data is loaded
-  const handlePreviewLoaded = useCallback(() => {
-    if (previewRef.current && (state === 'preview' || state === 'saved')) {
-      previewRef.current.muted = true;
-      previewRef.current.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-    }
-  }, [state]);
-
-  // Auto-start camera when record mode selected
-  useEffect(() => {
-    if (mode === 'record' && state === 'idle') {
-      startCamera();
-    }
-    return () => {
-      if (mode !== 'record') stopCamera();
-    };
-  }, [mode, state, startCamera, stopCamera]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => stopCamera();
-  }, [stopCamera]);
-
-  const showCamera = mode === 'record' && state !== 'preview' && state !== 'uploading';
-  const showPreview = (state === 'preview' || state === 'uploading' || state === 'saved') && videoUrl;
+  // ── Render ──
 
   return (
     <div className="space-y-4">
       <AnimatePresence mode="wait">
-        {/* Mode Selection */}
-        {mode === 'choose' && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="space-y-3"
-          >
+        {/* Step 1: Choose method */}
+        {step === 'choose' && (
+          <motion.div key="choose" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
             <button
-              onClick={() => setMode('record')}
+              onClick={() => setStep('camera')}
               className="group w-full rounded-2xl border-2 border-[#00E676] bg-[#00E676]/5 p-5 text-left transition-all"
             >
               <div className="flex items-center gap-4">
@@ -254,7 +293,7 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
             </button>
 
             <button
-              onClick={() => setMode('upload')}
+              onClick={() => setStep('upload')}
               className="group w-full rounded-2xl border-2 border-zinc-700 bg-zinc-900 p-5 text-left transition-all hover:border-zinc-500"
             >
               <div className="flex items-center gap-4">
@@ -270,30 +309,25 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
           </motion.div>
         )}
 
-        {/* Camera / Recording */}
-        {showCamera && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="space-y-4"
-          >
+        {/* Step 2a: Camera / Recording */}
+        {step === 'camera' && (
+          <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
             <div className="relative aspect-[9/16] max-h-[400px] mx-auto overflow-hidden rounded-2xl bg-black">
               <video
-                ref={videoRef}
+                ref={liveVideoRef}
                 autoPlay
                 playsInline
                 muted
                 className="h-full w-full object-cover scale-x-[-1]"
               />
 
-              {!cameraReady && state === 'idle' && (
+              {!cameraReady && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <Loader2 className="h-8 w-8 animate-spin text-[#00E676]" />
                 </div>
               )}
 
-              {state === 'countdown' && (
+              {countdown > 0 && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                   <motion.div
                     key={countdown}
@@ -306,7 +340,7 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
                 </div>
               )}
 
-              {state === 'recording' && (
+              {isRecording && (
                 <div className="absolute top-3 left-3 right-3">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2 rounded-full bg-red-500 px-3 py-1 text-white text-sm font-bold">
@@ -318,12 +352,12 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
                     </span>
                   </div>
                   <div className="h-1 rounded-full bg-white/20 overflow-hidden">
-                    <div className="h-full bg-white" style={{ width: `${recordingProgress}%` }} />
+                    <div className="h-full bg-white transition-all" style={{ width: `${recordingProgress}%` }} />
                   </div>
                 </div>
               )}
 
-              {state === 'idle' && cameraReady && (
+              {cameraReady && !isRecording && countdown === 0 && (
                 <div className="absolute bottom-4 left-0 right-0 px-4 text-center">
                   <div className="rounded-xl bg-black/60 p-3 text-white text-sm">
                     Tap record below — smile and say hi!
@@ -334,12 +368,13 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
 
             <div className="flex items-center justify-center gap-3">
               <button
-                onClick={() => { stopCamera(); setMode('choose'); setState('idle'); }}
-                className="rounded-full border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-300 hover:bg-zinc-800"
+                onClick={() => { stopCamera(); setStep('choose'); }}
+                disabled={isRecording}
+                className="rounded-full border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
               >
                 Back
               </button>
-              {state === 'idle' && cameraReady && (
+              {cameraReady && !isRecording && countdown === 0 && (
                 <button
                   onClick={startRecording}
                   className="flex items-center gap-2 rounded-full bg-[#00E676] px-8 py-3 font-bold text-black"
@@ -352,23 +387,17 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
           </motion.div>
         )}
 
-        {/* Upload Interface */}
-        {mode === 'upload' && state !== 'preview' && state !== 'uploading' && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="space-y-4"
-          >
+        {/* Step 2b: Upload file */}
+        {step === 'upload' && (
+          <motion.div key="upload" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
             <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-zinc-700 p-10 text-center hover:border-[#00E676]/30 hover:bg-[#00E676]/5 transition-all">
               <Upload className="mx-auto h-10 w-10 text-zinc-500 mb-3" />
               <p className="font-semibold text-white mb-1">Tap to choose video</p>
               <p className="text-sm text-zinc-400">MP4 or WebM, max 10 seconds</p>
               <input type="file" accept="video/*" onChange={handleFileUpload} className="hidden" />
             </label>
-
             <button
-              onClick={() => setMode('choose')}
+              onClick={() => setStep('choose')}
               className="w-full rounded-full border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-300 hover:bg-zinc-800"
             >
               Back
@@ -376,60 +405,63 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
           </motion.div>
         )}
 
-        {/* Preview */}
-        {showPreview && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="space-y-4"
-          >
+        {/* Step 3: Review / Uploading / Saved — single video preview */}
+        {(step === 'review' || step === 'uploading' || step === 'saved') && videoUrl && (
+          <motion.div key="review" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
             <div
               className="relative aspect-[9/16] max-h-[400px] mx-auto overflow-hidden rounded-2xl bg-black cursor-pointer"
-              onClick={() => {
-                if (previewRef.current) {
-                  if (previewRef.current.paused) {
-                    previewRef.current.muted = false;
-                    previewRef.current.play().catch(() => {});
-                  } else {
-                    previewRef.current.pause();
-                  }
-                }
-              }}
+              onClick={playPreview}
             >
               <video
-                ref={previewRef}
-                src={videoUrl || undefined}
+                ref={previewVideoRef}
                 className="h-full w-full object-cover scale-x-[-1]"
                 loop
                 playsInline
-                muted
-                onLoadedData={handlePreviewLoaded}
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
               />
+
+              {/* Play overlay */}
               {!isPlaying && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/30 pointer-events-none gap-2">
-                  <Play className="h-12 w-12 text-white" />
-                  <span className="text-white/70 text-xs font-medium">Tap to replay with sound</span>
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 pointer-events-none gap-2">
+                  <div className="rounded-full bg-white/20 p-4">
+                    <Play className="h-10 w-10 text-white fill-white" />
+                  </div>
+                  <span className="text-white/80 text-xs font-medium">Tap to play</span>
                 </div>
               )}
+
+              {/* Playing indicators */}
               {isPlaying && (
-                <div className="absolute top-3 left-3 rounded-full bg-black/60 px-3 py-1 text-white text-xs font-bold pointer-events-none">
-                  Preview
-                </div>
+                <>
+                  <div className="absolute top-3 left-3 rounded-full bg-black/60 px-3 py-1 text-white text-xs font-bold pointer-events-none">
+                    {step === 'saved' ? 'Saved ✓' : 'Preview'}
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+                    className="absolute top-3 right-3 rounded-full bg-black/60 p-2 text-white"
+                  >
+                    {isMuted ? <Volume2 className="h-4 w-4 opacity-40" /> : <Volume2 className="h-4 w-4" />}
+                  </button>
+                  <div className="absolute bottom-3 left-0 right-0 text-center pointer-events-none">
+                    <span className="text-white/50 text-xs">Tap to pause</span>
+                  </div>
+                </>
               )}
             </div>
 
+            {/* Action buttons */}
             <div className="flex items-center justify-center gap-3">
               <button
                 onClick={retake}
-                disabled={state === 'uploading'}
+                disabled={step === 'uploading'}
                 className="flex items-center gap-2 rounded-full border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
               >
                 <RotateCcw className="h-4 w-4" />
-                {state === 'saved' ? 'Re-record' : 'Retake'}
+                {step === 'saved' ? 'Re-record' : 'Retake'}
               </button>
-              {state === 'saved' ? (
+
+              {step === 'saved' ? (
                 <div className="flex items-center gap-2 rounded-full bg-[#00E676]/15 border border-[#00E676]/30 px-8 py-3 font-bold text-[#00E676]">
                   <Check className="h-5 w-5" />
                   Saved — tap Next
@@ -437,10 +469,10 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
               ) : (
                 <button
                   onClick={uploadVideo}
-                  disabled={state === 'uploading'}
+                  disabled={step === 'uploading'}
                   className="flex items-center gap-2 rounded-full bg-[#00E676] px-8 py-3 font-bold text-black disabled:opacity-40"
                 >
-                  {state === 'uploading' ? (
+                  {step === 'uploading' ? (
                     <>
                       <Loader2 className="h-5 w-5 animate-spin" />
                       Saving...
