@@ -9,6 +9,26 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const MARKETING_PATHS = ['/', '/driver', '/rider'];
 
+function getLogoHref(pathname: string, profileType?: string) {
+  // On sign-in/sign-up pages, check for type param in URL
+  if (pathname.startsWith('/sign-in') || pathname.startsWith('/sign-up')) {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const type = params.get('type');
+      if (type === 'driver') return '/driver';
+      if (type === 'rider') return '/rider';
+    }
+    return '/';
+  }
+  // On driver pages, go to driver landing
+  if (pathname.startsWith('/driver')) return '/driver';
+  // On rider pages, go to rider landing
+  if (pathname.startsWith('/rider')) return '/rider';
+  // On driver share pages
+  if (pathname.startsWith('/d/')) return '/rider';
+  return '/';
+}
+
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const pathname = usePathname();
@@ -18,6 +38,7 @@ export function Header() {
   if (MARKETING_PATHS.includes(pathname)) return null;
 
   const profileType = user?.publicMetadata?.profileType as string | undefined;
+  const logoHref = getLogoHref(pathname, profileType);
   const close = () => setIsMenuOpen(false);
 
   const handleSignOut = () => {
@@ -32,7 +53,7 @@ export function Header() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-14">
             <Link
-              href={pathname.startsWith('/d/') ? '/rider' : '/'}
+              href={logoHref}
               className="font-bold text-white"
               style={{ fontFamily: 'var(--font-display, Bebas Neue, sans-serif)', fontSize: '22px', letterSpacing: '1px' }}
             >
