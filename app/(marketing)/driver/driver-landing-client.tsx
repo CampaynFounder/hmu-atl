@@ -37,7 +37,7 @@ export default function DriverLandingClient() {
 
   // Meta Pixel: driver landing viewed
   useEffect(() => {
-    fbEvent('ViewContent', { content_name: 'Driver Landing', content_category: 'driver_funnel' });
+    fbEvent('ViewContent', { content_name: 'Driver Landing', content_category: 'driver_funnel', value: 9.99, currency: 'USD' });
   }, []);
 
   // Scroll reveal
