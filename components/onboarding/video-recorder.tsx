@@ -140,10 +140,10 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
     setVideoBlob(null);
     setVideoUrl(null);
     setRecordingProgress(0);
+    setIsPlaying(false);
+    setMode('record');
     setState('idle');
-    // Delay camera start to let the UI re-render the video element
-    setTimeout(() => startCamera(), 100);
-  }, [videoUrl, existingVideoUrl, startCamera]);
+  }, [videoUrl, existingVideoUrl]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -201,13 +201,13 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
     }
   };
 
-  // Auto-play preview
-  useEffect(() => {
-    if (state === 'preview' && previewRef.current && videoUrl) {
-      previewRef.current.play().catch(() => {});
-      setIsPlaying(true);
+  // Auto-play preview when video data is loaded
+  const handlePreviewLoaded = useCallback(() => {
+    if (previewRef.current && (state === 'preview' || state === 'saved')) {
+      previewRef.current.muted = true;
+      previewRef.current.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
     }
-  }, [state, videoUrl]);
+  }, [state]);
 
   // Auto-start camera when record mode selected
   useEffect(() => {
@@ -402,8 +402,8 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
                 className="h-full w-full object-cover scale-x-[-1]"
                 loop
                 playsInline
-                autoPlay
                 muted
+                onLoadedData={handlePreviewLoaded}
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
               />
