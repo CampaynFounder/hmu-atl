@@ -97,8 +97,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, added: packInfo.rides });
     }
 
+    // Create Stripe customer if needed
     if (!driver.stripe_customer_id) {
-      return NextResponse.json({ error: 'No payment method on file. Set up payments first.' }, { status: 400 });
+      const customer = await stripe.customers.create({
+        metadata: { userId: driver.user_id as string },
+      });
+      await sql`
+        UPDATE driver_profiles SET stripe_customer_id = ${customer.id}
+        WHERE user_id = ${driver.user_id}
+      `;
+      driver.stripe_customer_id = customer.id;
     }
 
     // If paymentMethodId provided, charge directly
