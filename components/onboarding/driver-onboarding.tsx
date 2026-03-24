@@ -593,7 +593,7 @@ function VehicleDetailsStep({
           <label style={labelStyle}>Max Adults</label>
           <div style={counterStyle}>
             <button type="button" style={counterBtn} onClick={() => onChange({ maxAdults: Math.max(1, maxAdults - 1) })}>-</button>
-            <span style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: 700, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>{maxAdults}</span>
+            <span style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: 700, color: '#fff', fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>{maxAdults}</span>
             <button type="button" style={counterBtn} onClick={() => onChange({ maxAdults: Math.min(8, maxAdults + 1) })}>+</button>
           </div>
         </div>
@@ -601,7 +601,7 @@ function VehicleDetailsStep({
           <label style={labelStyle}>Max Children</label>
           <div style={counterStyle}>
             <button type="button" style={counterBtn} onClick={() => onChange({ maxChildren: Math.max(0, maxChildren - 1) })}>-</button>
-            <span style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: 700, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>{maxChildren}</span>
+            <span style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: 700, color: '#fff', fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>{maxChildren}</span>
             <button type="button" style={counterBtn} onClick={() => onChange({ maxChildren: Math.min(6, maxChildren + 1) })}>+</button>
           </div>
         </div>
