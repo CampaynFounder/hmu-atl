@@ -1,4 +1,5 @@
-// Footer Component
+'use client';
+
 import Link from 'next/link';
 import { Instagram, Twitter, Facebook, Linkedin } from 'lucide-react';
 
@@ -47,23 +48,55 @@ const socials = [
   { label: 'LinkedIn', href: 'https://linkedin.com/company/hmucashride', icon: Linkedin },
 ];
 
+const isRootDomain = () => {
+  if (typeof window === 'undefined') return false;
+  return window.location.hostname === 'hmucashride.com';
+};
+
 export function Footer() {
+  const root = isRootDomain();
+
+  const tagline = root
+    ? 'Pre-Trip Payment Verification supporting the 100k+ people in the growing community-led peer-to-peer rideshare network.'
+    : 'Metro Atlanta\u2019s peer-to-peer ride network. Affordable rides, real earnings, community-first.';
+
+  const brandName = root ? 'HMU Cash Ride' : 'HMU Cash Ride';
+
   return (
-    <footer className="bg-gray-950 text-white border-t border-gray-800/50">
+    <footer className="bg-[#0a0a0a] text-white border-t border-[#1a1a1a]" style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}>
       {/* Main footer */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="grid grid-cols-2 md:grid-cols-6 gap-8 lg:gap-12">
           {/* Brand column */}
           <div className="col-span-2">
-            <h3 className="text-2xl font-bold mb-2 bg-gradient-to-r from-orange-400 to-amber-400 bg-clip-text text-transparent">
-              HMU Cash Ride
+            <h3
+              className="text-3xl mb-2 text-[#00E676]"
+              style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}
+            >
+              {brandName}
             </h3>
-            <p className="text-xs text-gray-500 mb-4 tracking-wide uppercase">
+            <p
+              className="text-[10px] text-[#555] mb-4 tracking-[0.2em] uppercase"
+              style={{ fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}
+            >
               HMU Cash Ride Corp.
             </p>
-            <p className="text-gray-400 text-sm leading-relaxed mb-6 max-w-xs">
-              Metro Atlanta&apos;s peer-to-peer ride network. Affordable rides, real earnings, community-first.
+            <p className="text-[#888] text-sm leading-relaxed mb-4 max-w-xs">
+              {tagline}
             </p>
+            {root && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#00E676] mb-6" style={{ fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
+                <span>Real People</span>
+                <span>&middot;</span>
+                <span>Affordable Rides</span>
+                <span>&middot;</span>
+                <span>Livable Earnings</span>
+                <span>&middot;</span>
+                <span>Community-Led</span>
+                <span>&middot;</span>
+                <span>Safety-First</span>
+              </div>
+            )}
             <div className="flex gap-3">
               {socials.map((s) => (
                 <a
@@ -72,7 +105,7 @@ export function Footer() {
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label={s.label}
-                  className="w-9 h-9 bg-gray-800/80 rounded-lg flex items-center justify-center hover:bg-orange-500 transition-colors"
+                  className="w-9 h-9 bg-[#141414] rounded-lg flex items-center justify-center hover:bg-[#00E676] hover:text-black transition-colors text-[#666]"
                 >
                   <s.icon className="w-4 h-4" />
                 </a>
@@ -83,7 +116,10 @@ export function Footer() {
           {/* Link columns */}
           {Object.values(footerLinks).map((section) => (
             <div key={section.title}>
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-300 mb-4">
+              <h4
+                className="text-[11px] uppercase tracking-[0.15em] text-[#666] mb-4"
+                style={{ fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}
+              >
                 {section.title}
               </h4>
               <ul className="space-y-3">
@@ -91,7 +127,7 @@ export function Footer() {
                   <li key={link.href}>
                     <Link
                       href={link.href}
-                      className="text-sm text-gray-400 hover:text-orange-400 transition-colors"
+                      className="text-sm text-[#888] hover:text-[#00E676] transition-colors"
                     >
                       {link.label}
                     </Link>
@@ -104,12 +140,12 @@ export function Footer() {
       </div>
 
       {/* Bottom bar */}
-      <div className="border-t border-gray-800/50">
+      <div className="border-t border-[#1a1a1a]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row justify-between items-center gap-4">
-          <p className="text-gray-500 text-xs">
-            © {new Date().getFullYear()} HMU Cash Ride Corp. All rights reserved. Metro Atlanta, GA.
+          <p className="text-[#444] text-xs">
+            &copy; {new Date().getFullYear()} HMU Cash Ride Corp. All rights reserved.
           </p>
-          <p className="text-gray-600 text-xs">
+          <p className="text-[#333] text-xs">
             HMU Cash Ride is a technology platform, not a transportation provider.
           </p>
         </div>

@@ -14,7 +14,7 @@ export default function PrivacyPage() {
         <div className="mb-12">
           <Link
             href="/"
-            className="text-sm text-gray-500 hover:text-orange-400 transition-colors mb-6 inline-block"
+            className="text-sm text-gray-500 hover:text-[#00E676] transition-colors mb-6 inline-block"
           >
             ← Back to home
           </Link>
@@ -27,14 +27,14 @@ export default function PrivacyPage() {
           </div>
           <p className="mt-4 text-sm text-gray-400">
             HMU Cash Ride Corp. &middot; Metro Atlanta, Georgia &middot;{' '}
-            <a href="mailto:privacy@hmucashride.com" className="text-orange-400 hover:underline">
+            <a href="mailto:privacy@hmucashride.com" className="text-[#00E676] hover:underline">
               privacy@hmucashride.com
             </a>
           </p>
         </div>
 
         {/* Content */}
-        <article className="prose prose-invert prose-gray max-w-none prose-headings:font-bold prose-headings:text-white prose-h2:text-2xl prose-h2:mt-12 prose-h2:mb-4 prose-h3:text-lg prose-h3:mt-8 prose-h3:mb-3 prose-p:text-gray-300 prose-p:leading-relaxed prose-li:text-gray-300 prose-a:text-orange-400 prose-a:no-underline hover:prose-a:underline prose-strong:text-white">
+        <article className="prose prose-invert prose-gray max-w-none prose-headings:font-bold prose-headings:text-white prose-h2:text-2xl prose-h2:mt-12 prose-h2:mb-4 prose-h3:text-lg prose-h3:mt-8 prose-h3:mb-3 prose-p:text-gray-300 prose-p:leading-relaxed prose-li:text-gray-300 prose-a:text-[#00E676] prose-a:no-underline hover:prose-a:underline prose-strong:text-white">
 
           <h2>1. Introduction</h2>
           <p>
