@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { Footer } from '@/components/landing/footer';
 import styles from './page.module.css';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -415,18 +416,7 @@ export default function HomePage() {
       </section>
 
       {/* FOOTER */}
-      <footer className={styles.footer}>
-        <div className={styles.footerLinks}>
-          <Link href="/rider">Rider</Link>
-          <Link href="/driver">Driver</Link>
-          <Link href="/sign-in">Sign In</Link>
-          <Link href="/sign-up">Sign Up</Link>
-        </div>
-        <div className={styles.footerBottom}>
-          <span className={styles.footerCopy}>&copy; 2026 HMU ATL</span>
-          <span className={styles.footerLaunch}>Launching Q2 2026 &bull; Metro Atlanta</span>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

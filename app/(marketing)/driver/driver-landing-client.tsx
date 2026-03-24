@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { posthog } from '@/components/analytics/posthog-provider';
 import { fbEvent, fbCustomEvent } from '@/components/analytics/meta-pixel';
+import { Footer } from '@/components/landing/footer';
 import styles from './driver.module.css';
 
 export default function DriverLandingClient() {
@@ -774,16 +775,7 @@ export default function DriverLandingClient() {
       </section>
 
       {/* FOOTER */}
-      <footer className={styles.footer}>
-        <Link href="/" className={styles.footerLogo}>HMU ATL</Link>
-        <div className={styles.footerLinks}>
-          <Link href="/rider">Riders</Link>
-          <a href="#how-we-pay">How We Pay</a>
-          <Link href="/terms">Terms</Link>
-          <Link href="/privacy">Privacy</Link>
-          <Link href="/support">Support</Link>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

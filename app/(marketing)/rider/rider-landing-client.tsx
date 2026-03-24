@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { posthog } from '@/components/analytics/posthog-provider';
+import { Footer } from '@/components/landing/footer';
 import styles from './rider.module.css';
 
 export default function RiderLandingClient() {
@@ -395,17 +396,7 @@ export default function RiderLandingClient() {
       </section>
 
       {/* FOOTER */}
-      <footer className={styles.footer}>
-        <div className={styles.footerLeft}>
-          <Link href="/" className={styles.footerLogo}>HMU ATL</Link>
-          <span className={styles.footerCopy}>&copy; 2026 HMU ATL &bull; Launching Q2 2026 &bull; Metro Atlanta</span>
-        </div>
-        <div className={styles.footerLinks}>
-          <Link href="/">Home</Link>
-          <Link href="/driver">Driver</Link>
-          <Link href="/sign-in">Sign In</Link>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }
