@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useGeolocation } from '@/hooks/use-geolocation';
 import { useAbly } from '@/hooks/use-ably';
+import { fbEvent, fbCustomEvent } from '@/components/analytics/meta-pixel';
 import Link from 'next/link';
 import RideChat from '@/components/ride/ride-chat';
 import RiderProfileOverlay from '@/components/rider/rider-profile-overlay';
@@ -1711,6 +1712,7 @@ function CooButton({ rideId, onCooSent }: {
   }
 
   async function handleCoo() {
+    fbCustomEvent('COO_Tapped', { ride_id: rideId });
     // Check payment method first
     setLoading(true);
     try {
@@ -1730,6 +1732,7 @@ function CooButton({ rideId, onCooSent }: {
         body: JSON.stringify({ lat: geoLat, lng: geoLng, locationText: locationText.trim() || null }),
       });
       if (res.ok) {
+        fbEvent('InitiateCheckout', { content_name: 'ride_coo', content_category: 'rides' });
         onCooSent(geoLat, geoLng, locationText.trim() || null);
       }
     } catch { /* silent */ }
@@ -1737,6 +1740,7 @@ function CooButton({ rideId, onCooSent }: {
   }
 
   async function handleAddPayment() {
+    fbCustomEvent('AddPaymentFromRide', { ride_id: rideId });
     try {
       const res = await fetch('/api/rider/payment-methods/checkout', { method: 'POST' });
       const data = await res.json();

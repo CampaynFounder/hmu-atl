@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { fbEvent, fbCustomEvent } from '@/components/analytics/meta-pixel';
 import { loadStripe } from '@stripe/stripe-js';
 import {
   Elements,
@@ -32,6 +33,7 @@ export default function UpgradeOverlay({ open, onClose, onUpgraded }: Props) {
   })) : [];
 
   async function handleStartPayment() {
+    fbEvent('InitiateCheckout', { value: 9.99, currency: 'USD', content_name: 'hmu_first_upgrade' });
     setLoading(true);
     setError(null);
     try {
@@ -64,6 +66,8 @@ export default function UpgradeOverlay({ open, onClose, onUpgraded }: Props) {
   }
 
   function handlePaymentSuccess() {
+    fbEvent('Purchase', { value: 9.99, currency: 'USD', content_name: 'hmu_first_upgrade' });
+    fbEvent('Subscribe', { value: 9.99, currency: 'USD', predicted_ltv: 119.88 });
     // Confirm upgrade server-side
     fetch('/api/driver/upgrade')
       .then(r => r.json())

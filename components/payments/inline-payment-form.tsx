@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { fbEvent, fbCustomEvent } from '@/components/analytics/meta-pixel';
 import { loadStripe } from '@stripe/stripe-js';
 import {
   Elements,
@@ -178,6 +179,8 @@ function PaymentFormInner({
       }
     }
 
+    fbCustomEvent('PaymentMethodAdded', { source: 'rider_inline' });
+    fbEvent('AddPaymentInfo', { content_name: 'rider_payment_method' });
     setSubmitting(false);
     onSuccess();
   }, [stripe, elements, onSuccess]);

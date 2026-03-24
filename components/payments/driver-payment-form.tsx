@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { fbEvent, fbCustomEvent } from '@/components/analytics/meta-pixel';
 import { loadStripe } from '@stripe/stripe-js';
 import {
   Elements,
@@ -95,6 +96,8 @@ function DriverPaymentInner({ onSuccess }: { onSuccess: () => void }) {
     const { error: confirmError } = await stripe.confirmSetup({ elements, redirect: 'if_required' });
     if (confirmError) { setError(confirmError.message || 'Failed'); setSubmitting(false); return; }
 
+    fbCustomEvent('PaymentMethodAdded', { source: 'driver_profile' });
+    fbEvent('AddPaymentInfo', { content_name: 'driver_payment_method' });
     setSubmitting(false);
     onSuccess();
   }, [stripe, elements, onSuccess, submitting]);

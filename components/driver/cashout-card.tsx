@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { fbCustomEvent } from '@/components/analytics/meta-pixel';
 import UpgradeOverlay from './upgrade-overlay';
 
 interface BalanceData {
@@ -32,6 +33,7 @@ export default function CashoutCard() {
   const instantFee = isHmuFirst ? 0 : Math.max(1, balance ? balance.available * 0.01 : 0);
 
   async function handleCashout() {
+    fbCustomEvent('CashoutInitiated', { amount: balance?.available, method: selectedMethod, tier: balance?.tier });
     setCashingOut(true);
     setError(null);
     try {
@@ -46,6 +48,7 @@ export default function CashoutCard() {
         setCashingOut(false);
         return;
       }
+      fbCustomEvent('CashoutCompleted', { amount: data.amount, method: data.method, fee: data.fee });
       setResult(data);
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 4000);
