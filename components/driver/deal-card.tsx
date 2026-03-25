@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 
 interface EnrollmentData {
   enrolled: boolean;
@@ -17,65 +17,38 @@ interface EnrollmentData {
 
 export default function DealCard() {
   const [data, setData] = useState<EnrollmentData | null>(null);
-  const [animatedValue, setAnimatedValue] = useState(0);
-  const hasAnimated = useRef(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     fetch('/api/driver/enrollment')
       .then((r) => r.json())
-      .then((d) => { if (d.enrolled) setData(d); })
+      .then((d) => {
+        if (d.enrolled) {
+          setData(d);
+          // Delay to trigger CSS animation after mount
+          setTimeout(() => setReady(true), 100);
+        }
+      })
       .catch(() => {});
   }, []);
-
-  // Animate gauge on first render
-  useEffect(() => {
-    if (!data || hasAnimated.current) return;
-    hasAnimated.current = true;
-
-    const target = data.earningsTotal - data.earningsRemaining;
-    const total = data.earningsTotal;
-    const pct = total > 0 ? target / total : 0;
-
-    // Overshoot animation: 0 → 100% → settle at actual
-    let frame = 0;
-    const totalFrames = 60;
-    const overshootFrames = 40;
-
-    const animate = () => {
-      frame++;
-      if (frame <= overshootFrames) {
-        // Phase 1: fill to 100%
-        const t = frame / overshootFrames;
-        const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
-        setAnimatedValue(total * eased);
-      } else if (frame <= totalFrames) {
-        // Phase 2: settle back to actual
-        const t = (frame - overshootFrames) / (totalFrames - overshootFrames);
-        const eased = t * t * (3 - 2 * t); // smoothstep
-        setAnimatedValue(total + (target - total) * eased);
-      } else {
-        setAnimatedValue(target);
-        return;
-      }
-      requestAnimationFrame(animate);
-    };
-
-    // Small delay so the card is visible first
-    setTimeout(() => requestAnimationFrame(animate), 300);
-  }, [data]);
 
   if (!data || data.status !== 'active') return null;
 
   const earningsUsed = data.earningsTotal - data.earningsRemaining;
-  const pct = data.earningsTotal > 0 ? (animatedValue / data.earningsTotal) * 100 : 0;
+  const actualPct = data.earningsTotal > 0 ? (earningsUsed / data.earningsTotal) * 100 : 0;
   const urgency = data.daysRemaining <= 7 ? 'urgent' : data.daysRemaining <= 14 ? 'warning' : 'normal';
-
   const gaugeColor = urgency === 'urgent' ? '#FF5252' : urgency === 'warning' ? '#FFB300' : '#00E676';
   const bgGlow = urgency === 'urgent'
     ? 'rgba(255,82,82,0.06)'
     : urgency === 'warning'
     ? 'rgba(255,179,0,0.06)'
     : 'rgba(0,230,118,0.06)';
+
+  // CSS custom properties drive the animation — no React re-renders needed
+  const gaugeStyle = {
+    '--gauge-target': `${actualPct}%`,
+    '--gauge-color': gaugeColor,
+  } as React.CSSProperties;
 
   return (
     <>
@@ -133,14 +106,23 @@ export default function DealCard() {
           border-radius: 100px;
           overflow: hidden;
           margin-bottom: 12px;
-          position: relative;
         }
         .deal-gauge-fill {
           height: 100%;
           border-radius: 100px;
-          background: ${gaugeColor};
-          transition: width 0.05s linear;
-          box-shadow: 0 0 12px ${gaugeColor}40;
+          background: var(--gauge-color);
+          width: 0%;
+          box-shadow: 0 0 12px color-mix(in srgb, var(--gauge-color) 40%, transparent);
+        }
+        .deal-gauge-fill.animate {
+          animation: gaugeReveal 1.8s cubic-bezier(0.22, 1, 0.36, 1) 0.3s forwards;
+        }
+        @keyframes gaugeReveal {
+          0%   { width: 0%; }
+          60%  { width: 100%; }
+          75%  { width: calc(var(--gauge-target) - 3%); }
+          90%  { width: calc(var(--gauge-target) + 1%); }
+          100% { width: var(--gauge-target); }
         }
         .deal-stats {
           display: flex;
@@ -190,9 +172,12 @@ export default function DealCard() {
           fee-free remaining of ${data.earningsTotal.toFixed(0)}
         </div>
 
-        {/* Gauge */}
+        {/* Gauge — pure CSS animation */}
         <div className="deal-gauge-track">
-          <div className="deal-gauge-fill" style={{ width: `${Math.min(pct, 100)}%` }} />
+          <div
+            className={`deal-gauge-fill${ready ? ' animate' : ''}`}
+            style={gaugeStyle}
+          />
         </div>
 
         {/* Stats row */}
