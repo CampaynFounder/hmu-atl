@@ -1,20 +1,25 @@
 import DriverLandingClient from './driver-landing-client';
 
 export const metadata = {
-  title: 'HMU ATL — Make Money Doin Rides | Driver Sign Up',
-  description: 'Set your price. Get paid upfront. No more Time Wasters HMU Secures Your Bag. Sign up free today.',
+  title: 'HMU Cash Ride — Private Car Rides for Cash | Driver Sign Up',
+  description: 'Carpool for cash with upfront driver payment verification. Set your price. Know you are getting paid before you go. No more ride scammers. Sign up free.',
+  alternates: {
+    canonical: 'https://atl.hmucashride.com/driver',
+  },
   openGraph: {
-    title: 'HMU ATL — Bag Security for Driver Preneurs',
-    description: 'Set your price. We Secure the Bag. Before you pull up. Sign up free.',
+    title: 'HMU Cash Ride — How Drivers Know Before They Go',
+    description: 'Private car rides for cash payment. Upfront driver payment verification. Set your price. Sign up free.',
     url: 'https://atl.hmucashride.com/driver',
-    siteName: 'HMU ATL Cash Ride',
+    siteName: 'HMUCASHRIDE',
     locale: 'en_US',
     type: 'website',
+    images: [{ url: 'https://atl.hmucashride.com/og-image.jpeg', width: 1200, height: 630, alt: 'HMU Cash Ride - Upfront Driver Payment' }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'HMU ATL — Bag Security for Doin Rides',
-    description: 'Set your own price. Get paid upfront. ATL drivers sign up free.',
+    title: 'HMU Cash Ride — How Drivers Know Before They Go',
+    description: 'Private car rides for cash. Upfront payment verification. No ride scammers. Sign up free.',
+    images: ['https://atl.hmucashride.com/og-image.jpeg'],
   },
 };
 

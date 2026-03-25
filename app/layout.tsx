@@ -16,8 +16,12 @@ const dmSans = DM_Sans({ weight: ['400', '500', '600'], subsets: ['latin'], vari
 const spaceMono = Space_Mono({ weight: ['400', '700'], subsets: ['latin'], variable: '--font-mono' });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://atl.hmucashride.com'),
   title: 'ATL HMU CASH RIDE - Upfront Driver Payment System',
   description: 'And Don\'t Take Em Nowhere. Atlanta Ride Scammers dont HMU.',
+  alternates: {
+    canonical: 'https://atl.hmucashride.com',
+  },
   openGraph: {
     title: 'ATL HMU CASH RIDE - Upfront Driver Payment System',
     description: 'And Don\'t Take Em Nowhere. Atlanta Ride Scammers dont HMU.',
@@ -38,6 +42,127 @@ export const metadata: Metadata = {
   },
 };
 
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Organization',
+      '@id': 'https://hmucashride.com/#organization',
+      name: 'HMU Cash Ride',
+      alternateName: ['HMUCASHRIDE', 'HMU ATL', 'HMU Cash Ride Corp'],
+      url: 'https://hmucashride.com',
+      logo: 'https://atl.hmucashride.com/og-image.jpeg',
+      description:
+        'HMU Cash Ride is the platform behind "hit me up cash ride" — private car rides for cash payment with upfront driver payment verification. How drivers know before they go.',
+      foundingDate: '2026',
+      areaServed: {
+        '@type': 'City',
+        name: 'Atlanta',
+        '@id': 'https://www.wikidata.org/wiki/Q23556',
+      },
+      knowsAbout: [
+        'private car rides for cash',
+        'carpool services for cash',
+        'cash ride driver payment',
+        'upfront driver payment verification',
+        'peer to peer rides Atlanta',
+      ],
+      sameAs: [
+        'https://www.facebook.com/hmucashride',
+      ],
+    },
+    {
+      '@type': 'WebSite',
+      '@id': 'https://hmucashride.com/#website',
+      url: 'https://hmucashride.com',
+      name: 'HMU Cash Ride',
+      publisher: { '@id': 'https://hmucashride.com/#organization' },
+    },
+    {
+      '@type': 'Service',
+      '@id': 'https://hmucashride.com/#service',
+      name: 'HMU Cash Ride — Upfront Driver Payment System',
+      serviceType: 'Private Transportation',
+      provider: { '@id': 'https://hmucashride.com/#organization' },
+      areaServed: {
+        '@type': 'City',
+        name: 'Atlanta',
+        containedInPlace: { '@type': 'State', name: 'Georgia' },
+      },
+      description:
+        'Private car rides for cash payment. Carpool services for cash with upfront driver payment verification. Drivers know they are getting paid before they go. No more ride scammers.',
+      slogan: 'How Drivers Know Before They Go',
+      offers: {
+        '@type': 'Offer',
+        price: '0',
+        priceCurrency: 'USD',
+        description: 'Free to sign up. Drivers set their own price.',
+      },
+      additionalType: 'https://schema.org/TaxiService',
+      category: [
+        'Private Transportation',
+        'Carpool Services for Cash',
+        'Cash Ride Platform',
+        'Peer-to-Peer Rides',
+      ],
+    },
+    {
+      '@type': 'FAQPage',
+      '@id': 'https://hmucashride.com/#faq',
+      mainEntity: [
+        {
+          '@type': 'Question',
+          name: 'What is HMU Cash Ride?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'HMU Cash Ride is the first platform built for "hit me up cash ride" — private car rides for cash payment. Unlike Facebook groups where you post and hope for the best, HMU verifies payment upfront so drivers know they are getting paid before they pull up.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'How do cash ride drivers get paid?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Riders pay upfront through the app before the driver leaves. The money is held in escrow and released to the driver after the ride. Drivers set their own price — no surge pricing, no platform deciding what you earn.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'Is HMU Cash Ride safe?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'HMU Cash Ride verifies payment before the ride starts — that is how drivers know before they go. Riders are payment-verified, rides are GPS-tracked, and both parties can rate each other. No more ride scammers wasting your gas.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'How is HMU Cash Ride different from Facebook cash ride groups?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Facebook cash ride groups have no payment protection — drivers get scammed, riders ghost, and nobody is verified. HMU Cash Ride holds the rider payment in escrow before the driver pulls up. If they do not pay, they do not ride. It is that simple.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'How do I carpool for cash in Atlanta?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Sign up on HMU Cash Ride as a driver, set your price and the areas you serve, and go live. Riders in your area see your post and book directly. You get paid upfront — no chasing payments, no ride scammers, no wasted trips.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'What does HMU Cash Ride cost for drivers?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Free to sign up. HMU takes a small platform fee that is capped daily and weekly — once you hit the cap, the rest of the day is all yours. HMU First members pay a flat 12% with a lower cap and get instant payouts after every ride.',
+          },
+        },
+      ],
+    },
+  ],
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -46,6 +171,12 @@ export default function RootLayout({
   return (
     <ClerkProvider>
       <html lang="en">
+        <head>
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          />
+        </head>
         <body className={`${inter.variable} ${bebasNeue.variable} ${dmSans.variable} ${spaceMono.variable} font-sans antialiased`}>
           <Suspense>
             <PostHogProvider>
