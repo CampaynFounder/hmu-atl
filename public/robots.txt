@@ -1,0 +1,25 @@
+User-Agent: *
+Allow: /
+Allow: /driver
+Allow: /rider
+Allow: /privacy
+Allow: /d/
+Allow: /sign-in
+Allow: /sign-up
+Disallow: /driver/home
+Disallow: /driver/feed
+Disallow: /driver/go-live
+Disallow: /driver/settings
+Disallow: /driver/profile
+Disallow: /driver/payout-setup
+Disallow: /driver/rides
+Disallow: /rider/home
+Disallow: /rider/browse
+Disallow: /rider/profile
+Disallow: /rider/settings
+Disallow: /ride/
+Disallow: /auth-callback
+Disallow: /pending
+Disallow: /api/
+
+Sitemap: https://atl.hmucashride.com/sitemap.xml
