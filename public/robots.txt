@@ -22,4 +22,6 @@ Disallow: /auth-callback
 Disallow: /pending
 Disallow: /api/
 
-Sitemap: https://atl.hmucashride.com/sitemap.xml
+Sitemap: https://hmucashride.com/sitemap.xml
+Sitemap: https://hmucashride.com/sitemap-main.xml
+Sitemap: https://atl.hmucashride.com/sitemap-atl.xml
