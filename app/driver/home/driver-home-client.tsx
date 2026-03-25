@@ -104,19 +104,17 @@ export default function DriverHomeClient({
     }
   };
 
-  const handleShare = async () => {
-    const shareData = {
-      title: `Book ${displayName} on HMU ATL`,
-      text: `Need a ride in ATL? Book me directly:`,
-      url: `https://${shareUrl}`,
-    };
-    if (navigator.share) {
-      try {
-        await navigator.share(shareData);
-      } catch {
+  const handleShare = () => {
+    const url = `https://${shareUrl}`;
+    if (typeof navigator.share === 'function') {
+      navigator.share({
+        title: `Book ${displayName} on HMU ATL`,
+        text: `Need a ride in ATL? Book me directly:`,
+        url,
+      }).catch(() => {
         // User cancelled or share failed — fall back to copy
         handleCopy();
-      }
+      });
     } else {
       handleCopy();
     }

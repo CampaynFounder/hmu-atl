@@ -162,7 +162,6 @@ export default function DriverFeedClient({ driverAreas }: Props) {
       `}</style>
 
       <div className="feed-page">
-        <div style={{ padding: '72px 20px 0' }}><DealPill /></div>
         {/* Header */}
         <div className="feed-header">
           <Link href="/driver/home" className="feed-back">
@@ -173,6 +172,8 @@ export default function DriverFeedClient({ driverAreas }: Props) {
             {requests.length} request{requests.length !== 1 ? 's' : ''}
           </div>
         </div>
+
+        <div style={{ position: 'fixed', top: 100, left: 20, right: 20, zIndex: 9 }}><DealPill /></div>
 
         {/* Empty state */}
         {!loading && requests.length === 0 && (

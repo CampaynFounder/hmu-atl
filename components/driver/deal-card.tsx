@@ -115,13 +115,13 @@ export default function DealCard() {
           box-shadow: 0 0 12px color-mix(in srgb, var(--gauge-color) 40%, transparent);
         }
         .deal-gauge-fill.animate {
-          animation: gaugeReveal 1.8s cubic-bezier(0.22, 1, 0.36, 1) 0.3s forwards;
+          animation: gaugeReveal 3s cubic-bezier(0.22, 1, 0.36, 1) 0.5s forwards;
         }
         @keyframes gaugeReveal {
           0%   { width: 0%; }
-          60%  { width: 100%; }
-          75%  { width: calc(var(--gauge-target) - 3%); }
-          90%  { width: calc(var(--gauge-target) + 1%); }
+          50%  { width: 100%; }
+          70%  { width: calc(var(--gauge-target) - 4%); }
+          85%  { width: calc(var(--gauge-target) + 2%); }
           100% { width: var(--gauge-target); }
         }
         .deal-stats {
