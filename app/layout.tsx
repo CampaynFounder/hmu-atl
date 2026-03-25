@@ -17,10 +17,10 @@ const spaceMono = Space_Mono({ weight: ['400', '700'], subsets: ['latin'], varia
 
 export const metadata: Metadata = {
   title: 'ATL HMU CASH RIDE - Upfront Driver Payment System',
-  description: 'And Don't Take Em Nowhere. Atlanta Ride Scammers dont HMU.',
+  description: 'And Don\'t Take Em Nowhere. Atlanta Ride Scammers dont HMU.',
   openGraph: {
     title: 'ATL HMU CASH RIDE - Upfront Driver Payment System',
-    description: 'And Don't Take Em Nowhere. Atlanta Ride Scammers dont HMU.',
+    description: 'And Don\'t Take Em Nowhere. Atlanta Ride Scammers dont HMU.',
     url: 'https://atl.hmucashride.com',
     siteName: 'HMUCASHRIDE',
     locale: 'en_US',
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
     images: ['https://atl.hmucashride.com/og-image.jpeg'],
     card: 'summary_large_image',
     title: 'ATL HMU CASH RIDE - Upfront Driver Payment System',
-    description: 'And Don't Take Em Nowhere. Atlanta Ride Scammers dont HMU.',
+    description: 'And Don\'t Take Em Nowhere. Atlanta Ride Scammers dont HMU.',
   },
   other: {
     'facebook-domain-verification': 'mttfsmzqmugljmd7ybwy3vgb2mzl8i',

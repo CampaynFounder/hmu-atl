@@ -53,7 +53,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       JOIN users u ON u.id = dp.user_id
       WHERE u.account_status = 'active' AND dp.handle IS NOT NULL
     `;
-    driverPages = drivers.map((d) => ({
+    driverPages = drivers.map((d: Record<string, unknown>) => ({
       url: `${baseUrl}/d/${d.handle}`,
       lastModified: new Date(d.created_at as string),
       changeFrequency: 'weekly' as const,
