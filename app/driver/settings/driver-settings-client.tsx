@@ -253,75 +253,99 @@ function SecurityTab() {
 function HmuFirstTab({ tier }: { tier: string }) {
   const isFirst = tier === 'hmu_first';
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
   return (
     <div>
+      {/* Hero + CTA — always visible without scrolling */}
       <div className="upgrade-card">
         <div className="upgrade-badge">HMU First</div>
         <div className="upgrade-title">KEEP MORE. GET PAID FASTER.</div>
         <div className="upgrade-price">$9.99</div>
-        <div className="upgrade-price-sub">per month</div>
+        <div className="upgrade-price-sub">per month — cancel anytime</div>
 
-        <div className="perk-list">
-          <div className="perk-row">
-            <span className="perk-icon">{'\u26A1'}</span>
-            <div className="perk-text"><strong>Instant payouts</strong> after every ride — no waiting until 6am</div>
-          </div>
-          <div className="perk-row">
-            <span className="perk-icon">{'\u2705'}</span>
-            <div className="perk-text"><strong>12% flat fee</strong> instead of 10-25% progressive</div>
-          </div>
-          <div className="perk-row">
-            <span className="perk-icon">{'\uD83D\uDCB0'}</span>
-            <div className="perk-text"><strong>$25/day cap</strong> vs $40 — hit your cap faster, keep more</div>
-          </div>
-          <div className="perk-row">
-            <span className="perk-icon">{'\uD83D\uDD1D'}</span>
-            <div className="perk-text"><strong>Priority placement</strong> in rider&apos;s driver feed</div>
-          </div>
-          <div className="perk-row">
-            <span className="perk-icon">{'\uD83D\uDCAC'}</span>
-            <div className="perk-text"><strong>Read rider comments</strong> before accepting</div>
-          </div>
-          <div className="perk-row">
-            <span className="perk-icon">{'\uD83C\uDFC5'}</span>
-            <div className="perk-text"><strong>HMU First badge</strong> on your profile</div>
-          </div>
-        </div>
-      </div>
-
-      <table className="compare-table">
-        <thead>
-          <tr>
-            <th>Feature</th>
-            <th>Free</th>
-            <th>HMU First</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td>Platform fee</td><td>10-25%</td><td>12% flat</td></tr>
-          <tr><td>Daily cap</td><td>$40</td><td>$25</td></tr>
-          <tr><td>Weekly cap</td><td>$150</td><td>$100</td></tr>
-          <tr><td>Payout timing</td><td>6am next day</td><td>Instant</td></tr>
-          <tr><td>Read comments</td><td>No</td><td>Yes</td></tr>
-          <tr><td>Priority in feed</td><td>No</td><td>Yes</td></tr>
-        </tbody>
-      </table>
-
-      {isFirst ? (
-        <div className="current-plan">You&apos;re on HMU First</div>
-      ) : (
-        <>
-          <button className="upgrade-btn" onClick={() => setShowUpgrade(true)}>
+        {isFirst ? (
+          <div className="current-plan" style={{ marginTop: 8 }}>You&apos;re on HMU First</div>
+        ) : (
+          <button className="upgrade-btn" style={{ marginTop: 8 }} onClick={() => setShowUpgrade(true)}>
             Upgrade Now — $9.99/mo
           </button>
-          <UpgradeOverlay
-            open={showUpgrade}
-            onClose={() => setShowUpgrade(false)}
-            onUpgraded={() => window.location.reload()}
-          />
-        </>
+        )}
+
+        <button
+          onClick={() => setShowDetails(!showDetails)}
+          style={{
+            display: 'block', width: '100%', marginTop: 14, padding: '10px',
+            background: 'none', border: 'none', color: 'var(--green)',
+            fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'center',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          }}
+        >
+          {showDetails ? 'Hide details' : 'See what you get ↓'}
+        </button>
+      </div>
+
+      {/* Details — expandable */}
+      {showDetails && (
+        <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+          <div className="perk-list" style={{ marginBottom: 20 }}>
+            <div className="perk-row">
+              <span className="perk-icon">{'\u26A1'}</span>
+              <div className="perk-text"><strong>Instant payouts</strong> after every ride — no waiting until 6am</div>
+            </div>
+            <div className="perk-row">
+              <span className="perk-icon">{'\u2705'}</span>
+              <div className="perk-text"><strong>12% flat fee</strong> instead of 10-25% progressive</div>
+            </div>
+            <div className="perk-row">
+              <span className="perk-icon">{'\uD83D\uDCB0'}</span>
+              <div className="perk-text"><strong>$25/day cap</strong> vs $40 — hit your cap faster, keep more</div>
+            </div>
+            <div className="perk-row">
+              <span className="perk-icon">{'\uD83D\uDD1D'}</span>
+              <div className="perk-text"><strong>Priority placement</strong> in rider&apos;s driver feed</div>
+            </div>
+            <div className="perk-row">
+              <span className="perk-icon">{'\uD83D\uDCAC'}</span>
+              <div className="perk-text"><strong>Read rider comments</strong> before accepting</div>
+            </div>
+            <div className="perk-row">
+              <span className="perk-icon">{'\uD83C\uDFC5'}</span>
+              <div className="perk-text"><strong>HMU First badge</strong> on your profile</div>
+            </div>
+          </div>
+
+          <table className="compare-table">
+            <thead>
+              <tr>
+                <th>Feature</th>
+                <th>Free</th>
+                <th>HMU First</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Platform fee</td><td>10-25%</td><td>12% flat</td></tr>
+              <tr><td>Daily cap</td><td>$40</td><td>$25</td></tr>
+              <tr><td>Weekly cap</td><td>$150</td><td>$100</td></tr>
+              <tr><td>Payout timing</td><td>6am next day</td><td>Instant</td></tr>
+              <tr><td>Read comments</td><td>No</td><td>Yes</td></tr>
+              <tr><td>Priority in feed</td><td>No</td><td>Yes</td></tr>
+            </tbody>
+          </table>
+        </div>
       )}
+
+      {!isFirst && (
+        <UpgradeOverlay
+          open={showUpgrade}
+          onClose={() => setShowUpgrade(false)}
+          onUpgraded={() => window.location.reload()}
+        />
+      )}
+
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+      `}</style>
     </div>
   );
 }
