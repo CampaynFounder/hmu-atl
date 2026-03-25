@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
+import DealPill from '@/components/driver/deal-pill';
 
 interface Ride {
   id: string;
@@ -54,8 +55,9 @@ export default function MyRidesClient({ rides }: Props) {
       background: '#080808', minHeight: '100svh', color: '#fff',
       fontFamily: "var(--font-body, 'DM Sans', sans-serif)", paddingTop: '56px',
     }}>
+      <div style={{ padding: '16px 20px 0' }}><DealPill /></div>
       {/* Header */}
-      <div style={{ padding: '16px 20px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ padding: '0 20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
         <Link href="/driver/home" style={{ color: '#00E676', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '2px', fontSize: '14px', fontWeight: 600 }}>
           <ChevronLeft style={{ width: '16px', height: '16px' }} /> Home
         </Link>

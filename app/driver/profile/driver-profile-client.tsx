@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { VideoRecorder } from '@/components/onboarding/video-recorder';
 import PayoutSection from './payout-section';
+import DealPill from '@/components/driver/deal-pill';
 
 interface ProfileData {
   handle: string;
@@ -292,6 +293,7 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
       `}</style>
 
       <div className="dp">
+        <DealPill />
         <div className="dp-header">
           <h1 className="dp-title">
             {data.displayName}

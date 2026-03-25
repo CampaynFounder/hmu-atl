@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAbly } from '@/hooks/use-ably';
 import CashoutCard from '@/components/driver/cashout-card';
+import DealCard from '@/components/driver/deal-card';
 
 interface BookingRequest {
   id: string;
@@ -202,6 +203,9 @@ export default function DriverHomeClient({
             ))}
           </div>
         )}
+
+        {/* Launch Deal */}
+        <DealCard />
 
         {/* Lifecycle Card */}
         {!payoutSetup && !cashOnly ? (

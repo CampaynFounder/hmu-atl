@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import DealPill from '@/components/driver/deal-pill';
 
 interface Props {
   displayName: string;
@@ -124,6 +125,7 @@ export default function GoLiveClient({ displayName, handle, areas }: Props) {
       `}</style>
 
       <div className="gl">
+        <DealPill />
         <div className="gl-header">
           <h1 className="gl-title">Go Live</h1>
           <Link href="/driver/home" className="gl-back">Home</Link>

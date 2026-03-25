@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from 'framer-motion';
 import Link from 'next/link';
+import DealPill from '@/components/driver/deal-pill';
 import { MapPin, Clock, DollarSign, ArrowRight, ChevronLeft } from 'lucide-react';
 import RiderProfileOverlay from '@/components/rider/rider-profile-overlay';
 import CashPackCard from '@/components/driver/cash-pack-card';
@@ -161,6 +162,7 @@ export default function DriverFeedClient({ driverAreas }: Props) {
       `}</style>
 
       <div className="feed-page">
+        <div style={{ padding: '72px 20px 0' }}><DealPill /></div>
         {/* Header */}
         <div className="feed-header">
           <Link href="/driver/home" className="feed-back">
