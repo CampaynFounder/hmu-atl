@@ -257,7 +257,12 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
     setError(null);
 
     const formData = new FormData();
-    const ext = videoBlob.type.includes('mp4') ? 'mp4' : 'webm';
+    // Use correct extension based on actual MIME type
+    const typeMap: Record<string, string> = {
+      'video/mp4': 'mp4', 'video/quicktime': 'mp4', 'video/webm': 'webm',
+      'video/3gpp': '3gp', 'video/x-matroska': 'mkv',
+    };
+    const ext = typeMap[videoBlob.type] || 'mp4';
     formData.append('video', videoBlob, `intro-video.${ext}`);
     formData.append('profile_type', profileType);
     formData.append('media_type', 'video');

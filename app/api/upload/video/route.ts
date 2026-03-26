@@ -31,9 +31,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'File too large. Maximum 50MB.' }, { status: 400 });
     }
 
-    // Generate unique path
+    // Generate unique path — use MIME type for extension, not filename
     const timestamp = Date.now();
-    const ext = file.name.split('.').pop() || (isVideo ? 'webm' : 'jpg');
+    const mimeToExt: Record<string, string> = {
+      'video/mp4': 'mp4',
+      'video/quicktime': 'mp4',
+      'video/webm': 'webm',
+      'video/x-matroska': 'mkv',
+      'video/3gpp': '3gp',
+      'video/avi': 'avi',
+      'video/x-msvideo': 'avi',
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/heic': 'jpg',
+      'image/heif': 'jpg',
+    };
+    const ext = mimeToExt[file.type] || file.name.split('.').pop() || (isVideo ? 'mp4' : 'jpg');
     const folder = isVideo ? 'videos' : 'photos';
     const fileName = `${profileType}/${clerkId}/${folder}/${timestamp}.${ext}`;
 
