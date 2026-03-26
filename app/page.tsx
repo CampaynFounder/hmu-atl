@@ -381,18 +381,6 @@ export default function HomePage() {
           </div>
 
           <div className={`${styles.dualCtaGrid} ${styles.reveal}`}>
-            <div className={`${styles.dualCtaCard} ${styles.dualCtaCardRider}`}>
-              <h3 className={styles.dualCtaHeading}>
-                NEED A <span className={styles.green}>RIDE?</span>
-              </h3>
-              <p className={styles.dualCtaDesc}>
-                Skip the surge. Save up to 60% on every ride across Metro Atlanta.
-              </p>
-              <Link href="/sign-up?type=rider" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnOutline}`}>
-                SIGN UP AS RIDER
-              </Link>
-            </div>
-
             <div className={`${styles.dualCtaCard} ${styles.dualCtaCardDriver}`}>
               <div className={`${styles.ogBanner} ${isDark ? styles.ogBannerDark : styles.ogBannerLight}`}>
                 FIRST $500 FREE &bull; OG PRICING FOR OG DRIVERS
@@ -405,6 +393,18 @@ export default function HomePage() {
               </p>
               <Link href="/sign-up?type=driver" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnFilled}`}>
                 SIGN UP NOW
+              </Link>
+            </div>
+
+            <div className={`${styles.dualCtaCard} ${styles.dualCtaCardRider}`}>
+              <h3 className={styles.dualCtaHeading}>
+                NEED A <span className={styles.green}>RIDE?</span>
+              </h3>
+              <p className={styles.dualCtaDesc}>
+                Skip the surge. Save up to 60% on every ride across Metro Atlanta.
+              </p>
+              <Link href="/sign-up?type=rider" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnOutline}`}>
+                SIGN UP AS RIDER
               </Link>
             </div>
           </div>
