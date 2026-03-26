@@ -236,6 +236,27 @@ export default function ActiveRideClient({
         }
         break;
       }
+      case 'add_on_disputed': {
+        if (isDriver) {
+          showNotification('Rider is disputing an add-on', '\u26A0\uFE0F', COLORS.yellow, 'Review in your ride summary');
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+          // Refresh add-ons
+          fetch(`/api/rides/${rideId}/add-ons`).then(r => r.json()).then(d => {
+            if (d.addOns) setRide(prev => ({ ...prev, addOns: d.addOns, addOnTotal: d.total }));
+          }).catch(() => {});
+        }
+        break;
+      }
+      case 'add_on_removed': {
+        // Refresh add-ons for both parties
+        fetch(`/api/rides/${rideId}/add-ons`).then(r => r.json()).then(d => {
+          if (d.addOns) setRide(prev => ({ ...prev, addOns: d.addOns, addOnTotal: d.total }));
+        }).catch(() => {});
+        if (!isDriver) {
+          showNotification('Driver approved add-on removal', '\u2705', COLORS.green);
+        }
+        break;
+      }
       case 'add_on_added': {
         const addOn = data.addOn as { id: string; name: string; subtotal: number; quantity: number };
         const addOnTotal = Number(data.addOnTotal ?? 0);
@@ -1286,18 +1307,22 @@ export default function ActiveRideClient({
 
   // ── Add-on review (shown post-ride before rating) ──
   function renderAddOnReview() {
+    const hasDisputes = Array.from(addOnReview.values()).some(v => v === 'dispute');
+
     const handleReviewSubmit = async () => {
       setReviewSubmitting(true);
       try {
+        // Disputed add-ons go to driver for approval — rider can't unilaterally remove
         for (const [addOnId, action] of addOnReview.entries()) {
-          if (action !== 'keep') {
+          if (action === 'dispute') {
             await fetch(`/api/rides/${rideId}/add-ons`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ add_on_id: addOnId, action: action === 'dispute' ? 'disputed' : 'remove' }),
+              body: JSON.stringify({ add_on_id: addOnId, action: 'disputed', dispute_reason: 'Rider disputes this add-on' }),
             });
           }
         }
+        // Confirm all non-disputed add-ons
         await fetch(`/api/rides/${rideId}/add-ons`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -1329,32 +1354,37 @@ export default function ActiveRideClient({
 
         {/* Add-ons review */}
         <div style={{ backgroundColor: COLORS.card, borderRadius: 16, padding: '16px' }}>
-          <div style={{ fontSize: 11, color: COLORS.gray, textTransform: 'uppercase', letterSpacing: 1, fontFamily: FONTS.mono, marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: COLORS.gray, textTransform: 'uppercase', letterSpacing: 1, fontFamily: FONTS.mono, marginBottom: 4 }}>
             ADD-ONS
+          </div>
+          <div style={{ fontSize: 11, color: COLORS.gray, marginBottom: 12, lineHeight: 1.4 }}>
+            Dispute an add-on if you didn&apos;t receive it. Driver must approve removal.
           </div>
           {ride.addOns.filter(a => a.status !== 'removed').map(addOn => {
             const decision = addOnReview.get(addOn.id) || 'keep';
             return (
               <div key={addOn.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                 <div>
-                  <div style={{ fontSize: 14, color: decision === 'remove' ? COLORS.gray : COLORS.white, textDecoration: decision === 'remove' ? 'line-through' : 'none' }}>
+                  <div style={{ fontSize: 14, color: decision === 'dispute' ? COLORS.red : COLORS.white, textDecoration: decision === 'dispute' ? 'line-through' : 'none' }}>
                     {addOn.name}{addOn.quantity > 1 ? ` \u00D7${addOn.quantity}` : ''}
                   </div>
-                  <div style={{ fontSize: 12, color: COLORS.gray }}>{addOn.addedBy === 'system' ? 'Auto-tracked' : 'You added this'}</div>
+                  <div style={{ fontSize: 12, color: COLORS.gray }}>
+                    {decision === 'dispute' ? 'Disputed — driver will review' : addOn.addedBy === 'system' ? 'Auto-tracked' : 'You added this'}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontFamily: FONTS.mono, fontSize: 14, color: decision === 'remove' ? COLORS.gray : COLORS.green }}>
+                  <span style={{ fontFamily: FONTS.mono, fontSize: 14, color: decision === 'dispute' ? COLORS.gray : COLORS.green }}>
                     ${addOn.subtotal.toFixed(2)}
                   </span>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
                       onClick={() => setAddOnReview(prev => { const n = new Map(prev); n.set(addOn.id, 'keep'); return n; })}
                       style={{ padding: '4px 10px', borderRadius: 8, border: `1px solid ${decision === 'keep' ? COLORS.green : 'rgba(255,255,255,0.1)'}`, background: decision === 'keep' ? 'rgba(0,230,118,0.1)' : 'transparent', color: decision === 'keep' ? COLORS.green : COLORS.gray, fontSize: 12, cursor: 'pointer', fontFamily: FONTS.body }}
-                    >keep</button>
+                    >pay</button>
                     <button
-                      onClick={() => setAddOnReview(prev => { const n = new Map(prev); n.set(addOn.id, 'remove'); return n; })}
-                      style={{ padding: '4px 10px', borderRadius: 8, border: `1px solid ${decision === 'remove' ? COLORS.red : 'rgba(255,255,255,0.1)'}`, background: decision === 'remove' ? 'rgba(255,82,82,0.1)' : 'transparent', color: decision === 'remove' ? COLORS.red : COLORS.gray, fontSize: 12, cursor: 'pointer', fontFamily: FONTS.body }}
-                    >remove</button>
+                      onClick={() => setAddOnReview(prev => { const n = new Map(prev); n.set(addOn.id, 'dispute'); return n; })}
+                      style={{ padding: '4px 10px', borderRadius: 8, border: `1px solid ${decision === 'dispute' ? COLORS.red : 'rgba(255,255,255,0.1)'}`, background: decision === 'dispute' ? 'rgba(255,82,82,0.1)' : 'transparent', color: decision === 'dispute' ? COLORS.red : COLORS.gray, fontSize: 12, cursor: 'pointer', fontFamily: FONTS.body }}
+                    >dispute</button>
                   </div>
                 </div>
               </div>
@@ -1365,9 +1395,15 @@ export default function ActiveRideClient({
           <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, marginTop: 8, fontWeight: 700 }}>
             <span style={{ fontSize: 15, color: COLORS.white }}>Total</span>
             <span style={{ fontFamily: FONTS.mono, fontSize: 18, color: COLORS.green }}>
-              ${(ride.agreedPrice + ride.addOns.filter(a => (addOnReview.get(a.id) || 'keep') === 'keep' && a.status !== 'removed').reduce((s, a) => s + a.subtotal, 0)).toFixed(2)}
+              ${(ride.agreedPrice + ride.addOns.filter(a => (addOnReview.get(a.id) || 'keep') !== 'dispute' && a.status !== 'removed').reduce((s, a) => s + a.subtotal, 0)).toFixed(2)}
             </span>
           </div>
+
+          {hasDisputes && (
+            <div style={{ fontSize: 11, color: COLORS.yellow, marginTop: 8, lineHeight: 1.4 }}>
+              Disputed items will be held until the driver approves the removal. If the driver doesn&apos;t respond, the charge stands.
+            </div>
+          )}
         </div>
 
         {/* Confirm button */}
@@ -1382,10 +1418,10 @@ export default function ActiveRideClient({
             opacity: reviewSubmitting ? 0.5 : 1,
           }}
         >
-          {reviewSubmitting ? 'Confirming...' : 'CONFIRM & PAY'}
+          {reviewSubmitting ? 'Confirming...' : hasDisputes ? 'CONFIRM & SUBMIT DISPUTES' : 'CONFIRM & PAY'}
         </button>
 
-        {/* Dispute link */}
+        {/* Dispute entire ride link */}
         {disputeWindowRemaining !== null && disputeWindowRemaining > 0 && (
           <button
             onClick={handleDispute}

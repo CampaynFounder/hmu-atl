@@ -154,10 +154,28 @@ export async function PATCH(
       return NextResponse.json({ error: 'Only the rider can modify add-ons' }, { status: 403 });
     }
 
+    // Determine if user is driver or rider
+    const isDriver = (rideRows[0] as Record<string, unknown>).rider_id !== userId;
+
     if (action === 'confirm_all') {
       await confirmAllAddOns(rideId);
     } else if (action === 'remove' && add_on_id) {
+      // Only drivers can directly remove add-ons
+      if (!isDriver) {
+        return NextResponse.json({ error: 'Only the driver can remove add-ons. Use "dispute" to flag for driver review.' }, { status: 403 });
+      }
       await removeRideAddOn(add_on_id, rideId);
+      // Notify rider that driver approved removal
+      publishRideUpdate(rideId, 'add_on_removed', { addOnId: add_on_id }).catch(() => {});
+    } else if (action === 'disputed' && add_on_id) {
+      await updateAddOnStatus(add_on_id, action, adjusted_amount, dispute_reason);
+      // Notify driver about the dispute
+      const rideData = rideRows[0] as Record<string, unknown>;
+      const driverId = rideData.rider_id === userId ? rideData.driver_id : rideData.rider_id;
+      publishRideUpdate(rideId, 'add_on_disputed', {
+        addOnId: add_on_id,
+        reason: dispute_reason || 'Rider disputes this add-on',
+      }).catch(() => {});
     } else if (add_on_id && action) {
       await updateAddOnStatus(add_on_id, action, adjusted_amount, dispute_reason);
     } else {
