@@ -72,6 +72,18 @@ export default async function SignUpPage({ searchParams }: Props) {
         )}
       </div>
 
+      {/* Legal consent */}
+      <div style={{
+        maxWidth: '340px', textAlign: 'center', marginBottom: '16px',
+        fontSize: '11px', color: '#666', lineHeight: 1.5,
+      }}>
+        By signing up, you agree to our{' '}
+        <a href="/terms" style={{ color: '#00E676', textDecoration: 'none' }}>Terms of Service</a>
+        {' '}and{' '}
+        <a href="/privacy" style={{ color: '#00E676', textDecoration: 'none' }}>Privacy Policy</a>
+        , and consent to receive transactional SMS and email messages. Marketing messages require separate opt-in. Reply STOP to cancel SMS at any time. Msg &amp; data rates may apply.
+      </div>
+
       <SignUp
         forceRedirectUrl={afterSignUpUrl}
         fallbackRedirectUrl="/auth-callback"

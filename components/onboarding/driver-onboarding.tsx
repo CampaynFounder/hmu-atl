@@ -289,28 +289,38 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
                   ))}
                 </div>
 
-                <button
-                  onClick={handleNext}
-                  disabled={!canProceed || saving || formData.isUploading}
-                  className="flex items-center gap-2 rounded-full bg-[#00E676] px-8 py-3 font-black text-black shadow-lg transition-all hover:shadow-[0_0_24px_rgba(0,230,118,0.3)] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
-                >
-                  {saving ? (
-                    <>
-                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-black border-t-transparent" />
-                      Setting up...
-                    </>
-                  ) : isLastStep ? (
-                    <>
-                      <Check className="h-5 w-5" />
-                      Let&apos;s Go
-                    </>
-                  ) : (
-                    <>
-                      Next
-                      <ArrowRight className="h-5 w-5" />
-                    </>
+                <div className="flex flex-col items-end gap-2">
+                  {isLastStep && (
+                    <p className="text-[10px] text-zinc-500 text-right max-w-[260px] leading-tight">
+                      By tapping Let&apos;s Go, you agree to our{' '}
+                      <a href="/terms" className="text-[#00E676]">Terms</a> &amp;{' '}
+                      <a href="/privacy" className="text-[#00E676]">Privacy Policy</a>
+                      , and consent to receive SMS &amp; email notifications about your rides and payments. Reply STOP to opt out of marketing SMS.
+                    </p>
                   )}
-                </button>
+                  <button
+                    onClick={handleNext}
+                    disabled={!canProceed || saving || formData.isUploading}
+                    className="flex items-center gap-2 rounded-full bg-[#00E676] px-8 py-3 font-black text-black shadow-lg transition-all hover:shadow-[0_0_24px_rgba(0,230,118,0.3)] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
+                  >
+                    {saving ? (
+                      <>
+                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-black border-t-transparent" />
+                        Setting up...
+                      </>
+                    ) : isLastStep ? (
+                      <>
+                        <Check className="h-5 w-5" />
+                        Let&apos;s Go
+                      </>
+                    ) : (
+                      <>
+                        Next
+                        <ArrowRight className="h-5 w-5" />
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
               {/* Skip for optional steps */}
