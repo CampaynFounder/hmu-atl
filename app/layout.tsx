@@ -17,6 +17,14 @@ const spaceMono = Space_Mono({ weight: ['400', '700'], subsets: ['latin'], varia
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://atl.hmucashride.com'),
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: '32x32' },
+      { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
   title: 'HMUCashRide - Drivers Get Paid UpFront',
   description: 'Ride Scammers Hate HMU. They Go Ghost? You Get Paid. You Cancel? They Lose Nothing.',
   alternates: {
