@@ -179,7 +179,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
         .profile-page { background: var(--black); color: #fff; min-height: 100svh; font-family: var(--font-body, 'DM Sans', sans-serif); padding-bottom: 100px; padding-top: 56px; }
         .hero-photo { width: 100%; display: block; background: var(--black); }
         .hero-photo-img { width: 100%; display: block; background: var(--black); }
-        .hero-photo-placeholder { width: 100%; aspect-ratio: 4/3; background: linear-gradient(135deg, #141414, #1a1a1a); display: flex; align-items: center; justify-content: center; font-size: 64px; }
+        .hero-photo-placeholder { width: 100%; aspect-ratio: 1/1; background: #080808; display: flex; align-items: center; justify-content: center; }
         .profile-body { padding: 24px 20px 0; }
         .name-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
         .driver-name { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 48px; line-height: 1; }
@@ -305,7 +305,13 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
         ) : driver.vehiclePhotoUrl ? (
           <img src={driver.vehiclePhotoUrl} alt={`${driver.displayName}'s vehicle`} className="hero-photo-img" />
         ) : (
-          <div className="hero-photo-placeholder">{'\uD83D\uDE97'}</div>
+          <div className="hero-photo-placeholder">
+            <svg width="100%" height="100%" viewBox="0 0 512 512" style={{ maxWidth: '100%', maxHeight: '100%' }}>
+              <rect width="512" height="512" fill="#080808"/>
+              <path d="M 155 140 L 155 310 A 120 120 0 0 0 355 310 L 355 160" fill="none" stroke="#00E676" strokeWidth="52" strokeLinecap="round" strokeLinejoin="round"/>
+              <polygon points="355,55 275,175 435,175" fill="#00E676"/>
+            </svg>
+          </div>
         )}
 
         <div className="profile-body">
@@ -364,7 +370,10 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
               display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12,
               fontSize: 14, color: '#bbb',
             }}>
-              <span>🚗</span>
+              <svg width="18" height="18" viewBox="0 0 512 512" style={{ flexShrink: 0 }}>
+                <path d="M 155 140 L 155 310 A 120 120 0 0 0 355 310 L 355 160" fill="none" stroke="#00E676" strokeWidth="52" strokeLinecap="round" strokeLinejoin="round"/>
+                <polygon points="355,55 275,175 435,175" fill="#00E676"/>
+              </svg>
               <span style={{ fontWeight: 600 }}>{driver.vehicleInfo.label}</span>
               {driver.vehicleInfo.maxRiders && (
                 <span style={{

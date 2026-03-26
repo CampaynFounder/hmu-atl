@@ -384,7 +384,7 @@ async function saveDriverOnboarding(data: {
         min_rider_chill_score: data.riderPreferences.minRiderChillScore,
         avoid_riders_with_disputes: data.riderPreferences.avoidRidersWithDisputes,
         stripe_connect_id: data.stripeConnectId || null,
-        video_intro_url: data.videoIntroUrl || null,
+        video_url: data.videoIntroUrl || null,
         ad_photo_url: data.adPhotoUrl || null,
         license_plate: data.licensePlate || null,
         plate_state: data.plateState || null,
