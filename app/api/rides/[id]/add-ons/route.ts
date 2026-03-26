@@ -160,9 +160,21 @@ export async function PATCH(
     if (action === 'confirm_all') {
       await confirmAllAddOns(rideId);
     } else if (action === 'remove' && add_on_id) {
-      // Only drivers can directly remove add-ons
       if (!isDriver) {
-        return NextResponse.json({ error: 'Only the driver can remove add-ons. Use "dispute" to flag for driver review.' }, { status: 403 });
+        // Rider tried to remove — convert to a dispute instead
+        await updateAddOnStatus(add_on_id, 'disputed', undefined, 'Rider requested removal');
+        publishRideUpdate(rideId, 'add_on_disputed', {
+          addOnId: add_on_id,
+          reason: 'Rider requested removal',
+        }).catch(() => {});
+        const total = await calculateAddOnTotal(rideId);
+        await sql`UPDATE rides SET add_on_total = ${total} WHERE id = ${rideId}`;
+        const addOns = await getRideAddOns(rideId);
+        return NextResponse.json({
+          addOns,
+          total,
+          message: 'Removal requested — your driver will review this.',
+        });
       }
       await removeRideAddOn(add_on_id, rideId);
       // Notify rider that driver approved removal
