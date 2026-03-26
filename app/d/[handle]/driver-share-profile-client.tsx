@@ -30,7 +30,7 @@ interface DriverData {
   acceptsCash: boolean;
   cashOnly: boolean;
   vehicleInfo: { label: string; maxRiders: number | null } | null;
-  services: { name: string; icon: string }[];
+  services: { name: string; icon: string; price: number; pricingType: string; unitLabel: string | null }[];
 }
 
 interface Props {
@@ -399,16 +399,27 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
           {/* Services */}
           {driver.services.length > 0 && (
             <>
-              <p className="section-label">Services</p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+              <p className="section-label">Menu</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                 {driver.services.map((s, i) => (
-                  <span key={i} style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.15)',
-                    borderRadius: 100, padding: '4px 12px', fontSize: 12, color: '#bbb',
+                    borderRadius: 14, padding: '10px 14px',
                   }}>
-                    <span>{s.icon}</span> {s.name}
-                  </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 18 }}>{s.icon}</span>
+                      <span style={{ fontSize: 13, color: '#ddd', fontWeight: 500 }}>{s.name}</span>
+                    </div>
+                    <span style={{
+                      fontSize: 13, fontWeight: 700, color: '#00E676',
+                      fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+                    }}>
+                      ${s.price.toFixed(2)}
+                      {s.pricingType === 'per_unit' && s.unitLabel ? `/${s.unitLabel}` : ''}
+                      {s.pricingType === 'per_minute' ? '/min' : ''}
+                    </span>
+                  </div>
                 ))}
               </div>
             </>

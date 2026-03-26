@@ -80,7 +80,8 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
       LIMIT 1
     `,
     sql`
-      SELECT COALESCE(dsm.custom_name, smi.name) as name, COALESCE(dsm.custom_icon, smi.icon) as icon
+      SELECT COALESCE(dsm.custom_name, smi.name) as name, COALESCE(dsm.custom_icon, smi.icon) as icon,
+        dsm.price, dsm.pricing_type, dsm.unit_label
       FROM driver_service_menu dsm
       LEFT JOIN service_menu_items smi ON dsm.item_id = smi.id
       WHERE dsm.driver_id = ${profile.user_id} AND dsm.is_active = true
@@ -143,6 +144,9 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
     services: serviceRows.map((s: Record<string, unknown>) => ({
       name: s.name as string,
       icon: s.icon as string,
+      price: Number(s.price ?? 0),
+      pricingType: (s.pricing_type as string) || 'flat',
+      unitLabel: (s.unit_label as string) || null,
     })),
   };
 
