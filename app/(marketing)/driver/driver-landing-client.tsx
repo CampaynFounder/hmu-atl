@@ -129,7 +129,7 @@ export default function DriverLandingClient() {
         <Link href="/" className={styles.navLogo}>HMU ATL</Link>
         <div className={styles.navActions}>
           <Link href="/sign-in?type=driver" className={styles.navSignIn}>Sign In</Link>
-          <Link href="/sign-up?type=driver" className={styles.navCta} onClick={() => { posthog.capture('driver_nav_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'nav' }); }}>Verify Payments</Link>
+          <Link href="/sign-up?type=driver" className={styles.navCta} onClick={() => { posthog.capture('driver_nav_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'nav' }); }}>Upfront Payments</Link>
         </div>
       </nav>
 
