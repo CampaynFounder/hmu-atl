@@ -103,12 +103,12 @@ export default function HomePage() {
         </div>
 
         <h1 className={`${styles.heroHeadline} ${styles.fadeUp}`} style={{ animationDelay: '0.1s' }}>
-          <span className={styles.lineWhite}>SKIP THE SURGE.</span>
-          <span className={styles.lineGreen}>RIDE WITH YOUR CITY.</span>
+          <span className={styles.lineWhite}>HATE Blank Trips?</span>
+          <span className={styles.lineGreen}>Get Atlanta&apos;s UpFront Driver Payment Platform.</span>
         </h1>
 
         <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.2s' }}>
-          Peer-to-peer rides across Metro Atlanta. Cheaper for riders. Better pay for drivers. No corporate middleman.
+          Ride Scammers Hate HMU. They Go Ghost? You Get Paid. You Cancel? They Lose Nothing.
         </p>
 
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }}>

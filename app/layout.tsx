@@ -17,14 +17,14 @@ const spaceMono = Space_Mono({ weight: ['400', '700'], subsets: ['latin'], varia
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://atl.hmucashride.com'),
-  title: 'ATL HMU CASH RIDE - Upfront Driver Payment System',
-  description: 'And Don\'t Take Em Nowhere. Atlanta Ride Scammers dont HMU.',
+  title: 'HMUCashRide - Drivers Get Paid UpFront',
+  description: 'Ride Scammers Hate HMU. They Go Ghost? You Get Paid. You Cancel? They Lose Nothing.',
   alternates: {
     canonical: 'https://atl.hmucashride.com',
   },
   openGraph: {
-    title: 'ATL HMU CASH RIDE - Upfront Driver Payment System',
-    description: 'And Don\'t Take Em Nowhere. Atlanta Ride Scammers dont HMU.',
+    title: 'HMUCashRide - Drivers Get Paid UpFront',
+    description: 'Ride Scammers Hate HMU. They Go Ghost? You Get Paid. You Cancel? They Lose Nothing.',
     url: 'https://atl.hmucashride.com',
     siteName: 'HMUCASHRIDE',
     locale: 'en_US',
@@ -34,8 +34,8 @@ export const metadata: Metadata = {
   twitter: {
     images: ['https://atl.hmucashride.com/og-image.jpeg'],
     card: 'summary_large_image',
-    title: 'ATL HMU CASH RIDE - Upfront Driver Payment System',
-    description: 'And Don\'t Take Em Nowhere. Atlanta Ride Scammers dont HMU.',
+    title: 'HMUCashRide - Drivers Get Paid UpFront',
+    description: 'Ride Scammers Hate HMU. They Go Ghost? You Get Paid. You Cancel? They Lose Nothing.',
   },
   other: {
     'facebook-domain-verification': 'mttfsmzqmugljmd7ybwy3vgb2mzl8i',
