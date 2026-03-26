@@ -5,7 +5,6 @@ import { sql } from './client';
 import type { ServiceMenuItem, DriverServiceMenuItem, RideAddOn } from './types';
 
 const FREE_TIER_MAX_ITEMS = 5;
-const FREE_TIER_MAX_CUSTOM = 2;
 
 // ============================================
 // PLATFORM CATALOG
@@ -71,7 +70,7 @@ export async function getDriverMenuCount(driverId: string): Promise<{ total: num
 export function checkTierLimit(
   tier: 'free' | 'hmu_first',
   currentCount: { total: number; custom: number },
-  isCustom: boolean
+  _isCustom: boolean
 ): { allowed: boolean; upgradeRequired: boolean; reason?: string } {
   if (tier === 'hmu_first') return { allowed: true, upgradeRequired: false };
 
@@ -79,15 +78,7 @@ export function checkTierLimit(
     return {
       allowed: false,
       upgradeRequired: true,
-      reason: `Free tier allows ${FREE_TIER_MAX_ITEMS} active menu items. Upgrade to HMU First for unlimited.`,
-    };
-  }
-
-  if (isCustom && currentCount.custom >= FREE_TIER_MAX_CUSTOM) {
-    return {
-      allowed: false,
-      upgradeRequired: true,
-      reason: `Free tier allows ${FREE_TIER_MAX_CUSTOM} custom items. Upgrade to HMU First for unlimited.`,
+      reason: `You've reached ${FREE_TIER_MAX_ITEMS} menu items. Upgrade to HMU First for unlimited items.`,
     };
   }
 

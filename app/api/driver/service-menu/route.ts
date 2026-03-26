@@ -42,7 +42,7 @@ export async function GET() {
       tier,
       limits: {
         maxItems: tier === 'hmu_first' ? null : 5,
-        maxCustom: tier === 'hmu_first' ? null : 2,
+        maxCustom: null,
       },
     });
   } catch (error) {

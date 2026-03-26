@@ -698,16 +698,16 @@ function MenuTab({ tier }: { tier: string }) {
           Service Menu
         </div>
         <div style={{ fontSize: 13, color: '#888', marginBottom: 10 }}>
-          Add services you offer. Riders pick from your menu when booking.
+          Add services you offer. Riders can order from your menu during a ride.
         </div>
         <span style={{
           display: 'inline-block', fontSize: 11, fontWeight: 700, letterSpacing: 1,
           padding: '4px 12px', borderRadius: 100,
-          background: isFirst ? 'rgba(0,230,118,0.1)' : 'rgba(255,255,255,0.05)',
-          color: isFirst ? '#00E676' : '#888',
-          border: `1px solid ${isFirst ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.08)'}`,
+          background: items.length >= maxItems && !isFirst ? 'rgba(255,179,0,0.1)' : isFirst ? 'rgba(0,230,118,0.1)' : 'rgba(255,255,255,0.05)',
+          color: items.length >= maxItems && !isFirst ? '#FFB300' : isFirst ? '#00E676' : '#888',
+          border: `1px solid ${items.length >= maxItems && !isFirst ? 'rgba(255,179,0,0.2)' : isFirst ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.08)'}`,
         }}>
-          {isFirst ? 'UNLIMITED' : `${items.length} / ${maxItems} ITEMS`}
+          {isFirst ? 'UNLIMITED ITEMS' : items.length >= maxItems ? `${maxItems}/${maxItems} — UPGRADE FOR MORE` : `${items.length} / ${maxItems} ITEMS`}
         </span>
       </div>
 
