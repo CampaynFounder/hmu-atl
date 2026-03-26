@@ -615,6 +615,10 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
                   src={data.videoUrl}
                   controls
                   playsInline
+                  autoPlay
+                  muted
+                  loop
+                  preload="metadata"
                   style={{ borderRadius: '12px' }}
                 />
               </div>

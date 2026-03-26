@@ -203,9 +203,20 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
       const vid = previewVideoRef.current;
       vid.src = videoUrl;
       vid.muted = true;
+      vid.preload = 'auto';
       setIsMuted(true);
       vid.load();
-      vid.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+
+      const tryPlay = () => {
+        vid.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+      };
+
+      // Wait for enough data to play
+      if (vid.readyState >= 2) {
+        tryPlay();
+      } else {
+        vid.addEventListener('loadeddata', tryPlay, { once: true });
+      }
     }
   }, [step, videoUrl]);
 
@@ -436,6 +447,7 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
                 className="h-full w-full object-contain"
                 loop
                 playsInline
+                preload="auto"
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
               />

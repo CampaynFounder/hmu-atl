@@ -193,29 +193,49 @@ export default function RiderProfileClient({ profile }: Props) {
 
         {videoUrl && !showVideoEditor ? (
           <>
-            <div style={{ borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
+            <div style={{
+              borderRadius: 14, overflow: 'hidden', marginBottom: 12,
+              background: '#000', position: 'relative',
+            }}>
               <video
                 src={videoUrl}
                 controls
                 playsInline
+                autoPlay
+                muted
+                loop
+                preload="metadata"
                 style={{ width: '100%', display: 'block', maxHeight: 280, objectFit: 'contain', background: '#000' }}
               />
             </div>
-            <button
-              onClick={() => setShowVideoEditor(true)}
-              style={{
-                width: '100%', padding: 12, borderRadius: 100,
-                border: '1px solid rgba(0,230,118,0.3)', background: 'transparent',
-                color: '#00E676', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-              }}
-            >
-              Change Video
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => setShowVideoEditor(true)}
+                style={{
+                  flex: 1, padding: 12, borderRadius: 100,
+                  border: '1px solid rgba(0,230,118,0.3)', background: 'transparent',
+                  color: '#00E676', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                }}
+              >
+                Re-record
+              </button>
+              <button
+                onClick={() => setShowVideoEditor(true)}
+                style={{
+                  flex: 1, padding: 12, borderRadius: 100,
+                  border: '1px solid rgba(255,255,255,0.1)', background: 'transparent',
+                  color: '#aaa', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                }}
+              >
+                Upload New
+              </button>
+            </div>
           </>
         ) : (
           <>
-            {!showVideoEditor && (
+            {!showVideoEditor && !videoUrl && (
               <div style={{ fontSize: 13, color: '#888', marginBottom: 12, lineHeight: 1.4 }}>
                 Add a video so drivers know who they&apos;re picking up. Builds trust.
               </div>
