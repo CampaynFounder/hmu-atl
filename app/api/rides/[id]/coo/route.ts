@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/client';
 import { getRideForUser } from '@/lib/rides/state-machine';
 import { holdRiderPayment } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { getDriverMenuForRider } from '@/lib/db/service-menu';
 
 export async function POST(
   req: NextRequest,
@@ -64,11 +65,26 @@ export async function POST(
       return NextResponse.json({ error: 'No agreed price for this ride' }, { status: 400 });
     }
 
-    // Hold the payment
+    // Calculate add-on reserve based on driver's menu
+    let addOnReserve = 0;
+    try {
+      const driverMenu = await getDriverMenuForRider(ride.driver_id as string);
+      if (driverMenu.length > 0) {
+        const menuTotal = driverMenu.reduce((sum, item) => sum + Number(item.price ?? 0), 0);
+        // Reserve = menu total capped at $50 or 25% of ride price, whichever is greater
+        addOnReserve = Math.min(menuTotal, Math.max(50, agreedPrice * 0.25));
+        addOnReserve = Math.round(addOnReserve * 100) / 100;
+      }
+    } catch {
+      // Non-critical — proceed without reserve
+    }
+
+    // Hold the payment (base + add-on reserve)
     try {
       await holdRiderPayment({
         rideId,
         agreedPrice,
+        addOnReserve,
         stripeCustomerId,
         paymentMethodId,
         driverStripeAccountId,

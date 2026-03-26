@@ -7,6 +7,7 @@ import { fbEvent, fbCustomEvent } from '@/components/analytics/meta-pixel';
 import Link from 'next/link';
 import RideChat from '@/components/ride/ride-chat';
 import RiderProfileOverlay from '@/components/rider/rider-profile-overlay';
+import AddOnMenuSheet from '@/components/ride/add-on-menu-sheet';
 
 // Mapbox GL loaded via CDN script tag — accessed as window.mapboxgl
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -130,6 +131,7 @@ export default function ActiveRideClient({
   const [addOnReview, setAddOnReview] = useState<Map<string, string>>(new Map());
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [menuSheetOpen, setMenuSheetOpen] = useState(false);
   const [notification, setNotification] = useState<{
     message: string;
     emoji: string;
@@ -223,7 +225,6 @@ export default function ActiveRideClient({
       }
       case 'cancel_request': {
         if (isDriver) {
-          // Driver sees cancel request from rider
           const agreed = confirm(`${data.message || 'Rider wants to cancel.'}\n\nAgree to cancel this ride?`);
           if (agreed) {
             fetch(`/api/rides/${rideId}/cancel`, {
@@ -231,6 +232,30 @@ export default function ActiveRideClient({
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ agreeToCancel: true }),
             }).then(() => setRide(prev => ({ ...prev, status: 'cancelled' })));
+          }
+        }
+        break;
+      }
+      case 'add_on_added': {
+        const addOn = data.addOn as { id: string; name: string; subtotal: number; quantity: number };
+        const addOnTotal = Number(data.addOnTotal ?? 0);
+        if (addOn) {
+          setRide(prev => ({
+            ...prev,
+            addOns: [...prev.addOns.filter(a => a.id !== addOn.id), {
+              id: addOn.id,
+              name: addOn.name,
+              unitPrice: addOn.subtotal / (addOn.quantity || 1),
+              quantity: addOn.quantity,
+              subtotal: addOn.subtotal,
+              status: 'pre_selected',
+              addedBy: 'rider',
+            }],
+            addOnTotal,
+          }));
+          if (isDriver) {
+            showNotification(`Rider added: ${addOn.name}`, '\uD83D\uDED2', COLORS.green, `+$${addOn.subtotal.toFixed(2)}`);
+            if (navigator.vibrate) navigator.vibrate([100]);
           }
         }
         break;
@@ -876,6 +901,22 @@ export default function ActiveRideClient({
           onClose={() => setViewingRiderProfile(false)}
         />
       )}
+
+      {/* Add-on menu sheet for riders */}
+      {!isDriver && (
+        <AddOnMenuSheet
+          rideId={rideId}
+          open={menuSheetOpen}
+          onClose={() => setMenuSheetOpen(false)}
+          onAdded={(addOn, total) => {
+            setRide(prev => ({
+              ...prev,
+              addOns: [...prev.addOns, addOn],
+              addOnTotal: total,
+            }));
+          }}
+        />
+      )}
     </div>
   );
 
@@ -1040,6 +1081,8 @@ export default function ActiveRideClient({
               </div>
             )}
             <StatusMessage text="Driver is on the way" />
+            {ride.addOns.length > 0 && renderAddOnSummary()}
+            {renderAddServicesButton()}
             <CancelButton rideId={rideId} label="Request Cancel" needsApproval onCancelled={() => setRide(prev => ({ ...prev, status: 'cancelled' }))} />
           </>
         );
@@ -1118,6 +1161,7 @@ export default function ActiveRideClient({
           <>
             <StatusMessage text="Ride in progress" />
             {ride.addOns.length > 0 && renderAddOnSummary()}
+            {renderAddServicesButton()}
           </>
         );
 
@@ -1215,6 +1259,28 @@ export default function ActiveRideClient({
           <span style={{ fontFamily: FONTS.mono, color: COLORS.green }}>${ride.addOnTotal.toFixed(2)}</span>
         </div>
       </div>
+    );
+  }
+
+  // ── Add Services button (rider only, during active ride states) ──
+  function renderAddServicesButton() {
+    if (isDriver) return null;
+    return (
+      <button
+        onClick={() => setMenuSheetOpen(true)}
+        style={{
+          width: '100%', marginTop: 8,
+          padding: '14px 16px', borderRadius: 14,
+          background: 'rgba(0,230,118,0.08)',
+          border: '1px solid rgba(0,230,118,0.2)',
+          color: COLORS.green, fontSize: 14, fontWeight: 600,
+          cursor: 'pointer', fontFamily: FONTS.body,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        }}
+      >
+        <span style={{ fontSize: 18 }}>+</span>
+        Add Services from Driver Menu
+      </button>
     );
   }
 

@@ -11,7 +11,9 @@ import {
   removeRideAddOn,
   confirmAllAddOns,
   calculateAddOnTotal,
+  getDriverMenuForRider,
 } from '@/lib/db/service-menu';
+import { publishRideUpdate } from '@/lib/ably/server';
 
 // GET — list add-ons for a ride
 export async function GET(
@@ -72,7 +74,8 @@ export async function POST(
     const userId = userRows[0].id;
 
     const rideRows = await sql`
-      SELECT rider_id, driver_id, status FROM rides WHERE id = ${rideId} LIMIT 1
+      SELECT rider_id, driver_id, status, add_on_reserve, add_on_total, is_cash
+      FROM rides WHERE id = ${rideId} LIMIT 1
     `;
     if (!rideRows.length) return NextResponse.json({ error: 'Ride not found' }, { status: 404 });
     const ride = rideRows[0] as Record<string, unknown>;
@@ -87,11 +90,38 @@ export async function POST(
       return NextResponse.json({ error: 'Cannot add services to a completed ride' }, { status: 400 });
     }
 
+    // Check add-on reserve (skip for cash rides)
+    const isCash = !!(ride.is_cash);
+    if (!isCash) {
+      const reserve = Number(ride.add_on_reserve ?? 0);
+      const currentTotal = Number(ride.add_on_total ?? 0);
+
+      // Look up the item price to check if it fits within the reserve
+      const driverMenu = await getDriverMenuForRider(ride.driver_id as string);
+      const menuItem = driverMenu.find(m => m.id === menu_item_id);
+      const itemCost = menuItem ? Number(menuItem.price) * quantity : 0;
+
+      if (reserve > 0 && currentTotal + itemCost > reserve) {
+        const remaining = Math.max(0, reserve - currentTotal);
+        return NextResponse.json({
+          error: 'add_on_limit',
+          message: `Add-on total would exceed the held amount. You have $${remaining.toFixed(2)} available for extras.`,
+          remaining,
+        }, { status: 400 });
+      }
+    }
+
     const addOn = await addRideAddOn(rideId, menu_item_id, quantity);
 
     // Update ride add-on total
     const total = await calculateAddOnTotal(rideId);
     await sql`UPDATE rides SET add_on_total = ${total} WHERE id = ${rideId}`;
+
+    // Notify both parties via Ably
+    publishRideUpdate(rideId, 'add_on_added', {
+      addOn: { id: addOn.id, name: addOn.name, subtotal: addOn.subtotal, quantity: addOn.quantity },
+      addOnTotal: total,
+    }).catch(() => {});
 
     return NextResponse.json({ addOn, total }, { status: 201 });
   } catch (error) {
