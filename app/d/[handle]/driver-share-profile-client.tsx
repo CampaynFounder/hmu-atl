@@ -176,13 +176,13 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
     <>
       <style>{`
         :root { --green: #00E676; --black: #080808; --card: #141414; --card2: #1a1a1a; --border: rgba(255,255,255,0.08); --gray: #888; --gray-light: #bbb; }
-        .profile-page { background: var(--black); color: #fff; min-height: 100svh; font-family: var(--font-body, 'DM Sans', sans-serif); padding-bottom: 100px; padding-top: 56px; }
+        .profile-page { background: var(--black); color: #fff; min-height: 100svh; font-family: var(--font-body, 'DM Sans', sans-serif); padding-bottom: 100px; padding-top: 56px; overflow-x: hidden; max-width: 100vw; }
         .hero-photo { width: 100%; display: block; background: var(--black); }
         .hero-photo-img { width: 100%; display: block; background: var(--black); }
         .hero-photo-placeholder { width: 100%; aspect-ratio: 1/1; background: #080808; display: flex; align-items: center; justify-content: center; }
-        .profile-body { padding: 24px 20px 0; }
-        .name-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-        .driver-name { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 48px; line-height: 1; }
+        .profile-body { padding: 24px 20px 0; overflow: hidden; }
+        .name-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; min-width: 0; }
+        .driver-name { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 48px; line-height: 1; word-break: break-word; }
         .hmu-first-badge { background: var(--green); color: var(--black); font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 100px; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
         .stats-row { display: flex; gap: 16px; margin-bottom: 20px; }
         .stat-pill { background: var(--card2); border: 1px solid var(--border); border-radius: 100px; padding: 6px 14px; font-size: 13px; color: var(--gray-light); display: flex; align-items: center; gap: 6px; }
@@ -306,8 +306,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
           <img src={driver.vehiclePhotoUrl} alt={`${driver.displayName}'s vehicle`} className="hero-photo-img" />
         ) : (
           <div className="hero-photo-placeholder">
-            <svg width="100%" height="100%" viewBox="0 0 512 512" style={{ maxWidth: '100%', maxHeight: '100%' }}>
-              <rect width="512" height="512" fill="#080808"/>
+            <svg viewBox="0 0 512 512" style={{ width: '60%', height: '60%' }}>
               <path d="M 155 140 L 155 310 A 120 120 0 0 0 355 310 L 355 160" fill="none" stroke="#00E676" strokeWidth="52" strokeLinecap="round" strokeLinejoin="round"/>
               <polygon points="355,55 275,175 435,175" fill="#00E676"/>
             </svg>

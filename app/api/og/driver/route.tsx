@@ -73,14 +73,16 @@ export async function GET(req: NextRequest) {
           <div style={{
             width: '200px',
             height: '200px',
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, #141414, #1a1a1a)',
+            borderRadius: '24px',
+            background: '#080808',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '80px',
           }}>
-            🚗
+            <svg width="140" height="140" viewBox="0 0 512 512">
+              <path d="M 155 140 L 155 310 A 120 120 0 0 0 355 310 L 355 160" fill="none" stroke="#00E676" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
+              <polygon points="355,55 275,175 435,175" fill="#00E676"/>
+            </svg>
           </div>
         )}
       </div>
