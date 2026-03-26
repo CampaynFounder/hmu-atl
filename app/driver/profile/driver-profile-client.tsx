@@ -254,7 +254,7 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
         /* Video section */
         .media-saved { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; background: rgba(0,230,118,0.1); border: 1px solid rgba(0,230,118,0.25); border-radius: 12px; color: var(--green); font-size: 14px; font-weight: 600; margin-bottom: 12px; }
         .media-preview { position: relative; border-radius: 16px; overflow: hidden; margin-bottom: 12px; }
-        .media-preview video, .media-preview img { width: 100%; aspect-ratio: 9/16; max-height: 280px; object-fit: cover; border-radius: 16px; background: #000; display: block; }
+        .media-preview video, .media-preview img { width: 100%; aspect-ratio: 9/16; max-height: 280px; object-fit: contain; border-radius: 16px; background: #000; display: block; }
         .media-actions { display: flex; gap: 8px; }
         .media-btn { flex: 1; padding: 12px; border-radius: 100px; font-size: 14px; font-weight: 600; cursor: pointer; text-align: center; font-family: var(--font-body, 'DM Sans', sans-serif); transition: all 0.15s; }
         .media-btn:hover { transform: scale(1.02); }

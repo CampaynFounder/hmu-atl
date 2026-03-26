@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
+import { VideoRecorder } from '@/components/onboarding/video-recorder';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
@@ -32,25 +33,24 @@ export default function RiderProfileClient({ profile }: Props) {
   const [videoUrl, setVideoUrl] = useState(profile.videoUrl);
   const [uploading, setUploading] = useState<'avatar' | 'video' | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [showVideoEditor, setShowVideoEditor] = useState(false);
   const avatarRef = useRef<HTMLInputElement>(null);
-  const videoRef = useRef<HTMLInputElement>(null);
 
-  async function handleUpload(file: File, type: 'avatar' | 'video') {
+  async function handleUpload(file: File, type: 'avatar') {
     setUploading(type);
     setUploadError(null);
     try {
       const formData = new FormData();
       formData.append('video', file);
       formData.append('profile_type', 'rider');
-      formData.append('media_type', type === 'avatar' ? 'photo' : 'video');
+      formData.append('media_type', 'photo');
       formData.append('save_to_profile', 'true');
 
       const res = await fetch('/api/upload/video', { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) { setUploadError(data.error || 'Upload failed'); return; }
 
-      if (type === 'avatar') setAvatarUrl(data.url);
-      else setVideoUrl(data.url);
+      setAvatarUrl(data.url);
     } catch {
       setUploadError('Upload failed');
     } finally {
@@ -191,45 +191,59 @@ export default function RiderProfileClient({ profile }: Props) {
           Video Intro
         </div>
 
-        {videoUrl ? (
-          <div style={{ borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
-            <video
-              src={videoUrl}
-              controls
-              playsInline
-              style={{ width: '100%', display: 'block', maxHeight: 200, objectFit: 'cover' }}
-            />
-          </div>
+        {videoUrl && !showVideoEditor ? (
+          <>
+            <div style={{ borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
+              <video
+                src={videoUrl}
+                controls
+                playsInline
+                style={{ width: '100%', display: 'block', maxHeight: 280, objectFit: 'contain', background: '#000' }}
+              />
+            </div>
+            <button
+              onClick={() => setShowVideoEditor(true)}
+              style={{
+                width: '100%', padding: 12, borderRadius: 100,
+                border: '1px solid rgba(0,230,118,0.3)', background: 'transparent',
+                color: '#00E676', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Change Video
+            </button>
+          </>
         ) : (
-          <div style={{ fontSize: 13, color: '#888', marginBottom: 12, lineHeight: 1.4 }}>
-            Add a video so drivers know who they&apos;re picking up. Builds trust.
-          </div>
+          <>
+            {!showVideoEditor && (
+              <div style={{ fontSize: 13, color: '#888', marginBottom: 12, lineHeight: 1.4 }}>
+                Add a video so drivers know who they&apos;re picking up. Builds trust.
+              </div>
+            )}
+            <VideoRecorder
+              onVideoRecorded={(url) => {
+                setVideoUrl(url);
+                setShowVideoEditor(false);
+              }}
+              existingVideoUrl={videoUrl || undefined}
+              profileType="rider"
+              onUploadStateChange={(uploading) => setUploading(uploading ? 'video' : null)}
+            />
+            {showVideoEditor && (
+              <button
+                onClick={() => setShowVideoEditor(false)}
+                style={{
+                  width: '100%', padding: 12, borderRadius: 100, marginTop: 8,
+                  border: '1px solid rgba(255,255,255,0.1)', background: 'transparent',
+                  color: '#888', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                }}
+              >
+                Cancel
+              </button>
+            )}
+          </>
         )}
-
-        <button
-          onClick={() => videoRef.current?.click()}
-          disabled={uploading === 'video'}
-          style={{
-            width: '100%', padding: 12, borderRadius: 100,
-            border: '1px solid rgba(0,230,118,0.3)', background: 'transparent',
-            color: '#00E676', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-            opacity: uploading === 'video' ? 0.5 : 1,
-          }}
-        >
-          {uploading === 'video' ? 'Uploading...' : videoUrl ? 'Change Video' : 'Upload Video'}
-        </button>
-        <input
-          ref={videoRef}
-          type="file"
-          accept="video/*"
-          style={{ display: 'none' }}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) handleUpload(f, 'video');
-            e.target.value = '';
-          }}
-        />
       </div>
 
       {uploadError && (

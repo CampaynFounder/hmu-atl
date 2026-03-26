@@ -12,6 +12,7 @@ import {
   Pause,
   Loader2,
   Volume2,
+  CloudUpload,
 } from 'lucide-react';
 
 interface VideoRecorderProps {
@@ -36,6 +37,7 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [cameraReady, setCameraReady] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   const liveVideoRef = useRef<HTMLVideoElement>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
@@ -239,34 +241,51 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
     if (!videoBlob) { setError('No video to save'); return; }
 
     setStep('uploading');
+    setUploadProgress(0);
     onUploadStateChange?.(true);
     setError(null);
 
-    try {
-      const formData = new FormData();
-      const ext = videoBlob.type.includes('mp4') ? 'mp4' : 'webm';
-      formData.append('video', videoBlob, `intro-video.${ext}`);
-      formData.append('profile_type', profileType);
-      formData.append('media_type', 'video');
+    const formData = new FormData();
+    const ext = videoBlob.type.includes('mp4') ? 'mp4' : 'webm';
+    formData.append('video', videoBlob, `intro-video.${ext}`);
+    formData.append('profile_type', profileType);
+    formData.append('media_type', 'video');
 
-      const response = await fetch('/api/upload/video', {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await response.json();
+    const xhr = new XMLHttpRequest();
 
-      if (!response.ok) throw new Error(data.error || 'Upload failed');
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        setUploadProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    });
 
-      const savedUrl = data.url || data.videoUrl;
-      onVideoRecorded(savedUrl, savedUrl);
-      onUploadStateChange?.(false);
-      setStep('saved');
-    } catch (err) {
-      console.error('Upload error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to upload video. Try again.');
+    xhr.addEventListener('load', () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const savedUrl = data.url || data.videoUrl;
+          onVideoRecorded(savedUrl, savedUrl);
+          onUploadStateChange?.(false);
+          setStep('saved');
+        } else {
+          throw new Error(data.error || 'Upload failed');
+        }
+      } catch (err) {
+        console.error('Upload error:', err);
+        setError(err instanceof Error ? err.message : 'Failed to upload video. Try again.');
+        setStep('review');
+        onUploadStateChange?.(false);
+      }
+    });
+
+    xhr.addEventListener('error', () => {
+      setError('Upload failed. Check your connection and try again.');
       setStep('review');
       onUploadStateChange?.(false);
-    }
+    });
+
+    xhr.open('POST', '/api/upload/video');
+    xhr.send(formData);
   };
 
   // ── Render ──
@@ -414,7 +433,7 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
             >
               <video
                 ref={previewVideoRef}
-                className="h-full w-full object-cover scale-x-[-1]"
+                className="h-full w-full object-contain"
                 loop
                 playsInline
                 onPlay={() => setIsPlaying(true)}
@@ -466,23 +485,26 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
                   <Check className="h-5 w-5" />
                   Saved — tap Next
                 </div>
+              ) : step === 'uploading' ? (
+                <div className="flex flex-col items-center gap-2 min-w-[180px]">
+                  <div className="flex items-center gap-2 rounded-full bg-[#00E676]/15 border border-[#00E676]/30 px-6 py-3 font-bold text-[#00E676]">
+                    <CloudUpload className="h-5 w-5 animate-pulse" />
+                    Uploading {uploadProgress}%
+                  </div>
+                  <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      className="h-full bg-[#00E676] rounded-full transition-all duration-300"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
               ) : (
                 <button
                   onClick={uploadVideo}
-                  disabled={step === 'uploading'}
-                  className="flex items-center gap-2 rounded-full bg-[#00E676] px-8 py-3 font-bold text-black disabled:opacity-40"
+                  className="flex items-center gap-2 rounded-full bg-[#00E676] px-8 py-3 font-bold text-black"
                 >
-                  {step === 'uploading' ? (
-                    <>
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Check className="h-5 w-5" />
-                      Use This Video
-                    </>
-                  )}
+                  <Check className="h-5 w-5" />
+                  Use This Video
                 </button>
               )}
             </div>
