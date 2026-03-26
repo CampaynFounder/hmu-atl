@@ -396,35 +396,6 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
             </div>
           </div>
 
-          {/* Services */}
-          {driver.services.length > 0 && (
-            <>
-              <p className="section-label">Menu</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-                {driver.services.map((s, i) => (
-                  <div key={i} style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.15)',
-                    borderRadius: 14, padding: '10px 14px',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 18 }}>{s.icon}</span>
-                      <span style={{ fontSize: 13, color: '#ddd', fontWeight: 500 }}>{s.name}</span>
-                    </div>
-                    <span style={{
-                      fontSize: 13, fontWeight: 700, color: '#00E676',
-                      fontFamily: "var(--font-mono, 'Space Mono', monospace)",
-                    }}>
-                      ${s.price.toFixed(2)}
-                      {s.pricingType === 'per_unit' && s.unitLabel ? `/${s.unitLabel}` : ''}
-                      {s.pricingType === 'per_minute' ? '/min' : ''}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
           {/* Pricing */}
           <p className="section-label">Pricing</p>
           <p className="section-sub">
@@ -458,6 +429,35 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
               </div>
             )}
           </div>
+
+          {/* Menu Add-Ons */}
+          {driver.services.length > 0 && (
+            <>
+              <p className="section-label">Extras</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                {driver.services.map((s, i) => (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.15)',
+                    borderRadius: 14, padding: '10px 14px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 18 }}>{s.icon}</span>
+                      <span style={{ fontSize: 13, color: '#ddd', fontWeight: 500 }}>{s.name}</span>
+                    </div>
+                    <span style={{
+                      fontSize: 13, fontWeight: 700, color: '#00E676',
+                      fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+                    }}>
+                      ${s.price.toFixed(2)}
+                      {s.pricingType === 'per_unit' && s.unitLabel ? `/${s.unitLabel}` : ''}
+                      {s.pricingType === 'per_minute' ? '/min' : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
 
           {/* Areas */}
           {driver.areas.length > 0 && (
