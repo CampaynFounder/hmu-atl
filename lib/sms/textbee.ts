@@ -17,9 +17,25 @@ const MAX_RETRIES = 1;
 const RETRY_DELAY_MS = 1500;
 
 // ── Market → DID mapping ──
+const MARKET_DIDS: Record<string, string> = {
+  atl: 'VOIPMS_DID_ATL',
+  hou: 'VOIPMS_DID_HOU',
+  dal: 'VOIPMS_DID_DAL',
+  mem: 'VOIPMS_DID_MEM',
+};
+
 function getDidForMarket(market: string = 'atl'): string | null {
-  const key = `VOIPMS_DID_${market.toUpperCase()}`;
-  return process.env[key] || process.env.VOIPMS_DID_DEFAULT || process.env.VOIPMS_DID_ATL || null;
+  const envKey = MARKET_DIDS[market.toLowerCase()];
+  if (envKey) {
+    // Use direct property access — Cloudflare Workers Proxy needs known keys
+    switch (market.toLowerCase()) {
+      case 'atl': return process.env.VOIPMS_DID_ATL || null;
+      case 'hou': return process.env.VOIPMS_DID_HOU || null;
+      case 'dal': return process.env.VOIPMS_DID_DAL || null;
+      case 'mem': return process.env.VOIPMS_DID_MEM || null;
+    }
+  }
+  return process.env.VOIPMS_DID_ATL || null;
 }
 
 // ── Normalize phone to 10-digit NANPA ──
@@ -80,9 +96,11 @@ export async function sendSms(
   const password = process.env.VOIPMS_API_PASSWORD;
   const did = getDidForMarket(options.market);
 
+  console.log('[SMS] Attempting send to:', to, '| Username set:', !!username, '| Password set:', !!password, '| DID:', did);
+
   if (!username || !password || !did) {
-    console.warn('[SMS] VoIP.ms not configured — skipping SMS to', to);
-    await logSms(to, did || 'none', message, 'skipped', null, 'VoIP.ms not configured', 0, options);
+    console.warn('[SMS] VoIP.ms not configured — skipping SMS to', to, '| username:', !!username, '| password:', !!password, '| did:', did);
+    logSms(to, did || 'none', message, 'skipped', null, 'VoIP.ms not configured', 0, options).catch(() => {});
     return { success: false, error: 'VoIP.ms not configured' };
   }
 
@@ -111,7 +129,8 @@ export async function sendSms(
       const data = await res.json() as { status: string };
 
       if (data.status === 'success') {
-        await logSms(dst, did, message, 'sent', 'success', null, attempt, options);
+        console.log('[SMS] Sent successfully to', dst);
+        logSms(dst, did, message, 'sent', 'success', null, attempt, options).catch(() => {});
         return { success: true };
       }
 
@@ -120,7 +139,8 @@ export async function sendSms(
 
       // Don't retry on auth/config errors
       if (['invalid_credentials', 'invalid_method', 'missing_did'].includes(data.status)) {
-        await logSms(dst, did, message, 'failed', data.status, lastError, attempt, options);
+        console.error('[SMS] Fatal error, not retrying:', data.status);
+        logSms(dst, did, message, 'failed', data.status, lastError, attempt, options).catch(() => {});
         return { success: false, error: lastError };
       }
 
@@ -138,7 +158,8 @@ export async function sendSms(
     }
   }
 
-  await logSms(dst, did, message, 'failed', null, lastError, MAX_RETRIES, options);
+  console.error('[SMS] All retries exhausted for', dst, '| Error:', lastError);
+  logSms(dst, did, message, 'failed', null, lastError, MAX_RETRIES, options).catch(() => {});
   return { success: false, error: lastError };
 }
 
