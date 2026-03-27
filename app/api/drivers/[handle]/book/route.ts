@@ -121,16 +121,17 @@ export async function POST(
 
     if (driverPhone) {
       const tw = (timeWindow || {}) as Record<string, unknown>;
-      let smsMsg = `HMU ATL: New ride request from ${riderName}.`;
-      if (tw.destination) smsMsg += ` Where: ${tw.destination}.`;
-      if (tw.time) smsMsg += ` When: ${tw.time}.`;
-      if (price) smsMsg += ` Amount: $${price}.`;
-      smsMsg += ` Expires in 15 min.`;
+      const dest = (tw.destination as string) || '';
+      const when = (tw.time as string) || '';
+      // Keep under 160 chars — VoIP.ms rejects longer messages
+      let smsMsg: string;
       if (!payoutSetup) {
-        smsMsg += ` Link Payout Method To Accept. atl.hmucashride.com/driver/payout-setup`;
+        smsMsg = `HMU: ${riderName} wants a ride. $${price}${dest ? ' ' + dest : ''}${when ? ' ' + when : ''}. 15min to respond. Link payout first: atl.hmucashride.com/driver/payout-setup`;
       } else {
-        smsMsg += ` atl.hmucashride.com/driver/home`;
+        smsMsg = `HMU: ${riderName} wants a ride. $${price}${dest ? ' ' + dest : ''}${when ? ' ' + when : ''}. Expires 15min. atl.hmucashride.com/driver/home`;
       }
+      // Truncate to 160 if still too long
+      if (smsMsg.length > 160) smsMsg = smsMsg.slice(0, 157) + '...';
 
       // Direct VoIP.ms call
       const dst = driverPhone.replace(/\D/g, '').replace(/^1/, '');
