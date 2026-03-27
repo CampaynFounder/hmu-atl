@@ -108,10 +108,26 @@ export async function DELETE(req: NextRequest) {
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     const userId = (userRows[0] as { id: string }).id;
 
+    // Get driver ID before cancelling (for notification)
+    const postRows = await sql`
+      SELECT target_driver_id FROM hmu_posts
+      WHERE id = ${postId} AND user_id = ${userId} AND status = 'active'
+      LIMIT 1
+    `;
+
     await sql`
       UPDATE hmu_posts SET status = 'cancelled'
       WHERE id = ${postId} AND user_id = ${userId} AND status = 'active'
     `;
+
+    // Notify driver that rider cancelled
+    if (postRows.length) {
+      const driverId = (postRows[0] as Record<string, unknown>).target_driver_id as string;
+      if (driverId) {
+        const { notifyUser } = await import('@/lib/ably/server');
+        notifyUser(driverId, 'booking_cancelled', { postId }).catch(() => {});
+      }
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

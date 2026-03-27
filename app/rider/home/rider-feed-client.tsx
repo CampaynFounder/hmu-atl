@@ -595,6 +595,14 @@ function ActivePostCard({
           </div>
         ) : post.status === 'active' && post.type === 'direct' && post.expiresAt ? (
           <DirectBookingCountdown driverHandle={post.driverHandle || post.driverName || 'Driver'} expiresAt={post.expiresAt} />
+        ) : post.status === 'cancelled' ? (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            fontSize: 12, padding: '4px 12px', borderRadius: 100,
+            background: 'rgba(255,82,82,0.1)', color: '#FF5252',
+          }}>
+            Cancelled
+          </div>
         ) : post.status === 'active' ? (
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,

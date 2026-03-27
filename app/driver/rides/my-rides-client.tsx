@@ -25,14 +25,17 @@ interface Props {
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   matched: { label: 'Matched', color: '#448AFF', bg: 'rgba(68,138,255,0.1)' },
-  otw: { label: 'OTW', color: '#00E676', bg: 'rgba(0,230,118,0.1)' },
-  here: { label: 'HERE', color: '#00E676', bg: 'rgba(0,230,118,0.1)' },
-  active: { label: 'Active', color: '#FFD740', bg: 'rgba(255,215,64,0.1)' },
+  otw: { label: 'OTW', color: '#FF9100', bg: 'rgba(255,145,0,0.1)' },
+  here: { label: 'HERE', color: '#FFD740', bg: 'rgba(255,215,64,0.1)' },
+  active: { label: 'Ride Active', color: '#00E676', bg: 'rgba(0,230,118,0.1)' },
+  in_progress: { label: 'Ride Active', color: '#00E676', bg: 'rgba(0,230,118,0.1)' },
   ended: { label: 'Ended', color: '#888', bg: 'rgba(255,255,255,0.05)' },
   completed: { label: 'Completed', color: '#00E676', bg: 'rgba(0,230,118,0.1)' },
   cancelled: { label: 'Cancelled', color: '#FF5252', bg: 'rgba(255,82,82,0.1)' },
   disputed: { label: 'Disputed', color: '#FF9100', bg: 'rgba(255,145,0,0.1)' },
 };
+
+const ACTIVE_STATUSES = ['matched', 'otw', 'here', 'active', 'in_progress'];
 
 const RATING_EMOJI: Record<string, string> = {
   chill: '\u2705', cool_af: '\uD83D\uDE0E', kinda_creepy: '\uD83D\uDC40', weirdo: '\uD83D\uDEA9',
@@ -102,6 +105,50 @@ export default function MyRidesClient({ rides }: Props) {
           <div style={{ fontSize: '11px', color: '#888', textTransform: 'uppercase', letterSpacing: '1px' }}>Done</div>
         </div>
       </div>
+
+      {/* Active rides — highlighted at top */}
+      {rides.filter(r => ACTIVE_STATUSES.includes(r.status)).length > 0 && (
+        <div style={{ padding: '0 20px 12px' }}>
+          <div style={{
+            fontSize: 11, color: '#00E676', fontWeight: 700, letterSpacing: 1,
+            textTransform: 'uppercase', marginBottom: 8,
+            fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+          }}>
+            Active Now
+          </div>
+          {rides.filter(r => ACTIVE_STATUSES.includes(r.status)).map(ride => {
+            const st = STATUS_LABELS[ride.status] || { label: ride.status, color: '#888', bg: 'rgba(255,255,255,0.05)' };
+            return (
+              <Link key={ride.id} href={`/ride/${ride.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                <div style={{
+                  background: '#141414', border: '1px solid rgba(0,230,118,0.25)',
+                  borderRadius: 16, padding: 16, marginBottom: 10,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 15 }}>{ride.riderName}</span>
+                    <span style={{
+                      fontSize: 11, background: st.bg, color: st.color,
+                      padding: '3px 10px', borderRadius: 100, fontWeight: 600,
+                      animation: 'pulse 1.5s ease-in-out infinite',
+                    }}>
+                      {st.label}
+                    </span>
+                  </div>
+                  {ride.destination && (
+                    <div style={{ fontSize: 14, color: '#bbb', marginBottom: 8 }}>{ride.destination}</div>
+                  )}
+                  <div style={{
+                    fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+                    fontSize: 22, color: '#00E676',
+                  }}>
+                    ${ride.price}
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
 
       {/* Ride list */}
       <div style={{ padding: '0 20px' }}>
