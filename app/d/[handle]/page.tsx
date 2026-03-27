@@ -7,11 +7,12 @@ import DriverShareProfileClient from './driver-share-profile-client';
 
 interface Props {
   params: Promise<{ handle: string }>;
-  searchParams: Promise<{ bookingOpen?: string }>;
+  searchParams: Promise<{ bookingOpen?: string; promo?: string }>;
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { handle } = await params;
+  const { promo } = await searchParams;
   const profile = await getDriverProfileByHandle(handle);
   if (!profile) return { title: 'Driver not found — HMU ATL' };
 
@@ -19,12 +20,35 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const areas = Array.isArray(profile.areas) ? profile.areas.join(', ') : '';
   const p = profile as unknown as Record<string, unknown>;
 
-  // Always use dynamic OG card — it composites driver photo into 1200x630 frame
-  // Raw photo URLs get cropped unpredictably by social platforms
-  // v= cache buster — increment when photo changes to force social platforms to re-fetch
-  const ogImage = `https://atl.hmucashride.com/api/og/driver?handle=${handle}&v=2`;
+  const ogImage = `https://atl.hmucashride.com/api/og/driver?handle=${handle}&v=2${promo ? `&promo=${promo}` : ''}`;
 
   const displayName = (p.display_name as string) || name || handle;
+
+  // Promo mode: driver recruitment messaging
+  if (promo === 'driver') {
+    const promoTitle = 'Get Paid Upfront | No More Blank Trips | Create Your FREE Profile';
+    const promoDesc = 'Ride scammers hate paying upfront. Use HMU anytime but def when rider vibes is a lil off. We verify payment - Protect Riders & Drivers. No Shows = No Loss. Sign Up Free.';
+    return {
+      title: promoTitle,
+      description: promoDesc,
+      openGraph: {
+        title: promoTitle,
+        description: promoDesc,
+        url: `https://atl.hmucashride.com/d/${handle}?promo=driver`,
+        siteName: 'HMUCASHRIDE',
+        type: 'website',
+        images: [{ url: ogImage, width: 1200, height: 630, alt: promoTitle }],
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: promoTitle,
+        description: promoDesc,
+        images: [ogImage],
+      },
+    };
+  }
+
+  // Default: regular driver profile OG
   const ogTitle = `${displayName} Doin Cash Rides. HMU ATL!`;
 
   return {
