@@ -1455,15 +1455,23 @@ export default function ActiveRideClient({
 
   // ── Add-on summary (shown during active ride) ──
   function renderAddOnSummary() {
+    const active = ride.addOns.filter(a => a.status !== 'removed' && a.status !== 'disputed');
+    const grouped = active.reduce<{ name: string; qty: number; total: number }[]>((groups, a) => {
+      const existing = groups.find(g => g.name === a.name);
+      if (existing) { existing.qty += a.quantity; existing.total += a.subtotal; }
+      else { groups.push({ name: a.name, qty: a.quantity, total: a.subtotal }); }
+      return groups;
+    }, []);
+    if (grouped.length === 0) return null;
     return (
       <div style={{ backgroundColor: COLORS.card, borderRadius: 14, padding: '14px 16px', marginTop: 8 }}>
         <div style={{ fontSize: 11, color: COLORS.gray, textTransform: 'uppercase', letterSpacing: 1, fontFamily: FONTS.mono, marginBottom: 8 }}>
           Add-Ons
         </div>
-        {ride.addOns.map(a => (
-          <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 14, color: COLORS.grayLight }}>
-            <span>{a.name}{a.quantity > 1 ? ` \u00D7${a.quantity}` : ''}</span>
-            <span style={{ fontFamily: FONTS.mono, color: COLORS.green }}>${a.subtotal.toFixed(2)}</span>
+        {grouped.map(g => (
+          <div key={g.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 14, color: COLORS.grayLight }}>
+            <span>{g.name}{g.qty > 1 ? ` \u00D7${g.qty}` : ''}</span>
+            <span style={{ fontFamily: FONTS.mono, color: COLORS.green }}>${g.total.toFixed(2)}</span>
           </div>
         ))}
         <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', fontWeight: 700 }}>

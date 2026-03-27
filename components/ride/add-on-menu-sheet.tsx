@@ -77,6 +77,19 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
 
   const activeAddOns = addOns.filter(a => a.status !== 'removed' && a.status !== 'disputed');
   const extrasTotal = activeAddOns.reduce((sum, a) => sum + a.subtotal, 0);
+
+  // Group add-ons by name for display
+  const groupedAddOns = activeAddOns.reduce<{ name: string; unitPrice: number; totalQty: number; totalSubtotal: number; ids: string[] }[]>((groups, a) => {
+    const existing = groups.find(g => g.name === a.name);
+    if (existing) {
+      existing.totalQty += a.quantity;
+      existing.totalSubtotal += a.subtotal;
+      existing.ids.push(a.id);
+    } else {
+      groups.push({ name: a.name, unitPrice: a.unitPrice, totalQty: a.quantity, totalSubtotal: a.subtotal, ids: [a.id] });
+    }
+    return groups;
+  }, []);
   const rideTotal = agreedPrice + extrasTotal;
   const remaining = Math.max(0, reserve - extrasTotal);
   const budgetUsedPct = reserve > 0 ? Math.min(100, (extrasTotal / reserve) * 100) : 0;
@@ -222,43 +235,52 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
                 }}>
                   Extras
                 </div>
-                {activeAddOns.map(a => (
-                  <div key={a.id} style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '5px 0', gap: 8,
-                  }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ fontSize: 13, color: COLORS.white }}>
-                        {a.name}
-                      </span>
-                      {a.quantity > 1 && (
-                        <span style={{
-                          fontSize: 11, color: COLORS.orange, fontFamily: FONTS.mono,
-                          marginLeft: 6,
-                        }}>
-                          &times;{a.quantity}
+                {groupedAddOns.map(g => {
+                  const lastId = g.ids[g.ids.length - 1];
+                  const isRemoving = g.ids.some(id => removing === id);
+                  return (
+                    <div key={g.name} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '5px 0', gap: 8,
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ fontSize: 13, color: COLORS.white }}>
+                          {g.name}
                         </span>
-                      )}
+                        {g.totalQty > 1 && (
+                          <span style={{
+                            fontSize: 11, color: COLORS.orange, fontFamily: FONTS.mono,
+                            marginLeft: 6,
+                          }}>
+                            &times;{g.totalQty}
+                          </span>
+                        )}
+                        {g.totalQty > 1 && (
+                          <span style={{ fontSize: 10, color: COLORS.gray, marginLeft: 4 }}>
+                            @ ${g.unitPrice.toFixed(2)} ea
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.green, flexShrink: 0 }}>
+                        ${g.totalSubtotal.toFixed(2)}
+                      </span>
+                      <button
+                        onClick={() => handleRemove({ id: lastId, name: g.name, unitPrice: g.unitPrice, quantity: 1, subtotal: g.unitPrice, status: 'pre_selected', addedBy: 'rider' })}
+                        disabled={isRemoving}
+                        style={{
+                          background: 'rgba(255,82,82,0.12)', border: 'none',
+                          borderRadius: 8, padding: '4px 10px',
+                          color: COLORS.red, fontSize: 11, fontWeight: 700,
+                          cursor: isRemoving ? 'not-allowed' : 'pointer',
+                          fontFamily: FONTS.body, flexShrink: 0,
+                          opacity: isRemoving ? 0.5 : 1,
+                        }}
+                      >
+                        {isRemoving ? '...' : g.totalQty > 1 ? '-1' : 'Remove'}
+                      </button>
                     </div>
-                    <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.green, flexShrink: 0 }}>
-                      ${a.subtotal.toFixed(2)}
-                    </span>
-                    <button
-                      onClick={() => handleRemove(a)}
-                      disabled={removing === a.id}
-                      style={{
-                        background: 'rgba(255,82,82,0.12)', border: 'none',
-                        borderRadius: 8, padding: '4px 10px',
-                        color: COLORS.red, fontSize: 11, fontWeight: 700,
-                        cursor: removing === a.id ? 'not-allowed' : 'pointer',
-                        fontFamily: FONTS.body, flexShrink: 0,
-                        opacity: removing === a.id ? 0.5 : 1,
-                      }}
-                    >
-                      {removing === a.id ? '...' : 'Remove'}
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Extras subtotal */}
