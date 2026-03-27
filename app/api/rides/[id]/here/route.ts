@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { notifyRiderDriverHere } from '@/lib/sms/textbee';
 
 export async function POST(
   _req: NextRequest,
@@ -40,6 +41,17 @@ export async function POST(
 
     await publishRideUpdate(rideId, 'status_change', { status: 'here', message: 'Driver has arrived', waitMinutes }).catch(() => {});
     await notifyUser(ride.rider_id as string, 'ride_update', { rideId, status: 'here', message: 'Your driver is here!', waitMinutes }).catch(() => {});
+
+    // SMS rider
+    try {
+      const [riderPhoneRows, driverNameRows] = await Promise.all([
+        sql`SELECT phone FROM rider_profiles WHERE user_id = ${ride.rider_id} LIMIT 1`,
+        sql`SELECT display_name FROM driver_profiles WHERE user_id = ${userId} LIMIT 1`,
+      ]);
+      const riderPhone = (riderPhoneRows[0] as Record<string, unknown>)?.phone as string;
+      const driverName = (driverNameRows[0] as Record<string, unknown>)?.display_name as string || 'Your driver';
+      if (riderPhone) notifyRiderDriverHere(riderPhone, driverName).catch(() => {});
+    } catch { /* non-blocking */ }
 
     return NextResponse.json({ status: 'here', rideId, waitMinutes });
   } catch (error) {

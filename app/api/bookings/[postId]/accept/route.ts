@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { notifyRiderBookingAccepted } from '@/lib/sms/textbee';
 
 export async function POST(
   _req: NextRequest,
@@ -155,6 +156,15 @@ export async function POST(
       status: 'matched',
       message: 'Ride matched — driver will be OTW soon',
     }).catch(() => {});
+
+    // SMS rider that their booking was accepted
+    try {
+      const riderPhoneRows = await sql`SELECT phone FROM rider_profiles WHERE user_id = ${riderId} LIMIT 1`;
+      const riderPhone = (riderPhoneRows[0] as Record<string, unknown>)?.phone as string;
+      if (riderPhone) {
+        notifyRiderBookingAccepted(riderPhone, driverName, rideId).catch(() => {});
+      }
+    } catch { /* non-blocking */ }
 
     return NextResponse.json({ status: 'matched', rideId });
   } catch (error) {

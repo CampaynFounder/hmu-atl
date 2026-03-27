@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { notifyUser } from '@/lib/ably/server';
+import { notifyRiderBookingDeclined } from '@/lib/sms/textbee';
 
 export async function POST(
   _req: NextRequest,
@@ -28,9 +30,29 @@ export async function POST(
     return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
   }
 
+  const riderId = (postRows[0] as Record<string, unknown>).user_id as string;
+
   await sql`UPDATE hmu_posts SET status = 'cancelled' WHERE id = ${postId}`;
 
-  // TODO: Ably notification to rider user:{post.user_id}:notify
+  // Get driver name for notification
+  const driverNameRows = await sql`SELECT display_name FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1`;
+  const driverName = (driverNameRows[0] as Record<string, unknown>)?.display_name as string || 'The driver';
+
+  // Ably notification to rider
+  notifyUser(riderId, 'booking_declined', {
+    postId,
+    driverName,
+    message: `${driverName} passed on your request. Try another driver.`,
+  }).catch(() => {});
+
+  // SMS notification to rider
+  try {
+    const riderPhoneRows = await sql`SELECT phone FROM rider_profiles WHERE user_id = ${riderId} LIMIT 1`;
+    const riderPhone = (riderPhoneRows[0] as Record<string, unknown>)?.phone as string;
+    if (riderPhone) {
+      notifyRiderBookingDeclined(riderPhone, driverName).catch(() => {});
+    }
+  } catch { /* non-blocking */ }
 
   return NextResponse.json({ status: 'cancelled' });
 }

@@ -77,3 +77,38 @@ export async function notifyDriverGeneric(
 ): Promise<SendSmsResult> {
   return sendSms(driverPhone, `HMU ATL: ${text}`);
 }
+
+// ── Rider Notification Templates ──
+
+export async function notifyRiderBookingAccepted(
+  riderPhone: string,
+  driverName: string,
+  rideId: string
+): Promise<SendSmsResult> {
+  const message = `HMU ATL: ${driverName} accepted your ride! Open the app to send COO and share your location. atl.hmucashride.com/ride/${rideId}`;
+  return sendSms(riderPhone, message);
+}
+
+export async function notifyRiderBookingDeclined(
+  riderPhone: string,
+  driverName: string
+): Promise<SendSmsResult> {
+  const message = `HMU ATL: ${driverName} passed on your request. Try another driver or post to the feed. atl.hmucashride.com/rider/browse`;
+  return sendSms(riderPhone, message);
+}
+
+export async function notifyRiderDriverOtw(
+  riderPhone: string,
+  driverName: string
+): Promise<SendSmsResult> {
+  const message = `HMU ATL: ${driverName} is OTW to you now! Track them in the app.`;
+  return sendSms(riderPhone, message);
+}
+
+export async function notifyRiderDriverHere(
+  riderPhone: string,
+  driverName: string
+): Promise<SendSmsResult> {
+  const message = `HMU ATL: ${driverName} is HERE! Head to the car.`;
+  return sendSms(riderPhone, message);
+}
