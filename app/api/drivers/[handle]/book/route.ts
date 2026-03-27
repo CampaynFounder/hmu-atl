@@ -103,7 +103,7 @@ export async function POST(
     console.error('Ably notify failed:', e);
   }
 
-  // SMS notification to driver (non-blocking)
+  // SMS notification to driver — inline VoIP.ms call to bypass any env issues
   try {
     const driverPhoneRows = await sql`
       SELECT phone, payout_setup_complete FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
@@ -118,22 +118,45 @@ export async function POST(
     `;
     const riderRow = riderNameRows[0] as Record<string, unknown> | undefined;
     const riderName = (riderRow?.handle as string) || (riderRow?.name as string) || 'A rider';
-    console.log('[BOOK] SMS lookup — driverPhone:', driverPhone, '| riderName:', riderName);
-    console.log('[BOOK] VOIPMS env check — username:', !!process.env.VOIPMS_API_USERNAME, '| password:', !!process.env.VOIPMS_API_PASSWORD, '| did:', !!process.env.VOIPMS_DID_ATL);
+
     if (driverPhone) {
       const tw = (timeWindow || {}) as Record<string, unknown>;
-      const smsResult = await notifyDriverNewBooking(driverPhone, riderName, {
-        destination: (tw.destination as string) || undefined,
-        time: (tw.time as string) || undefined,
-        price: Number(price) || undefined,
-        payoutSetup,
+      let smsMsg = `HMU ATL: New ride request from ${riderName}.`;
+      if (tw.destination) smsMsg += ` Where: ${tw.destination}.`;
+      if (tw.time) smsMsg += ` When: ${tw.time}.`;
+      if (price) smsMsg += ` Amount: $${price}.`;
+      smsMsg += ` Expires in 15 min.`;
+      if (!payoutSetup) {
+        smsMsg += ` Link Payout Method To Accept. atl.hmucashride.com/driver/payout-setup`;
+      } else {
+        smsMsg += ` atl.hmucashride.com/driver/home`;
+      }
+
+      // Direct VoIP.ms call
+      const dst = driverPhone.replace(/\D/g, '').replace(/^1/, '');
+      const smsParams = new URLSearchParams({
+        api_username: process.env.VOIPMS_API_USERNAME || '',
+        api_password: process.env.VOIPMS_API_PASSWORD || '',
+        method: 'sendSMS',
+        did: process.env.VOIPMS_DID_ATL || '',
+        dst,
+        message: smsMsg,
       });
-      console.log('[BOOK] SMS result:', JSON.stringify(smsResult));
-    } else {
-      console.warn('[BOOK] No driver phone found for SMS');
+
+      console.log('[BOOK-SMS] Sending to:', dst, '| DID:', process.env.VOIPMS_DID_ATL || 'MISSING', '| Username:', process.env.VOIPMS_API_USERNAME || 'MISSING');
+
+      const smsRes = await fetch(`https://voip.ms/api/v1/rest.php?${smsParams.toString()}`);
+      const smsData = await smsRes.json();
+      console.log('[BOOK-SMS] Result:', JSON.stringify(smsData));
+
+      // Log to DB
+      await sql`
+        INSERT INTO sms_log (to_phone, from_did, message, status, voipms_status, event_type, market)
+        VALUES (${dst}, ${process.env.VOIPMS_DID_ATL || 'unknown'}, ${smsMsg}, ${smsData.status === 'success' ? 'sent' : 'failed'}, ${smsData.status}, 'new_booking', 'atl')
+      `;
     }
   } catch (e) {
-    console.error('SMS failed:', e);
+    console.error('[BOOK-SMS] Error:', e);
   }
 
   return NextResponse.json({ postId: post.id, expiresAt: post.booking_expires_at }, { status: 201 });
