@@ -23,7 +23,6 @@ export async function GET(
         u.id as user_id,
         u.chill_score,
         u.completed_rides,
-        u.dispute_count,
         u.og_status,
         u.account_status
       FROM rider_profiles rp
@@ -39,13 +38,20 @@ export async function GET(
 
     const r = rows[0] as Record<string, unknown>;
 
-    // Fetch ratings breakdown
-    const ratingRows = await sql`
-      SELECT rating_type, COUNT(*)::int as count
-      FROM ratings
-      WHERE rated_id = ${r.user_id}
-      GROUP BY rating_type
-    `;
+    // Fetch ratings breakdown + dispute count
+    const [ratingRows, disputeRows] = await Promise.all([
+      sql`
+        SELECT rating_type, COUNT(*)::int as count
+        FROM ratings
+        WHERE rated_id = ${r.user_id}
+        GROUP BY rating_type
+      `,
+      sql`
+        SELECT COUNT(*)::int as count FROM disputes
+        WHERE filed_by != ${r.user_id}
+          AND ride_id IN (SELECT id FROM rides WHERE rider_id = ${r.user_id})
+      `,
+    ]);
 
     const ratings: Record<string, number> = {};
     let totalRatings = 0;
@@ -63,7 +69,7 @@ export async function GET(
       chillScore: Number(r.chill_score ?? 0),
       completedRides: Number(r.completed_rides ?? 0),
       ogStatus: r.og_status || false,
-      disputeCount: Number(r.dispute_count ?? 0),
+      disputeCount: Number((disputeRows[0] as Record<string, unknown>)?.count ?? 0),
       memberSince: r.created_at,
       ratings,
       totalRatings,

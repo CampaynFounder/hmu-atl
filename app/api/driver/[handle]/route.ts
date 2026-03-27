@@ -28,7 +28,6 @@ export async function GET(
         u.tier,
         u.chill_score,
         u.completed_rides,
-        u.dispute_count,
         u.og_status,
         u.account_status
       FROM driver_profiles dp
@@ -44,8 +43,8 @@ export async function GET(
 
     const d = rows[0] as Record<string, unknown>;
 
-    // Fetch ratings, services, and response stats in parallel
-    const [ratingRows, serviceRows, responseRows] = await Promise.all([
+    // Fetch ratings, services, response stats, and disputes in parallel
+    const [ratingRows, serviceRows, responseRows, disputeRows] = await Promise.all([
       sql`
         SELECT rating_type, COUNT(*)::int as count
         FROM ratings
@@ -68,6 +67,11 @@ export async function GET(
         FROM rides
         WHERE driver_id = ${d.user_id}
       `,
+      sql`
+        SELECT COUNT(*)::int as count FROM disputes
+        WHERE filed_by != ${d.user_id}
+          AND ride_id IN (SELECT id FROM rides WHERE driver_id = ${d.user_id})
+      `,
     ]);
 
     const ratings: Record<string, number> = {};
@@ -78,6 +82,7 @@ export async function GET(
     }
 
     const stats = responseRows[0] as { completed: number; cancelled: number } | undefined;
+    const disputeCount = Number((disputeRows[0] as Record<string, unknown>)?.count ?? 0);
 
     const vehicleInfo = d.vehicle_info as Record<string, unknown> | null;
     const pricing = d.pricing as Record<string, unknown> | null;
@@ -91,7 +96,7 @@ export async function GET(
       isHmuFirst: d.tier === 'hmu_first',
       chillScore: Number(d.chill_score ?? 0),
       completedRides: Number(d.completed_rides ?? 0),
-      disputeCount: Number(d.dispute_count ?? 0),
+      disputeCount,
       memberSince: d.created_at,
       ratings,
       totalRatings,
