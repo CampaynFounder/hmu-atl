@@ -111,9 +111,10 @@ export async function POST(
     const driverPhone = (driverPhoneRows[0] as Record<string, unknown>)?.phone as string;
     const payoutSetup = !!(driverPhoneRows[0] as Record<string, unknown>)?.payout_setup_complete;
     const riderNameRows = await sql`
-      SELECT rp.handle FROM rider_profiles rp WHERE rp.user_id = ${rider.id} LIMIT 1
+      SELECT rp.handle, rp.display_name FROM rider_profiles rp WHERE rp.user_id = ${rider.id} LIMIT 1
     `;
-    const riderName = (riderNameRows[0] as Record<string, unknown>)?.handle as string || 'A rider';
+    const riderRow = riderNameRows[0] as Record<string, unknown> | undefined;
+    const riderName = (riderRow?.handle as string) || (riderRow?.display_name as string) || 'A rider';
 
     if (driverPhone) {
       const tw = (timeWindow || {}) as Record<string, unknown>;

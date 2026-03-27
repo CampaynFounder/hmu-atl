@@ -208,6 +208,28 @@ export default function DriverHomeClient({
           </div>
         )}
 
+        {/* Incoming Requests — FIRST so drivers see them immediately */}
+        <h2 className="section-title">Incoming Requests</h2>
+
+        {loadingRequests ? (
+          <div className="loading-dots">
+            <div className="loading-dot" />
+            <div className="loading-dot" />
+            <div className="loading-dot" />
+          </div>
+        ) : requests.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">{'\uD83D\uDCED'}</div>
+            <p className="empty-text">
+              No requests yet — share your link to get started
+            </p>
+          </div>
+        ) : (
+          requests.map((req) => (
+            <RequestCard key={req.id} req={req} actionLoading={actionLoading} onAction={handleAction} />
+          ))
+        )}
+
         {/* Launch Deal */}
         <DealCard />
 
@@ -340,27 +362,6 @@ export default function DriverHomeClient({
           </p>
         </div>
 
-        {/* Incoming Requests */}
-        <h2 className="section-title">Incoming Requests</h2>
-
-        {loadingRequests ? (
-          <div className="loading-dots">
-            <div className="loading-dot" />
-            <div className="loading-dot" />
-            <div className="loading-dot" />
-          </div>
-        ) : requests.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">📭</div>
-            <p className="empty-text">
-              No requests yet — share your link to get started
-            </p>
-          </div>
-        ) : (
-          requests.map((req) => (
-            <RequestCard key={req.id} req={req} actionLoading={actionLoading} onAction={handleAction} />
-          ))
-        )}
       </div>
     </>
   );

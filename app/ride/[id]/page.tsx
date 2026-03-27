@@ -23,7 +23,7 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
     rideRows = await sql`
       SELECT r.*,
         dp.display_name as driver_name, dp.handle as driver_handle, dp.vehicle_info as driver_vehicle_info,
-        rp.first_name as rider_first_name, rp.handle as rider_handle, rp.avatar_url as rider_avatar_url
+        rp.display_name as rider_display_name, rp.handle as rider_handle, rp.avatar_url as rider_avatar_url
       FROM rides r
       LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
       LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
@@ -54,8 +54,8 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
       isDriver={isDriver}
       initialRide={{
         status: ride.status as string,
-        driverName: (ride.driver_handle as string) || 'Driver',
-        riderName: (ride.rider_handle as string) || 'Rider',
+        driverName: (ride.driver_handle as string) || (ride.driver_name as string) || 'Driver',
+        riderName: (ride.rider_handle as string) || (ride.rider_display_name as string) || 'Rider',
         riderHandle: (ride.rider_handle as string) || null,
         riderAvatarUrl: (ride.rider_avatar_url as string) || null,
         agreedPrice: Number(ride.final_agreed_price || ride.amount || 0),

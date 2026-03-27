@@ -15,7 +15,7 @@ export default async function DriverRidesPage() {
     SELECT r.id, r.status, r.final_agreed_price, r.agreement_summary,
            r.created_at, r.started_at, r.ended_at, r.driver_payout_amount,
            r.platform_fee_amount, r.driver_rating,
-           COALESCE(rp.handle, 'Rider') as rider_name
+           COALESCE(rp.handle, rp.display_name, 'Rider') as rider_name
     FROM rides r
     LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
     WHERE r.driver_id = ${userId}

@@ -25,7 +25,7 @@ export async function GET() {
       p.booking_expires_at,
       p.expires_at,
       p.created_at,
-      COALESCE(rp.handle, 'Rider') AS rider_name,
+      COALESCE(rp.handle, rp.display_name, 'Rider') AS rider_name,
       rp.handle AS rider_handle,
       rp.avatar_url AS rider_avatar_url,
       rp.video_url AS rider_video_url,
