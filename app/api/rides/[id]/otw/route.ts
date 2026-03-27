@@ -53,10 +53,10 @@ export async function POST(
     try {
       const [riderPhoneRows, driverNameRows] = await Promise.all([
         sql`SELECT phone FROM rider_profiles WHERE user_id = ${ride.rider_id} LIMIT 1`,
-        sql`SELECT display_name FROM driver_profiles WHERE user_id = ${userId} LIMIT 1`,
+        sql`SELECT handle FROM driver_profiles WHERE user_id = ${userId} LIMIT 1`,
       ]);
       const riderPhone = (riderPhoneRows[0] as Record<string, unknown>)?.phone as string;
-      const driverName = (driverNameRows[0] as Record<string, unknown>)?.display_name as string || 'Your driver';
+      const driverName = (driverNameRows[0] as Record<string, unknown>)?.handle as string || 'Your driver';
       if (riderPhone) notifyRiderDriverOtw(riderPhone, driverName).catch(() => {});
     } catch { /* non-blocking */ }
 

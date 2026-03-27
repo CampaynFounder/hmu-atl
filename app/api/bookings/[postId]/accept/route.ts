@@ -138,9 +138,9 @@ export async function POST(
 
     // Get driver display name for notification
     const driverNameRows = await sql`
-      SELECT display_name FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
+      SELECT handle, display_name FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
     `;
-    const driverName = (driverNameRows[0] as Record<string, unknown>)?.display_name as string || 'A driver';
+    const driverName = (driverNameRows[0] as Record<string, unknown>)?.handle as string || (driverNameRows[0] as Record<string, unknown>)?.display_name as string || 'A driver';
 
     // Notify rider via Ably
     await notifyUser(riderId, 'booking_accepted', {

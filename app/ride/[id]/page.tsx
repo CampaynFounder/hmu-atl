@@ -54,8 +54,8 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
       isDriver={isDriver}
       initialRide={{
         status: ride.status as string,
-        driverName: (ride.driver_name as string) || 'Driver',
-        riderName: (ride.rider_first_name as string) || 'Rider',
+        driverName: (ride.driver_handle as string) || 'Driver',
+        riderName: (ride.rider_handle as string) || 'Rider',
         riderHandle: (ride.rider_handle as string) || null,
         riderAvatarUrl: (ride.rider_avatar_url as string) || null,
         agreedPrice: Number(ride.final_agreed_price || ride.amount || 0),

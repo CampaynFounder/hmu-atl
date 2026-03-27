@@ -35,8 +35,8 @@ export async function POST(
   await sql`UPDATE hmu_posts SET status = 'cancelled' WHERE id = ${postId}`;
 
   // Get driver name for notification
-  const driverNameRows = await sql`SELECT display_name FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1`;
-  const driverName = (driverNameRows[0] as Record<string, unknown>)?.display_name as string || 'The driver';
+  const driverNameRows = await sql`SELECT handle FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1`;
+  const driverName = (driverNameRows[0] as Record<string, unknown>)?.handle as string || 'The driver';
 
   // Ably notification to rider
   notifyUser(riderId, 'booking_declined', {

@@ -111,13 +111,9 @@ export async function POST(
     const driverPhone = (driverPhoneRows[0] as Record<string, unknown>)?.phone as string;
     const payoutSetup = !!(driverPhoneRows[0] as Record<string, unknown>)?.payout_setup_complete;
     const riderNameRows = await sql`
-      SELECT COALESCE(rp.display_name, rp.first_name, u.clerk_id) as name, rp.handle
-      FROM rider_profiles rp
-      JOIN users u ON u.id = rp.user_id
-      WHERE rp.user_id = ${rider.id} LIMIT 1
+      SELECT rp.handle FROM rider_profiles rp WHERE rp.user_id = ${rider.id} LIMIT 1
     `;
-    const riderRow = riderNameRows[0] as Record<string, unknown> | undefined;
-    const riderName = (riderRow?.handle as string) || (riderRow?.name as string) || 'A rider';
+    const riderName = (riderNameRows[0] as Record<string, unknown>)?.handle as string || 'A rider';
 
     if (driverPhone) {
       const tw = (timeWindow || {}) as Record<string, unknown>;
