@@ -81,8 +81,38 @@ export async function POST() {
       console.error('Failed to clean stale subs:', e);
     }
 
-    // Create a SetupIntent to collect the payment method
-    // After frontend confirms, GET /api/driver/upgrade creates the subscription
+    // Check if customer already has a default payment method — skip form if so
+    try {
+      const customer = await stripe.customers.retrieve(stripeCustomerId) as Stripe.Customer;
+      const defaultPm = customer.invoice_settings?.default_payment_method;
+      if (defaultPm) {
+        // Payment method on file — create subscription directly (one-tap)
+        return NextResponse.json({
+          hasPaymentMethod: true,
+          customerId: stripeCustomerId,
+        });
+      }
+      // Also check for any attached payment methods
+      const methods = await stripe.paymentMethods.list({
+        customer: stripeCustomerId,
+        type: 'card',
+        limit: 1,
+      });
+      if (methods.data.length > 0) {
+        // Set as default and proceed
+        await stripe.customers.update(stripeCustomerId, {
+          invoice_settings: { default_payment_method: methods.data[0].id },
+        });
+        return NextResponse.json({
+          hasPaymentMethod: true,
+          customerId: stripeCustomerId,
+        });
+      }
+    } catch {
+      // Non-fatal — fall through to SetupIntent
+    }
+
+    // No payment method on file — create SetupIntent to collect one
     const setupIntent = await stripe.setupIntents.create({
       customer: stripeCustomerId,
       automatic_payment_methods: { enabled: true },

@@ -109,13 +109,36 @@ export async function POST(req: NextRequest) {
       driver.stripe_customer_id = customer.id;
     }
 
-    // If paymentMethodId provided, charge directly and save the card
-    if (paymentMethodId) {
+    // Try to find a payment method: explicit, default on customer, or any attached card
+    let resolvedPaymentMethodId = paymentMethodId;
+    if (!resolvedPaymentMethodId && driver.stripe_customer_id) {
+      try {
+        const customer = await stripe.customers.retrieve(driver.stripe_customer_id) as Stripe.Customer;
+        const defaultPm = customer.invoice_settings?.default_payment_method;
+        if (defaultPm) {
+          resolvedPaymentMethodId = typeof defaultPm === 'string' ? defaultPm : defaultPm.id;
+        } else {
+          const methods = await stripe.paymentMethods.list({
+            customer: driver.stripe_customer_id,
+            type: 'card',
+            limit: 1,
+          });
+          if (methods.data.length > 0) {
+            resolvedPaymentMethodId = methods.data[0].id;
+          }
+        }
+      } catch {
+        // Fall through to SetupIntent
+      }
+    }
+
+    // If we have a payment method (explicit or found on customer), charge directly
+    if (resolvedPaymentMethodId) {
       // Attach payment method to customer for future use
       try {
-        await stripe.paymentMethods.attach(paymentMethodId, { customer: driver.stripe_customer_id });
+        await stripe.paymentMethods.attach(resolvedPaymentMethodId, { customer: driver.stripe_customer_id });
         await stripe.customers.update(driver.stripe_customer_id, {
-          invoice_settings: { default_payment_method: paymentMethodId },
+          invoice_settings: { default_payment_method: resolvedPaymentMethodId },
         });
       } catch {
         // May already be attached — non-fatal
@@ -125,7 +148,7 @@ export async function POST(req: NextRequest) {
         amount: pack === '10' ? 499 : 999, // $4.99 or $9.99
         currency: 'usd',
         customer: driver.stripe_customer_id,
-        payment_method: paymentMethodId,
+        payment_method: resolvedPaymentMethodId,
         confirm: true,
         off_session: true,
         setup_future_usage: 'off_session',

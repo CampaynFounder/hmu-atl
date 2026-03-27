@@ -44,8 +44,13 @@ export default function UpgradeOverlay({ open, onClose, onUpgraded }: Props) {
         setLoading(false);
         return;
       }
-      // If subscription is already active (e.g. $0 price or existing payment)
+      // If subscription is already active
       if (data.alreadyActive) {
+        handlePaymentSuccess();
+        return;
+      }
+      // If driver has a saved payment method — one-tap upgrade (no form)
+      if (data.hasPaymentMethod) {
         handlePaymentSuccess();
         return;
       }
@@ -55,7 +60,7 @@ export default function UpgradeOverlay({ open, onClose, onUpgraded }: Props) {
         return;
       }
       setClientSecret(data.clientSecret);
-      setIsSetup(true); // Always SetupIntent now
+      setIsSetup(true);
       setLoading(false);
       setStep('payment');
       return;
