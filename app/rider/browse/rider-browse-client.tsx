@@ -317,7 +317,7 @@ export default function RiderBrowseClient({ drivers }: Props) {
                         background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.15)',
                         borderRadius: '100px', padding: '3px 10px', letterSpacing: '0.5px',
                       }}>
-                        {'\u2713'} Payment Ready
+                        {'\u2713'} RideReady
                       </span>
                     )}
                     {driver.hasVibeVideo && (
