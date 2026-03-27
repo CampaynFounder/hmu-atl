@@ -29,11 +29,15 @@
   "images": {
     "binding": "IMAGES"
   },
+  "vars": {
+    "VOIPMS_API_USERNAME": "pharren.lowther@gmail.com",
+    "VOIPMS_DID_ATL": "4049137292"
+  },
   "observability": {
     "enabled": true
   },
   "routes": [
     { "pattern": "atl.hmucashride.com", "custom_domain": true },
-    { "pattern": "hmucashride.com", "custom_domain": true }
+    { "pattern": "hmucashride.com/*", "zone_name": "hmucashride.com" }
   ]
 }
