@@ -465,6 +465,8 @@ function InlineBookingForm({
   const [hasPaymentMethod, setHasPaymentMethod] = useState<boolean | null>(null);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [paymentFormReady, setPaymentFormReady] = useState(false);
+  const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const parsedAmount = parseFloat(amount) || 0;
   const belowMin = enforceMinimum && minPrice > 0 && parsedAmount > 0 && parsedAmount < minPrice;
@@ -518,6 +520,9 @@ function InlineBookingForm({
       } else {
         if (data.code === 'no_payment_method') {
           setShowPaymentForm(true);
+        } else if (res.status === 409 && data.postId) {
+          setActiveBookingId(data.postId);
+          setError('You already have a pending request with this driver');
         } else {
           setError(data.error || 'Failed to send');
         }
@@ -531,8 +536,24 @@ function InlineBookingForm({
   function handlePaymentMethodSaved() {
     setHasPaymentMethod(true);
     setShowPaymentForm(false);
-    // Auto-submit the booking now that payment is linked
     setTimeout(() => handleSubmit(), 300);
+  }
+
+  async function handleCancelBooking() {
+    setCancelling(true);
+    try {
+      const res = await fetch(`/api/drivers/${handle}/book`, { method: 'DELETE' });
+      if (res.ok) {
+        setActiveBookingId(null);
+        setError(null);
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Failed to cancel');
+      }
+    } catch {
+      setError('Network error');
+    }
+    setCancelling(false);
   }
 
   if (success) {
@@ -675,6 +696,24 @@ function InlineBookingForm({
 
         {error && (
           <div style={{ fontSize: '12px', color: '#FF5252' }}>{error}</div>
+        )}
+
+        {/* Cancel active booking */}
+        {activeBookingId && (
+          <button
+            onClick={handleCancelBooking}
+            disabled={cancelling}
+            style={{
+              width: '100%', padding: '12px', borderRadius: '100px',
+              border: '1px solid rgba(255,82,82,0.3)', background: 'transparent',
+              color: '#FF5252', fontSize: '13px', fontWeight: 600,
+              cursor: cancelling ? 'not-allowed' : 'pointer',
+              opacity: cancelling ? 0.5 : 1,
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            }}
+          >
+            {cancelling ? 'Cancelling...' : 'Cancel Pending Request'}
+          </button>
         )}
 
         {/* Inline payment form — shown when rider needs to link a card */}

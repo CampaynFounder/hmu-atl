@@ -64,6 +64,13 @@ export async function POST(
     return NextResponse.json({ error: 'You already have an active ride', code: 'active_ride' }, { status: 409 });
   }
 
+  // Auto-expire stale bookings before checking
+  await sql`
+    UPDATE hmu_posts SET status = 'expired'
+    WHERE user_id = ${rider.id} AND post_type = 'direct_booking'
+      AND status = 'active' AND booking_expires_at < NOW()
+  `;
+
   // Check for an existing active booking to this driver
   const existing = await getActiveDirectBooking(rider.id, driverUserId);
   if (existing) {
@@ -114,4 +121,38 @@ export async function POST(
   }
 
   return NextResponse.json({ postId: post.id, expiresAt: post.booking_expires_at }, { status: 201 });
+}
+
+// DELETE — rider cancels their active booking request
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ handle: string }> }
+) {
+  const { userId: clerkId } = await auth();
+  if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { handle } = await params;
+
+  const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+  if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  const riderId = (userRows[0] as { id: string }).id;
+
+  const driverRows = await sql`SELECT user_id FROM driver_profiles WHERE handle = ${handle} LIMIT 1`;
+  if (!driverRows.length) return NextResponse.json({ error: 'Driver not found' }, { status: 404 });
+  const driverUserId = (driverRows[0] as { user_id: string }).user_id;
+
+  const result = await sql`
+    UPDATE hmu_posts SET status = 'cancelled'
+    WHERE user_id = ${riderId}
+      AND target_driver_id = ${driverUserId}
+      AND post_type = 'direct_booking'
+      AND status = 'active'
+    RETURNING id
+  `;
+
+  if (!result.length) {
+    return NextResponse.json({ error: 'No active booking to cancel' }, { status: 404 });
+  }
+
+  return NextResponse.json({ status: 'cancelled', postId: (result[0] as { id: string }).id });
 }
