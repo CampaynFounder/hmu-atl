@@ -5,6 +5,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { parseTimeShorthand } from '@/lib/utils/time-parser';
 import { posthog } from '@/components/analytics/posthog-provider';
+import DriverProfileOverlay from '@/components/driver/driver-profile-overlay';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
@@ -36,6 +37,7 @@ interface Props {
 
 export default function RiderBrowseClient({ drivers }: Props) {
   const [expandedHandle, setExpandedHandle] = useState<string | null>(null);
+  const [viewingDriverHandle, setViewingDriverHandle] = useState<string | null>(null);
   const [filterFwu, setFilterFwu] = useState(false);
   const [filterMaxPrice, setFilterMaxPrice] = useState('');
   const [filterArea, setFilterArea] = useState('');
@@ -52,6 +54,7 @@ export default function RiderBrowseClient({ drivers }: Props) {
   });
 
   return (
+    <>
     <div
       style={{
         background: '#080808',
@@ -211,7 +214,7 @@ export default function RiderBrowseClient({ drivers }: Props) {
                 {/* Card content */}
                 <div style={{ padding: '16px 20px 20px' }}>
                   {/* Name row + badges */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
                     <div style={{ fontSize: '18px', fontWeight: 700 }}>{driver.displayName}</div>
                     {driver.isHmuFirst && (
                       <span style={{
@@ -263,6 +266,16 @@ export default function RiderBrowseClient({ drivers }: Props) {
                         ))}
                       </span>
                     )}
+                  </div>
+                  <div
+                    onClick={(e) => { e.stopPropagation(); setViewingDriverHandle(driver.handle); }}
+                    style={{
+                      fontSize: '12px', color: '#888', marginBottom: '8px',
+                      cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px',
+                    }}
+                  >
+                    @{driver.handle}
+                    <span style={{ fontSize: '10px', color: '#00E676' }}>view</span>
                   </div>
 
                   {/* Vehicle summary */}
@@ -434,6 +447,14 @@ export default function RiderBrowseClient({ drivers }: Props) {
         </div>
       )}
     </div>
+    {viewingDriverHandle && (
+      <DriverProfileOverlay
+        handle={viewingDriverHandle}
+        open={true}
+        onClose={() => setViewingDriverHandle(null)}
+      />
+    )}
+    </>
   );
 }
 

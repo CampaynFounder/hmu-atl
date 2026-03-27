@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAbly } from '@/hooks/use-ably';
 import { posthog } from '@/components/analytics/posthog-provider';
+import DriverProfileOverlay from '@/components/driver/driver-profile-overlay';
 
 interface Props {
   displayName: string;
@@ -35,6 +36,7 @@ const ACTIVE_STATUSES = ['active', 'matched'];
 export default function RiderFeedClient({ displayName, userId }: Props) {
   const [input, setInput] = useState('');
   const [posting, setPosting] = useState(false);
+  const [viewingDriverHandle, setViewingDriverHandle] = useState<string | null>(null);
   const [posts, setPosts] = useState<PostedRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isCash, setIsCash] = useState(false);
@@ -336,7 +338,7 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
                         overflow: 'hidden', textOverflow: 'ellipsis',
                       }}>
                         {post.type === 'direct' && post.driverHandle
-                          ? <span style={{ color: '#448AFF' }}>@{post.driverHandle}</span>
+                          ? <span onClick={(e) => { e.stopPropagation(); setViewingDriverHandle(post.driverHandle!); }} style={{ color: '#448AFF', cursor: 'pointer' }}>@{post.driverHandle}</span>
                           : null}
                         {post.type === 'direct' && post.driverHandle ? ' ' : ''}
                         {post.message || 'Ride request'}
@@ -382,7 +384,7 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
                         overflow: 'hidden', textOverflow: 'ellipsis',
                       }}>
                         {post.type === 'direct' && post.driverHandle
-                          ? <span style={{ color: '#448AFF' }}>@{post.driverHandle}</span>
+                          ? <span onClick={(e) => { e.stopPropagation(); setViewingDriverHandle(post.driverHandle!); }} style={{ color: '#448AFF', cursor: 'pointer' }}>@{post.driverHandle}</span>
                           : null}
                         {post.type === 'direct' && post.driverHandle ? ' ' : ''}
                         {post.message || 'Ride request'}
@@ -524,6 +526,13 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
           )}
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
+      )}
+      {viewingDriverHandle && (
+        <DriverProfileOverlay
+          handle={viewingDriverHandle}
+          open={true}
+          onClose={() => setViewingDriverHandle(null)}
+        />
       )}
     </>
   );
