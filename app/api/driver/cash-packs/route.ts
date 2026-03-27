@@ -109,8 +109,18 @@ export async function POST(req: NextRequest) {
       driver.stripe_customer_id = customer.id;
     }
 
-    // If paymentMethodId provided, charge directly
+    // If paymentMethodId provided, charge directly and save the card
     if (paymentMethodId) {
+      // Attach payment method to customer for future use
+      try {
+        await stripe.paymentMethods.attach(paymentMethodId, { customer: driver.stripe_customer_id });
+        await stripe.customers.update(driver.stripe_customer_id, {
+          invoice_settings: { default_payment_method: paymentMethodId },
+        });
+      } catch {
+        // May already be attached — non-fatal
+      }
+
       const paymentIntent = await stripe.paymentIntents.create({
         amount: pack === '10' ? 499 : 999, // $4.99 or $9.99
         currency: 'usd',
@@ -118,6 +128,7 @@ export async function POST(req: NextRequest) {
         payment_method: paymentMethodId,
         confirm: true,
         off_session: true,
+        setup_future_usage: 'off_session',
         metadata: { userId: driver.user_id, pack, rides: String(packInfo.rides) },
       });
 

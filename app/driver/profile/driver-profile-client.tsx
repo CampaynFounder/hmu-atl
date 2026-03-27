@@ -1,10 +1,13 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { VideoRecorder } from '@/components/onboarding/video-recorder';
 import PayoutSection from './payout-section';
 import DealPill from '@/components/driver/deal-pill';
+
+const DriverPaymentForm = dynamic(() => import('@/components/payments/driver-payment-form'), { ssr: false });
 
 interface ProfileData {
   handle: string;
@@ -332,6 +335,9 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
           bankName={payout.bankName}
           tier={user.tier}
         />
+
+        {/* Linked Payment Method */}
+        <PaymentMethodSection />
 
         {/* HMU First Subscription */}
         {user.tier === 'hmu_first' && (
@@ -820,5 +826,97 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
         </div>
       )}
     </>
+  );
+}
+
+function PaymentMethodSection() {
+  const [hasMethod, setHasMethod] = useState<boolean | null>(null);
+  const [brand, setBrand] = useState<string | null>(null);
+  const [last4, setLast4] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/driver/payment-setup')
+      .then(r => r.json())
+      .then(data => {
+        setHasMethod(data.hasPaymentMethod || false);
+        setBrand(data.brand || null);
+        setLast4(data.last4 || null);
+      })
+      .catch(() => setHasMethod(false))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSaved = () => {
+    setShowForm(false);
+    fetch('/api/driver/payment-setup')
+      .then(r => r.json())
+      .then(data => {
+        setHasMethod(true);
+        setBrand(data.brand || null);
+        setLast4(data.last4 || null);
+      })
+      .catch(() => {});
+  };
+
+  return (
+    <div className="dp-section">
+      <div className="dp-section-title">Payment Method</div>
+
+      {loading ? (
+        <div style={{ fontSize: 13, color: '#888', padding: '12px 0' }}>Checking...</div>
+      ) : hasMethod && !showForm ? (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 20 }}>{'\uD83D\uDCB3'}</span>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>
+                  {(brand || 'Card').charAt(0).toUpperCase() + (brand || 'card').slice(1)} ending in {last4}
+                </div>
+                <div style={{ fontSize: 12, color: '#888' }}>Used for HMU First &amp; Cash Packs</div>
+              </div>
+            </div>
+            <span style={{ color: '#00E676', fontSize: 16 }}>{'\u2713'}</span>
+          </div>
+          <button
+            onClick={() => setShowForm(true)}
+            style={{
+              display: 'block', width: '100%', marginTop: 8,
+              textAlign: 'center', fontSize: 13, color: '#00E676', fontWeight: 600,
+              padding: 10, border: '1px solid rgba(0,230,118,0.2)', borderRadius: 100,
+              background: 'transparent', cursor: 'pointer',
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            }}
+          >
+            Update card
+          </button>
+        </>
+      ) : (
+        <>
+          {!showForm && (
+            <div style={{ fontSize: 13, color: '#FFB300', marginBottom: 12, lineHeight: 1.4 }}>
+              Link a card for one-tap HMU First upgrades and Cash Pack purchases.
+            </div>
+          )}
+          <DriverPaymentForm onSuccess={handleSaved} />
+          {showForm && (
+            <button
+              onClick={() => setShowForm(false)}
+              style={{
+                display: 'block', width: '100%', marginTop: 8,
+                textAlign: 'center', fontSize: 13, color: '#888',
+                padding: 10, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 100,
+                background: 'transparent', cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Cancel
+            </button>
+          )}
+        </>
+      )}
+    </div>
   );
 }

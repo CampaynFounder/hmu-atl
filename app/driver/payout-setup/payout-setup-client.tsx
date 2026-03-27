@@ -80,7 +80,17 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
   }
 
 
-  const allComplete = status.stripeComplete && status.hasExternalAccount;
+  const [hasPaymentMethod, setHasPaymentMethod] = useState<boolean | null>(null);
+
+  // Check if driver has a saved payment method
+  useEffect(() => {
+    fetch('/api/driver/payment-setup')
+      .then(r => r.json())
+      .then(data => setHasPaymentMethod(data.hasPaymentMethod || false))
+      .catch(() => setHasPaymentMethod(false));
+  }, []);
+
+  const allComplete = status.stripeComplete && status.hasExternalAccount && hasPaymentMethod === true;
 
   return (
     <div style={{
