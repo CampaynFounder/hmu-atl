@@ -60,7 +60,7 @@ export default function PayoutSection({ payoutSetupComplete, last4, accountType,
           <Link href="/driver/payout-setup" className="po-banner">
             <div className="po-banner-icon">{'\u26A0\uFE0F'}</div>
             <div className="po-banner-text">
-              Set up your payout account to start earning
+              Setup Payout Account So You Can Get Paid Upfront
             </div>
             <div className="po-banner-arrow">{'\u2192'}</div>
           </Link>

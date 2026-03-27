@@ -110,7 +110,7 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
         </Link>
       </div>
       <p style={{ fontSize: '14px', color: '#888', marginBottom: '24px', lineHeight: 1.5 }}>
-        Set up your payout account so you can get paid after every ride.
+        Setup Payout Account So You Can Get Paid Upfront.
       </p>
 
       {/* Refreshing */}
