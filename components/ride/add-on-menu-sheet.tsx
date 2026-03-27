@@ -53,6 +53,7 @@ const FONTS = {
 export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, addOns, onAdded, onRemoved }: Props) {
   const [menu, setMenu] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reserve, setReserve] = useState(0);
   const [adding, setAdding] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +67,7 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
       .then(data => {
         if (data.error) { setError(data.error); return; }
         setMenu(data.menu || []);
+        setReserve(data.reserve ?? 0);
       })
       .catch(() => setError('Failed to load menu'))
       .finally(() => setLoading(false));
@@ -74,6 +76,8 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
   const activeAddOns = addOns.filter(a => a.status !== 'removed' && a.status !== 'disputed');
   const extrasTotal = activeAddOns.reduce((sum, a) => sum + a.subtotal, 0);
   const rideTotal = agreedPrice + extrasTotal;
+  const remaining = Math.max(0, reserve - extrasTotal);
+  const budgetUsedPct = reserve > 0 ? Math.min(100, (extrasTotal / reserve) * 100) : 0;
 
   const handleAdd = async (item: MenuItem) => {
     if (adding) return;
@@ -298,6 +302,31 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
           </div>
         </div>
 
+        {/* Extras budget */}
+        {reserve > 0 && (
+          <div style={{
+            background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: 12, padding: '10px 14px', marginBottom: 16,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ fontSize: 11, color: COLORS.gray }}>Extras budget</span>
+              <span style={{ fontFamily: FONTS.mono, fontSize: 12, color: remaining > 0 ? COLORS.green : COLORS.orange }}>
+                ${remaining.toFixed(2)} left of ${reserve.toFixed(2)}
+              </span>
+            </div>
+            <div style={{
+              height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)', overflow: 'hidden',
+            }}>
+              <div style={{
+                height: '100%', borderRadius: 2,
+                width: `${budgetUsedPct}%`,
+                background: budgetUsedPct >= 90 ? COLORS.orange : COLORS.green,
+                transition: 'width 0.3s ease',
+              }} />
+            </div>
+          </div>
+        )}
+
         {/* Error */}
         {error && (
           <div style={{
@@ -371,13 +400,13 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
 
                     <button
                       onClick={() => handleAdd(item)}
-                      disabled={isAdding}
+                      disabled={isAdding || (reserve > 0 && Number(item.price) > remaining)}
                       style={{
-                        background: isAdding ? 'rgba(0,230,118,0.15)' : COLORS.green,
-                        color: isAdding ? COLORS.green : COLORS.black,
+                        background: isAdding ? 'rgba(0,230,118,0.15)' : (reserve > 0 && Number(item.price) > remaining) ? 'rgba(255,255,255,0.06)' : COLORS.green,
+                        color: isAdding ? COLORS.green : (reserve > 0 && Number(item.price) > remaining) ? COLORS.gray : COLORS.black,
                         border: 'none', borderRadius: 100,
                         padding: '8px 18px', fontSize: 13, fontWeight: 700,
-                        cursor: isAdding ? 'not-allowed' : 'pointer',
+                        cursor: isAdding || (reserve > 0 && Number(item.price) > remaining) ? 'not-allowed' : 'pointer',
                         fontFamily: FONTS.body,
                         minWidth: 60, textAlign: 'center',
                       }}
