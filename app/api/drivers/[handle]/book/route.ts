@@ -106,9 +106,10 @@ export async function POST(
   // SMS notification to driver (non-blocking)
   try {
     const driverPhoneRows = await sql`
-      SELECT phone FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
+      SELECT phone, payout_setup_complete FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
     `;
     const driverPhone = (driverPhoneRows[0] as Record<string, unknown>)?.phone as string;
+    const payoutSetup = !!(driverPhoneRows[0] as Record<string, unknown>)?.payout_setup_complete;
     const riderNameRows = await sql`
       SELECT COALESCE(rp.display_name, rp.first_name, u.clerk_id) as name, rp.handle
       FROM rider_profiles rp
@@ -125,6 +126,7 @@ export async function POST(
         destination: (tw.destination as string) || undefined,
         time: (tw.time as string) || undefined,
         price: Number(price) || undefined,
+        payoutSetup,
       });
       console.log('[BOOK] SMS result:', JSON.stringify(smsResult));
     } else {

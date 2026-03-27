@@ -168,14 +168,19 @@ export async function sendSms(
 export async function notifyDriverNewBooking(
   driverPhone: string,
   riderName: string,
-  details?: { destination?: string; time?: string; price?: number },
+  details?: { destination?: string; time?: string; price?: number; payoutSetup?: boolean },
   options: SmsOptions = {}
 ): Promise<SendSmsResult> {
   let message = `HMU ATL: New ride request from ${riderName}.`;
   if (details?.destination) message += ` Where: ${details.destination}.`;
   if (details?.time) message += ` When: ${details.time}.`;
   if (details?.price) message += ` Amount: $${details.price}.`;
-  message += ` Expires in 15 min. atl.hmucashride.com/driver/home`;
+  message += ` Expires in 15 min.`;
+  if (details?.payoutSetup === false) {
+    message += ` Link Payout Method To Accept. atl.hmucashride.com/driver/payout-setup`;
+  } else {
+    message += ` atl.hmucashride.com/driver/home`;
+  }
   return sendSms(driverPhone, message, { ...options, eventType: 'new_booking' });
 }
 
