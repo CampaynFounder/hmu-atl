@@ -42,6 +42,21 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
   const ride = rideRows[0] as Record<string, unknown>;
   const isDriver = ride.driver_id === user.id;
 
+  // Load existing add-ons
+  let addOnRows: Record<string, unknown>[] = [];
+  let addOnTotal = 0;
+  try {
+    addOnRows = await sql`
+      SELECT id, name, unit_price, quantity, subtotal, status, added_by
+      FROM ride_add_ons
+      WHERE ride_id = ${rideId} AND status NOT IN ('removed')
+      ORDER BY added_at
+    ` as Record<string, unknown>[];
+    addOnTotal = addOnRows
+      .filter(a => a.status !== 'disputed')
+      .reduce((sum, a) => sum + Number(a.subtotal ?? 0), 0);
+  } catch { /* non-critical */ }
+
   return (
     <>
       {/* Mapbox GL loaded via CDN to avoid bundling into worker */}
@@ -81,8 +96,16 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
         isCash: (ride.is_cash as boolean) || false,
         waitMinutes: Number(ride.wait_minutes ?? 10),
         confirmDeadline: (ride.confirm_deadline as string) || null,
-        addOns: [],
-        addOnTotal: 0,
+        addOns: addOnRows.map(a => ({
+          id: a.id as string,
+          name: a.name as string,
+          unitPrice: Number(a.unit_price ?? 0),
+          quantity: Number(a.quantity ?? 1),
+          subtotal: Number(a.subtotal ?? 0),
+          status: a.status as string,
+          addedBy: (a.added_by as string) || 'rider',
+        })),
+        addOnTotal,
       }}
       mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''}
     />
