@@ -43,6 +43,7 @@ export async function GET() {
         status: r.status,
         driverName: (r.driver_name as string) || null,
         driverHandle: (r.driver_handle as string) || null,
+        expiresAt: (r.booking_expires_at as string) || null,
         createdAt: r.created_at,
       };
     });

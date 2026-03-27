@@ -18,6 +18,7 @@ interface PostedRequest {
   status: string;
   driverName?: string | null;
   driverHandle?: string | null;
+  expiresAt?: string | null;
   createdAt: string;
 }
 
@@ -584,20 +585,84 @@ function ActivePostCard({
         }}>
           ${post.price}
         </div>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          fontSize: 12, padding: '4px 12px', borderRadius: 100,
-          background: post.status === 'matched' ? 'rgba(68,138,255,0.1)' : 'rgba(0,230,118,0.1)',
-          color: post.status === 'matched' ? '#448AFF' : '#00E676',
-        }}>
-          {post.status === 'active' && (
+        {post.status === 'matched' ? (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            fontSize: 12, padding: '4px 12px', borderRadius: 100,
+            background: 'rgba(68,138,255,0.1)', color: '#448AFF',
+          }}>
+            Driver found!
+          </div>
+        ) : post.status === 'active' && post.type === 'direct' && post.expiresAt ? (
+          <DirectBookingCountdown driverHandle={post.driverHandle || post.driverName || 'Driver'} expiresAt={post.expiresAt} />
+        ) : post.status === 'active' ? (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            fontSize: 12, padding: '4px 12px', borderRadius: 100,
+            background: 'rgba(0,230,118,0.1)', color: '#00E676',
+          }}>
             <span style={{
               width: 6, height: 6, borderRadius: '50%', background: '#00E676',
               animation: 'pulse 1.5s ease-in-out infinite',
             }} />
-          )}
-          {post.status === 'active' ? 'Looking for drivers...' : 'Driver found!'}
-        </div>
+            Looking for drivers...
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ── Direct booking countdown ──
+function DirectBookingCountdown({ driverHandle, expiresAt }: { driverHandle: string; expiresAt: string }) {
+  const [countdown, setCountdown] = useState('');
+  const [isUrgent, setIsUrgent] = useState(false);
+
+  useEffect(() => {
+    const tick = () => {
+      const remaining = new Date(expiresAt).getTime() - Date.now();
+      if (remaining <= 0) {
+        setCountdown('Expired');
+        setIsUrgent(true);
+        return;
+      }
+      const mins = Math.floor(remaining / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      setCountdown(`${mins}:${String(secs).padStart(2, '0')}`);
+      setIsUrgent(remaining < 60000);
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [expiresAt]);
+
+  const isExpired = countdown === 'Expired';
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2,
+    }}>
+      <div style={{
+        fontSize: 11, color: '#888',
+      }}>
+        {isExpired ? `${driverHandle} didn\u2019t respond` : `${driverHandle} Notified`}
+      </div>
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        fontSize: 13, fontWeight: 700, padding: '4px 12px', borderRadius: 100,
+        fontFamily: "'Space Mono', monospace",
+        background: isExpired ? 'rgba(255,82,82,0.1)' : isUrgent ? 'rgba(255,82,82,0.1)' : 'rgba(0,230,118,0.08)',
+        color: isExpired ? '#FF5252' : isUrgent ? '#FF5252' : '#00E676',
+        border: `1px solid ${isExpired || isUrgent ? 'rgba(255,82,82,0.2)' : 'rgba(0,230,118,0.2)'}`,
+      }}>
+        {!isExpired && (
+          <span style={{
+            width: 6, height: 6, borderRadius: '50%',
+            background: isUrgent ? '#FF5252' : '#00E676',
+            animation: 'pulse 1.5s ease-in-out infinite',
+          }} />
+        )}
+        {isExpired ? 'Expired' : countdown}
       </div>
     </div>
   );
