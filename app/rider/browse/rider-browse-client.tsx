@@ -23,6 +23,8 @@ interface DriverCard {
   livePrice: number | null;
   serviceIcons?: string[];
   vehicleSummary?: { label: string; maxRiders: number | null } | null;
+  hasVibeVideo?: boolean;
+  payoutReady?: boolean;
 }
 
 interface Props {
@@ -306,12 +308,28 @@ export default function RiderBrowseClient({ drivers }: Props) {
                     </div>
                   )}
 
-                  {/* Trust badge */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
-                    <span style={{ fontSize: '12px', color: '#00E676' }}>{'\u2713'}</span>
-                    <span style={{ fontSize: '11px', color: '#888', fontWeight: 600, letterSpacing: '0.5px' }}>
-                      Identity Verified + Video Confirmed
-                    </span>
+                  {/* Trust badges */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+                    {driver.payoutReady && (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        fontSize: '10px', color: '#00E676', fontWeight: 700,
+                        background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.15)',
+                        borderRadius: '100px', padding: '3px 10px', letterSpacing: '0.5px',
+                      }}>
+                        {'\u2713'} Payment Ready
+                      </span>
+                    )}
+                    {driver.hasVibeVideo && (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        fontSize: '10px', color: '#448AFF', fontWeight: 700,
+                        background: 'rgba(68,138,255,0.08)', border: '1px solid rgba(68,138,255,0.15)',
+                        borderRadius: '100px', padding: '3px 10px', letterSpacing: '0.5px',
+                      }}>
+                        {'\uD83C\uDFA5'} Vibe on File
+                      </span>
+                    )}
                   </div>
 
                   {/* Stats row */}

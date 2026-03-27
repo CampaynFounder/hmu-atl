@@ -11,6 +11,7 @@ export default async function RiderBrowsePage() {
   const drivers = await sql`
     SELECT dp.handle, dp.display_name, dp.areas, dp.pricing, dp.video_url,
            dp.vehicle_info, dp.lgbtq_friendly, dp.enforce_minimum, dp.fwu, dp.accepts_cash, dp.cash_only,
+           dp.vibe_video_url, dp.payout_setup_complete,
            u.chill_score, u.tier,
            hp.time_window as live_post, hp.price as live_price, hp.expires_at as live_expires,
            (SELECT COALESCE(array_agg(DISTINCT COALESCE(smi.icon, dsm.custom_icon)), '{}')
@@ -50,6 +51,8 @@ export default async function RiderBrowsePage() {
           fwu: (d.fwu as boolean) || false,
           acceptsCash: (d.accepts_cash as boolean) || (d.cash_only as boolean) || false,
           cashOnly: (d.cash_only as boolean) || false,
+          hasVibeVideo: !!(d.vibe_video_url),
+          payoutReady: !!(d.payout_setup_complete),
           liveMessage: livePost?.message as string || null,
           livePrice: d.live_price ? Number(d.live_price) : null,
           serviceIcons: Array.isArray(d.service_icons) ? (d.service_icons as string[]).filter(Boolean) : [],

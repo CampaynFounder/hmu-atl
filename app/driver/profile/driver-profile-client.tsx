@@ -21,6 +21,7 @@ interface ProfileData {
   pricing: Record<string, unknown>;
   schedule: Record<string, unknown>;
   videoUrl: string;
+  vibeVideoUrl: string;
   vehiclePhotoUrl: string;
   licensePlate: string;
   plateState: string;
@@ -81,6 +82,8 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
   const [saved, setSaved] = useState('');
   const [showVideoEditor, setShowVideoEditor] = useState(!profile.videoUrl);
   const [videoSaved, setVideoSaved] = useState(false);
+  const [showVibeEditor, setShowVibeEditor] = useState(false);
+  const [vibeSaved, setVibeSaved] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoSaved, setPhotoSaved] = useState(false);
   const [uploadError, setUploadError] = useState('');
@@ -669,6 +672,66 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
                   className="media-btn media-btn--outline"
                   style={{ width: '100%', marginTop: '10px' }}
                   onClick={() => setShowVideoEditor(false)}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Vibe on File */}
+        <div className="dp-section">
+          <div className="dp-section-title">Vibe on File</div>
+          <p className="dp-row-sub" style={{ marginBottom: '14px' }}>
+            Quick selfie video so riders know your vibe. Shows a &quot;Vibe on File&quot; badge on your card.
+          </p>
+
+          {vibeSaved && (
+            <div className="media-saved">Vibe saved — badge is now visible on your card</div>
+          )}
+
+          {data.vibeVideoUrl && !showVibeEditor ? (
+            <>
+              <div className="media-preview">
+                <video
+                  src={data.vibeVideoUrl}
+                  controls
+                  playsInline
+                  autoPlay
+                  muted
+                  loop
+                  preload="metadata"
+                  style={{ borderRadius: '12px' }}
+                />
+              </div>
+              <div className="media-actions">
+                <button className="media-btn media-btn--outline" onClick={() => setShowVibeEditor(true)}>
+                  Re-record Vibe
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="video-editor-wrap">
+              <VideoRecorder
+                key={showVibeEditor ? 'vibe-editing' : 'vibe-initial'}
+                onVideoRecorded={(url) => {
+                  setData((d) => ({ ...d, vibeVideoUrl: url }));
+                  setShowVibeEditor(false);
+                  setVibeSaved(true);
+                  setTimeout(() => setVibeSaved(false), 3000);
+                }}
+                existingVideoUrl={undefined}
+                profileType="driver"
+                mediaType="vibe"
+                maxDuration={6000}
+                onUploadStateChange={() => {}}
+              />
+              {data.vibeVideoUrl && (
+                <button
+                  className="media-btn media-btn--outline"
+                  style={{ width: '100%', marginTop: '10px' }}
+                  onClick={() => setShowVibeEditor(false)}
                 >
                   Cancel
                 </button>

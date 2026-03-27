@@ -19,14 +19,14 @@ interface VideoRecorderProps {
   onVideoRecorded: (videoUrl: string, thumbnailUrl: string) => void;
   existingVideoUrl?: string;
   profileType?: 'rider' | 'driver';
+  mediaType?: 'video' | 'vibe';
+  maxDuration?: number;
   onUploadStateChange?: (uploading: boolean) => void;
 }
 
 type Step = 'choose' | 'camera' | 'upload' | 'review' | 'uploading' | 'saved';
 
-const MAX_DURATION = 5000;
-
-export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType = 'rider', onUploadStateChange }: VideoRecorderProps) {
+export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType = 'rider', mediaType = 'video', maxDuration = 5000, onUploadStateChange }: VideoRecorderProps) {
   const [step, setStep] = useState<Step>('choose');
   const [countdown, setCountdown] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
@@ -166,8 +166,8 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
     const startTime = Date.now();
     progressRef.current = setInterval(() => {
       const elapsed = Date.now() - startTime;
-      setRecordingProgress(Math.min((elapsed / MAX_DURATION) * 100, 100));
-      if (elapsed >= MAX_DURATION) {
+      setRecordingProgress(Math.min((elapsed / maxDuration) * 100, 100));
+      if (elapsed >= maxDuration) {
         if (progressRef.current) clearInterval(progressRef.current);
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
           mediaRecorderRef.current.stop();
@@ -265,7 +265,7 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
     const ext = typeMap[videoBlob.type] || 'mp4';
     formData.append('video', videoBlob, `intro-video.${ext}`);
     formData.append('profile_type', profileType);
-    formData.append('media_type', 'video');
+    formData.append('media_type', mediaType);
 
     const xhr = new XMLHttpRequest();
 
@@ -383,7 +383,7 @@ export function VideoRecorder({ onVideoRecorded, existingVideoUrl, profileType =
                       REC
                     </div>
                     <span className="rounded-full bg-black/60 px-3 py-1 text-sm font-bold text-white">
-                      {((recordingProgress / 100) * 5).toFixed(1)}s
+                      {((recordingProgress / 100) * (maxDuration / 1000)).toFixed(1)}s
                     </span>
                   </div>
                   <div className="h-1 rounded-full bg-white/20 overflow-hidden">

@@ -83,7 +83,13 @@ export async function POST(request: NextRequest) {
         const resolvedType = mediaType === 'auto' ? (isVideo ? 'video' : 'photo') : mediaType;
 
         if (profileType === 'driver') {
-          if (resolvedType === 'video') {
+          if (resolvedType === 'vibe') {
+            await sql`
+              UPDATE driver_profiles
+              SET vibe_video_url = ${publicUrl}
+              WHERE user_id = ${userId}
+            `;
+          } else if (resolvedType === 'video') {
             await sql`
               UPDATE driver_profiles
               SET video_url = ${publicUrl}, thumbnail_url = ${publicUrl}
@@ -97,7 +103,13 @@ export async function POST(request: NextRequest) {
             `;
           }
         } else if (profileType === 'rider') {
-          if (resolvedType === 'video') {
+          if (resolvedType === 'vibe') {
+            await sql`
+              UPDATE rider_profiles
+              SET vibe_video_url = ${publicUrl}
+              WHERE user_id = ${userId}
+            `;
+          } else if (resolvedType === 'video') {
             await sql`
               UPDATE rider_profiles
               SET video_url = ${publicUrl}, thumbnail_url = ${publicUrl}

@@ -188,7 +188,7 @@ export default function RiderProfileClient({ profile }: Props) {
           fontFamily: "var(--font-mono, 'Space Mono', monospace)",
           fontSize: 10, color: '#888', letterSpacing: 3, textTransform: 'uppercase', marginBottom: 14,
         }}>
-          Video Intro
+          Vibe on File
         </div>
 
         {videoUrl && !showVideoEditor ? (
@@ -247,6 +247,8 @@ export default function RiderProfileClient({ profile }: Props) {
               }}
               existingVideoUrl={videoUrl || undefined}
               profileType="rider"
+              mediaType="vibe"
+              maxDuration={6000}
               onUploadStateChange={(uploading) => setUploading(uploading ? 'video' : null)}
             />
             {showVideoEditor && (
