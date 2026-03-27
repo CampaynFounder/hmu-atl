@@ -1,9 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { parseTimeShorthand } from '@/lib/utils/time-parser';
 import { posthog } from '@/components/analytics/posthog-provider';
+
+const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
 interface DriverCard {
   handle: string;
@@ -421,6 +424,8 @@ export default function RiderBrowseClient({ drivers }: Props) {
                     minPrice={driver.minPrice}
                     enforceMinimum={driver.enforceMinimum !== false}
                     fwu={driver.fwu || false}
+                    acceptsCash={driver.acceptsCash || false}
+                    cashOnly={driver.cashOnly || false}
                   />
                 )}
               </div>
@@ -438,30 +443,57 @@ function InlineBookingForm({
   minPrice,
   enforceMinimum,
   fwu,
+  acceptsCash,
+  cashOnly,
 }: {
   handle: string;
   displayName: string;
   minPrice: number;
   enforceMinimum: boolean;
   fwu: boolean;
+  acceptsCash: boolean;
+  cashOnly: boolean;
 }) {
-  // Default amount: driver's minimum, or $15 if FWU or no minimum set
   const defaultAmount = (minPrice > 0 && !fwu) ? String(minPrice) : '15';
   const [destination, setDestination] = useState('');
   const [time, setTime] = useState('');
   const [amount, setAmount] = useState(defaultAmount);
+  const [isCash, setIsCash] = useState(cashOnly);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [hasPaymentMethod, setHasPaymentMethod] = useState<boolean | null>(null);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [paymentFormReady, setPaymentFormReady] = useState(false);
 
   const parsedAmount = parseFloat(amount) || 0;
   const belowMin = enforceMinimum && minPrice > 0 && parsedAmount > 0 && parsedAmount < minPrice;
   const parsedTime = parseTimeShorthand(time);
 
+  // Check if rider has a saved payment method
+  useEffect(() => {
+    if (cashOnly) { setHasPaymentMethod(true); return; }
+    fetch('/api/rider/payment-methods')
+      .then(r => r.json())
+      .then(data => {
+        const methods = data.methods || data.paymentMethods || [];
+        setHasPaymentMethod(Array.isArray(methods) && methods.length > 0);
+      })
+      .catch(() => setHasPaymentMethod(false));
+  }, [cashOnly]);
+
+  const needsPaymentMethod = !isCash && hasPaymentMethod === false;
+
   async function handleSubmit() {
     if (!destination.trim()) { setError('Where you going?'); return; }
     if (parsedAmount < 1) { setError('Minimum $1'); return; }
     if (belowMin) return;
+
+    // If digital and no payment method, prompt to add one
+    if (needsPaymentMethod) {
+      setShowPaymentForm(true);
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
@@ -471,6 +503,7 @@ function InlineBookingForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           price: parsedAmount,
+          is_cash: isCash,
           timeWindow: {
             destination: destination.trim(),
             time: parsedTime.display,
@@ -480,15 +513,26 @@ function InlineBookingForm({
       });
       const data = await res.json();
       if (res.ok) {
-        posthog.capture('direct_booking_sent', { driverHandle: handle, price: parsedAmount, destination: destination.trim() });
+        posthog.capture('direct_booking_sent', { driverHandle: handle, price: parsedAmount, destination: destination.trim(), isCash });
         setSuccess(true);
       } else {
-        setError(data.error || 'Failed to send');
+        if (data.code === 'no_payment_method') {
+          setShowPaymentForm(true);
+        } else {
+          setError(data.error || 'Failed to send');
+        }
       }
     } catch {
       setError('Network error');
     }
     setSubmitting(false);
+  }
+
+  function handlePaymentMethodSaved() {
+    setHasPaymentMethod(true);
+    setShowPaymentForm(false);
+    // Auto-submit the booking now that payment is linked
+    setTimeout(() => handleSubmit(), 300);
   }
 
   if (success) {
@@ -502,7 +546,7 @@ function InlineBookingForm({
           Sent to {displayName}!
         </div>
         <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
-          They have 30 min to accept. You&apos;ll get a notification.
+          They have 15 min to accept. You&apos;ll get a notification.
         </div>
       </div>
     );
@@ -567,6 +611,51 @@ function InlineBookingForm({
           </div>
         </div>
 
+        {/* Cash toggle — only if driver accepts cash and isn't cash-only */}
+        {acceptsCash && !cashOnly && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: '12px', padding: '10px 14px',
+          }}>
+            <div>
+              <div style={{ fontSize: '13px', color: '#fff', fontWeight: 600 }}>Cash Ride</div>
+              <div style={{ fontSize: '11px', color: '#888' }}>
+                {isCash ? 'No payment method needed' : 'Payment verified before pickup'}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setIsCash(!isCash); setShowPaymentForm(false); setError(null); }}
+              style={{
+                width: 48, height: 28, borderRadius: 14, border: 'none',
+                background: isCash ? '#00E676' : 'rgba(255,255,255,0.12)',
+                position: 'relative', cursor: 'pointer',
+                transition: 'background 0.2s',
+              }}
+            >
+              <div style={{
+                width: 22, height: 22, borderRadius: '50%',
+                background: '#fff',
+                position: 'absolute', top: 3,
+                left: isCash ? 23 : 3,
+                transition: 'left 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+              }} />
+            </button>
+          </div>
+        )}
+
+        {/* Cash-only notice */}
+        {cashOnly && (
+          <div style={{
+            fontSize: '12px', color: '#4CAF50', padding: '8px 12px',
+            background: 'rgba(76,175,80,0.08)', borderRadius: '10px',
+          }}>
+            This driver only accepts cash rides
+          </div>
+        )}
+
         {/* Below minimum warning */}
         {belowMin && (
           <div style={{
@@ -588,23 +677,51 @@ function InlineBookingForm({
           <div style={{ fontSize: '12px', color: '#FF5252' }}>{error}</div>
         )}
 
+        {/* Inline payment form — shown when rider needs to link a card */}
+        {showPaymentForm && !isCash && (
+          <div style={{
+            background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
+            borderRadius: '14px', padding: '16px',
+          }}>
+            <div style={{ fontSize: '13px', color: '#00E676', fontWeight: 600, marginBottom: '4px' }}>
+              Link a payment method
+            </div>
+            <div style={{ fontSize: '11px', color: '#888', marginBottom: '12px' }}>
+              Required for digital rides. Your card is saved for one-tap booking.
+            </div>
+            <InlinePaymentForm onSuccess={handlePaymentMethodSaved} />
+          </div>
+        )}
+
+        {/* No payment method notice (before form is shown) */}
+        {needsPaymentMethod && !showPaymentForm && (
+          <div style={{
+            fontSize: '12px', color: '#FFB300', padding: '8px 12px',
+            background: 'rgba(255,179,0,0.08)', borderRadius: '10px',
+          }}>
+            You&apos;ll need to link a payment method for digital rides
+          </div>
+        )}
+
         {/* Submit */}
-        <button
-          onClick={handleSubmit}
-          disabled={submitting || belowMin}
-          style={{
-            width: '100%', padding: '14px', borderRadius: '100px', border: 'none',
-            background: belowMin ? '#333' : '#00E676',
-            color: belowMin ? '#888' : '#080808',
-            fontWeight: 700, fontSize: '15px',
-            cursor: submitting || belowMin ? 'not-allowed' : 'pointer',
-            opacity: submitting ? 0.5 : 1,
-            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-            transition: 'all 0.15s',
-          }}
-        >
-          {submitting ? 'Sending...' : `Send to ${displayName}`}
-        </button>
+        {!showPaymentForm && (
+          <button
+            onClick={handleSubmit}
+            disabled={submitting || belowMin}
+            style={{
+              width: '100%', padding: '14px', borderRadius: '100px', border: 'none',
+              background: belowMin ? '#333' : '#00E676',
+              color: belowMin ? '#888' : '#080808',
+              fontWeight: 700, fontSize: '15px',
+              cursor: submitting || belowMin ? 'not-allowed' : 'pointer',
+              opacity: submitting ? 0.5 : 1,
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              transition: 'all 0.15s',
+            }}
+          >
+            {submitting ? 'Sending...' : `Send to ${displayName}`}
+          </button>
+        )}
       </div>
     </div>
   );
