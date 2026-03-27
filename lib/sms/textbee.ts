@@ -168,9 +168,14 @@ export async function sendSms(
 export async function notifyDriverNewBooking(
   driverPhone: string,
   riderName: string,
+  details?: { destination?: string; time?: string; price?: number },
   options: SmsOptions = {}
 ): Promise<SendSmsResult> {
-  const message = `HMU ATL: New ride request from ${riderName}. Request expires in 15 min. atl.hmucashride.com/driver/home`;
+  let message = `HMU ATL: New ride request from ${riderName}.`;
+  if (details?.destination) message += ` Where: ${details.destination}.`;
+  if (details?.time) message += ` When: ${details.time}.`;
+  if (details?.price) message += ` Amount: $${details.price}.`;
+  message += ` Expires in 15 min. atl.hmucashride.com/driver/home`;
   return sendSms(driverPhone, message, { ...options, eventType: 'new_booking' });
 }
 

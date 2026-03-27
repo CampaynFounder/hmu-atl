@@ -603,7 +603,7 @@ function InlineBookingForm({
           <input
             value={time}
             onChange={(e) => setTime(e.target.value)}
-            placeholder="When? (asap, 2pm, 2mor)"
+            placeholder="When? (now, tonight, 2pm, tomorrow)"
             style={{
               flex: 1, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.08)',
               borderRadius: '12px', padding: '12px 14px', color: '#fff',

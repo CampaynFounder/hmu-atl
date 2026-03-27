@@ -116,7 +116,12 @@ export async function POST(
     console.log('[BOOK] SMS lookup — driverPhone:', driverPhone, '| riderName:', riderName);
     console.log('[BOOK] VOIPMS env check — username:', !!process.env.VOIPMS_API_USERNAME, '| password:', !!process.env.VOIPMS_API_PASSWORD, '| did:', !!process.env.VOIPMS_DID_ATL);
     if (driverPhone) {
-      const smsResult = await notifyDriverNewBooking(driverPhone, riderName);
+      const tw = (timeWindow || {}) as Record<string, unknown>;
+      const smsResult = await notifyDriverNewBooking(driverPhone, riderName, {
+        destination: (tw.destination as string) || undefined,
+        time: (tw.time as string) || undefined,
+        price: Number(price) || undefined,
+      });
       console.log('[BOOK] SMS result:', JSON.stringify(smsResult));
     } else {
       console.warn('[BOOK] No driver phone found for SMS');
