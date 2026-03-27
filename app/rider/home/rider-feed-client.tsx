@@ -329,7 +329,7 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)',
                   }}>
-                    <StatusDot status={post.status} />
+                    <StatusDot status={post.status} expiresAt={post.expiresAt} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{
                         fontSize: 13, color: '#bbb', whiteSpace: 'nowrap',
@@ -375,7 +375,7 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)',
                   }}>
-                    <StatusDot status={post.status} />
+                    <StatusDot status={post.status} expiresAt={post.expiresAt} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{
                         fontSize: 13, color: '#bbb', whiteSpace: 'nowrap',
@@ -669,8 +669,16 @@ function DirectBookingCountdown({ driverHandle, expiresAt }: { driverHandle: str
 }
 
 // ── Helpers ──
-function StatusDot({ status }: { status: string }) {
-  const color = status === 'completed' ? '#00E676' : status === 'matched' ? '#448AFF' : status === 'cancelled' ? '#FF5252' : '#555';
+function StatusDot({ status, expiresAt }: { status: string; expiresAt?: string | null }) {
+  // Derive effective status — active direct bookings past expiry are expired
+  let effective = status;
+  if (status === 'active' && expiresAt && new Date(expiresAt).getTime() < Date.now()) {
+    effective = 'expired';
+  }
+  const color = effective === 'completed' ? '#00E676'
+    : effective === 'matched' ? '#448AFF'
+    : effective === 'cancelled' || effective === 'expired' ? '#FF5252'
+    : '#888';
   return (
     <div style={{
       width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0,
