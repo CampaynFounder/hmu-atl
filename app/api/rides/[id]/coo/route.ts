@@ -127,6 +127,29 @@ export async function POST(
       message: 'Rider says COO — payment ready, location shared',
     }).catch(() => {});
 
+    // SMS driver that rider is payment ready
+    try {
+      const [driverPhoneRows, riderHandleRows] = await Promise.all([
+        sql`SELECT phone FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1`,
+        sql`SELECT COALESCE(handle, display_name, 'Rider') as name FROM rider_profiles WHERE user_id = ${userId} LIMIT 1`,
+      ]);
+      const driverPhone = (driverPhoneRows[0] as Record<string, unknown>)?.phone as string;
+      const riderName = (riderHandleRows[0] as Record<string, unknown>)?.name as string;
+      if (driverPhone) {
+        const dst = driverPhone.replace(/\D/g, '').replace(/^1/, '');
+        const smsMsg = `HMU: ${riderName} is payment ready. Log in to let them know you're OTW. atl.hmucashride.com/ride/${rideId}`;
+        const smsParams = new URLSearchParams({
+          api_username: process.env.VOIPMS_API_USERNAME || '',
+          api_password: process.env.VOIPMS_API_PASSWORD || '',
+          method: 'sendSMS',
+          did: process.env.VOIPMS_DID_ATL || '',
+          dst,
+          message: smsMsg.length > 160 ? smsMsg.slice(0, 157) + '...' : smsMsg,
+        });
+        fetch(`https://voip.ms/api/v1/rest.php?${smsParams.toString()}`).catch(() => {});
+      }
+    } catch { /* non-blocking */ }
+
     return NextResponse.json({ status: 'coo', rideId, paymentHeld: true });
   } catch (error) {
     console.error('COO error:', error);
