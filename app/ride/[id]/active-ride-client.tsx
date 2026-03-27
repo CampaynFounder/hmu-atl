@@ -7,6 +7,7 @@ import { fbEvent, fbCustomEvent } from '@/components/analytics/meta-pixel';
 import Link from 'next/link';
 import RideChat from '@/components/ride/ride-chat';
 import RiderProfileOverlay from '@/components/rider/rider-profile-overlay';
+import DriverProfileOverlay from '@/components/driver/driver-profile-overlay';
 import AddOnMenuSheet from '@/components/ride/add-on-menu-sheet';
 import dynamic from 'next/dynamic';
 
@@ -40,6 +41,8 @@ const FONTS = {
 interface RideData {
   status: string;
   driverName: string;
+  driverHandle: string | null;
+  driverAvatarUrl: string | null;
   riderName: string;
   agreedPrice: number;
   agreementSummary: Record<string, unknown> | null;
@@ -63,6 +66,7 @@ interface RideData {
   driverPlateState: string | null;
   isCash: boolean;
   waitMinutes: number;
+  confirmDeadline: string | null;
   addOns: { id: string; name: string; unitPrice: number; quantity: number; subtotal: number; status: string; addedBy: string }[];
   addOnTotal: number;
 }
@@ -95,6 +99,10 @@ function getStatusDisplay(status: string, isDriver: boolean): { label: string; c
       return { label: 'OTW', color: COLORS.orange };
     case 'here':
       return { label: 'HERE', color: COLORS.yellow };
+    case 'confirming':
+      return isDriver
+        ? { label: 'CONFIRMING', color: COLORS.orange }
+        : { label: 'CONFIRM RIDE', color: COLORS.orange };
     case 'active':
       return { label: 'RIDE ACTIVE', color: COLORS.green };
     case 'ended':
@@ -129,8 +137,11 @@ export default function ActiveRideClient({
   const chatOpenRef = useRef(false);
   const [chatUnread, setChatUnread] = useState(0);
   const [viewingRiderProfile, setViewingRiderProfile] = useState(false);
+  const [viewingDriverProfile, setViewingDriverProfile] = useState(false);
   const [waitCountdown, setWaitCountdown] = useState<number | null>(null);
   const [showPulloff, setShowPulloff] = useState(false);
+  const [confirmCountdown, setConfirmCountdown] = useState<number | null>(null);
+  const autoConfirmFired = useRef(false);
   const [addOnReview, setAddOnReview] = useState<Map<string, string>>(new Map());
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
@@ -148,7 +159,7 @@ export default function ActiveRideClient({
   const riderMarkerRef = useRef<any | null>(null);
 
   // GPS tracking for driver during active ride phases
-  const shouldTrackGps = isDriver && ['otw', 'here', 'active'].includes(ride.status);
+  const shouldTrackGps = isDriver && ['otw', 'here', 'confirming', 'active'].includes(ride.status);
   const geo = useGeolocation({ rideId, enabled: shouldTrackGps });
 
   // Ably real-time subscription
@@ -257,6 +268,20 @@ export default function ActiveRideClient({
         }).catch(() => {});
         if (!isDriver) {
           showNotification('Driver approved add-on removal', '\u2705', COLORS.green);
+        }
+        break;
+      }
+      case 'confirm_start': {
+        // Driver tapped Start Ride — rider needs to confirm
+        const deadline = data.confirmDeadline as string;
+        setRide(prev => ({
+          ...prev,
+          status: 'confirming',
+          confirmDeadline: deadline,
+        }));
+        if (!isDriver) {
+          showNotification('Confirm you\'re in the car', '🚗', COLORS.orange, '2 min to confirm');
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
         }
         break;
       }
@@ -432,6 +457,58 @@ export default function ActiveRideClient({
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
   }, [ride.status, ride.hereAt, ride.waitMinutes]);
+
+  // ── Confirm countdown (rider has 2 min to confirm they're in the car) ──
+  useEffect(() => {
+    if (ride.status !== 'confirming' || !ride.confirmDeadline) {
+      setConfirmCountdown(null);
+      return;
+    }
+    const updateCountdown = () => {
+      const remaining = Math.max(0, new Date(ride.confirmDeadline!).getTime() - Date.now());
+      setConfirmCountdown(remaining);
+
+      // Auto-confirm when timer expires (rider side only)
+      if (remaining <= 0 && !isDriver && !autoConfirmFired.current) {
+        autoConfirmFired.current = true;
+        // Auto-confirm with GPS if available
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              fetch(`/api/rides/${rideId}/confirm-start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude, autoConfirmed: true }),
+              }).then(r => r.json()).then(data => {
+                if (data.status) setRide(prev => ({ ...prev, status: data.status }));
+              }).catch(() => {});
+            },
+            () => {
+              fetch(`/api/rides/${rideId}/confirm-start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ autoConfirmed: true }),
+              }).then(r => r.json()).then(data => {
+                if (data.status) setRide(prev => ({ ...prev, status: data.status }));
+              }).catch(() => {});
+            },
+            { enableHighAccuracy: true, timeout: 3000 }
+          );
+        } else {
+          fetch(`/api/rides/${rideId}/confirm-start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ autoConfirmed: true }),
+          }).then(r => r.json()).then(data => {
+            if (data.status) setRide(prev => ({ ...prev, status: data.status }));
+          }).catch(() => {});
+        }
+      }
+    };
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [ride.status, ride.confirmDeadline, isDriver, rideId]);
 
   // ── ETA calculation ──
   useEffect(() => {
@@ -783,12 +860,13 @@ export default function ActiveRideClient({
             <div
               onClick={() => {
                 if (isDriver && ride.riderHandle) setViewingRiderProfile(true);
+                if (!isDriver && ride.driverHandle) setViewingDriverProfile(true);
               }}
               style={{
                 fontSize: 14,
                 color: COLORS.grayLight,
                 marginTop: 2,
-                cursor: isDriver && ride.riderHandle ? 'pointer' : 'default',
+                cursor: (isDriver && ride.riderHandle) || (!isDriver && ride.driverHandle) ? 'pointer' : 'default',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
@@ -799,8 +877,13 @@ export default function ActiveRideClient({
                   width: 20, height: 20, borderRadius: '50%', objectFit: 'cover',
                 }} />
               )}
+              {!isDriver && ride.driverAvatarUrl && (
+                <img src={ride.driverAvatarUrl} alt="" style={{
+                  width: 20, height: 20, borderRadius: '50%', objectFit: 'cover',
+                }} />
+              )}
               {isDriver ? `Rider: ${otherName}` : `Driver: ${otherName}`}
-              {isDriver && ride.riderHandle && (
+              {((isDriver && ride.riderHandle) || (!isDriver && ride.driverHandle)) && (
                 <span style={{ fontSize: 11, color: COLORS.green }}>view</span>
               )}
             </div>
@@ -926,6 +1009,15 @@ export default function ActiveRideClient({
         />
       )}
 
+      {/* Driver profile overlay for riders */}
+      {!isDriver && ride.driverHandle && (
+        <DriverProfileOverlay
+          handle={ride.driverHandle}
+          open={viewingDriverProfile}
+          onClose={() => setViewingDriverProfile(false)}
+        />
+      )}
+
       {/* Add-on menu sheet for riders */}
       {!isDriver && (
         <AddOnMenuSheet
@@ -1001,6 +1093,34 @@ export default function ActiveRideClient({
                   {waitMins}:{String(waitSecsRem).padStart(2, '0')} until you can pull off
                 </div>
               )}
+              <ActionButton
+                label="START RIDE"
+                subtitle="rider in the car"
+                color={COLORS.green}
+                onPress={async () => {
+                  setLoading(true);
+                  try {
+                    const res = await fetch(`/api/rides/${rideId}/start`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ driverLat: geo.lat, driverLng: geo.lng }),
+                    });
+                    const data = await res.json();
+                    if (data.status) {
+                      setRide(prev => ({
+                        ...prev,
+                        status: data.status,
+                        confirmDeadline: data.confirmDeadline || null,
+                      }));
+                    }
+                    if (!res.ok) setError(data.error || 'Failed to start ride');
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Failed');
+                  }
+                  setLoading(false);
+                }}
+                loading={loading}
+              />
               {showPulloff && (
                 <PulloffButtons
                   rideId={rideId}
@@ -1014,6 +1134,35 @@ export default function ActiveRideClient({
                   }}
                   loading={loading}
                 />
+              )}
+            </>
+          );
+        }
+
+        case 'confirming': {
+          const cSecs = confirmCountdown !== null ? Math.ceil(confirmCountdown / 1000) : null;
+          const cMins = cSecs !== null ? Math.floor(cSecs / 60) : null;
+          const cSecsRem = cSecs !== null ? cSecs % 60 : null;
+          return (
+            <>
+              <StatusMessage text="Waiting for rider to confirm..." />
+              {cSecs !== null && cSecs > 0 && (
+                <div style={{
+                  textAlign: 'center', padding: '8px 0', fontSize: 13,
+                  color: cSecs < 30 ? COLORS.red : COLORS.orange,
+                  fontFamily: FONTS.mono,
+                }}>
+                  {cMins}:{String(cSecsRem).padStart(2, '0')} for rider to confirm
+                </div>
+              )}
+              {cSecs !== null && cSecs <= 0 && (
+                <div style={{
+                  textAlign: 'center', padding: '12px 16px', fontSize: 14,
+                  color: COLORS.red, fontWeight: 700,
+                  backgroundColor: 'rgba(255,82,82,0.15)', borderRadius: 12,
+                }}>
+                  ⚠️ DO NOT DRIVE — rider hasn't confirmed
+                </div>
               )}
             </>
           );
@@ -1150,29 +1299,59 @@ export default function ActiveRideClient({
                 </div>
               </div>
             )}
+            <StatusMessage text="Get in — driver will start the ride" />
+          </>
+        );
+      }
+
+      case 'confirming': {
+        const cSecs = confirmCountdown !== null ? Math.ceil(confirmCountdown / 1000) : null;
+        const cMins = cSecs !== null ? Math.floor(cSecs / 60) : null;
+        const cSecsRem = cSecs !== null ? cSecs % 60 : null;
+        return (
+          <>
+            <div style={{
+              textAlign: 'center', padding: '16px',
+              backgroundColor: 'rgba(255,145,0,0.12)', borderRadius: 16,
+              marginBottom: 12,
+            }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.orange, marginBottom: 4 }}>
+                Are you in the car?
+              </div>
+              {cSecs !== null && cSecs > 0 && (
+                <div style={{
+                  fontSize: 12, color: COLORS.grayLight, fontFamily: FONTS.mono,
+                }}>
+                  Auto-confirms in {cMins}:{String(cSecsRem).padStart(2, '0')}
+                </div>
+              )}
+            </div>
             <ActionButton
-              label="BET"
-              subtitle="heading to car"
+              label="BET — I'M IN"
               color={COLORS.green}
               onPress={async () => {
-                // Capture rider GPS at ride start
-                if (navigator.geolocation) {
-                  navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                      fetch(`/api/rides/${rideId}/start`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-                      }).then(r => r.json()).then(data => {
-                        if (data.status) setRide(prev => ({ ...prev, status: data.status }));
-                      });
-                    },
-                    () => callAction('start'), // Fallback without GPS
-                    { enableHighAccuracy: true, timeout: 5000 }
-                  );
-                } else {
-                  callAction('start');
+                setLoading(true);
+                try {
+                  let lat: number | null = null;
+                  let lng: number | null = null;
+                  if (navigator.geolocation) {
+                    const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+                      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 3000 })
+                    ).catch(() => null);
+                    if (pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; }
+                  }
+                  const res = await fetch(`/api/rides/${rideId}/confirm-start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lat, lng, autoConfirmed: false }),
+                  });
+                  const data = await res.json();
+                  if (data.status) setRide(prev => ({ ...prev, status: data.status }));
+                  if (!res.ok) setError(data.error || 'Failed');
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Failed');
                 }
+                setLoading(false);
               }}
               loading={loading}
             />

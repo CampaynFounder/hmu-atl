@@ -83,7 +83,8 @@ export async function holdRiderPayment(params: {
       platformCustomerId: params.stripeCustomerId,
     },
   }, {
-    stripeAccount: params.driverStripeAccountId,  // ← Direct Charge
+    stripeAccount: params.driverStripeAccountId,
+    idempotencyKey: `hold_${params.rideId}`,
   });
 
   if (paymentIntent.status !== 'requires_capture') {
@@ -179,7 +180,10 @@ export async function captureRiderPayment(rideId: string): Promise<{
         amount_to_capture: captureAmountCents,
         application_fee_amount: applicationFeeCents,
       },
-      { stripeAccount: driverStripeAccountId }
+      {
+        stripeAccount: driverStripeAccountId,
+        idempotencyKey: `capture_${rideId}`,
+      }
     );
   }
 
@@ -274,7 +278,10 @@ export async function cancelPaymentHold(rideId: string, reason: string): Promise
       await stripe.paymentIntents.cancel(
         ride.payment_intent_id as string,
         {},
-        { stripeAccount: driverStripeId }
+        {
+          stripeAccount: driverStripeId,
+          idempotencyKey: `cancel_${rideId}`,
+        }
       );
     }
   }
@@ -308,13 +315,124 @@ export async function refundRider(rideId: string, reason: string): Promise<void>
     if (driverStripeId) {
       await stripe.refunds.create(
         { payment_intent: ride.payment_intent_id as string },
-        { stripeAccount: driverStripeId }
+        {
+          stripeAccount: driverStripeId,
+          idempotencyKey: `refund_${rideId}`,
+        }
       );
     }
   }
 
   await sql`UPDATE rides SET status = 'refunded' WHERE id = ${rideId}`;
   await insertLedger(rideId, ride.rider_id as string, 'rider', 'refund', Number(ride.final_agreed_price || 0), 'credit', 'Refund: ' + reason, ride.payment_intent_id as string);
+}
+
+/**
+ * Partial capture for no-show: capture a percentage of the base fare,
+ * refund add-ons 100%. Platform takes a cut of the captured amount.
+ *
+ * @param noShowPercent - 25 or 50
+ * No-show fee split:
+ *   25% → driver gets 25%, platform gets 5%, rider refunded 70%
+ *   50% → driver gets 50%, platform gets 10%, rider refunded 40%
+ */
+export async function partialCaptureNoShow(
+  rideId: string,
+  noShowPercent: 25 | 50
+): Promise<{
+  captured: number;
+  driverReceives: number;
+  platformReceives: number;
+  riderRefunded: number;
+  addOnRefunded: number;
+}> {
+  const rideRows = await sql`
+    SELECT payment_intent_id, final_agreed_price, add_on_reserve, driver_id, rider_id, is_cash
+    FROM rides WHERE id = ${rideId} LIMIT 1
+  `;
+  if (!rideRows.length) throw new Error('Ride not found');
+  const ride = rideRows[0] as Record<string, unknown>;
+
+  // Cash rides: no charge on no-show
+  if (ride.is_cash) {
+    await sql`UPDATE rides SET status = 'cancelled', no_show_percent = ${noShowPercent} WHERE id = ${rideId}`;
+    await insertLedger(rideId, ride.rider_id as string, 'rider', 'no_show_cash', 0, 'none', `No-show (cash ride) — no charge`, null);
+    return { captured: 0, driverReceives: 0, platformReceives: 0, riderRefunded: 0, addOnRefunded: 0 };
+  }
+
+  const baseFare = Number(ride.final_agreed_price || 0);
+  const addOnReserve = Number(ride.add_on_reserve || 0);
+
+  // Calculate no-show amounts
+  const platformPercent = noShowPercent === 25 ? 5 : 10;
+  const driverAmount = Math.round(baseFare * (noShowPercent / 100) * 100) / 100;
+  const platformAmount = Math.round(baseFare * (platformPercent / 100) * 100) / 100;
+  const captureTotal = driverAmount + platformAmount;
+  const riderRefunded = baseFare - captureTotal;
+
+  // Get driver's Stripe account
+  const driverRows = await sql`
+    SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1
+  `;
+  const driverStripeId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string;
+
+  if (!isMock && ride.payment_intent_id && driverStripeId) {
+    const captureAmountCents = Math.round(captureTotal * 100);
+    const applicationFeeCents = Math.round(platformAmount * 100);
+    const idempotencyKey = `noshow_${rideId}_${noShowPercent}`;
+
+    // Partial capture: only capture the no-show fee portion
+    await stripe.paymentIntents.capture(
+      ride.payment_intent_id as string,
+      {
+        amount_to_capture: captureAmountCents,
+        application_fee_amount: applicationFeeCents,
+      },
+      {
+        stripeAccount: driverStripeId,
+        idempotencyKey,
+      }
+    );
+  }
+
+  // Update ride record
+  await sql`
+    UPDATE rides SET
+      status = 'ended',
+      payment_captured = true,
+      payment_captured_at = NOW(),
+      no_show_percent = ${noShowPercent},
+      no_show_base_charge = ${captureTotal},
+      no_show_addon_refund = ${addOnReserve},
+      platform_fee_amount = ${platformAmount},
+      driver_payout_amount = ${driverAmount},
+      ended_at = NOW(),
+      updated_at = NOW()
+    WHERE id = ${rideId}
+  `;
+
+  // Ledger entries
+  const piId = ride.payment_intent_id as string;
+  await insertLedger(rideId, ride.rider_id as string, 'rider', 'no_show_charge', captureTotal, 'debit',
+    `No-show ${noShowPercent}% charge ($${captureTotal.toFixed(2)})`, piId);
+  await insertLedger(rideId, ride.rider_id as string, 'rider', 'no_show_refund', riderRefunded, 'credit',
+    `No-show partial refund ($${riderRefunded.toFixed(2)})`, piId);
+  if (addOnReserve > 0) {
+    await insertLedger(rideId, ride.rider_id as string, 'rider', 'addon_refund', addOnReserve, 'credit',
+      `Add-ons fully refunded on no-show ($${addOnReserve.toFixed(2)})`, piId);
+  }
+  await insertLedger(rideId, ride.driver_id as string, 'driver', 'no_show_earnings', driverAmount, 'credit',
+    `No-show fee: ${noShowPercent}% of $${baseFare.toFixed(2)}`, piId);
+  await insertLedger(rideId, ride.driver_id as string, 'platform', 'no_show_platform_fee', platformAmount, 'credit',
+    `Platform no-show fee: ${platformPercent}%`, piId);
+
+  return {
+    captured: captureTotal,
+    driverReceives: driverAmount,
+    platformReceives: platformAmount,
+    riderRefunded: riderRefunded + addOnReserve,
+    addOnRefunded: addOnReserve,
+  };
 }
 
 async function insertLedger(

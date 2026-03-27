@@ -40,16 +40,24 @@ export async function POST(
 
     const disputeMinutes = Number(ride.dispute_window_minutes || process.env.DISPUTE_WINDOW_MINUTES || 15);
 
-    // Capture payment (digital rides only)
+    // Payment is captured at ride START (confirm-start), not end.
+    // Only capture here as fallback if somehow missed (legacy rides).
     let payoutResult = { driverReceives: 0, platformReceives: 0, capHit: false };
     const isCashRide = !!(ride.is_cash);
 
-    if (!isCashRide && ride.payment_intent_id && ride.funds_held) {
+    if (!isCashRide && ride.payment_intent_id && ride.funds_held && !ride.payment_captured) {
       try {
         payoutResult = await captureRiderPayment(rideId);
       } catch (e) {
         console.error('Payment capture failed:', e);
       }
+    } else if (ride.payment_captured) {
+      // Already captured at confirm-start — use stored values
+      payoutResult = {
+        driverReceives: Number(ride.driver_payout_amount || 0),
+        platformReceives: Number(ride.platform_fee_amount || 0),
+        capHit: false,
+      };
     }
 
     // Decrement cash ride counter for cash rides (non-HMU First)

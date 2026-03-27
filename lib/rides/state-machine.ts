@@ -1,11 +1,12 @@
 import { sql } from '@/lib/db/client';
 
-export type RideStatus = 'matched' | 'otw' | 'here' | 'active' | 'ended' | 'completed' | 'disputed' | 'cancelled' | 'refunded';
+export type RideStatus = 'matched' | 'otw' | 'here' | 'confirming' | 'active' | 'ended' | 'completed' | 'disputed' | 'cancelled' | 'refunded';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   matched: ['otw', 'cancelled'],
   otw: ['here', 'cancelled'],
-  here: ['active', 'cancelled'],
+  here: ['confirming', 'cancelled'],
+  confirming: ['active', 'here', 'ended', 'cancelled'],  // active=confirmed, here=timeout/reject, ended=no-show
   active: ['ended'],
   ended: ['completed', 'disputed'],
   disputed: ['completed', 'refunded'],
@@ -36,13 +37,14 @@ export const RideStateMachine = {
   getStatusMessage: (status: string) => {
     const messages: Record<string, string> = {
       matched: 'Matched with driver', otw: 'Driver is on the way',
-      here: 'Driver has arrived', active: 'Ride in progress',
+      here: 'Driver has arrived', confirming: 'Confirming ride start',
+      active: 'Ride in progress',
       ended: 'Ride ended', completed: 'Ride completed',
       disputed: 'Under review', cancelled: 'Cancelled', refunded: 'Refunded',
     };
     return messages[status] || status;
   },
-  isActive: (status: string) => ['otw', 'here', 'active'].includes(status),
+  isActive: (status: string) => ['otw', 'here', 'confirming', 'active'].includes(status),
 };
 
 export async function getRideForUser(rideId: string, userId: string) {

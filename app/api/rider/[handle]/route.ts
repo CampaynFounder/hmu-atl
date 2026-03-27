@@ -23,6 +23,7 @@ export async function GET(
         u.id as user_id,
         u.chill_score,
         u.completed_rides,
+        u.dispute_count,
         u.og_status,
         u.account_status
       FROM rider_profiles rp
@@ -62,6 +63,7 @@ export async function GET(
       chillScore: Number(r.chill_score ?? 0),
       completedRides: Number(r.completed_rides ?? 0),
       ogStatus: r.og_status || false,
+      disputeCount: Number(r.dispute_count ?? 0),
       memberSince: r.created_at,
       ratings,
       totalRatings,

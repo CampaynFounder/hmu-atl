@@ -22,7 +22,7 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
   try {
     rideRows = await sql`
       SELECT r.*,
-        dp.display_name as driver_name, dp.handle as driver_handle, dp.vehicle_info as driver_vehicle_info,
+        dp.display_name as driver_name, dp.handle as driver_handle, dp.avatar_url as driver_avatar_url, dp.vehicle_info as driver_vehicle_info,
         rp.display_name as rider_display_name, rp.handle as rider_handle, rp.avatar_url as rider_avatar_url
       FROM rides r
       LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
@@ -54,7 +54,9 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
       isDriver={isDriver}
       initialRide={{
         status: ride.status as string,
-        driverName: (ride.driver_handle as string) || (ride.driver_name as string) || 'Driver',
+        driverName: (ride.driver_name as string) || (ride.driver_handle as string) || 'Driver',
+        driverHandle: (ride.driver_handle as string) || null,
+        driverAvatarUrl: (ride.driver_avatar_url as string) || null,
         riderName: (ride.rider_handle as string) || (ride.rider_display_name as string) || 'Rider',
         riderHandle: (ride.rider_handle as string) || null,
         riderAvatarUrl: (ride.rider_avatar_url as string) || null,
@@ -78,6 +80,7 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
         driverPlateState: ((ride.driver_vehicle_info as Record<string, unknown>)?.plate_state as string) || null,
         isCash: (ride.is_cash as boolean) || false,
         waitMinutes: Number(ride.wait_minutes ?? 10),
+        confirmDeadline: (ride.confirm_deadline as string) || null,
         addOns: [],
         addOnTotal: 0,
       }}
