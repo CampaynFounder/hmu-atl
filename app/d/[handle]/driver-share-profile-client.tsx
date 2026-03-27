@@ -92,7 +92,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
         <Link href={signUpUrl} className="cta-btn cta-btn--primary" onClick={() => {
           posthog.capture('signup_from_driver_link', { driverHandle: driver.handle, driverName: driver.displayName });
         }}>
-          Sign up to Book {driver.displayName}
+          Request Ride with {driver.displayName}
         </Link>
       );
     }
@@ -176,6 +176,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
   return (
     <>
       <style>{`
+        html, body { background: #080808 !important; }
         :root { --green: #00E676; --black: #080808; --card: #141414; --card2: #1a1a1a; --border: rgba(255,255,255,0.08); --gray: #888; --gray-light: #bbb; }
         .profile-page { background: var(--black); color: #fff; min-height: 100svh; font-family: var(--font-body, 'DM Sans', sans-serif); padding-bottom: 100px; padding-top: 56px; overflow-x: hidden; max-width: 100vw; }
         .hero-photo { width: 100%; display: block; background: var(--black); }
