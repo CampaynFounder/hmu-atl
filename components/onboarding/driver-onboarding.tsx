@@ -7,6 +7,7 @@ import { Welcome } from './welcome';
 import { VideoRecorder } from './video-recorder';
 import { RiderPreferencesStep, type RiderPreferences } from './rider-preferences';
 import { LocationPermission } from './location-permission';
+import RatingsInfo from '@/components/shared/ratings-info';
 import { ArrowRight, ArrowLeft, Check } from 'lucide-react';
 
 interface DriverOnboardingProps {
@@ -169,6 +170,13 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
           }
         />
       ),
+      required: false,
+    },
+    {
+      id: 'ratings',
+      title: 'How Ratings Work',
+      description: 'Both drivers and riders rate each other after every ride',
+      component: <RatingsInfo />,
       required: false,
     },
     {

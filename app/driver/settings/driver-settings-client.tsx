@@ -5,7 +5,8 @@ import { useUser, useClerk } from '@clerk/nextjs';
 import UpgradeOverlay from '@/components/driver/upgrade-overlay';
 import CashPackCard from '@/components/driver/cash-pack-card';
 import Link from 'next/link';
-import { ChevronLeft, Shield, Zap, Clock, MessageCircle, DollarSign, UtensilsCrossed, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, Shield, Zap, Clock, MessageCircle, DollarSign, UtensilsCrossed, Star, Plus, Trash2 } from 'lucide-react';
+import RatingsInfo from '@/components/shared/ratings-info';
 
 interface Props {
   tier: string;
@@ -13,11 +14,12 @@ interface Props {
 
 const TABS = [
   { id: 'security', label: 'Security', icon: Shield },
+  { id: 'menu', label: 'Menu', icon: UtensilsCrossed },
+  { id: 'ratings', label: 'Ratings', icon: Star },
   { id: 'cash', label: 'Cash Rides', icon: DollarSign },
   { id: 'hmu-first', label: 'HMU First', icon: Zap },
   { id: 'history', label: 'Ride History', icon: Clock },
   { id: 'support', label: 'Support', icon: MessageCircle },
-  { id: 'menu', label: 'Menu', icon: UtensilsCrossed },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -28,7 +30,7 @@ export default function DriverSettingsClient({ tier }: Props) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as TabId | null;
-    if (tab && ['security', 'cash', 'hmu-first', 'history', 'support', 'menu'].includes(tab)) {
+    if (tab && ['security', 'menu', 'ratings', 'cash', 'hmu-first', 'history', 'support'].includes(tab)) {
       setActiveTab(tab);
     }
   }, []);
@@ -173,11 +175,12 @@ export default function DriverSettingsClient({ tier }: Props) {
         {/* Tab content */}
         <div className="tab-content">
           {activeTab === 'security' && <SecurityTab />}
+          {activeTab === 'menu' && <MenuTab tier={tier} />}
+          {activeTab === 'ratings' && <RatingsTab />}
           {activeTab === 'cash' && <CashPackCard />}
           {activeTab === 'hmu-first' && <HmuFirstTab tier={tier} />}
           {activeTab === 'history' && <HistoryTab />}
           {activeTab === 'support' && <SupportTab />}
-          {activeTab === 'menu' && <MenuTab tier={tier} />}
         </div>
       </div>
     </>
@@ -494,6 +497,20 @@ function HistoryTab() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function RatingsTab() {
+  return (
+    <div style={{ padding: '0 20px 20px' }}>
+      <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 28, marginBottom: 4 }}>
+        How Ratings Work
+      </div>
+      <div style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>
+        Both drivers and riders rate each other after every ride.
+      </div>
+      <RatingsInfo />
     </div>
   );
 }
