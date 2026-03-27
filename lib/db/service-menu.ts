@@ -32,7 +32,7 @@ export async function getDriverMenu(driverId: string): Promise<DriverServiceMenu
       COALESCE(smi.category, 'custom') as category
     FROM driver_service_menu dsm
     LEFT JOIN service_menu_items smi ON dsm.item_id = smi.id
-    WHERE dsm.driver_id = ${driverId}
+    WHERE dsm.driver_id = ${driverId} AND dsm.is_active = true
     ORDER BY dsm.sort_order, dsm.created_at
   `;
   return rows as DriverServiceMenuItem[];
@@ -123,11 +123,13 @@ export async function updateDriverMenuItem(
   menuItemId: string,
   updates: { price?: number; is_active?: boolean; custom_name?: string; custom_icon?: string }
 ): Promise<DriverServiceMenuItem | null> {
+  // Editing an item always re-activates it (unless explicitly deactivating)
+  const isActive = updates.is_active ?? true;
   const rows = await sql`
     UPDATE driver_service_menu
     SET
       price = COALESCE(${updates.price ?? null}, price),
-      is_active = COALESCE(${updates.is_active ?? null}, is_active),
+      is_active = ${isActive},
       custom_name = COALESCE(${updates.custom_name ?? null}, custom_name),
       custom_icon = COALESCE(${updates.custom_icon ?? null}, custom_icon)
     WHERE id = ${menuItemId} AND driver_id = ${driverId}
