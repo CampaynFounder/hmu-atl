@@ -54,6 +54,7 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
   const [menu, setMenu] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [reserve, setReserve] = useState(0);
+  const [isCash, setIsCash] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +69,7 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
         if (data.error) { setError(data.error); return; }
         setMenu(data.menu || []);
         setReserve(data.reserve ?? 0);
+        setIsCash(data.isCash ?? false);
       })
       .catch(() => setError('Failed to load menu'))
       .finally(() => setLoading(false));
@@ -302,12 +304,15 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
           </div>
         </div>
 
-        {/* Extras budget */}
-        {reserve > 0 && (
+        {/* Payment hold + extras budget */}
+        {!isCash && reserve > 0 && (
           <div style={{
             background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: 12, padding: '10px 14px', marginBottom: 16,
+            borderRadius: 12, padding: '12px 14px', marginBottom: 16,
           }}>
+            <div style={{ fontSize: 11, color: COLORS.gray, marginBottom: 8 }}>
+              We held <span style={{ color: COLORS.white, fontFamily: FONTS.mono, fontWeight: 700 }}>${(agreedPrice + reserve).toFixed(2)}</span> on your card — ${agreedPrice.toFixed(2)} ride + ${reserve.toFixed(2)} for extras
+            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <span style={{ fontSize: 11, color: COLORS.gray }}>Extras budget</span>
               <span style={{ fontFamily: FONTS.mono, fontSize: 12, color: remaining > 0 ? COLORS.green : COLORS.orange }}>
@@ -324,6 +329,22 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
                 transition: 'width 0.3s ease',
               }} />
             </div>
+            {remaining <= 0 && (
+              <div style={{ fontSize: 11, color: COLORS.orange, marginTop: 6 }}>
+                Extras budget used — remove an item to add something else
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* No extras budget — card only covered the ride */}
+        {!isCash && reserve === 0 && !loading && menu.length > 0 && (
+          <div style={{
+            background: 'rgba(255,145,0,0.08)', border: '1px solid rgba(255,145,0,0.15)',
+            borderRadius: 12, padding: '10px 14px', marginBottom: 16,
+            fontSize: 12, color: COLORS.orange,
+          }}>
+            Your card was only authorized for the ${agreedPrice.toFixed(2)} ride — extras aren't available for this trip. You can browse the menu for next time.
           </div>
         )}
 
@@ -398,21 +419,28 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => handleAdd(item)}
-                      disabled={isAdding || (reserve > 0 && Number(item.price) > remaining)}
-                      style={{
-                        background: isAdding ? 'rgba(0,230,118,0.15)' : (reserve > 0 && Number(item.price) > remaining) ? 'rgba(255,255,255,0.06)' : COLORS.green,
-                        color: isAdding ? COLORS.green : (reserve > 0 && Number(item.price) > remaining) ? COLORS.gray : COLORS.black,
-                        border: 'none', borderRadius: 100,
-                        padding: '8px 18px', fontSize: 13, fontWeight: 700,
-                        cursor: isAdding || (reserve > 0 && Number(item.price) > remaining) ? 'not-allowed' : 'pointer',
-                        fontFamily: FONTS.body,
-                        minWidth: 60, textAlign: 'center',
-                      }}
-                    >
-                      {isAdding ? '...' : existingCount > 0 ? '+1' : 'Add'}
-                    </button>
+                    {(() => {
+                      const noReserveDigital = !isCash && reserve === 0;
+                      const overBudget = !isCash && reserve > 0 && Number(item.price) > remaining;
+                      const disabled = isAdding || noReserveDigital || overBudget;
+                      return (
+                        <button
+                          onClick={() => handleAdd(item)}
+                          disabled={disabled}
+                          style={{
+                            background: isAdding ? 'rgba(0,230,118,0.15)' : disabled ? 'rgba(255,255,255,0.06)' : COLORS.green,
+                            color: isAdding ? COLORS.green : disabled ? COLORS.gray : COLORS.black,
+                            border: 'none', borderRadius: 100,
+                            padding: '8px 18px', fontSize: 13, fontWeight: 700,
+                            cursor: disabled ? 'not-allowed' : 'pointer',
+                            fontFamily: FONTS.body,
+                            minWidth: 60, textAlign: 'center',
+                          }}
+                        >
+                          {isAdding ? '...' : existingCount > 0 ? '+1' : 'Add'}
+                        </button>
+                      );
+                    })()}
                   </div>
                 );
               })}

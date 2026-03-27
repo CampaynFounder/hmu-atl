@@ -20,7 +20,7 @@ export async function GET(
 
     // Get ride + verify user is the rider
     const rideRows = await sql`
-      SELECT rider_id, driver_id, status, add_on_reserve, add_on_total
+      SELECT rider_id, driver_id, status, add_on_reserve, add_on_total, is_cash
       FROM rides WHERE id = ${rideId} LIMIT 1
     `;
     if (!rideRows.length) return NextResponse.json({ error: 'Ride not found' }, { status: 404 });
@@ -45,6 +45,7 @@ export async function GET(
       reserve,
       currentTotal,
       remaining,
+      isCash: !!(ride.is_cash),
     });
   } catch (error) {
     console.error('Ride menu error:', error);

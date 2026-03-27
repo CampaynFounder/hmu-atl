@@ -80,6 +80,8 @@ export async function POST(
     }
 
     // Hold the payment (base + add-on reserve)
+    // If the full hold (base + reserve) fails, retry with base only.
+    // Rider just won't have extras available — but they can still ride.
     try {
       await holdRiderPayment({
         rideId,
@@ -92,9 +94,31 @@ export async function POST(
         driverId: ride.driver_id as string,
       });
     } catch (e) {
-      console.error('Payment hold failed:', e);
-      const msg = e instanceof Error ? e.message : 'Payment failed';
-      return NextResponse.json({ error: `Payment hold failed: ${msg}`, code: 'payment_failed' }, { status: 402 });
+      if (addOnReserve > 0) {
+        // Retry without the add-on reserve — card may only cover the ride
+        console.warn('Full hold failed, retrying without add-on reserve:', e);
+        try {
+          await holdRiderPayment({
+            rideId,
+            agreedPrice,
+            addOnReserve: 0,
+            stripeCustomerId,
+            paymentMethodId,
+            driverStripeAccountId,
+            riderId: userId,
+            driverId: ride.driver_id as string,
+          });
+          addOnReserve = 0; // Reset so DB reflects no reserve
+        } catch (e2) {
+          console.error('Payment hold failed (no reserve):', e2);
+          const msg = e2 instanceof Error ? e2.message : 'Payment failed';
+          return NextResponse.json({ error: `Payment hold failed: ${msg}`, code: 'payment_failed' }, { status: 402 });
+        }
+      } else {
+        console.error('Payment hold failed:', e);
+        const msg = e instanceof Error ? e.message : 'Payment failed';
+        return NextResponse.json({ error: `Payment hold failed: ${msg}`, code: 'payment_failed' }, { status: 402 });
+      }
     }
     } // end if (!isCashRide)
 
