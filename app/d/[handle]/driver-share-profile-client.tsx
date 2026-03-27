@@ -318,7 +318,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
             <div className="name-row" style={{ marginBottom: 0 }}>
               <h1 className="driver-name">{driver.displayName}</h1>
-              {driver.isHmuFirst && <span className="hmu-first-badge">HMU First</span>}
+              {driver.isHmuFirst && <span className="hmu-first-badge">{'\uD83E\uDD47'} HMU 1st</span>}
             {driver.acceptsCash && (
               <span style={{
                 background: 'rgba(76,175,80,0.15)', color: '#4CAF50',

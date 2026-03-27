@@ -38,6 +38,8 @@ export function Header() {
   if (MARKETING_PATHS.includes(pathname)) return null;
 
   const profileType = user?.publicMetadata?.profileType as string | undefined;
+  const tier = user?.publicMetadata?.tier as string | undefined;
+  const isHmuFirst = tier === 'hmu_first';
   const logoHref = getLogoHref(pathname, profileType);
   const close = () => setIsMenuOpen(false);
 
@@ -52,13 +54,26 @@ export function Header() {
       <header className="fixed top-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-md border-b border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-14">
-            <Link
-              href={logoHref}
-              className="font-bold text-white"
-              style={{ fontFamily: 'var(--font-display, Bebas Neue, sans-serif)', fontSize: '22px', letterSpacing: '1px' }}
-            >
-              HMU ATL
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                href={logoHref}
+                className="font-bold text-white"
+                style={{ fontFamily: 'var(--font-display, Bebas Neue, sans-serif)', fontSize: '22px', letterSpacing: '1px' }}
+              >
+                HMU ATL
+              </Link>
+              {isSignedIn && isHmuFirst && (
+                <span style={{
+                  background: '#00E676', color: '#080808',
+                  fontSize: '9px', fontWeight: 800,
+                  padding: '3px 8px', borderRadius: '100px',
+                  letterSpacing: '0.5px', whiteSpace: 'nowrap',
+                  lineHeight: 1,
+                }}>
+                  {'\uD83E\uDD47'} 1ST
+                </span>
+              )}
+            </div>
             <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
               className="p-2 rounded-lg hover:bg-white/10 transition-colors text-white"

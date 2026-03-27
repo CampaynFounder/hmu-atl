@@ -300,7 +300,7 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
         <div className="dp-header">
           <h1 className="dp-title">
             {data.displayName}
-            {user.tier === 'hmu_first' && <span className="badge">HMU First</span>}
+            {user.tier === 'hmu_first' && <span className="badge">{'\uD83E\uDD47'} HMU 1st</span>}
           </h1>
           <Link href="/driver/home" className="dp-back">Back</Link>
         </div>

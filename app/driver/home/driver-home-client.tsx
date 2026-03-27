@@ -188,7 +188,7 @@ export default function DriverHomeClient({
         <h1 className="greeting">
           {displayName}
           {isHmuFirst
-            ? <span className="badge">{'\uD83E\uDD47'} HMU First</span>
+            ? <span className="badge">{'\uD83E\uDD47'} HMU 1st</span>
             : <span className="badge" style={{ background: '#1a1a1a', color: '#888', border: '1px solid rgba(255,255,255,0.08)' }}>Free Tier</span>
           }
         </h1>

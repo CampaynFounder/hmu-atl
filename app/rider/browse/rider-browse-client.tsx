@@ -214,7 +214,7 @@ export default function RiderBrowseClient({ drivers }: Props) {
                         fontSize: '9px', fontWeight: 800, padding: '3px 8px', borderRadius: '100px',
                         letterSpacing: '1px', textTransform: 'uppercase',
                       }}>
-                        HMU First
+                        {'\uD83E\uDD47'} HMU 1st
                       </span>
                     )}
                     {driver.fwu && (
