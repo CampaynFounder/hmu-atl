@@ -170,7 +170,7 @@ export async function notifyDriverNewBooking(
   riderName: string,
   options: SmsOptions = {}
 ): Promise<SendSmsResult> {
-  const message = `HMU ATL: New ride request from ${riderName}! Open the app to respond. You have 15 min. atl.hmucashride.com/driver/home`;
+  const message = `HMU ATL: New ride request from ${riderName}. Request expires in 15 min. atl.hmucashride.com/driver/home`;
   return sendSms(driverPhone, message, { ...options, eventType: 'new_booking' });
 }
 
