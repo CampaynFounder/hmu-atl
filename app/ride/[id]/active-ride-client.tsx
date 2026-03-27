@@ -8,6 +8,9 @@ import Link from 'next/link';
 import RideChat from '@/components/ride/ride-chat';
 import RiderProfileOverlay from '@/components/rider/rider-profile-overlay';
 import AddOnMenuSheet from '@/components/ride/add-on-menu-sheet';
+import dynamic from 'next/dynamic';
+
+const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
 // Mapbox GL loaded via CDN script tag — accessed as window.mapboxgl
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1863,28 +1866,28 @@ function CooButton({ rideId, onCooSent }: {
     } catch { /* silent */ }
   }
 
-  // Payment method needed — show prompt instead of COO form
+  // Payment method needed — show inline form instead of redirect
   if (needsPayment) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', textAlign: 'center' }}>
-        <div style={{ fontSize: '15px', color: COLORS.white, fontWeight: 600 }}>
-          Link a payment method to continue
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '15px', color: COLORS.white, fontWeight: 600 }}>
+            Link a payment method to continue
+          </div>
+          <div style={{ fontSize: '13px', color: COLORS.grayLight, marginTop: 4 }}>
+            Your driver knows payment is secured once you send COO
+          </div>
         </div>
-        <div style={{ fontSize: '13px', color: COLORS.grayLight }}>
-          COO requires a linked card so your driver knows payment is secured
+        <div style={{
+          background: '#141414', border: `1px solid rgba(0,230,118,0.2)`,
+          borderRadius: 14, padding: 16,
+        }}>
+          <InlinePaymentForm onSuccess={() => {
+            setNeedsPayment(false);
+            // Auto-send COO after payment method is linked
+            setTimeout(() => handleCoo(), 500);
+          }} />
         </div>
-        <button
-          type="button"
-          onClick={handleAddPayment}
-          style={{
-            width: '100%', padding: '16px', borderRadius: '100px',
-            border: 'none', background: COLORS.green, color: COLORS.black,
-            fontWeight: 800, fontSize: '16px', cursor: 'pointer',
-            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-          }}
-        >
-          Add Payment Method
-        </button>
         <button
           type="button"
           onClick={() => setNeedsPayment(false)}
