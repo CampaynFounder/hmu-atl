@@ -1,81 +1,173 @@
-// TextBee SMS Integration
-// Uses the TextBee API to send SMS via an Android device gateway
-// Docs: https://textbee.dev
+// VoIP.ms SMS Integration
+// Sends SMS via VoIP.ms REST API with retry logic and DB logging
+// Docs: https://voip.ms/m/api.php
 //
 // Required env vars:
-//   TEXTBEE_API_KEY    — API key from textbee.dev dashboard
-//   TEXTBEE_DEVICE_ID  — Device ID of the connected Android phone
+//   VOIPMS_API_USERNAME  — VoIP.ms login email
+//   VOIPMS_API_PASSWORD  — API password (set in VoIP.ms portal, NOT login password)
+//   VOIPMS_DID_ATL       — SMS-enabled DID for Atlanta market (10 digits)
+//   VOIPMS_DID_DEFAULT   — Fallback DID if market-specific not set
+//
+// To add a new market: set VOIPMS_DID_{MARKET} env var (e.g. VOIPMS_DID_HOU for Houston)
 
-const API_BASE = 'https://api.textbee.dev/api/v1';
+import { sql } from '@/lib/db/client';
 
+const API_URL = 'https://voip.ms/api/v1/rest.php';
+const MAX_RETRIES = 1;
+const RETRY_DELAY_MS = 1500;
+
+// ── Market → DID mapping ──
+function getDidForMarket(market: string = 'atl'): string | null {
+  const key = `VOIPMS_DID_${market.toUpperCase()}`;
+  return process.env[key] || process.env.VOIPMS_DID_DEFAULT || process.env.VOIPMS_DID_ATL || null;
+}
+
+// ── Normalize phone to 10-digit NANPA ──
+function normalizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  // Strip leading 1 if 11 digits
+  if (digits.length === 11 && digits.startsWith('1')) return digits.slice(1);
+  return digits;
+}
+
+// ── Core types ──
 interface SendSmsResult {
   success: boolean;
   messageId?: string;
   error?: string;
 }
 
-export async function sendSms(
+interface SmsOptions {
+  rideId?: string;
+  userId?: string;
+  eventType?: string;
+  market?: string;
+}
+
+// ── Log to sms_log table ──
+async function logSms(
   to: string,
-  message: string
-): Promise<SendSmsResult> {
-  const apiKey = process.env.TEXTBEE_API_KEY;
-  const deviceId = process.env.TEXTBEE_DEVICE_ID;
-
-  if (!apiKey || !deviceId) {
-    console.warn('[SMS] TextBee not configured — skipping SMS to', to);
-    return { success: false, error: 'TextBee not configured' };
-  }
-
+  fromDid: string,
+  message: string,
+  status: 'sent' | 'failed' | 'skipped',
+  voipmsStatus: string | null,
+  error: string | null,
+  retryCount: number,
+  options: SmsOptions
+): Promise<void> {
   try {
-    const res = await fetch(`${API_BASE}/gateway/devices/${deviceId}/sendSMS`, {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        receivers: [to],
-        smsBody: message,
-      }),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      console.error('[SMS] TextBee error:', res.status, err);
-      return { success: false, error: `HTTP ${res.status}: ${err}` };
-    }
-
-    const data = await res.json();
-    return { success: true, messageId: data?.data?.id };
-  } catch (error) {
-    console.error('[SMS] TextBee send failed:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    await sql`
+      INSERT INTO sms_log (to_phone, from_did, message, status, voipms_status, error, retry_count, ride_id, user_id, event_type, market)
+      VALUES (
+        ${to}, ${fromDid}, ${message}, ${status}, ${voipmsStatus},
+        ${error}, ${retryCount},
+        ${options.rideId || null}, ${options.userId || null},
+        ${options.eventType || null}, ${options.market || 'atl'}
+      )
+    `;
+  } catch (e) {
+    console.error('[SMS] Failed to log SMS:', e);
   }
 }
 
-// ── Notification Templates ──
+// ── Send SMS via VoIP.ms with retry ──
+export async function sendSms(
+  to: string,
+  message: string,
+  options: SmsOptions = {}
+): Promise<SendSmsResult> {
+  const username = process.env.VOIPMS_API_USERNAME;
+  const password = process.env.VOIPMS_API_PASSWORD;
+  const did = getDidForMarket(options.market);
+
+  if (!username || !password || !did) {
+    console.warn('[SMS] VoIP.ms not configured — skipping SMS to', to);
+    await logSms(to, did || 'none', message, 'skipped', null, 'VoIP.ms not configured', 0, options);
+    return { success: false, error: 'VoIP.ms not configured' };
+  }
+
+  const dst = normalizePhone(to);
+  if (dst.length !== 10) {
+    const err = `Invalid phone number: ${to} → ${dst}`;
+    console.error('[SMS]', err);
+    await logSms(to, did, message, 'failed', null, err, 0, options);
+    return { success: false, error: err };
+  }
+
+  let lastError = '';
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const params = new URLSearchParams({
+        api_username: username,
+        api_password: password,
+        method: 'sendSMS',
+        did: normalizePhone(did),
+        dst,
+        message,
+      });
+
+      const res = await fetch(`${API_URL}?${params.toString()}`);
+      const data = await res.json() as { status: string };
+
+      if (data.status === 'success') {
+        await logSms(dst, did, message, 'sent', 'success', null, attempt, options);
+        return { success: true };
+      }
+
+      lastError = `VoIP.ms: ${data.status}`;
+      console.error(`[SMS] Attempt ${attempt + 1} failed:`, data.status);
+
+      // Don't retry on auth/config errors
+      if (['invalid_credentials', 'invalid_method', 'missing_did'].includes(data.status)) {
+        await logSms(dst, did, message, 'failed', data.status, lastError, attempt, options);
+        return { success: false, error: lastError };
+      }
+
+      // Retry after delay
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : 'Network error';
+      console.error(`[SMS] Attempt ${attempt + 1} error:`, lastError);
+
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+      }
+    }
+  }
+
+  await logSms(dst, did, message, 'failed', null, lastError, MAX_RETRIES, options);
+  return { success: false, error: lastError };
+}
+
+// ── Driver Notification Templates ──
 
 export async function notifyDriverNewBooking(
   driverPhone: string,
-  riderName: string
+  riderName: string,
+  options: SmsOptions = {}
 ): Promise<SendSmsResult> {
   const message = `HMU ATL: New ride request from ${riderName}! Open the app to respond. You have 15 min. atl.hmucashride.com/driver/rides`;
-  return sendSms(driverPhone, message);
+  return sendSms(driverPhone, message, { ...options, eventType: 'new_booking' });
 }
 
 export async function notifyDriverRideAccepted(
   driverPhone: string,
-  riderName: string
+  riderName: string,
+  options: SmsOptions = {}
 ): Promise<SendSmsResult> {
   const message = `HMU ATL: ${riderName} confirmed payment. Check the app for pickup details. atl.hmucashride.com/driver/home`;
-  return sendSms(driverPhone, message);
+  return sendSms(driverPhone, message, { ...options, eventType: 'ride_accepted' });
 }
 
 export async function notifyDriverGeneric(
   driverPhone: string,
-  text: string
+  text: string,
+  options: SmsOptions = {}
 ): Promise<SendSmsResult> {
-  return sendSms(driverPhone, `HMU ATL: ${text}`);
+  return sendSms(driverPhone, `HMU ATL: ${text}`, { ...options, eventType: 'generic' });
 }
 
 // ── Rider Notification Templates ──
@@ -83,32 +175,36 @@ export async function notifyDriverGeneric(
 export async function notifyRiderBookingAccepted(
   riderPhone: string,
   driverName: string,
-  rideId: string
+  rideId: string,
+  options: SmsOptions = {}
 ): Promise<SendSmsResult> {
   const message = `HMU ATL: ${driverName} accepted your ride! Open the app to send COO and share your location. atl.hmucashride.com/ride/${rideId}`;
-  return sendSms(riderPhone, message);
+  return sendSms(riderPhone, message, { ...options, eventType: 'booking_accepted', rideId });
 }
 
 export async function notifyRiderBookingDeclined(
   riderPhone: string,
-  driverName: string
+  driverName: string,
+  options: SmsOptions = {}
 ): Promise<SendSmsResult> {
   const message = `HMU ATL: ${driverName} passed on your request. Try another driver or post to the feed. atl.hmucashride.com/rider/browse`;
-  return sendSms(riderPhone, message);
+  return sendSms(riderPhone, message, { ...options, eventType: 'booking_declined' });
 }
 
 export async function notifyRiderDriverOtw(
   riderPhone: string,
-  driverName: string
+  driverName: string,
+  options: SmsOptions = {}
 ): Promise<SendSmsResult> {
   const message = `HMU ATL: ${driverName} is OTW to you now! Track them in the app.`;
-  return sendSms(riderPhone, message);
+  return sendSms(riderPhone, message, { ...options, eventType: 'driver_otw' });
 }
 
 export async function notifyRiderDriverHere(
   riderPhone: string,
-  driverName: string
+  driverName: string,
+  options: SmsOptions = {}
 ): Promise<SendSmsResult> {
   const message = `HMU ATL: ${driverName} is HERE! Head to the car.`;
-  return sendSms(riderPhone, message);
+  return sendSms(riderPhone, message, { ...options, eventType: 'driver_here' });
 }
