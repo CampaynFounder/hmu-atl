@@ -73,7 +73,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
 
 export default async function DriverSharePage({ params, searchParams }: Props) {
   const { handle } = await params;
-  const { bookingOpen } = await searchParams;
+  const { bookingOpen, promo } = await searchParams;
   const { userId: clerkId } = await auth();
   const isLoggedIn = !!clerkId;
 
@@ -179,6 +179,7 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
       driver={driverData}
       autoOpenBooking={bookingOpen === '1'}
       isLoggedIn={isLoggedIn}
+      isPromo={promo === 'driver'}
     />
   );
 }

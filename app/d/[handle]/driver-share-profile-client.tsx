@@ -37,9 +37,10 @@ interface Props {
   driver: DriverData;
   autoOpenBooking: boolean;
   isLoggedIn?: boolean;
+  isPromo?: boolean;
 }
 
-export default function DriverShareProfileClient({ driver, autoOpenBooking, isLoggedIn }: Props) {
+export default function DriverShareProfileClient({ driver, autoOpenBooking, isLoggedIn, isPromo }: Props) {
   const { isLoaded, isSignedIn } = useUser();
   const [eligibility, setEligibility] = useState<EligibilityResult | null>(null);
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
@@ -330,7 +331,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
             )}
             </div>
             {/* Driver sign up CTA — only for logged out visitors */}
-            {!isLoggedIn && <DriverSignUpCta />}
+            {!isLoggedIn && <DriverSignUpCta isPromo={isPromo} />}
           </div>
           {/* Availability Status */}
           <div style={{
@@ -528,7 +529,7 @@ const DRIVER_PAIN_POINTS = [
   'No-Shows',
 ];
 
-function DriverSignUpCta() {
+function DriverSignUpCta({ isPromo }: { isPromo?: boolean }) {
   const [currentPain, setCurrentPain] = useState(0);
   const [animating, setAnimating] = useState(false);
 
@@ -564,6 +565,10 @@ function DriverSignUpCta() {
           0%, 100% { box-shadow: 0 0 0 rgba(255,82,82,0); }
           50% { box-shadow: 0 0 12px rgba(255,82,82,0.4); }
         }
+        @keyframes promoPulse {
+          0%, 100% { transform: scale(1); box-shadow: 0 0 8px rgba(0,230,118,0.3); }
+          50% { transform: scale(1.08); box-shadow: 0 0 20px rgba(0,230,118,0.6); }
+        }
       `}</style>
 
       {/* Prohibited circle with pain point */}
@@ -597,16 +602,18 @@ function DriverSignUpCta() {
 
       {/* CTA button */}
       <div style={{
-        background: '#080808', color: '#00E676',
-        fontSize: 10, fontWeight: 800, letterSpacing: 0.5,
-        padding: '6px 14px', borderRadius: 100,
+        background: isPromo ? '#00E676' : '#080808',
+        color: isPromo ? '#080808' : '#00E676',
+        fontSize: isPromo ? 11 : 10, fontWeight: 800, letterSpacing: 0.5,
+        padding: isPromo ? '8px 16px' : '6px 14px', borderRadius: 100,
         textAlign: 'center', lineHeight: 1.2,
         textTransform: 'uppercase',
         whiteSpace: 'nowrap',
-        border: '1.5px solid #00E676',
+        border: isPromo ? 'none' : '1.5px solid #00E676',
         boxShadow: '0 0 8px rgba(0,230,118,0.3)',
+        animation: isPromo ? 'promoPulse 2s ease-in-out infinite' : 'none',
       }}>
-        Drive with HMU &rarr;
+        {isPromo ? 'Create FREE Profile \u2192' : 'Drive with HMU \u2192'}
       </div>
     </Link>
   );
