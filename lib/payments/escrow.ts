@@ -71,6 +71,10 @@ export async function holdRiderPayment(params: {
     payment_method: clonedPm.id,
     capture_method: 'manual',
     confirm: true,
+    automatic_payment_methods: {
+      enabled: true,
+      allow_redirects: 'never',
+    },
     statement_descriptor_suffix: 'HMU RIDE',
     metadata: {
       rideId: params.rideId,
