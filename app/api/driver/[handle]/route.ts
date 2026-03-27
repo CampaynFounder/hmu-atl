@@ -16,12 +16,10 @@ export async function GET(
       SELECT
         dp.display_name,
         dp.handle,
-        dp.avatar_url,
+        dp.thumbnail_url,
         dp.video_url,
         dp.areas,
-        dp.min_ride_amount,
-        dp.price_30min,
-        dp.price_1hr,
+        dp.pricing,
         dp.vehicle_info,
         dp.created_at,
         dp.accepts_cash,
@@ -82,11 +80,12 @@ export async function GET(
     const stats = responseRows[0] as { completed: number; cancelled: number } | undefined;
 
     const vehicleInfo = d.vehicle_info as Record<string, unknown> | null;
+    const pricing = d.pricing as Record<string, unknown> | null;
 
     return NextResponse.json({
       displayName: d.display_name || 'Driver',
       handle: d.handle,
-      avatarUrl: d.avatar_url || null,
+      avatarUrl: d.thumbnail_url || null,
       videoUrl: d.video_url || null,
       areas: Array.isArray(d.areas) ? d.areas : [],
       isHmuFirst: d.tier === 'hmu_first',
@@ -104,9 +103,9 @@ export async function GET(
         maxRiders: (Number(vehicleInfo.max_adults || 0) + Number(vehicleInfo.max_children || 0)) || null,
       } : null,
       pricing: {
-        minimum: Number(d.min_ride_amount ?? 0),
-        thirtyMin: Number(d.price_30min ?? 0),
-        hourly: Number(d.price_1hr ?? 0),
+        minimum: Number(pricing?.minimum ?? 0),
+        thirtyMin: Number(pricing?.['30min'] ?? 0),
+        hourly: Number(pricing?.hourly ?? 0),
       },
       services: serviceRows.map((s: Record<string, unknown>) => ({
         name: s.name as string,

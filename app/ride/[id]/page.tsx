@@ -22,7 +22,7 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
   try {
     rideRows = await sql`
       SELECT r.*,
-        dp.display_name as driver_name, dp.handle as driver_handle, dp.avatar_url as driver_avatar_url, dp.vehicle_info as driver_vehicle_info,
+        dp.display_name as driver_name, dp.handle as driver_handle, dp.thumbnail_url as driver_avatar_url, dp.vehicle_info as driver_vehicle_info,
         rp.display_name as rider_display_name, rp.handle as rider_handle, rp.avatar_url as rider_avatar_url
       FROM rides r
       LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
