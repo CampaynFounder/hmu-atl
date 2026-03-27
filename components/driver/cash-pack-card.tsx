@@ -97,8 +97,15 @@ export default function CashPackCard() {
     }
   }
 
-  if (loading || !balance) return null;
-  if (balance.unlimited) return null;
+  if (loading) return <div style={{ textAlign: 'center', padding: '40px 0', color: '#888', fontSize: 14 }}>Loading...</div>;
+  if (!balance) return <div style={{ textAlign: 'center', padding: '40px 0', color: '#888', fontSize: 14 }}>Unable to load cash ride balance</div>;
+  if (balance.unlimited) return (
+    <div style={{ padding: '20px', textAlign: 'center' }}>
+      <div style={{ fontSize: 48, marginBottom: 12 }}>{'\u267B\uFE0F'}</div>
+      <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 28, marginBottom: 4, color: '#fff' }}>Unlimited Cash Rides</div>
+      <div style={{ fontSize: 14, color: '#00E676', fontWeight: 600 }}>HMU First perk — no credits needed</div>
+    </div>
+  );
 
   // Show inline Stripe payment form
   if (paymentSetup) {
