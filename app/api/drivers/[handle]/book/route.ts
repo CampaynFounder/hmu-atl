@@ -110,9 +110,13 @@ export async function POST(
     `;
     const driverPhone = (driverPhoneRows[0] as Record<string, unknown>)?.phone as string;
     const riderNameRows = await sql`
-      SELECT first_name FROM rider_profiles WHERE user_id = ${rider.id} LIMIT 1
+      SELECT COALESCE(rp.display_name, rp.first_name, u.clerk_id) as name, rp.handle
+      FROM rider_profiles rp
+      JOIN users u ON u.id = rp.user_id
+      WHERE rp.user_id = ${rider.id} LIMIT 1
     `;
-    const riderName = (riderNameRows[0] as Record<string, unknown>)?.first_name as string || 'A rider';
+    const riderRow = riderNameRows[0] as Record<string, unknown> | undefined;
+    const riderName = (riderRow?.handle as string) || (riderRow?.name as string) || 'A rider';
     console.log('[BOOK] SMS lookup — driverPhone:', driverPhone, '| riderName:', riderName);
     console.log('[BOOK] VOIPMS env check — username:', !!process.env.VOIPMS_API_USERNAME, '| password:', !!process.env.VOIPMS_API_PASSWORD, '| did:', !!process.env.VOIPMS_DID_ATL);
     if (driverPhone) {
