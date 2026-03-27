@@ -1024,10 +1024,19 @@ export default function ActiveRideClient({
           rideId={rideId}
           open={menuSheetOpen}
           onClose={() => setMenuSheetOpen(false)}
+          agreedPrice={ride.agreedPrice}
+          addOns={ride.addOns}
           onAdded={(addOn, total) => {
             setRide(prev => ({
               ...prev,
               addOns: [...prev.addOns, addOn],
+              addOnTotal: total,
+            }));
+          }}
+          onRemoved={(addOnId, total) => {
+            setRide(prev => ({
+              ...prev,
+              addOns: prev.addOns.map(a => a.id === addOnId ? { ...a, status: 'disputed' } : a),
               addOnTotal: total,
             }));
           }}
