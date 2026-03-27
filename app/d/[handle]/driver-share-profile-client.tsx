@@ -183,7 +183,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
         .profile-body { padding: 24px 20px 0; overflow: hidden; }
         .name-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; min-width: 0; }
         .driver-name { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 48px; line-height: 1; word-break: break-word; }
-        .hmu-first-badge { background: var(--green); color: var(--black); font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 100px; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
+        .hmu-first-badge { background: rgba(0,230,118,0.15); color: var(--green); font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 100px; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
         .stats-row { display: flex; gap: 16px; margin-bottom: 20px; }
         .stat-pill { background: var(--card2); border: 1px solid var(--border); border-radius: 100px; padding: 6px 14px; font-size: 13px; color: var(--gray-light); display: flex; align-items: center; gap: 6px; }
         .stat-pill .value { color: var(--green); font-weight: 700; font-family: var(--font-mono, 'Space Mono', monospace); }
@@ -597,14 +597,16 @@ function DriverSignUpCta() {
 
       {/* CTA button */}
       <div style={{
-        background: '#00E676', color: '#080808',
+        background: '#080808', color: '#00E676',
         fontSize: 10, fontWeight: 800, letterSpacing: 0.5,
-        padding: '6px 12px', borderRadius: 100,
+        padding: '6px 14px', borderRadius: 100,
         textAlign: 'center', lineHeight: 1.2,
         textTransform: 'uppercase',
         whiteSpace: 'nowrap',
+        border: '1.5px solid #00E676',
+        boxShadow: '0 0 8px rgba(0,230,118,0.3)',
       }}>
-        Drive with HMU
+        Drive with HMU &rarr;
       </div>
     </Link>
   );
