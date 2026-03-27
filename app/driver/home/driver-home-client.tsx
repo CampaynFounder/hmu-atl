@@ -8,6 +8,12 @@ import DealCard from '@/components/driver/deal-card';
 interface BookingRequest {
   id: string;
   riderName: string;
+  riderHandle: string | null;
+  riderAvatarUrl: string | null;
+  riderVideoUrl: string | null;
+  riderChillScore: number;
+  riderCompletedRides: number;
+  isCash: boolean;
   destination: string;
   time: string;
   stops: string;
@@ -352,58 +358,7 @@ export default function DriverHomeClient({
           </div>
         ) : (
           requests.map((req) => (
-            <div key={req.id} className="request-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className="request-rider">
-                  {req.riderName}
-                  <span style={{
-                    width: '8px', height: '8px', borderRadius: '50%',
-                    background: req.riderOnline ? '#00E676' : '#555',
-                    display: 'inline-block', marginLeft: '6px', verticalAlign: 'middle',
-                  }} title={req.riderOnline ? 'Online now' : 'Offline'} />
-                </div>
-                {req.createdAt && (
-                  <span style={{ fontSize: '12px', color: '#888' }}>{getTimeAgo(req.createdAt)}</span>
-                )}
-              </div>
-              <div className="request-detail">
-                <span className="request-detail-label">Where</span>
-                {req.destination || 'Not specified'}
-              </div>
-              <div className="request-detail">
-                <span className="request-detail-label">When</span>
-                {req.time || 'ASAP'}
-              </div>
-              {req.stops && req.stops !== 'none' && req.stops !== 'Nah, straight there' && (
-                <div className="request-detail">
-                  <span className="request-detail-label">Stops</span>
-                  {req.stops}
-                </div>
-              )}
-              {req.roundTrip && (
-                <div className="request-detail">
-                  <span className="request-detail-label">Trip</span>
-                  Round trip
-                </div>
-              )}
-              <div className="request-price">${req.price}</div>
-              <div className="request-actions">
-                <button
-                  className="req-btn req-btn--decline"
-                  onClick={() => handleAction(req.id, 'decline')}
-                  disabled={actionLoading === req.id}
-                >
-                  Decline
-                </button>
-                <button
-                  className="req-btn req-btn--accept"
-                  onClick={() => handleAction(req.id, 'accept')}
-                  disabled={actionLoading === req.id}
-                >
-                  Accept
-                </button>
-              </div>
-            </div>
+            <RequestCard key={req.id} req={req} actionLoading={actionLoading} onAction={handleAction} />
           ))
         )}
       </div>
@@ -419,4 +374,164 @@ function getTimeAgo(dateStr: string): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function RequestCard({ req, actionLoading, onAction }: {
+  req: BookingRequest;
+  actionLoading: string | null;
+  onAction: (id: string, action: 'accept' | 'decline') => void;
+}) {
+  const [showRider, setShowRider] = useState(false);
+  const [countdown, setCountdown] = useState('');
+
+  // Countdown timer
+  useEffect(() => {
+    if (!req.expiresAt) return;
+    const tick = () => {
+      const remaining = new Date(req.expiresAt).getTime() - Date.now();
+      if (remaining <= 0) { setCountdown('Expired'); return; }
+      const mins = Math.floor(remaining / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      setCountdown(`${mins}:${String(secs).padStart(2, '0')}`);
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [req.expiresAt]);
+
+  const isExpired = countdown === 'Expired';
+
+  return (
+    <div className="request-card" style={{ opacity: isExpired ? 0.5 : 1 }}>
+      {/* Rider header — clickable */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <button
+          onClick={() => setShowRider(!showRider)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, background: 'none',
+            border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left',
+          }}
+        >
+          {/* Avatar */}
+          <div style={{
+            width: 40, height: 40, borderRadius: '50%', overflow: 'hidden',
+            background: '#1a1a1a', flexShrink: 0, border: '2px solid rgba(0,230,118,0.3)',
+          }}>
+            {req.riderAvatarUrl ? (
+              <img src={req.riderAvatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: '#555' }}>
+                {(req.riderName || '?').charAt(0).toUpperCase()}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="request-rider" style={{ margin: 0 }}>
+              {req.riderHandle ? `@${req.riderHandle}` : req.riderName}
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: req.riderOnline ? '#00E676' : '#555',
+                display: 'inline-block', marginLeft: 6, verticalAlign: 'middle',
+              }} />
+            </div>
+            <div style={{ fontSize: 11, color: '#888' }}>
+              Tap to {showRider ? 'hide' : 'view'} rider details
+            </div>
+          </div>
+        </button>
+
+        {/* Countdown */}
+        <div style={{
+          fontSize: 13, fontWeight: 700, fontFamily: "'Space Mono', monospace",
+          color: isExpired ? '#FF5252' : countdown && parseInt(countdown) < 5 ? '#FF9100' : '#00E676',
+          background: isExpired ? 'rgba(255,82,82,0.1)' : 'rgba(0,230,118,0.08)',
+          padding: '4px 10px', borderRadius: 100,
+          border: `1px solid ${isExpired ? 'rgba(255,82,82,0.2)' : 'rgba(0,230,118,0.2)'}`,
+        }}>
+          {isExpired ? 'Expired' : countdown}
+        </div>
+      </div>
+
+      {/* Rider details — expandable */}
+      {showRider && (
+        <div style={{
+          background: '#1a1a1a', borderRadius: 12, padding: 14, marginBottom: 10,
+          border: '1px solid rgba(255,255,255,0.06)',
+        }}>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1 }}>Chill</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#00E676', fontFamily: "'Space Mono', monospace" }}>
+                {req.riderChillScore.toFixed(0)}%
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1 }}>Rides</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', fontFamily: "'Space Mono', monospace" }}>
+                {req.riderCompletedRides}
+              </div>
+            </div>
+          </div>
+          {req.riderVideoUrl && (
+            <div style={{ borderRadius: 10, overflow: 'hidden', marginTop: 8 }}>
+              <video src={req.riderVideoUrl} controls playsInline muted preload="metadata"
+                style={{ width: '100%', display: 'block', maxHeight: 160, objectFit: 'contain', background: '#000' }} />
+            </div>
+          )}
+          {req.isCash && (
+            <div style={{
+              marginTop: 8, fontSize: 11, fontWeight: 700, color: '#4CAF50',
+              background: 'rgba(76,175,80,0.1)', borderRadius: 100,
+              padding: '4px 10px', display: 'inline-block',
+            }}>
+              Cash Ride
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Ride details */}
+      <div className="request-detail">
+        <span className="request-detail-label">Where</span>
+        {req.destination || 'Not specified'}
+      </div>
+      <div className="request-detail">
+        <span className="request-detail-label">When</span>
+        {req.time || 'ASAP'}
+      </div>
+      {req.stops && req.stops !== 'none' && req.stops !== 'Nah, straight there' && (
+        <div className="request-detail">
+          <span className="request-detail-label">Stops</span>
+          {req.stops}
+        </div>
+      )}
+      {req.roundTrip && (
+        <div className="request-detail">
+          <span className="request-detail-label">Trip</span>
+          Round trip
+        </div>
+      )}
+      <div className="request-price">${req.price}</div>
+
+      {/* Actions */}
+      {!isExpired && (
+        <div className="request-actions">
+          <button
+            className="req-btn req-btn--decline"
+            onClick={() => onAction(req.id, 'decline')}
+            disabled={actionLoading === req.id}
+          >
+            Pass
+          </button>
+          <button
+            className="req-btn req-btn--accept"
+            onClick={() => onAction(req.id, 'accept')}
+            disabled={actionLoading === req.id}
+          >
+            Accept
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
