@@ -113,11 +113,16 @@ export async function POST(
       SELECT first_name FROM rider_profiles WHERE user_id = ${rider.id} LIMIT 1
     `;
     const riderName = (riderNameRows[0] as Record<string, unknown>)?.first_name as string || 'A rider';
+    console.log('[BOOK] SMS lookup — driverPhone:', driverPhone, '| riderName:', riderName);
+    console.log('[BOOK] VOIPMS env check — username:', !!process.env.VOIPMS_API_USERNAME, '| password:', !!process.env.VOIPMS_API_PASSWORD, '| did:', !!process.env.VOIPMS_DID_ATL);
     if (driverPhone) {
-      notifyDriverNewBooking(driverPhone, riderName).catch(e => console.error('SMS failed:', e));
+      const smsResult = await notifyDriverNewBooking(driverPhone, riderName);
+      console.log('[BOOK] SMS result:', JSON.stringify(smsResult));
+    } else {
+      console.warn('[BOOK] No driver phone found for SMS');
     }
   } catch (e) {
-    console.error('SMS lookup failed:', e);
+    console.error('SMS failed:', e);
   }
 
   return NextResponse.json({ postId: post.id, expiresAt: post.booking_expires_at }, { status: 201 });
