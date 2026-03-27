@@ -328,15 +328,15 @@ export default function RiderBrowseClient({ drivers }: Props) {
                       </span>
                     </div>
                     {driver.minPrice > 0 && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                         <span style={{
                           fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-                          fontSize: '20px', color: '#fff',
+                          fontSize: '20px', color: '#fff', lineHeight: 1,
                         }}>
-                          ${driver.minPrice}
+                          ${driver.minPrice}+
                         </span>
-                        <span style={{ fontSize: '10px', color: '#888', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                          Min
+                        <span style={{ fontSize: '9px', color: '#888', letterSpacing: '0.5px' }}>
+                          starts at
                         </span>
                       </div>
                     )}
