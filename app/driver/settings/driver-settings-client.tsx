@@ -665,14 +665,21 @@ function MenuTab({ tier }: { tier: string }) {
 
   const handleDelete = async (itemId: string) => {
     setDeleting(itemId);
+    // Optimistically remove from UI immediately
+    setItems(prev => prev.filter(i => i.id !== itemId));
     try {
-      await fetch('/api/driver/service-menu', {
+      const res = await fetch('/api/driver/service-menu', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ menu_item_id: itemId }),
+        body: JSON.stringify({ menu_item_id: itemId, permanent: true }),
       });
-      fetchMenu();
-    } catch { /* silent */ }
+      if (!res.ok) {
+        // Revert on failure
+        fetchMenu();
+      }
+    } catch {
+      fetchMenu(); // Revert on error
+    }
     finally { setDeleting(null); }
   };
 
