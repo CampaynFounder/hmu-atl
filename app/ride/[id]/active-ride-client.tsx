@@ -1777,6 +1777,7 @@ function CooButton({ rideId, onCooSent }: {
   const [geoError, setGeoError] = useState<string | null>(null);
   const [geoPermanentlyDenied, setGeoPermanentlyDenied] = useState(false);
   const [needsPayment, setNeedsPayment] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   function getMyLocation() {
     if (!navigator.geolocation) {
@@ -1833,11 +1834,20 @@ function CooButton({ rideId, onCooSent }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lat: geoLat, lng: geoLng, locationText: locationText.trim() || null }),
       });
+      const data = await res.json();
       if (res.ok) {
         fbEvent('InitiateCheckout', { content_name: 'ride_coo', content_category: 'rides' });
         onCooSent(geoLat, geoLng, locationText.trim() || null);
+      } else {
+        if (data.code === 'no_payment_method') {
+          setNeedsPayment(true);
+        } else {
+          setError(data.error || 'COO failed — try again');
+        }
       }
-    } catch { /* silent */ }
+    } catch {
+      setError('Network error — check your connection');
+    }
     setLoading(false);
   }
 
@@ -1954,9 +1964,19 @@ function CooButton({ rideId, onCooSent }: {
         )
       )}
 
+      {error && (
+        <div style={{
+          fontSize: '13px', color: COLORS.red, padding: '10px 14px',
+          background: 'rgba(255,82,82,0.08)', borderRadius: '12px',
+          marginBottom: '8px', textAlign: 'center',
+        }}>
+          {error}
+        </div>
+      )}
+
       <button
         type="button"
-        onClick={handleCoo}
+        onClick={() => { setError(null); handleCoo(); }}
         disabled={loading}
         style={{
           width: '100%', padding: '18px', borderRadius: '100px',
