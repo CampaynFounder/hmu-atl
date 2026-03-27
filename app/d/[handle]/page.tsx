@@ -24,10 +24,11 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
 
   const displayName = (p.display_name as string) || name || handle;
 
-  // Promo mode: driver recruitment messaging
+  // Promo mode: driver recruitment messaging — use static image for fast preview
   if (promo === 'driver') {
     const promoTitle = 'Get Paid Upfront | No More Blank Trips | Create Your FREE Profile';
     const promoDesc = 'Ride scammers hate paying upfront. Use HMU anytime but def when rider vibes is a lil off. We verify payment - Protect Riders & Drivers. No Shows = No Loss. Sign Up Free.';
+    const promoImage = 'https://atl.hmucashride.com/og-image.jpeg';
     return {
       title: promoTitle,
       description: promoDesc,
@@ -37,13 +38,13 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
         url: `https://atl.hmucashride.com/d/${handle}?promo=driver`,
         siteName: 'HMUCASHRIDE',
         type: 'website',
-        images: [{ url: ogImage, width: 1200, height: 630, alt: promoTitle }],
+        images: [{ url: promoImage, width: 1200, height: 630, alt: promoTitle }],
       },
       twitter: {
         card: 'summary_large_image',
         title: promoTitle,
         description: promoDesc,
-        images: [ogImage],
+        images: [promoImage],
       },
     };
   }
