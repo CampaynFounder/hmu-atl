@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser } from '@/lib/rides/state-machine';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { cancelPaymentHold } from '@/lib/payments/escrow';
 
 export async function POST(
   req: NextRequest,
@@ -28,6 +29,9 @@ export async function POST(
     // Rider can cancel freely before OTW
     if (isRider && ['matched'].includes(status)) {
       await sql`UPDATE rides SET status = 'cancelled', updated_at = NOW() WHERE id = ${rideId}`;
+
+      // Release Stripe hold if payment was authorized
+      cancelPaymentHold(rideId, 'Rider cancelled before OTW').catch(e => console.error('Hold release failed:', e));
 
       // Reactivate the original post so other drivers can accept
       if (ride.hmu_post_id) {
@@ -70,6 +74,9 @@ export async function POST(
 
       await sql`UPDATE rides SET status = 'cancelled', updated_at = NOW() WHERE id = ${rideId}`;
 
+      // Release Stripe hold
+      cancelPaymentHold(rideId, 'Cancelled by agreement').catch(e => console.error('Hold release failed:', e));
+
       if (ride.hmu_post_id) {
         await sql`
           UPDATE hmu_posts SET status = 'active', expires_at = NOW() + INTERVAL '2 hours'
@@ -88,6 +95,9 @@ export async function POST(
     // Driver can cancel freely before OTW
     if (isDriver && ['matched'].includes(status)) {
       await sql`UPDATE rides SET status = 'cancelled', updated_at = NOW() WHERE id = ${rideId}`;
+
+      // Release Stripe hold if payment was authorized
+      cancelPaymentHold(rideId, 'Driver cancelled before OTW').catch(e => console.error('Hold release failed:', e));
 
       if (ride.hmu_post_id) {
         await sql`
