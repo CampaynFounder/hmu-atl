@@ -48,13 +48,25 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
   const [videoMuted, setVideoMuted] = useState(true);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
 
-  // Track profile view
+  // Track profile view + promo attribution
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const promo = params.get('promo');
+    const utmSource = params.get('utm_source');
+    const utmMedium = params.get('utm_medium');
+    const utmCampaign = params.get('utm_campaign');
+
     posthog.capture('driver_profile_viewed', {
       driverHandle: driver.handle,
       driverName: driver.displayName,
       isLive: driver.isLive,
       viewerSignedIn: isSignedIn,
+      isPromo: !!promo,
+      promoType: promo || null,
+      utmSource: utmSource || null,
+      utmMedium: utmMedium || null,
+      utmCampaign: utmCampaign || null,
+      referrer: document.referrer || null,
     });
   }, [driver.handle]); // eslint-disable-line react-hooks/exhaustive-deps
 
