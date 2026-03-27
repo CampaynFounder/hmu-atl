@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface DriverProfileData {
   displayName: string;
@@ -40,10 +40,13 @@ export default function DriverProfileOverlay({ handle, open, onClose }: Props) {
   const [profile, setProfile] = useState<DriverProfileData | null>(null);
   const [loading, setLoading] = useState(false);
   const [videoMuted, setVideoMuted] = useState(true);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     if (!open || !handle) return;
     setLoading(true);
+    setProfile(null);
+    setVideoMuted(true);
     fetch(`/api/driver/${handle}`)
       .then(r => r.json())
       .then(data => {
@@ -52,6 +55,14 @@ export default function DriverProfileOverlay({ handle, open, onClose }: Props) {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [open, handle]);
+
+  // Force autoplay after video element mounts
+  useEffect(() => {
+    if (profile?.videoUrl && videoRef.current) {
+      videoRef.current.muted = true;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [profile?.videoUrl]);
 
   if (!open) return null;
 
@@ -161,13 +172,19 @@ export default function DriverProfileOverlay({ handle, open, onClose }: Props) {
                   borderRadius: 16, overflow: 'hidden', marginBottom: 16,
                   position: 'relative', cursor: 'pointer',
                 }}
-                onClick={() => setVideoMuted(!videoMuted)}
+                onClick={() => {
+                  if (videoRef.current) {
+                    videoRef.current.muted = !videoRef.current.muted;
+                    setVideoMuted(videoRef.current.muted);
+                  }
+                }}
               >
                 <video
+                  ref={videoRef}
                   src={profile.videoUrl}
                   autoPlay
                   loop
-                  muted={videoMuted}
+                  muted
                   playsInline
                   style={{ width: '100%', display: 'block', maxHeight: 240, objectFit: 'cover' }}
                 />
