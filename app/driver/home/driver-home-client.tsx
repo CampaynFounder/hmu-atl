@@ -344,26 +344,6 @@ export default function DriverHomeClient({
           </div>
         )}
 
-        {/* Share Link Card */}
-        <div className="share-card">
-          <p className="share-label">Your HMU Link</p>
-          <div className="share-url-pill">{shareUrl}</div>
-          <div className="share-buttons">
-            <button
-              className={`share-btn share-btn--copy${copied ? ' copied' : ''}`}
-              onClick={handleCopy}
-            >
-              {copied ? 'Copied!' : 'Copy Link'}
-            </button>
-            <button className="share-btn share-btn--share" onClick={handleShare}>
-              Share
-            </button>
-          </div>
-          <p className="share-tip">
-            Drop this anywhere — IG bio, group chats, Twitter. Riders tap it to book you.
-          </p>
-        </div>
-
       </div>
     </>
   );
