@@ -24,8 +24,8 @@ export async function POST(req: NextRequest) {
     if (!message?.trim()) {
       return NextResponse.json({ error: 'Message cannot be empty' }, { status: 400 });
     }
-    if (message.length > 320) {
-      return NextResponse.json({ error: 'Message too long (max 320 chars for 2 SMS segments)' }, { status: 400 });
+    if (message.length > 160) {
+      return NextResponse.json({ error: 'Message too long (max 160 characters)' }, { status: 400 });
     }
 
     const results = [];

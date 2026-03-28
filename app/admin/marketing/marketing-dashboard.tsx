@@ -22,31 +22,31 @@ interface SendResult {
 const MESSAGE_TEMPLATES = [
   {
     label: 'General Signup',
-    text: 'Tired of ride scammers? HMU ATL holds rider payment BEFORE you pull up. Drivers get paid. Riders get rides. No more games. Sign up free: atl.hmucashride.com',
+    text: 'Ride scammers hate HMU. Payment held BEFORE driver pulls up. Drivers get paid. Riders get rides. Sign up free: atl.hmucashride.com',
   },
   {
     label: 'Driver Recruitment',
-    text: 'Drive with HMU ATL. Set your own price, get paid upfront, keep 90% of your first $50/day. No applications, no background checks, just go live. atl.hmucashride.com',
+    text: 'Drive with HMU ATL. Set your price, get paid upfront, keep 90%. No apps or background checks. Go live now: atl.hmucashride.com',
   },
   {
     label: 'Rider Invite',
-    text: 'Need a ride in Atlanta? HMU ATL connects you with local drivers — cheaper than Uber, payment protected, no surge pricing. Try it free: atl.hmucashride.com',
+    text: 'Need a ride in ATL? HMU connects you with local drivers. Cheaper than Uber, no surge. Try it free: atl.hmucashride.com',
   },
   {
     label: 'No-Show Pain Point',
-    text: 'Tired of riders going ghost? On HMU ATL, riders pay BEFORE you drive. No payment = no ride. Stop wasting gas. atl.hmucashride.com',
+    text: 'Tired of riders going ghost? HMU ATL = riders pay BEFORE you drive. No payment, no ride. Stop wasting gas: atl.hmucashride.com',
   },
   {
     label: 'Safety Focused',
-    text: 'HMU ATL — GPS tracked rides, verified payments, driver ratings you can trust. Safer than Facebook cash ride groups. Sign up: atl.hmucashride.com',
+    text: 'HMU ATL: GPS tracked, verified payments, real ratings. Safer than FB cash ride groups. Sign up: atl.hmucashride.com',
   },
   {
     label: 'Platform Fees',
-    text: 'Uber takes 40%. HMU ATL? 10% on your first $50/day, capped at $40 max. Hit the cap and the rest is ALL yours. atl.hmucashride.com',
+    text: 'Uber takes 40%. HMU? 10% on first $50/day, capped at $40. Hit the cap = rest is ALL yours: atl.hmucashride.com',
   },
   {
     label: 'Upfront Pay',
-    text: 'How drivers know before they go. HMU ATL holds the fare in escrow before you even leave the house. Get paid every time. atl.hmucashride.com',
+    text: 'How drivers know before they go. HMU holds fare in escrow before you leave the house. Get paid every time: atl.hmucashride.com',
   },
 ];
 
@@ -345,19 +345,20 @@ export function MarketingDashboard() {
             </p>
             <textarea
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={(e) => setMessage(e.target.value.slice(0, 160))}
+              maxLength={160}
               placeholder="Type your message here..."
               className="w-full bg-neutral-800 border border-neutral-700 rounded-lg p-3 text-sm text-white placeholder:text-neutral-600 resize-none h-32"
             />
             <div className="flex items-center justify-between mt-2">
-              <span className={`text-xs ${message.length > 320 ? 'text-red-400' : message.length > 160 ? 'text-yellow-400' : 'text-neutral-500'}`}>
-                {message.length}/320 {message.length > 160 ? '(2 segments)' : '(1 segment)'}
+              <span className={`text-xs ${message.length > 160 ? 'text-red-400' : message.length > 140 ? 'text-yellow-400' : 'text-neutral-500'}`}>
+                {message.length}/160
               </span>
             </div>
           </div>
 
           {/* UTM Link Builder */}
-          <UtmBuilder onInsert={(url) => setMessage((prev) => prev ? `${prev} ${url}` : url)} />
+          <UtmBuilder onInsert={(url) => setMessage((prev) => (prev ? `${prev} ${url}` : url).slice(0, 160))} />
 
           {/* Templates */}
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
@@ -366,7 +367,7 @@ export function MarketingDashboard() {
               {MESSAGE_TEMPLATES.map((tmpl, i) => (
                 <button
                   key={i}
-                  onClick={() => setMessage(tmpl.text)}
+                  onClick={() => setMessage(tmpl.text.slice(0, 160))}
                   className="w-full text-left bg-neutral-800/50 border border-neutral-800 rounded-lg p-3 hover:border-neutral-600 transition-colors"
                 >
                   <p className="text-xs font-medium text-neutral-300">{tmpl.label}</p>
