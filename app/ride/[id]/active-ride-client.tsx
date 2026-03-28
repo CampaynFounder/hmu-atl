@@ -147,6 +147,7 @@ export default function ActiveRideClient({
   const autoConfirmFired = useRef(false);
   const [extensionRequested, setExtensionRequested] = useState(false);
   const [extensionPending, setExtensionPending] = useState(false);
+  const [extensionsGranted, setExtensionsGranted] = useState(0);
   const [addOnReview, setAddOnReview] = useState<Map<string, string>>(new Map());
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
@@ -298,6 +299,7 @@ export default function ActiveRideClient({
         }));
         setExtensionRequested(false);
         setExtensionPending(false);
+        setExtensionsGranted(prev => prev + 1);
         if (!isDriver) {
           showNotification(`Driver gave you ${extraMinutes} more min`, '✅', COLORS.green);
         }
@@ -1216,8 +1218,11 @@ export default function ActiveRideClient({
           const waitMins = waitSecs !== null ? Math.floor(waitSecs / 60) : null;
           const waitSecsRem = waitSecs !== null ? waitSecs % 60 : null;
           const dUrgent = waitSecs !== null && waitSecs < 60;
+          // Emergency = rider no-show if extensions were granted, otherwise clean cancel
+          const emergencyIsNoShow = extensionsGranted > 0;
           return (
             <>
+              {/* 1. Timer */}
               {waitSecs !== null && waitSecs > 0 && (
                 <div style={{
                   textAlign: 'center', padding: '12px 16px', marginBottom: 8,
@@ -1228,13 +1233,20 @@ export default function ActiveRideClient({
                   {/* Emergency pulloff — driver safety */}
                   <button
                     onClick={() => {
-                      if (confirm('Leave immediately? This cancels the ride with no charge to the rider. Use this if you feel unsafe.')) {
+                      const msg = emergencyIsNoShow
+                        ? `Leave now? Rider extended ${extensionsGranted}x — this triggers a no-show fee (25%).`
+                        : 'Leave immediately? No charge to rider since no extensions were used.';
+                      if (confirm(msg)) {
                         fetch(`/api/rides/${rideId}/pulloff`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ chargePercent: 0, driverLat: geo.lat, driverLng: geo.lng }),
+                          body: JSON.stringify({
+                            chargePercent: emergencyIsNoShow ? 25 : 0,
+                            driverLat: geo.lat,
+                            driverLng: geo.lng,
+                          }),
                         }).then(r => r.json()).then(data => {
-                          if (data.status) setRide(prev => ({ ...prev, status: data.status }));
+                          if (data.status) setRide(prev => ({ ...prev, status: data.status, endedAt: new Date().toISOString() }));
                         }).catch(() => {});
                       }
                     }}
@@ -1260,13 +1272,48 @@ export default function ActiveRideClient({
                   <div style={{ fontSize: 12, color: dUrgent ? COLORS.red : COLORS.gray, marginTop: 4 }}>
                     {dUrgent ? 'You can pull off soon' : 'until you can pull off'}
                   </div>
+                  {extensionsGranted > 0 && (
+                    <div style={{ fontSize: 10, color: COLORS.orange, marginTop: 4 }}>
+                      {extensionsGranted} extension{extensionsGranted > 1 ? 's' : ''} granted
+                    </div>
+                  )}
                 </div>
               )}
-              <StatusMessage text="Waiting for rider to get in..." />
-              {/* Extension request from rider */}
+
+              {/* 2. START RIDE button */}
+              <ActionButton
+                label="START RIDE"
+                subtitle="rider in the car"
+                color={COLORS.green}
+                onPress={async () => {
+                  setLoading(true);
+                  try {
+                    const res = await fetch(`/api/rides/${rideId}/start`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ driverLat: geo.lat, driverLng: geo.lng }),
+                    });
+                    const data = await res.json();
+                    if (data.status) {
+                      setRide(prev => ({
+                        ...prev,
+                        status: data.status,
+                        confirmDeadline: data.confirmDeadline || null,
+                      }));
+                    }
+                    if (!res.ok) setError(data.error || 'Failed to start ride');
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Failed');
+                  }
+                  setLoading(false);
+                }}
+                loading={loading}
+              />
+
+              {/* 3. Extension request from rider */}
               {extensionPending && (
                 <div style={{
-                  padding: '12px 16px', marginBottom: 8, borderRadius: 14,
+                  padding: '12px 16px', marginTop: 8, borderRadius: 14,
                   backgroundColor: 'rgba(255,145,0,0.1)', border: '1px solid rgba(255,145,0,0.2)',
                   textAlign: 'center',
                 }}>
@@ -1312,35 +1359,9 @@ export default function ActiveRideClient({
                   </div>
                 </div>
               )}
+
+              {/* 4. Add-ons */}
               {ride.addOns.length > 0 && renderAddOnSummary()}
-              <ActionButton
-                label="START RIDE"
-                subtitle="rider in the car"
-                color={COLORS.green}
-                onPress={async () => {
-                  setLoading(true);
-                  try {
-                    const res = await fetch(`/api/rides/${rideId}/start`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ driverLat: geo.lat, driverLng: geo.lng }),
-                    });
-                    const data = await res.json();
-                    if (data.status) {
-                      setRide(prev => ({
-                        ...prev,
-                        status: data.status,
-                        confirmDeadline: data.confirmDeadline || null,
-                      }));
-                    }
-                    if (!res.ok) setError(data.error || 'Failed to start ride');
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'Failed');
-                  }
-                  setLoading(false);
-                }}
-                loading={loading}
-              />
               {showPulloff && (
                 <PulloffButtons
                   rideId={rideId}
@@ -1566,6 +1587,14 @@ export default function ActiveRideClient({
         const cSecs = confirmCountdown !== null ? Math.ceil(confirmCountdown / 1000) : null;
         const cMins = cSecs !== null ? Math.floor(cSecs / 60) : null;
         const cSecsRem = cSecs !== null ? cSecs % 60 : null;
+        const confirmAddOns = ride.addOns.filter(a => a.status !== 'removed' && a.status !== 'disputed');
+        const confirmExtras = confirmAddOns.reduce((s, a) => s + a.subtotal, 0);
+        const confirmGrouped = confirmAddOns.reduce<{ name: string; qty: number; total: number; lastId: string }[]>((g, a) => {
+          const ex = g.find(x => x.name === a.name);
+          if (ex) { ex.qty += a.quantity; ex.total += a.subtotal; ex.lastId = a.id; }
+          else { g.push({ name: a.name, qty: a.quantity, total: a.subtotal, lastId: a.id }); }
+          return g;
+        }, []);
         return (
           <>
             <div style={{
@@ -1584,6 +1613,57 @@ export default function ActiveRideClient({
                 </div>
               )}
             </div>
+
+            {/* Last chance to remove add-ons before capture */}
+            {confirmGrouped.length > 0 && (
+              <div style={{
+                backgroundColor: COLORS.card, borderRadius: 14, padding: '14px 16px',
+                marginBottom: 12, border: '1px solid rgba(255,145,0,0.15)',
+              }}>
+                <div style={{ fontSize: 10, color: COLORS.orange, textTransform: 'uppercase', letterSpacing: 1.5, fontFamily: FONTS.mono, marginBottom: 8 }}>
+                  Last chance to adjust extras
+                </div>
+                {confirmGrouped.map(g => (
+                  <div key={g.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', gap: 8 }}>
+                    <span style={{ fontSize: 13, color: COLORS.white, flex: 1 }}>
+                      {g.name}{g.qty > 1 ? ` \u00D7${g.qty}` : ''}
+                    </span>
+                    <span style={{ fontFamily: FONTS.mono, fontSize: 12, color: COLORS.green }}>${g.total.toFixed(2)}</span>
+                    <button
+                      onClick={async () => {
+                        await fetch(`/api/rides/${rideId}/add-ons`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ add_on_id: g.lastId, action: 'remove' }),
+                        }).then(r => r.json()).then(data => {
+                          if (data.total !== undefined) {
+                            setRide(prev => ({
+                              ...prev,
+                              addOns: prev.addOns.map(a => a.id === g.lastId ? { ...a, status: 'disputed' } : a),
+                              addOnTotal: data.total,
+                            }));
+                          }
+                        }).catch(() => {});
+                      }}
+                      style={{
+                        background: 'rgba(255,82,82,0.12)', border: 'none', borderRadius: 8,
+                        padding: '3px 10px', color: COLORS.red, fontSize: 10, fontWeight: 700,
+                        cursor: 'pointer', fontFamily: FONTS.body,
+                      }}
+                    >
+                      {g.qty > 1 ? '-1' : 'Remove'}
+                    </button>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 6, borderTop: '1px solid rgba(255,255,255,0.08)', fontWeight: 700 }}>
+                  <span style={{ fontSize: 13, color: COLORS.white }}>Charging</span>
+                  <span style={{ fontFamily: FONTS.mono, fontSize: 16, color: COLORS.green }}>
+                    ${(ride.agreedPrice + confirmExtras).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            )}
+
             <ActionButton
               label="BET — I'M IN"
               color={COLORS.green}
