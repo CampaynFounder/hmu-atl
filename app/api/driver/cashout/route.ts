@@ -104,36 +104,53 @@ export async function POST(req: NextRequest) {
         tier: driver.tier,
       });
     } else {
-      // Standard payout — uses available balance only
-      if (availableCents <= 0) {
+      // Standard payout — try available first, fall back to full balance
+      const standardMax = Math.max(availableCents, instantAvailableCents);
+      if (standardMax <= 0) {
         return NextResponse.json({
-          error: 'No available balance for standard payout. Try instant payout to access pending funds.',
+          error: 'No balance to cash out.',
         }, { status: 400 });
       }
 
       const standardCents = requestedAmount
-        ? Math.min(Math.round(requestedAmount * 100), availableCents)
-        : availableCents;
+        ? Math.min(Math.round(requestedAmount * 100), standardMax)
+        : standardMax;
 
-      const payout = await stripe.payouts.create(
-        {
-          amount: standardCents,
-          currency: 'usd',
+      try {
+        const payout = await stripe.payouts.create(
+          {
+            amount: standardCents,
+            currency: 'usd',
+            method: 'standard',
+            metadata: { driverId: driver.user_id },
+          },
+          { stripeAccount: driver.stripe_account_id }
+        );
+
+        return NextResponse.json({
+          success: true,
+          payoutId: payout.id,
+          amount: standardCents / 100,
+          fee: 0,
           method: 'standard',
-          metadata: { driverId: driver.user_id },
-        },
-        { stripeAccount: driver.stripe_account_id }
-      );
+          arrival: '1-2 business days',
+          tier: driver.tier,
+        });
+      } catch (payoutError) {
+        const msg = payoutError instanceof Error ? payoutError.message : 'Payout failed';
 
-      return NextResponse.json({
-        success: true,
-        payoutId: payout.id,
-        amount: standardCents / 100,
-        fee: 0,
-        method: 'standard',
-        arrival: '1-2 business days',
-        tier: driver.tier,
-      });
+        // If standard payout also fails, funds are likely still in Stripe's hold period
+        if (msg.includes('insufficient') || msg.includes('balance')) {
+          return NextResponse.json({
+            error: 'Your funds are still being processed by Stripe.',
+            errorType: 'pending_hold',
+            detail: 'New accounts have a short hold period (usually 1-2 days). Your $' +
+              (standardMax / 100).toFixed(2) + ' will be available for payout soon. Check back tomorrow.',
+          }, { status: 400 });
+        }
+
+        return NextResponse.json({ error: msg }, { status: 500 });
+      }
     }
   } catch (error) {
     console.error('Cashout error:', error);

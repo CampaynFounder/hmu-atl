@@ -247,6 +247,27 @@ export default function CashoutCard() {
                 Switch to Standard Payout (Free)
               </button>
             )}
+            {errorType === 'pending_hold' && (
+              <button
+                type="button"
+                onClick={() => { setError(null); setErrorDetail(null); setErrorType(null); }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  padding: '12px',
+                  background: 'rgba(255,255,255,0.03)',
+                  color: '#888',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  border: 'none',
+                  borderTop: '1px solid rgba(255,255,255,0.04)',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+                }}
+              >
+                Got it
+              </button>
+            )}
           </div>
         )}
 
