@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
+import { useState } from 'react';
 import { useClerk } from '@clerk/nextjs';
 
 const navItems = [
@@ -13,58 +13,20 @@ const navItems = [
   { href: '/admin/marketing', label: 'Marketing', icon: '📣' },
 ];
 
-const roles = [
-  { value: 'both', label: 'Both (Admin + Driver)', color: 'text-purple-400' },
-  { value: 'admin', label: 'Admin Only', color: 'text-blue-400' },
-  { value: 'driver', label: 'Driver', color: 'text-green-400' },
-  { value: 'rider', label: 'Rider', color: 'text-yellow-400' },
+const quickLinks = [
+  { label: 'Driver Dashboard', href: '/driver/home', icon: '🚗' },
+  { label: 'Rider Dashboard', href: '/rider/home', icon: '🧑' },
 ];
 
 export function AdminSidebar() {
   const pathname = usePathname();
-  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [currentRole, setCurrentRole] = useState<string>('');
-  const [switching, setSwitching] = useState(false);
-  const [showRolePicker, setShowRolePicker] = useState(false);
   const { signOut } = useClerk();
-
-  useEffect(() => {
-    fetch('/api/admin/switch-role')
-      .then((r) => r.json())
-      .then((data) => { if (data.role) setCurrentRole(data.role); })
-      .catch(() => {});
-  }, []);
-
-  const handleRoleSwitch = async (role: string) => {
-    setSwitching(true);
-    try {
-      const res = await fetch('/api/admin/switch-role', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role }),
-      });
-      if (res.ok) {
-        setCurrentRole(role);
-        setShowRolePicker(false);
-        // Redirect based on new role
-        if (role === 'driver') router.push('/driver/home');
-        else if (role === 'rider') router.push('/rider/home');
-        // admin and both stay on admin
-      }
-    } catch {
-      // ignore
-    } finally {
-      setSwitching(false);
-    }
-  };
 
   const isActive = (href: string) => {
     if (href === '/admin') return pathname === '/admin';
     return pathname.startsWith(href);
   };
-
-  const currentRoleInfo = roles.find((r) => r.value === currentRole);
 
   return (
     <>
@@ -120,51 +82,21 @@ export function AdminSidebar() {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-neutral-800 space-y-3">
-          {/* Role Switcher */}
-          {currentRole && (
-            <div>
-              <button
-                onClick={() => setShowRolePicker(!showRolePicker)}
-                className="w-full flex items-center justify-between text-xs bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 hover:border-neutral-600 transition-colors"
-              >
-                <span className="text-neutral-500">Role:</span>
-                <span className={currentRoleInfo?.color ?? 'text-white'}>
-                  {currentRoleInfo?.label ?? currentRole}
-                </span>
-              </button>
-
-              {showRolePicker && (
-                <div className="mt-2 bg-neutral-800 border border-neutral-700 rounded-lg overflow-hidden">
-                  {roles.map((role) => (
-                    <button
-                      key={role.value}
-                      onClick={() => handleRoleSwitch(role.value)}
-                      disabled={switching || role.value === currentRole}
-                      className={`w-full text-left px-3 py-2 text-xs transition-colors ${
-                        role.value === currentRole
-                          ? 'bg-white/5 text-white font-medium'
-                          : 'text-neutral-400 hover:bg-white/5 hover:text-white'
-                      } disabled:opacity-50`}
-                    >
-                      <span className={role.color}>{role.label}</span>
-                      {role.value === currentRole && <span className="ml-1 text-neutral-600">(current)</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          <Link
-            href={currentRole === 'driver' || currentRole === 'both' ? '/driver/home' : '/'}
-            className="block text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-          >
-            {currentRole === 'driver' || currentRole === 'both' ? 'Driver Dashboard' : 'Back to App'}
-          </Link>
+        <div className="p-4 border-t border-neutral-800 space-y-1.5">
+          {quickLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              onClick={() => setMobileOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-neutral-400 hover:text-white hover:bg-white/5 transition-colors"
+            >
+              <span>{link.icon}</span>
+              {link.label}
+            </Link>
+          ))}
           <button
             onClick={() => signOut({ redirectUrl: '/' })}
-            className="block text-xs text-red-400/70 hover:text-red-400 transition-colors"
+            className="w-full text-left px-3 py-2 rounded-lg text-xs text-red-400/70 hover:text-red-400 hover:bg-white/5 transition-colors"
           >
             Log Out
           </button>
