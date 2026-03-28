@@ -46,24 +46,24 @@ const DRIVER_FEATURES: Feature[] = [
 
 function fuzzyMatch(query: string, feature: Feature): number {
   const q = query.toLowerCase();
-  const searchable = [
-    feature.label,
-    feature.description,
-    ...feature.keywords,
-  ].join(' ').toLowerCase();
-
-  // Exact match in label
   if (feature.label.toLowerCase().includes(q)) return 100;
-  // Exact match in keywords
   if (feature.keywords.some(k => k.includes(q))) return 80;
-  // Exact match in description
   if (feature.description.toLowerCase().includes(q)) return 60;
-  // Partial word matches
   const words = q.split(/\s+/);
+  const searchable = [feature.label, feature.description, ...feature.keywords].join(' ').toLowerCase();
   const matchCount = words.filter(w => searchable.includes(w)).length;
   if (matchCount === words.length) return 50;
   if (matchCount > 0) return 30 * (matchCount / words.length);
   return 0;
+}
+
+// Track search events — fire and forget
+function trackSearch(event: string, data: Record<string, unknown>) {
+  fetch('/api/search/track', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event, ...data }),
+  }).catch(() => {});
 }
 
 export function FeatureSearch({ profileType }: { profileType?: string }) {
@@ -72,8 +72,7 @@ export function FeatureSearch({ profileType }: { profileType?: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-  // Pick features based on profile type
-  const features = profileType === 'rider' ? [] : DRIVER_FEATURES; // TODO: add rider features
+  const features = profileType === 'rider' ? [] : DRIVER_FEATURES;
 
   const results = query.trim()
     ? features
@@ -82,15 +81,38 @@ export function FeatureSearch({ profileType }: { profileType?: string }) {
         .sort((a, b) => b.score - a.score)
         .slice(0, 8)
         .map(r => r.feature)
-    : features.slice(0, 6); // Show popular features when no query
+    : features.slice(0, 6);
 
   useEffect(() => {
     if (open) {
       setTimeout(() => inputRef.current?.focus(), 100);
+      trackSearch('opened', {});
     } else {
+      // Track what they searched when closing
+      if (query.trim()) {
+        trackSearch('closed', { query, resultCount: results.length });
+      }
       setQuery('');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Track searches with debounce
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => {
+    if (!query.trim()) return;
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      trackSearch('query', {
+        query,
+        resultCount: results.length,
+        topResult: results[0]?.label ?? null,
+        noResults: results.length === 0,
+      });
+    }, 800);
+    return () => clearTimeout(debounceRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   // Close on escape
   useEffect(() => {
@@ -101,9 +123,19 @@ export function FeatureSearch({ profileType }: { profileType?: string }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [open]);
 
-  const handleSelect = (href: string) => {
+  const handleSelect = (feature: Feature) => {
+    trackSearch('selected', {
+      query,
+      selectedLabel: feature.label,
+      selectedHref: feature.href,
+      selectedBreadcrumb: feature.breadcrumb,
+    });
     setOpen(false);
-    router.push(href);
+    router.push(feature.href);
+  };
+
+  const handleClose = () => {
+    setOpen(false);
   };
 
   return (
@@ -123,16 +155,17 @@ export function FeatureSearch({ profileType }: { profileType?: string }) {
       {/* Search overlay */}
       {open && (
         <>
+          {/* Backdrop — clicking closes search */}
           <div
             className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm"
-            onClick={() => setOpen(false)}
+            onClick={handleClose}
           />
           <div className="fixed top-0 left-0 right-0 z-[61] px-4 pt-3 pb-4">
             <div
               className="max-w-lg mx-auto bg-[#141414] border border-white/10 rounded-2xl overflow-hidden shadow-2xl"
               style={{ maxHeight: 'calc(100vh - 40px)' }}
             >
-              {/* Search input */}
+              {/* Search input with close button */}
               <div className="flex items-center gap-3 px-4 py-3 border-b border-white/8">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
                   <circle cx="11" cy="11" r="8" />
@@ -147,11 +180,13 @@ export function FeatureSearch({ profileType }: { profileType?: string }) {
                   className="flex-1 bg-transparent text-white text-[15px] placeholder:text-zinc-600 outline-none"
                   style={{ fontFamily: 'var(--font-body, DM Sans, sans-serif)' }}
                 />
-                {query && (
-                  <button onClick={() => setQuery('')} className="text-zinc-600 hover:text-white text-sm">
-                    Clear
-                  </button>
-                )}
+                <button
+                  onClick={handleClose}
+                  className="shrink-0 text-zinc-500 hover:text-white text-xs font-medium px-2 py-1 rounded-lg hover:bg-white/10 transition-colors"
+                  style={{ fontFamily: 'var(--font-body, DM Sans, sans-serif)' }}
+                >
+                  Done
+                </button>
               </div>
 
               {/* Results */}
@@ -163,16 +198,17 @@ export function FeatureSearch({ profileType }: { profileType?: string }) {
                     </span>
                   </div>
                 )}
-                {results.length === 0 ? (
+                {query && results.length === 0 ? (
                   <div className="px-4 py-8 text-center">
-                    <p className="text-zinc-500 text-sm">No results for "{query}"</p>
+                    <p className="text-zinc-500 text-sm">No results for &ldquo;{query}&rdquo;</p>
+                    <p className="text-zinc-600 text-xs mt-2">Try: cashout, earnings, go live, fees</p>
                   </div>
                 ) : (
                   <div className="p-2">
                     {results.map((feature) => (
                       <button
                         key={feature.href + feature.label}
-                        onClick={() => handleSelect(feature.href)}
+                        onClick={() => handleSelect(feature)}
                         className="w-full text-left flex items-start gap-3 px-3 py-3 rounded-xl hover:bg-white/5 active:bg-white/8 transition-colors"
                       >
                         <span className="text-lg mt-0.5 shrink-0">{feature.icon}</span>
