@@ -9,29 +9,25 @@ export async function GET() {
 
   const today = new Date().toISOString().split('T')[0];
 
-  // Run all stat queries in parallel
   const [rideStats, revenueStats, userStats, driverStats] = await Promise.all([
-    // Ride counts by status
     sql`
       SELECT
         COUNT(*) FILTER (WHERE status = 'matched') as matched,
-        COUNT(*) FILTER (WHERE status IN ('in_progress', 'accepted')) as active,
+        COUNT(*) FILTER (WHERE status IN ('active', 'otw', 'here', 'confirming')) as active,
         COUNT(*) FILTER (WHERE status = 'completed') as completed,
         COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled,
         COUNT(*) FILTER (WHERE status = 'disputed') as disputed
       FROM rides
       WHERE created_at::date = ${today}::date
     `,
-    // Revenue
     sql`
       SELECT
-        COALESCE(SUM(price), 0) as total_captured,
-        COALESCE(SUM(application_fee), 0) as platform_fees,
-        0 as fees_waived
+        COALESCE(SUM(COALESCE(final_agreed_price, amount)), 0) as total_captured,
+        COALESCE(SUM(COALESCE(platform_fee_amount, 0)), 0) as platform_fees,
+        COALESCE(SUM(COALESCE(waived_fee_amount, 0)), 0) as fees_waived
       FROM rides
       WHERE status = 'completed' AND created_at::date = ${today}::date
     `,
-    // New signups
     sql`
       SELECT
         COUNT(*) FILTER (WHERE profile_type = 'rider') as new_riders,
@@ -39,10 +35,9 @@ export async function GET() {
       FROM users
       WHERE created_at::date = ${today}::date
     `,
-    // Active drivers
     sql`
       SELECT
-        COUNT(DISTINCT driver_id) FILTER (WHERE status IN ('matched', 'in_progress', 'accepted')) as on_ride
+        COUNT(DISTINCT driver_id) FILTER (WHERE status IN ('matched', 'otw', 'here', 'confirming', 'active')) as on_ride
       FROM rides
       WHERE created_at::date = ${today}::date
     `,

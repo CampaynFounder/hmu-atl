@@ -12,21 +12,25 @@ export async function GET(
 
   const { id } = await params;
 
-  // Get dispute + ride + users
   const rows = await sql`
     SELECT
-      d.id, d.ride_id, d.filed_by, d.details as reason, d.status,
-      d.admin_notes, d.ably_history_url, d.created_at as dispute_created_at,
-      r.status as ride_status, r.price, r.application_fee, r.pickup, r.dropoff,
-      r.stops, r.payment_intent_id, r.created_at as ride_created_at,
-      r.updated_at as ride_updated_at,
+      d.id, d.ride_id, d.filed_by, d.reason, d.status,
+      d.ably_history_url, d.created_at as dispute_created_at,
+      r.status as ride_status, COALESCE(r.final_agreed_price, r.amount) as amount,
+      COALESCE(r.platform_fee_amount, 0) as platform_fee,
+      COALESCE(r.stripe_fee_amount, 0) as stripe_fee,
+      COALESCE(r.driver_payout_amount, 0) as driver_payout,
+      COALESCE(r.waived_fee_amount, 0) as waived_fee,
+      r.pickup, r.dropoff, r.stops, r.payment_intent_id,
+      r.created_at as ride_created_at, r.updated_at as ride_updated_at,
+      r.otw_at, r.here_at, r.coo_at, r.started_at, r.ended_at, r.completed_at,
       r.driver_id, r.rider_id,
-      dp.first_name as driver_name, dp.handle as driver_handle,
-      rp.first_name as rider_name,
-      u_driver.chill_score as driver_chill, u_driver.completed_rides as driver_rides,
-        u_driver.dispute_count as driver_disputes, u_driver.tier as driver_tier,
-      u_rider.chill_score as rider_chill, u_rider.completed_rides as rider_rides,
-        u_rider.dispute_count as rider_disputes, u_rider.og_status as rider_og
+      COALESCE(dp.display_name, dp.first_name) as driver_name, dp.handle as driver_handle,
+      COALESCE(rp.display_name, rp.first_name) as rider_name,
+      u_driver.chill_score as driver_chill, COALESCE(u_driver.completed_rides, 0) as driver_rides,
+        (SELECT COUNT(*) FROM disputes WHERE filed_by = u_driver.id) as driver_disputes, u_driver.tier as driver_tier,
+      u_rider.chill_score as rider_chill, COALESCE(u_rider.completed_rides, 0) as rider_rides,
+        (SELECT COUNT(*) FROM disputes WHERE filed_by = u_rider.id) as rider_disputes, u_rider.og_status as rider_og
     FROM disputes d
     JOIN rides r ON r.id = d.ride_id
     LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
@@ -43,7 +47,6 @@ export async function GET(
 
   const d = rows[0];
 
-  // Get GPS trail for the ride
   const gpsTrail = await sql`
     SELECT lat, lng, recorded_at
     FROM ride_locations
@@ -51,7 +54,6 @@ export async function GET(
     ORDER BY recorded_at ASC
   `;
 
-  // Get ratings between these two users
   const ratings = await sql`
     SELECT rating_type, rater_id, rated_id, created_at
     FROM ratings
@@ -59,10 +61,8 @@ export async function GET(
     ORDER BY created_at ASC
   `;
 
-  // Check auto-flags
   const flags = [];
 
-  // Pattern flag: 3+ disputes from filer
   const filerDisputeCount = await sql`
     SELECT COUNT(*) as cnt FROM disputes WHERE filed_by = ${d.filed_by}
   `;
@@ -70,7 +70,6 @@ export async function GET(
     flags.push({ type: 'pattern', message: 'Filer has 3+ disputes — pattern flag' });
   }
 
-  // Mutual WEIRDO check
   const mutualWeirdo = await sql`
     SELECT COUNT(*) as cnt FROM ratings
     WHERE ride_id = ${d.ride_id} AND rating_type = 'weirdo'
@@ -86,20 +85,28 @@ export async function GET(
       filedBy: d.filed_by,
       reason: d.reason,
       status: d.status,
-      adminNotes: d.admin_notes,
       ablyHistoryUrl: d.ably_history_url,
       createdAt: d.dispute_created_at,
     },
     ride: {
       status: d.ride_status,
-      price: Number(d.price ?? 0),
-      applicationFee: Number(d.application_fee ?? 0),
+      price: Number(d.amount ?? 0),
+      platformFee: Number(d.platform_fee ?? 0),
+      stripeFee: Number(d.stripe_fee ?? 0),
+      driverPayout: Number(d.driver_payout ?? 0),
+      waivedFee: Number(d.waived_fee ?? 0),
       pickup: d.pickup,
       dropoff: d.dropoff,
       stops: d.stops,
       paymentIntentId: d.payment_intent_id,
       createdAt: d.ride_created_at,
       updatedAt: d.ride_updated_at,
+      otwAt: d.otw_at,
+      hereAt: d.here_at,
+      cooAt: d.coo_at,
+      startedAt: d.started_at,
+      endedAt: d.ended_at,
+      completedAt: d.completed_at,
     },
     driver: {
       id: d.driver_id,

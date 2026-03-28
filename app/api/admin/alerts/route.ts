@@ -10,7 +10,8 @@ export async function GET() {
   const [staleRides, newDisputes, weirdo3x] = await Promise.all([
     // Stale GPS — driver hasn't updated location in >90s during active ride
     sql`
-      SELECT r.id, r.status, dp.first_name as driver_name,
+      SELECT r.id, r.status,
+        COALESCE(dp.display_name, dp.first_name) as driver_name,
         rl.recorded_at as last_gps
       FROM rides r
       LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
@@ -18,7 +19,7 @@ export async function GET() {
         SELECT recorded_at FROM ride_locations
         WHERE ride_id = r.id ORDER BY recorded_at DESC LIMIT 1
       ) rl ON true
-      WHERE r.status IN ('accepted', 'in_progress')
+      WHERE r.status IN ('otw', 'here', 'confirming', 'active')
         AND (rl.recorded_at IS NULL OR rl.recorded_at < NOW() - INTERVAL '90 seconds')
         AND r.created_at > NOW() - INTERVAL '24 hours'
       LIMIT 20
@@ -26,10 +27,11 @@ export async function GET() {
     // Recent disputes (< 1 hour)
     sql`
       SELECT d.id, d.ride_id, d.status, d.created_at,
-        rp.first_name as filed_by_name
+        COALESCE(rp.display_name, rp.first_name) as filed_by_rider,
+        COALESCE(dp.display_name, dp.first_name) as filed_by_driver
       FROM disputes d
       LEFT JOIN rider_profiles rp ON rp.user_id = d.filed_by
-      LEFT JOIN driver_profiles dp2 ON dp2.user_id = d.filed_by
+      LEFT JOIN driver_profiles dp ON dp.user_id = d.filed_by
       WHERE d.created_at > NOW() - INTERVAL '1 hour'
         AND d.status = 'open'
       ORDER BY d.created_at DESC
@@ -64,7 +66,7 @@ export async function GET() {
     alerts.push({
       type: 'new_dispute',
       severity: 'high',
-      message: `New dispute filed by ${dispute.filed_by_name ?? 'user'} on ride ${(dispute.ride_id as string).slice(0, 8)}`,
+      message: `New dispute filed by ${dispute.filed_by_rider || dispute.filed_by_driver || 'user'} on ride ${(dispute.ride_id as string).slice(0, 8)}`,
       disputeId: dispute.id,
       rideId: dispute.ride_id,
       timestamp: dispute.created_at,
@@ -81,7 +83,6 @@ export async function GET() {
     });
   }
 
-  // Sort by severity
   const severityOrder: Record<string, number> = { critical: 0, high: 1, warning: 2 };
   alerts.sort((a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9));
 

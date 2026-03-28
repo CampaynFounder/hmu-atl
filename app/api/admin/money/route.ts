@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   if (!admin) return unauthorizedResponse();
 
   const { searchParams } = req.nextUrl;
-  const period = searchParams.get('period') ?? 'daily'; // daily | weekly | monthly
+  const period = searchParams.get('period') ?? 'daily';
 
   let interval: string;
   if (period === 'monthly') interval = '30 days';
@@ -16,40 +16,36 @@ export async function GET(req: NextRequest) {
   else interval = '1 day';
 
   const [metrics, unitEconomics, dailyRevenue, feeTiers] = await Promise.all([
-    // Main financial metrics
     sql`
       SELECT
-        COALESCE(SUM(price), 0) as gmv,
-        COALESCE(SUM(application_fee), 0) as platform_revenue,
-        0 as fees_waived,
-        COALESCE(SUM(price * 0.029 + 0.30), 0) as stripe_fees,
-        COALESCE(SUM(price - application_fee - (price * 0.029 + 0.30)), 0) as driver_payouts,
+        COALESCE(SUM(COALESCE(final_agreed_price, amount) + COALESCE(add_on_total, 0)), 0) as gmv,
+        COALESCE(SUM(COALESCE(platform_fee_amount, 0)), 0) as platform_revenue,
+        COALESCE(SUM(COALESCE(waived_fee_amount, 0)), 0) as fees_waived,
+        COALESCE(SUM(COALESCE(stripe_fee_amount, 0)), 0) as stripe_fees,
+        COALESCE(SUM(COALESCE(driver_payout_amount, 0)), 0) as driver_payouts,
         COUNT(*) FILTER (WHERE status = 'completed') as completed_rides,
-        COUNT(*) FILTER (WHERE status = 'disputed') as failed_captures,
-        0 as refunds_count,
-        0 as refunds_sum
+        COUNT(*) FILTER (WHERE payment_captured = false AND status = 'ended') as failed_captures
       FROM rides
-      WHERE status IN ('completed', 'disputed')
+      WHERE status IN ('completed', 'disputed', 'ended')
         AND created_at > NOW() - ${interval}::interval
     `,
-    // Per-ride unit economics
     sql`
       SELECT
-        COALESCE(AVG(price), 0) as avg_price,
-        COALESCE(AVG(application_fee), 0) as avg_platform_fee,
-        COALESCE(AVG(price * 0.029 + 0.30), 0) as avg_stripe_fee,
-        COALESCE(AVG(price - application_fee), 0) as avg_driver_payout,
+        COALESCE(AVG(COALESCE(final_agreed_price, amount)), 0) as avg_price,
+        COALESCE(AVG(COALESCE(platform_fee_amount, 0)), 0) as avg_platform_fee,
+        COALESCE(AVG(COALESCE(stripe_fee_amount, 0)), 0) as avg_stripe_fee,
+        COALESCE(AVG(COALESCE(driver_payout_amount, 0)), 0) as avg_driver_payout,
+        COALESCE(AVG(COALESCE(add_on_total, 0)), 0) as avg_add_on,
         COUNT(*) as total_rides
       FROM rides
       WHERE status = 'completed'
         AND created_at > NOW() - ${interval}::interval
     `,
-    // Daily revenue for chart (last 30 days)
     sql`
       SELECT
         created_at::date as day,
-        COALESCE(SUM(application_fee), 0) as revenue,
-        COALESCE(SUM(price), 0) as gmv,
+        COALESCE(SUM(COALESCE(platform_fee_amount, 0)), 0) as revenue,
+        COALESCE(SUM(COALESCE(final_agreed_price, amount)), 0) as gmv,
         COUNT(*) as rides
       FROM rides
       WHERE status = 'completed'
@@ -57,12 +53,11 @@ export async function GET(req: NextRequest) {
       GROUP BY created_at::date
       ORDER BY day ASC
     `,
-    // Fee tier distribution
     sql`
       SELECT
         u.tier,
         COUNT(*) as ride_count,
-        COALESCE(SUM(r.application_fee), 0) as total_fees
+        COALESCE(SUM(COALESCE(r.platform_fee_amount, 0)), 0) as total_fees
       FROM rides r
       JOIN users u ON u.id = r.driver_id
       WHERE r.status = 'completed'
@@ -83,14 +78,15 @@ export async function GET(req: NextRequest) {
       netPlatformRevenue: Number(m.platform_revenue ?? 0) - Number(m.stripe_fees ?? 0),
       driverPayouts: Number(m.driver_payouts ?? 0),
       failedCaptures: Number(m.failed_captures ?? 0),
-      refundsCount: Number(m.refunds_count ?? 0),
-      refundsSum: Number(m.refunds_sum ?? 0),
+      refundsCount: 0,
+      refundsSum: 0,
     },
     unitEconomics: {
       avgPrice: Number(ue.avg_price ?? 0),
       avgPlatformFee: Number(ue.avg_platform_fee ?? 0),
       avgStripeFee: Number(ue.avg_stripe_fee ?? 0),
       avgDriverPayout: Number(ue.avg_driver_payout ?? 0),
+      avgAddOn: Number(ue.avg_add_on ?? 0),
       totalRides: Number(ue.total_rides ?? 0),
     },
     dailyRevenue: dailyRevenue.map((d: Record<string, unknown>) => ({

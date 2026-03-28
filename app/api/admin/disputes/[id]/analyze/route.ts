@@ -12,15 +12,17 @@ export async function POST(
 
   const { id } = await params;
 
-  // Get dispute context
   const rows = await sql`
     SELECT
-      d.details as reason, d.created_at as dispute_time,
-      r.price, r.status as ride_status, r.pickup, r.dropoff,
-      r.created_at as ride_start, r.updated_at as ride_end,
-      dp.first_name as driver_name,
-      rp.first_name as rider_name,
-      u_filer.dispute_count as filer_disputes, u_filer.completed_rides as filer_rides
+      d.reason, d.created_at as dispute_time,
+      COALESCE(r.final_agreed_price, r.amount) as amount,
+      r.status as ride_status, r.pickup, r.dropoff,
+      r.created_at as ride_start, r.ended_at as ride_end,
+      r.otw_at, r.here_at, r.coo_at, r.started_at,
+      COALESCE(dp.display_name, dp.first_name) as driver_name,
+      COALESCE(rp.display_name, rp.first_name) as rider_name,
+      (SELECT COUNT(*) FROM disputes WHERE filed_by = u_filer.id) as filer_disputes,
+      COALESCE(u_filer.completed_rides, 0) as filer_rides
     FROM disputes d
     JOIN rides r ON r.id = d.ride_id
     LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
@@ -50,12 +52,15 @@ export async function POST(
   const prompt = `Analyze this ride dispute for the HMU ATL rideshare platform.
 
 Ride Details:
-- Price: $${d.price}
+- Price: $${d.amount}
 - Ride status: ${d.ride_status}
 - Pickup: ${JSON.stringify(d.pickup)}
 - Dropoff: ${JSON.stringify(d.dropoff)}
-- Ride created: ${d.ride_start}
-- Ride ended: ${d.ride_end}
+- COO (rider paid): ${d.coo_at ?? 'N/A'}
+- OTW: ${d.otw_at ?? 'N/A'}
+- HERE: ${d.here_at ?? 'N/A'}
+- Ride started: ${d.started_at ?? 'N/A'}
+- Ride ended: ${d.ride_end ?? 'N/A'}
 - Driver: ${d.driver_name}
 - Rider: ${d.rider_name}
 

@@ -13,17 +13,19 @@ export async function GET(req: NextRequest) {
 
   const disputes = await sql`
     SELECT
-      d.id, d.ride_id, d.filed_by, d.details as reason, d.status,
-      d.admin_notes, d.created_at, d.updated_at,
-      r.price as ride_amount, r.status as ride_status, r.pickup, r.dropoff,
+      d.id, d.ride_id, d.filed_by, d.reason, d.status,
+      d.created_at,
+      COALESCE(r.final_agreed_price, r.amount) as ride_amount,
+      r.status as ride_status, r.pickup, r.dropoff,
       r.created_at as ride_created_at,
-      filer_rp.first_name as filer_rider_name,
-      filer_dp.first_name as filer_driver_name,
-      driver_p.first_name as driver_name, driver_p.handle as driver_handle,
-      rider_p.first_name as rider_name,
+      COALESCE(filer_rp.display_name, filer_rp.first_name) as filer_rider_name,
+      COALESCE(filer_dp.display_name, filer_dp.first_name) as filer_driver_name,
+      COALESCE(driver_p.display_name, driver_p.first_name) as driver_name,
+      driver_p.handle as driver_handle,
+      COALESCE(rider_p.display_name, rider_p.first_name) as rider_name,
       u_filer.profile_type as filer_type,
-      u_filer.dispute_count as filer_dispute_count,
-      u_filer.completed_rides as filer_completed_rides
+      (SELECT COUNT(*) FROM disputes WHERE filed_by = u_filer.id) as filer_dispute_count,
+      COALESCE(u_filer.completed_rides, 0) as filer_completed_rides
     FROM disputes d
     JOIN rides r ON r.id = d.ride_id
     LEFT JOIN users u_filer ON u_filer.id = d.filed_by
@@ -47,7 +49,6 @@ export async function GET(req: NextRequest) {
       filerCompletedRides: Number(d.filer_completed_rides ?? 0),
       reason: d.reason,
       status: d.status,
-      adminNotes: d.admin_notes,
       rideAmount: Number(d.ride_amount ?? 0),
       rideStatus: d.ride_status,
       pickup: d.pickup,
@@ -68,7 +69,7 @@ export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
 
-  const { disputeId, action, notes, refundAmount } = await req.json();
+  const { disputeId, action, notes } = await req.json();
   if (!disputeId || !action) {
     return NextResponse.json({ error: 'disputeId and action required' }, { status: 400 });
   }
@@ -91,9 +92,7 @@ export async function PATCH(req: NextRequest) {
   const rows = await sql`
     UPDATE disputes
     SET status = ${newStatus},
-        admin_notes = COALESCE(${notes ?? null}, admin_notes),
-        resolved_at = CASE WHEN ${newStatus} IN ('resolved_driver', 'resolved_rider', 'closed') THEN NOW() ELSE resolved_at END,
-        updated_at = NOW()
+        resolved_at = CASE WHEN ${newStatus} IN ('resolved_driver', 'resolved_rider', 'closed') THEN NOW() ELSE resolved_at END
     WHERE id = ${disputeId}
     RETURNING id, ride_id, status
   `;
@@ -105,7 +104,6 @@ export async function PATCH(req: NextRequest) {
   await logAdminAction(admin.id, `dispute_${action}`, 'dispute', disputeId, {
     newStatus,
     notes,
-    refundAmount,
   });
 
   return NextResponse.json({ success: true, dispute: rows[0] });

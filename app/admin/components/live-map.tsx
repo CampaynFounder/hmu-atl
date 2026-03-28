@@ -207,11 +207,30 @@ export function LiveMap({ rides }: LiveMapProps) {
         </div>
       </div>
 
-      {/* Pulse animation */}
+      {/* Pulse animation + subtle Mapbox branding */}
       <style jsx global>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.6; transform: scale(1.3); }
+        }
+        .mapboxgl-ctrl-logo {
+          width: 60px !important;
+          height: 16px !important;
+          opacity: 0.15 !important;
+        }
+        .mapboxgl-ctrl-attrib {
+          font-size: 8px !important;
+          opacity: 0.15 !important;
+          background: transparent !important;
+        }
+        .mapboxgl-ctrl-attrib-inner {
+          color: #555 !important;
+        }
+        .mapboxgl-ctrl-bottom-right,
+        .mapboxgl-ctrl-bottom-left {
+          opacity: 0.2 !important;
+          transform: scale(0.8) !important;
+          transform-origin: bottom left !important;
         }
       `}</style>
     </div>

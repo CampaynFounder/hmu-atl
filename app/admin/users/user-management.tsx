@@ -38,6 +38,8 @@ export function UserManagement() {
       if (res.ok) {
         const data = await res.json();
         setUsers(data.users ?? []);
+      } else {
+        console.error('Admin users API error:', res.status, await res.text());
       }
     } catch (err) {
       console.error('Failed to fetch users:', err);

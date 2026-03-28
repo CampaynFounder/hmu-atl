@@ -18,29 +18,30 @@ export async function GET(
     sql`
       SELECT
         u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
-        u.og_status, u.chill_score, u.completed_rides, u.dispute_count,
+        u.og_status, u.chill_score, COALESCE(u.completed_rides, 0) as completed_rides,
+        (SELECT COUNT(*) FROM disputes WHERE filed_by = u.id) as dispute_count,
         u.created_at, u.updated_at,
         dp.first_name as driver_first, dp.last_name as driver_last,
-        dp.handle, dp.stripe_connect_id, dp.video_url, dp.areas as driver_areas,
-        dp.vehicle_info,
+        dp.display_name as driver_display, dp.handle, dp.stripe_connect_id,
+        dp.video_url, dp.areas as driver_areas, dp.vehicle_info, dp.phone as driver_phone,
         rp.first_name as rider_first, rp.last_name as rider_last,
-        rp.stripe_customer_id, rp.phone as rider_phone
+        rp.display_name as rider_display, rp.stripe_customer_id
       FROM users u
       LEFT JOIN driver_profiles dp ON dp.user_id = u.id
       LEFT JOIN rider_profiles rp ON rp.user_id = u.id
       WHERE u.id = ${id}
       LIMIT 1
     `,
-    // Ride history
     sql`
-      SELECT id, status, price, application_fee, created_at, updated_at,
-        driver_id, rider_id, pickup, dropoff
+      SELECT id, status, COALESCE(final_agreed_price, amount) as amount,
+        COALESCE(platform_fee_amount, 0) as platform_fee,
+        COALESCE(driver_payout_amount, 0) as driver_payout,
+        created_at, driver_id, rider_id, pickup, dropoff
       FROM rides
       WHERE driver_id = ${id} OR rider_id = ${id}
       ORDER BY created_at DESC
       LIMIT 20
     `,
-    // Ratings
     sql`
       SELECT r.rating_type, r.created_at, r.ride_id,
         CASE WHEN r.rater_id = ${id} THEN 'given' ELSE 'received' END as direction,
@@ -50,9 +51,8 @@ export async function GET(
       ORDER BY r.created_at DESC
       LIMIT 30
     `,
-    // Disputes
     sql`
-      SELECT id, ride_id, status, details, created_at
+      SELECT id, ride_id, status, reason, created_at
       FROM disputes
       WHERE filed_by = ${id}
          OR ride_id IN (SELECT id FROM rides WHERE driver_id = ${id} OR rider_id = ${id})
@@ -80,10 +80,10 @@ export async function GET(
       disputeCount: Number(u.dispute_count ?? 0),
       createdAt: u.created_at,
       updatedAt: u.updated_at,
-      displayName: u.driver_first
-        ? `${u.driver_first} ${u.driver_last ?? ''}`.trim()
-        : u.rider_first
-          ? `${u.rider_first} ${u.rider_last ?? ''}`.trim()
+      displayName: u.driver_display || u.driver_first
+        ? `${u.driver_display || u.driver_first || ''} ${u.driver_last || ''}`.trim()
+        : u.rider_display || u.rider_first
+          ? `${u.rider_display || u.rider_first || ''} ${u.rider_last || ''}`.trim()
           : 'No name',
       handle: u.handle,
       stripeConnectId: u.stripe_connect_id,
@@ -91,13 +91,14 @@ export async function GET(
       videoUrl: u.video_url,
       driverAreas: u.driver_areas,
       vehicleInfo: u.vehicle_info,
-      phone: u.rider_phone,
+      phone: u.driver_phone,
     },
     rides: rideRows.map((r: Record<string, unknown>) => ({
       id: r.id,
       status: r.status,
-      price: Number(r.price ?? 0),
-      applicationFee: Number(r.application_fee ?? 0),
+      price: Number(r.amount ?? 0),
+      platformFee: Number(r.platform_fee ?? 0),
+      driverPayout: Number(r.driver_payout ?? 0),
       driverId: r.driver_id,
       riderId: r.rider_id,
       pickup: r.pickup,
@@ -115,7 +116,7 @@ export async function GET(
       id: d.id,
       rideId: d.ride_id,
       status: d.status,
-      reason: d.details,
+      reason: d.reason,
       createdAt: d.created_at,
     })),
   });
@@ -132,43 +133,22 @@ export async function PATCH(
   const body = await req.json();
   const { accountStatus, tier, ogStatus, chillScore, adminNotes } = body;
 
-  const updates: string[] = [];
-  const values: unknown[] = [];
-  let idx = 1;
-
-  if (accountStatus !== undefined) {
-    updates.push(`account_status = $${idx++}`);
-    values.push(accountStatus);
-  }
-  if (tier !== undefined) {
-    updates.push(`tier = $${idx++}`);
-    values.push(tier);
-  }
-  if (ogStatus !== undefined) {
-    updates.push(`og_status = $${idx++}`);
-    values.push(ogStatus);
-  }
-  if (chillScore !== undefined) {
-    updates.push(`chill_score = $${idx++}`);
-    values.push(chillScore);
-  }
-
-  if (!updates.length) {
-    return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
-  }
-
-  updates.push(`updated_at = NOW()`);
-
-  const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${idx} RETURNING id, clerk_id, account_status, tier, og_status, chill_score`;
-  values.push(id);
-
-  const rows = await sql.unsafe(query, values);
+  // Use COALESCE to only update provided fields
+  const rows = await sql`
+    UPDATE users SET
+      account_status = COALESCE(${accountStatus ?? null}, account_status),
+      tier = COALESCE(${tier ?? null}, tier),
+      og_status = COALESCE(${ogStatus ?? null}, og_status),
+      chill_score = COALESCE(${chillScore ?? null}, chill_score),
+      updated_at = NOW()
+    WHERE id = ${id}
+    RETURNING id, clerk_id, account_status, tier, og_status, chill_score
+  `;
 
   if (!rows.length) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
   }
 
-  // Sync to Clerk
   const user = rows[0];
   try {
     const clerk = await clerkClient();
