@@ -979,13 +979,21 @@ export default function ActiveRideClient({
               )}
             </div>
           </div>
-          <div style={{
-            fontFamily: FONTS.mono,
-            fontSize: 28,
-            fontWeight: 700,
-            color: COLORS.green,
-          }}>
-            ${ride.agreedPrice.toFixed(2)}
+          <div style={{ textAlign: 'right' }}>
+            {ride.addOnTotal > 0 && (
+              <div style={{ fontSize: 11, color: COLORS.gray, fontFamily: FONTS.mono, lineHeight: 1 }}>
+                ${ride.agreedPrice.toFixed(2)} + ${ride.addOnTotal.toFixed(2)}
+              </div>
+            )}
+            <div style={{
+              fontFamily: FONTS.mono,
+              fontSize: 28,
+              fontWeight: 700,
+              color: COLORS.green,
+              lineHeight: 1,
+            }}>
+              ${(ride.agreedPrice + ride.addOnTotal).toFixed(2)}
+            </div>
           </div>
         </div>
 
