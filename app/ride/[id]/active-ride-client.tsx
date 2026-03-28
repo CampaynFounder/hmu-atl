@@ -1160,6 +1160,7 @@ export default function ActiveRideClient({
                 </div>
               )}
               <StatusMessage text="Heading to rider..." />
+              {ride.addOns.length > 0 && renderAddOnSummary()}
               <ActionButton
                 label="I'M HERE"
                 color={COLORS.green}
@@ -1185,6 +1186,7 @@ export default function ActiveRideClient({
                   {waitMins}:{String(waitSecsRem).padStart(2, '0')} until you can pull off
                 </div>
               )}
+              {ride.addOns.length > 0 && renderAddOnSummary()}
               <ActionButton
                 label="START RIDE"
                 subtitle="rider in the car"
@@ -1238,6 +1240,7 @@ export default function ActiveRideClient({
           return (
             <>
               <StatusMessage text="Waiting for rider to confirm..." />
+              {ride.addOns.length > 0 && renderAddOnSummary()}
               {cSecs !== null && cSecs > 0 && (
                 <div style={{
                   textAlign: 'center', padding: '8px 0', fontSize: 13,
@@ -1262,6 +1265,8 @@ export default function ActiveRideClient({
 
         case 'active':
           return (
+            <>
+            {ride.addOns.length > 0 && renderAddOnSummary()}
             <ActionButton
               label="END RIDE"
               color={COLORS.red}
@@ -1293,6 +1298,7 @@ export default function ActiveRideClient({
               }}
               loading={loading}
             />
+            </>
           );
 
         case 'ended':
@@ -1546,10 +1552,11 @@ export default function ActiveRideClient({
       return groups;
     }, []);
     if (grouped.length === 0) return null;
+    const extrasTotal = grouped.reduce((s, g) => s + g.total, 0);
     return (
       <div style={{ backgroundColor: COLORS.card, borderRadius: 14, padding: '14px 16px', marginTop: 8 }}>
         <div style={{ fontSize: 11, color: COLORS.gray, textTransform: 'uppercase', letterSpacing: 1, fontFamily: FONTS.mono, marginBottom: 8 }}>
-          Add-Ons
+          {isDriver ? 'Rider Add-Ons' : 'Add-Ons'}
         </div>
         {grouped.map(g => (
           <div key={g.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 14, color: COLORS.grayLight }}>
@@ -1557,9 +1564,17 @@ export default function ActiveRideClient({
             <span style={{ fontFamily: FONTS.mono, color: COLORS.green }}>${g.total.toFixed(2)}</span>
           </div>
         ))}
-        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', fontWeight: 700 }}>
-          <span style={{ fontSize: 13, color: COLORS.grayLight }}>Add-on total</span>
-          <span style={{ fontFamily: FONTS.mono, color: COLORS.green }}>${ride.addOnTotal.toFixed(2)}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <span style={{ fontSize: 12, color: COLORS.gray }}>Base ride</span>
+          <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.white }}>${ride.agreedPrice.toFixed(2)}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+          <span style={{ fontSize: 12, color: COLORS.gray }}>Extras</span>
+          <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.green }}>+${extrasTotal.toFixed(2)}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.08)', fontWeight: 700 }}>
+          <span style={{ fontSize: 13, color: COLORS.white }}>Ride total</span>
+          <span style={{ fontFamily: FONTS.mono, fontSize: 16, color: COLORS.green }}>${(ride.agreedPrice + extrasTotal).toFixed(2)}</span>
         </div>
       </div>
     );
