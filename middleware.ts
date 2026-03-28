@@ -35,6 +35,9 @@ const isPublicRoute = createRouteMatcher([
 // Define pending-only routes (only for pending_activation users)
 const isPendingRoute = createRouteMatcher(['/pending']);
 
+// Define admin routes (require admin profile_type — enforced in layout/API)
+const isAdminRoute = createRouteMatcher(['/admin(.*)']);
+
 // Define protected routes that require active status
 const isProtectedRoute = createRouteMatcher([
   '/dashboard(.*)',
@@ -46,6 +49,7 @@ const isProtectedRoute = createRouteMatcher([
   '/hmu(.*)',
   '/payouts(.*)',
   '/settings(.*)',
+  '/admin(.*)',
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
