@@ -5,6 +5,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 
 const DriverPaymentForm = dynamic(() => import('@/components/payments/driver-payment-form'), { ssr: false });
+import ManageAccounts from './manage-accounts';
 
 interface PayoutStatus {
   stripeAccountId: string | null;
@@ -226,10 +227,13 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
               fontSize: '16px',
               textAlign: 'center',
               textDecoration: 'none',
+              marginBottom: '24px',
             }}
           >
             Go Live
           </Link>
+
+          <ManageAccounts onUpdate={refreshStatus} />
         </div>
       ) : (
         /* Steps */
