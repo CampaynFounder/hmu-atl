@@ -260,60 +260,62 @@ export default function DriverHomeClient({
             </a>
           </div>
         ) : completedRides === 0 ? (
-          /* READY: First ride */
-          <div style={{
-            background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
-            borderRadius: 20, padding: '24px 20px', marginBottom: 32,
-          }}>
-            <div style={{ fontSize: 22, marginBottom: 8 }}>{'\uD83D\uDE80'}</div>
-            <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 24, lineHeight: 1, marginBottom: 6 }}>
-              SHARE YOUR LINK. GET YOUR FIRST RIDE.
-            </div>
-            <p style={{ fontSize: 13, color: '#888', lineHeight: 1.5, marginBottom: 16 }}>
-              Your payout is ready. Now share your HMU link — drop it in group chats, IG bio, anywhere. Your first payout is one ride away.
-            </p>
-            <button
-              onClick={handleShare}
-              style={{
-                display: 'block', width: '100%', padding: 16, borderRadius: 100,
-                border: 'none', background: '#00E676', color: '#080808',
-                fontWeight: 700, fontSize: 16, cursor: 'pointer',
-                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-              }}
-            >
-              Share My HMU Link
-            </button>
-          </div>
-        ) : completedRides <= 5 ? (
-          /* GROWING: Keep going */
+          /* READY: First ride — show cashout card + share prompt */
           <div style={{ marginBottom: 32 }}>
+            <CashoutCard />
             <div style={{
               background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
-              borderRadius: 20, padding: '20px', marginBottom: 12,
+              borderRadius: 20, padding: '24px 20px', marginTop: 12,
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div>
-                  <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 24, lineHeight: 1 }}>
-                    {completedRides} RIDE{completedRides > 1 ? 'S' : ''} DONE {'\uD83D\uDD25'}
-                  </div>
-                  <p style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
-                    Drivers who share their link get 3x more bookings
-                  </p>
+              <div style={{ fontSize: 22, marginBottom: 8 }}>{'\uD83D\uDE80'}</div>
+              <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 24, lineHeight: 1, marginBottom: 6 }}>
+                SHARE YOUR LINK. GET MORE RIDES.
+              </div>
+              <p style={{ fontSize: 13, color: '#888', lineHeight: 1.5, marginBottom: 16 }}>
+                Drop your HMU link in group chats, IG bio, anywhere. More visibility = more bookings.
+              </p>
+              <button
+                onClick={handleShare}
+                style={{
+                  display: 'block', width: '100%', padding: 16, borderRadius: 100,
+                  border: 'none', background: '#00E676', color: '#080808',
+                  fontWeight: 700, fontSize: 16, cursor: 'pointer',
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                }}
+              >
+                Share My HMU Link
+              </button>
+            </div>
+          </div>
+        ) : completedRides <= 5 ? (
+          /* GROWING: Cashout first, then milestone */
+          <div style={{ marginBottom: 32 }}>
+            <CashoutCard />
+            <div style={{
+              background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
+              borderRadius: 20, padding: '16px 20px', marginTop: 12,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <div>
+                <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 22, lineHeight: 1 }}>
+                  {completedRides} RIDE{completedRides > 1 ? 'S' : ''} DONE {'\uD83D\uDD25'}
                 </div>
+                <p style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                  Keep going — share your link for more
+                </p>
               </div>
               <button
                 onClick={handleShare}
                 style={{
-                  width: '100%', padding: 14, borderRadius: 100,
+                  padding: '10px 16px', borderRadius: 100,
                   border: '1px solid rgba(0,230,118,0.3)', background: 'transparent',
-                  color: '#00E676', fontWeight: 700, fontSize: 14, cursor: 'pointer',
-                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                  color: '#00E676', fontWeight: 700, fontSize: 12, cursor: 'pointer',
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)", flexShrink: 0,
                 }}
               >
-                Share Link for More Rides
+                Share
               </button>
             </div>
-            <CashoutCard />
           </div>
         ) : (
           /* ESTABLISHED: Cashout + subtle upgrade */
