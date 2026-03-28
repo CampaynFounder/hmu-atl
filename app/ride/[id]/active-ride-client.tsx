@@ -1218,7 +1218,6 @@ export default function ActiveRideClient({
           const dUrgent = waitSecs !== null && waitSecs < 60;
           return (
             <>
-              <StatusMessage text="Waiting for rider to get in..." />
               {waitSecs !== null && waitSecs > 0 && (
                 <div style={{
                   textAlign: 'center', padding: '12px 16px', marginBottom: 8,
@@ -1237,6 +1236,7 @@ export default function ActiveRideClient({
                   </div>
                 </div>
               )}
+              <StatusMessage text="Waiting for rider to get in..." />
               {/* Extension request from rider */}
               {extensionPending && (
                 <div style={{
@@ -1471,7 +1471,32 @@ export default function ActiveRideClient({
                 textAlign: 'center', padding: '12px 16px', marginBottom: 8,
                 backgroundColor: rUrgent ? 'rgba(255,82,82,0.12)' : 'rgba(255,145,0,0.08)',
                 borderRadius: 14, border: rUrgent ? '1px solid rgba(255,82,82,0.2)' : '1px solid rgba(255,145,0,0.15)',
+                position: 'relative',
               }}>
+                {/* Emergency pulloff — rider can signal driver to leave */}
+                <button
+                  onClick={() => {
+                    if (confirm('Signal the driver to leave immediately? Use this if you feel unsafe or there\'s an emergency.')) {
+                      fetch(`/api/rides/${rideId}/cancel`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reason: 'emergency', agreeToCancel: true }),
+                      }).then(() => setRide(prev => ({ ...prev, status: 'cancelled' })))
+                        .catch(() => {});
+                    }
+                  }}
+                  style={{
+                    position: 'absolute', top: 8, right: 8,
+                    background: 'rgba(255,82,82,0.15)', border: '1px solid rgba(255,82,82,0.2)',
+                    borderRadius: 8, padding: '4px 8px',
+                    color: COLORS.red, fontSize: 16, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    lineHeight: 1,
+                  }}
+                  title="Emergency — signal driver to leave"
+                >
+                  <span>🚨</span>
+                </button>
                 <div style={{
                   fontFamily: FONTS.mono, fontSize: 28, fontWeight: 700,
                   color: rUrgent ? COLORS.red : COLORS.orange,
