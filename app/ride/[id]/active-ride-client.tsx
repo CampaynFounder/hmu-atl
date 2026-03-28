@@ -1589,6 +1589,7 @@ export default function ActiveRideClient({
         const cSecsRem = cSecs !== null ? cSecs % 60 : null;
         const confirmAddOns = ride.addOns.filter(a => a.status !== 'removed' && a.status !== 'disputed');
         const confirmExtras = confirmAddOns.reduce((s, a) => s + a.subtotal, 0);
+        const confirmTotal = ride.agreedPrice + confirmExtras;
         const confirmGrouped = confirmAddOns.reduce<{ name: string; qty: number; total: number; lastId: string }[]>((g, a) => {
           const ex = g.find(x => x.name === a.name);
           if (ex) { ex.qty += a.quantity; ex.total += a.subtotal; ex.lastId = a.id; }
@@ -1597,75 +1598,99 @@ export default function ActiveRideClient({
         }, []);
         return (
           <>
+            {/* Header */}
             <div style={{
-              textAlign: 'center', padding: '16px',
+              textAlign: 'center', padding: '12px 16px',
               backgroundColor: 'rgba(255,145,0,0.12)', borderRadius: 16,
               marginBottom: 12,
             }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.orange, marginBottom: 4 }}>
-                Are you in the car?
+              <div style={{ fontSize: 15, fontWeight: 700, color: COLORS.orange, marginBottom: 2 }}>
+                Confirm &amp; Pay
+              </div>
+              <div style={{ fontSize: 11, color: COLORS.grayLight }}>
+                Review your total before payment is captured
               </div>
               {cSecs !== null && cSecs > 0 && (
                 <div style={{
-                  fontSize: 12, color: COLORS.grayLight, fontFamily: FONTS.mono,
+                  fontSize: 11, color: COLORS.gray, fontFamily: FONTS.mono, marginTop: 4,
                 }}>
                   Auto-confirms in {cMins}:{String(cSecsRem).padStart(2, '0')}
                 </div>
               )}
             </div>
 
-            {/* Last chance to remove add-ons before capture */}
-            {confirmGrouped.length > 0 && (
-              <div style={{
-                backgroundColor: COLORS.card, borderRadius: 14, padding: '14px 16px',
-                marginBottom: 12, border: '1px solid rgba(255,145,0,0.15)',
-              }}>
-                <div style={{ fontSize: 10, color: COLORS.orange, textTransform: 'uppercase', letterSpacing: 1.5, fontFamily: FONTS.mono, marginBottom: 8 }}>
-                  Last chance to adjust extras
-                </div>
-                {confirmGrouped.map(g => (
-                  <div key={g.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', gap: 8 }}>
-                    <span style={{ fontSize: 13, color: COLORS.white, flex: 1 }}>
-                      {g.name}{g.qty > 1 ? ` \u00D7${g.qty}` : ''}
-                    </span>
-                    <span style={{ fontFamily: FONTS.mono, fontSize: 12, color: COLORS.green }}>${g.total.toFixed(2)}</span>
-                    <button
-                      onClick={async () => {
-                        await fetch(`/api/rides/${rideId}/add-ons`, {
-                          method: 'PATCH',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ add_on_id: g.lastId, action: 'remove' }),
-                        }).then(r => r.json()).then(data => {
-                          if (data.total !== undefined) {
-                            setRide(prev => ({
-                              ...prev,
-                              addOns: prev.addOns.map(a => a.id === g.lastId ? { ...a, status: 'disputed' } : a),
-                              addOnTotal: data.total,
-                            }));
-                          }
-                        }).catch(() => {});
-                      }}
-                      style={{
-                        background: 'rgba(255,82,82,0.12)', border: 'none', borderRadius: 8,
-                        padding: '3px 10px', color: COLORS.red, fontSize: 10, fontWeight: 700,
-                        cursor: 'pointer', fontFamily: FONTS.body,
-                      }}
-                    >
-                      {g.qty > 1 ? '-1' : 'Remove'}
-                    </button>
-                  </div>
-                ))}
-                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 6, borderTop: '1px solid rgba(255,255,255,0.08)', fontWeight: 700 }}>
-                  <span style={{ fontSize: 13, color: COLORS.white }}>Charging</span>
-                  <span style={{ fontFamily: FONTS.mono, fontSize: 16, color: COLORS.green }}>
-                    ${(ride.agreedPrice + confirmExtras).toFixed(2)}
-                  </span>
-                </div>
+            {/* Receipt breakdown — always shown */}
+            <div style={{
+              backgroundColor: COLORS.card, borderRadius: 14, padding: '14px 16px',
+              marginBottom: 12, border: '1px solid rgba(255,255,255,0.08)',
+            }}>
+              {/* Base ride */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                <span style={{ fontSize: 13, color: COLORS.grayLight }}>Ride</span>
+                <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.white }}>${ride.agreedPrice.toFixed(2)}</span>
               </div>
-            )}
 
+              {/* Extras with remove buttons */}
+              {confirmGrouped.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10, color: COLORS.orange, textTransform: 'uppercase', letterSpacing: 1.5, fontFamily: FONTS.mono, marginTop: 8, marginBottom: 4 }}>
+                    Extras — tap to remove
+                  </div>
+                  {confirmGrouped.map(g => (
+                    <div key={g.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', gap: 8 }}>
+                      <span style={{ fontSize: 13, color: COLORS.white, flex: 1 }}>
+                        {g.name}{g.qty > 1 ? ` \u00D7${g.qty}` : ''}
+                      </span>
+                      <span style={{ fontFamily: FONTS.mono, fontSize: 12, color: COLORS.green, flexShrink: 0 }}>${g.total.toFixed(2)}</span>
+                      <button
+                        onClick={async () => {
+                          await fetch(`/api/rides/${rideId}/add-ons`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ add_on_id: g.lastId, action: 'remove' }),
+                          }).then(r => r.json()).then(data => {
+                            if (data.total !== undefined) {
+                              setRide(prev => ({
+                                ...prev,
+                                addOns: prev.addOns.map(a => a.id === g.lastId ? { ...a, status: 'disputed' } : a),
+                                addOnTotal: data.total,
+                              }));
+                            }
+                          }).catch(() => {});
+                        }}
+                        style={{
+                          background: 'rgba(255,82,82,0.12)', border: 'none', borderRadius: 8,
+                          padding: '3px 10px', color: COLORS.red, fontSize: 10, fontWeight: 700,
+                          cursor: 'pointer', fontFamily: FONTS.body, flexShrink: 0,
+                        }}
+                      >
+                        {g.qty > 1 ? '-1' : 'Remove'}
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* Total line */}
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                paddingTop: 10, marginTop: 10,
+                borderTop: '1px solid rgba(255,255,255,0.1)',
+              }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: COLORS.white }}>
+                  Total charged
+                </span>
+                <span style={{
+                  fontFamily: FONTS.mono, fontSize: 22, fontWeight: 700, color: COLORS.green,
+                }}>
+                  ${confirmTotal.toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            {/* Confirm button — shows amount */}
             <ActionButton
-              label="BET — I'M IN"
+              label={`BET — Pay $${confirmTotal.toFixed(2)}`}
               color={COLORS.green}
               onPress={async () => {
                 setLoading(true);
