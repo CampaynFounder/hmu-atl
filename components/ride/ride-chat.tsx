@@ -267,7 +267,7 @@ export default function RideChat({
                   wordBreak: 'break-word',
                   border: isQuick && !isMine ? `1px solid rgba(0,230,118,0.2)` : 'none',
                 }}>
-                  {msg.content}
+                  <MessageContent content={msg.content} isMine={isMine} />
                   <div style={{
                     fontSize: 10,
                     color: isMine ? 'rgba(0,0,0,0.5)' : COLORS.gray,
@@ -331,4 +331,35 @@ export default function RideChat({
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+// Render text with clickable links
+const URL_REGEX = /(https?:\/\/[^\s]+)/g;
+
+function MessageContent({ content, isMine }: { content: string; isMine: boolean }) {
+  const parts = content.split(URL_REGEX);
+  return (
+    <>
+      {parts.map((part, i) =>
+        URL_REGEX.test(part) ? (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              color: isMine ? '#004D40' : '#00E676',
+              textDecoration: 'underline',
+              fontWeight: 600,
+              wordBreak: 'break-all',
+            }}
+          >
+            {part.includes('maps.google.com') ? '📍 Open in Maps' : part}
+          </a>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
 }

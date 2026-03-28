@@ -135,7 +135,7 @@ export default function ActiveRideClient({
   const [lastLocationUpdate, setLastLocationUpdate] = useState<number>(Date.now());
   const [etaStale, setEtaStale] = useState(false);
   const smsNudgeSent = useRef(false);
-  const [chatMessages, setChatMessages] = useState<{ id: string; senderId: string; content: string; createdAt: string }[]>([]);
+  const [chatMessages, setChatMessages] = useState<{ id: string; senderId: string; content: string; createdAt: string; type?: string; quickKey?: string | null }[]>([]);
   const [chatOpen, setChatOpen] = useState(false);
   const chatOpenRef = useRef(false);
   const [chatUnread, setChatUnread] = useState(0);
@@ -232,6 +232,8 @@ export default function ActiveRideClient({
           senderId: data.senderId as string,
           content: data.content as string,
           createdAt: data.createdAt as string,
+          type: (data.type as string) || 'chat',
+          quickKey: (data.quickKey as string) || null,
         };
         setChatMessages(prev => {
           if (prev.some(m => m.id === msg.id)) return prev;
@@ -584,7 +586,7 @@ export default function ActiveRideClient({
 
   // ── Load chat history on mount if applicable ──
   useEffect(() => {
-    if (['otw', 'here', 'active', 'ended'].includes(ride.status)) {
+    if (['otw', 'here', 'confirming', 'active', 'ended'].includes(ride.status)) {
       fetch(`/api/rides/${rideId}/messages`)
         .then(r => r.json())
         .then(data => { if (data.messages) setChatMessages(data.messages); })

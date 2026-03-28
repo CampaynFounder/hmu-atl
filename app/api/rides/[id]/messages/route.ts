@@ -45,31 +45,31 @@ const QUICK_MESSAGES: Record<string, {
     display: 'OTW',
     smsTemplate: (name, id) => `HMU ATL: ${name} is on the way! Track ETA: atl.hmucashride.com/ride/${id}`,
     roles: ['driver'],
-    statuses: ['otw'],
+    statuses: ['otw', 'here', 'confirming'],
   },
   'driver_5min': {
     display: '5 min away',
     smsTemplate: (name) => `HMU ATL: ${name} is about 5 min away — head to the pickup spot!`,
     roles: ['driver'],
-    statuses: ['otw'],
+    statuses: ['otw', 'here', 'confirming'],
   },
   'driver_here': {
     display: "I'm here",
     smsTemplate: (name, id) => `HMU ATL: ${name} is HERE! Head to the car. atl.hmucashride.com/ride/${id}`,
     roles: ['driver'],
-    statuses: ['here', 'confirming'],
+    statuses: ['otw', 'here', 'confirming'],
   },
   'driver_cantfind': {
     display: "Can't find you",
     smsTemplate: (name, id) => `HMU ATL: ${name} can't find you at the pickup. Open HMU and share your spot: atl.hmucashride.com/ride/${id}`,
     roles: ['driver'],
-    statuses: ['here', 'confirming'],
+    statuses: ['otw', 'here', 'confirming'],
   },
   'driver_pulling_up': {
     display: 'Pulling up now',
     smsTemplate: (name) => `HMU ATL: ${name} is pulling up now — be ready!`,
     roles: ['driver'],
-    statuses: ['otw', 'here'],
+    statuses: ['otw', 'here', 'confirming'],
   },
 };
 
