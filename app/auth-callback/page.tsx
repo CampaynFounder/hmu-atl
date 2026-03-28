@@ -50,10 +50,11 @@ export default function AuthCallbackPage() {
           router.replace(`${returnTo}?bookingOpen=1`);
           return;
         }
-        if (data.profileType === 'driver') {
+        if (data.profileType === 'admin' || data.profileType === 'both') {
+          // Admin/both users go to admin portal
+          router.replace('/admin');
+        } else if (data.profileType === 'driver') {
           router.replace('/driver/home');
-        } else if (data.profileType === 'rider' || data.profileType === 'both') {
-          router.replace('/rider/home');
         } else {
           router.replace('/rider/home');
         }

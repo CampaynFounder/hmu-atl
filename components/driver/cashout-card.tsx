@@ -7,6 +7,7 @@ import UpgradeOverlay from './upgrade-overlay';
 interface BalanceData {
   available: number;
   pending: number;
+  instantAvailable: number;
   instantEligible: boolean;
   tier: string;
 }
@@ -30,7 +31,9 @@ export default function CashoutCard() {
   }, []);
 
   const isHmuFirst = balance?.tier === 'hmu_first';
-  const instantFee = isHmuFirst ? 0 : Math.max(1, balance ? balance.available * 0.01 : 0);
+  // Show the max cashable amount — instant_available includes pending funds Stripe will front
+  const cashableAmount = balance ? Math.max(balance.available, balance.instantAvailable ?? 0) : 0;
+  const instantFee = isHmuFirst ? 0 : Math.max(1, cashableAmount * 0.01);
 
   async function handleCashout() {
     fbCustomEvent('CashoutInitiated', { amount: balance?.available, method: selectedMethod, tier: balance?.tier });
@@ -128,11 +131,11 @@ export default function CashoutCard() {
         </div>
 
         <div className="co-title">Available Balance</div>
-        <div className={`co-amount ${balance.available <= 0 ? 'co-amount--zero' : ''}`}>
-          ${balance.available.toFixed(2)}
+        <div className={`co-amount ${cashableAmount <= 0 ? 'co-amount--zero' : ''}`}>
+          ${cashableAmount.toFixed(2)}
         </div>
-        {balance.pending > 0 && (
-          <div className="co-pending">${balance.pending.toFixed(2)} pending</div>
+        {balance.available <= 0 && cashableAmount > 0 && (
+          <div className="co-pending" style={{ color: '#00E676' }}>Ready for instant payout</div>
         )}
 
         {error && <div className="co-error">{error}</div>}
@@ -178,9 +181,9 @@ export default function CashoutCard() {
               type="button"
               className="co-btn co-btn--green"
               onClick={handleCashout}
-              disabled={cashingOut || balance.available <= 0}
+              disabled={cashingOut || cashableAmount <= 0}
             >
-              {cashingOut ? 'Processing...' : balance.available > 0 ? `Cash Out $${balance.available.toFixed(2)}` : 'No balance yet — complete a ride'}
+              {cashingOut ? 'Processing...' : cashableAmount > 0 ? `Cash Out $${cashableAmount.toFixed(2)}` : 'No balance yet — complete a ride'}
             </button>
 
             {!isHmuFirst && (

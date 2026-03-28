@@ -46,28 +46,30 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Get available balance
+    // Get full balance — check available, pending, AND instant_available
     const balance = await stripe.balance.retrieve({
       stripeAccount: driver.stripe_account_id,
     });
 
     const availableCents = balance.available.reduce((sum, b) => sum + b.amount, 0);
-    if (availableCents <= 0) {
-      return NextResponse.json({ error: 'No available balance to cash out' }, { status: 400 });
-    }
-
-    let payoutAmountCents = availableCents;
-    let fee = 0;
+    const instantAvailableCents = balance.instant_available?.reduce((sum, b) => sum + b.amount, 0) ?? 0;
 
     if (method === 'instant') {
-      // HMU First gets free instant payouts
-      if (driver.tier !== 'hmu_first') {
-        // $1.00 or 1% whichever is higher
-        const percentFee = Math.round(availableCents * 0.01);
-        fee = Math.max(100, percentFee); // 100 cents = $1.00
-        payoutAmountCents = availableCents - fee;
+      // For instant payouts, use instant_available (includes pending funds Stripe will front)
+      const payableCents = Math.max(availableCents, instantAvailableCents);
+
+      if (payableCents <= 0) {
+        return NextResponse.json({ error: 'No balance to cash out' }, { status: 400 });
       }
 
+      let fee = 0;
+      // HMU First gets free instant payouts
+      if (driver.tier !== 'hmu_first') {
+        const percentFee = Math.round(payableCents * 0.01);
+        fee = Math.max(100, percentFee); // $1.00 or 1% whichever is higher
+      }
+
+      const payoutAmountCents = payableCents - fee;
       if (payoutAmountCents <= 0) {
         return NextResponse.json({ error: 'Balance too low for instant payout after fee' }, { status: 400 });
       }
@@ -86,17 +88,23 @@ export async function POST(req: NextRequest) {
         success: true,
         payoutId: payout.id,
         amount: payoutAmountCents / 100,
-        grossAmount: availableCents / 100,
+        grossAmount: payableCents / 100,
         fee: fee / 100,
         method: 'instant',
         arrival: 'Minutes',
         tier: driver.tier,
       });
     } else {
-      // Standard payout — free, 1-2 business days
+      // Standard payout — uses available balance only
+      if (availableCents <= 0) {
+        return NextResponse.json({
+          error: 'No available balance for standard payout. Try instant payout to access pending funds.',
+        }, { status: 400 });
+      }
+
       const payout = await stripe.payouts.create(
         {
-          amount: payoutAmountCents,
+          amount: availableCents,
           currency: 'usd',
           method: 'standard',
           metadata: { driverId: driver.user_id },
@@ -107,7 +115,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         payoutId: payout.id,
-        amount: payoutAmountCents / 100,
+        amount: availableCents / 100,
         fee: 0,
         method: 'standard',
         arrival: '1-2 business days',
