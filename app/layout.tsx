@@ -28,19 +28,21 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: '32x32' },
+      { url: '/favicon-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/favicon-48x48.png', sizes: '48x48', type: 'image/png' },
       { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
       { url: '/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
     ],
     apple: '/apple-touch-icon.png',
   },
   title: 'HMUCashRide - Drivers Get Paid UpFront',
-  description: 'Ride Scammers Hate HMU. They Go Ghost? You Get Paid. You Cancel? They Lose Nothing.',
+  description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L.',
   alternates: {
     canonical: 'https://atl.hmucashride.com',
   },
   openGraph: {
     title: 'HMUCashRide - Drivers Get Paid UpFront',
-    description: 'Ride Scammers Hate HMU. They Go Ghost? You Get Paid. You Cancel? They Lose Nothing.',
+    description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L.',
     url: 'https://atl.hmucashride.com',
     siteName: 'HMUCASHRIDE',
     locale: 'en_US',
@@ -51,7 +53,7 @@ export const metadata: Metadata = {
     images: ['https://atl.hmucashride.com/og-image.jpeg'],
     card: 'summary_large_image',
     title: 'HMUCashRide - Drivers Get Paid UpFront',
-    description: 'Ride Scammers Hate HMU. They Go Ghost? You Get Paid. You Cancel? They Lose Nothing.',
+    description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L.',
   },
   other: {
     'facebook-domain-verification': 'mttfsmzqmugljmd7ybwy3vgb2mzl8i',
