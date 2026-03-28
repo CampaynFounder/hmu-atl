@@ -107,12 +107,15 @@ export function Header() {
                   {/* ── Logged-in Driver ── */}
                   {isSignedIn && profileType === 'driver' && (
                     <>
-                      <NavItem href="/driver/home" label="Driver Home" active={pathname === '/driver/home'} accent onClick={close} />
-                      <NavItem href="/driver/go-live" label="Do Rides" active={pathname === '/driver/go-live'} onClick={close} />
-                      <NavItem href="/driver/feed" label="Find Riders" active={pathname === '/driver/feed'} onClick={close} />
-                      <NavItem href="/driver/rides" label="Ride Requests" active={pathname === '/driver/rides'} onClick={close} />
-                      <NavItem href="/driver/profile" label="HMU Profile" active={pathname === '/driver/profile'} onClick={close} />
-                      <NavItem href="/driver/settings" label="HMU Settings" active={pathname.startsWith('/driver/settings')} onClick={close} />
+                      <NavSection label="GO" />
+                      <NavItem href="/driver/go-live" label="Go Live" icon="🟢" active={pathname === '/driver/go-live'} accent onClick={close} />
+                      <NavItem href="/driver/feed" label="Find Riders" icon="🔍" active={pathname === '/driver/feed'} onClick={close} />
+                      <NavSection label="RIDES" />
+                      <NavItem href="/driver/rides" label="My Rides" icon="📋" active={pathname === '/driver/rides'} onClick={close} />
+                      <NavItem href="/driver/home" label="Cashout" icon="💰" active={pathname === '/driver/home'} onClick={close} />
+                      <NavSection label="ME" />
+                      <NavItem href="/driver/profile" label="Profile" icon="👤" active={pathname === '/driver/profile'} onClick={close} />
+                      <NavItem href="/driver/settings" label="Settings" icon="⚙️" active={pathname.startsWith('/driver/settings')} onClick={close} />
                     </>
                   )}
 
@@ -187,9 +190,23 @@ function NavSeparator() {
   return <li className="pt-2 mt-2 border-t border-white/8" />;
 }
 
+function NavSection({ label }: { label: string }) {
+  return (
+    <li className="pt-3 first:pt-0">
+      <span
+        className="block px-4 pb-1 text-[10px] font-bold tracking-[3px] text-zinc-600"
+        style={{ fontFamily: 'var(--font-mono, Space Mono, monospace)' }}
+      >
+        {label}
+      </span>
+    </li>
+  );
+}
+
 function NavItem({
   href,
   label,
+  icon,
   active,
   accent,
   sub,
@@ -197,6 +214,7 @@ function NavItem({
 }: {
   href: string;
   label: string;
+  icon?: string;
   active?: boolean;
   accent?: boolean;
   sub?: boolean;
@@ -207,7 +225,7 @@ function NavItem({
       <Link
         href={href}
         onClick={onClick}
-        className={`block px-4 py-3 rounded-xl text-[15px] font-medium transition-colors ${
+        className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[15px] font-medium transition-colors ${
           active
             ? 'bg-[#00E676]/10 text-[#00E676] border border-[#00E676]/20'
             : accent
@@ -218,6 +236,7 @@ function NavItem({
         }`}
         style={{ fontFamily: 'var(--font-body, DM Sans, sans-serif)' }}
       >
+        {icon && <span className="text-base">{icon}</span>}
         {label}
       </Link>
     </li>
