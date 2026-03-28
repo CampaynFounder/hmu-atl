@@ -145,6 +145,8 @@ export default function ActiveRideClient({
   const [showPulloff, setShowPulloff] = useState(false);
   const [confirmCountdown, setConfirmCountdown] = useState<number | null>(null);
   const autoConfirmFired = useRef(false);
+  const [extensionRequested, setExtensionRequested] = useState(false);
+  const [extensionPending, setExtensionPending] = useState(false);
   const [addOnReview, setAddOnReview] = useState<Map<string, string>>(new Map());
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
@@ -275,6 +277,37 @@ export default function ActiveRideClient({
         }).catch(() => {});
         if (!isDriver) {
           showNotification('Driver approved add-on removal', '\u2705', COLORS.green);
+        }
+        break;
+      }
+      case 'extend_wait_request': {
+        // Rider is asking for more time — driver sees prompt
+        if (isDriver) {
+          showNotification('Rider needs more time', '⏱', COLORS.orange, 'Tap to extend wait');
+          setExtensionPending(true);
+          if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        }
+        break;
+      }
+      case 'extend_wait_approved': {
+        // Driver approved — extend the wait timer
+        const extraMinutes = Number(data.extraMinutes || 3);
+        setRide(prev => ({
+          ...prev,
+          waitMinutes: prev.waitMinutes + extraMinutes,
+        }));
+        setExtensionRequested(false);
+        setExtensionPending(false);
+        if (!isDriver) {
+          showNotification(`Driver gave you ${extraMinutes} more min`, '✅', COLORS.green);
+        }
+        break;
+      }
+      case 'extend_wait_denied': {
+        setExtensionRequested(false);
+        setExtensionPending(false);
+        if (!isDriver) {
+          showNotification('Driver can\'t wait longer — hurry!', '🏃', COLORS.red);
         }
         break;
       }
@@ -456,7 +489,7 @@ export default function ActiveRideClient({
   const lastStaleCheck = useRef(false);
   useEffect(() => {
     if (ride.status !== 'here' || !ride.hereAt) { setWaitCountdown(null); stalePauseRef.current = 0; return; }
-    const waitMs = (ride.waitMinutes || 10) * 60 * 1000;
+    const waitMs = (ride.waitMinutes || 5) * 60 * 1000;
     const updateCountdown = () => {
       // Track cumulative stale pause time
       if (etaStale && !lastStaleCheck.current) {
@@ -1174,16 +1207,75 @@ export default function ActiveRideClient({
           const waitSecs = waitCountdown !== null ? Math.ceil(waitCountdown / 1000) : null;
           const waitMins = waitSecs !== null ? Math.floor(waitSecs / 60) : null;
           const waitSecsRem = waitSecs !== null ? waitSecs % 60 : null;
+          const dUrgent = waitSecs !== null && waitSecs < 60;
           return (
             <>
               <StatusMessage text="Waiting for rider to get in..." />
               {waitSecs !== null && waitSecs > 0 && (
                 <div style={{
-                  textAlign: 'center', padding: '8px 0', fontSize: 13,
-                  color: waitSecs < 60 ? COLORS.red : COLORS.orange,
-                  fontFamily: FONTS.mono,
+                  textAlign: 'center', padding: '12px 16px', marginBottom: 8,
+                  backgroundColor: dUrgent ? 'rgba(255,82,82,0.12)' : 'rgba(255,255,255,0.04)',
+                  borderRadius: 14, border: dUrgent ? '1px solid rgba(255,82,82,0.2)' : '1px solid rgba(255,255,255,0.06)',
                 }}>
-                  {waitMins}:{String(waitSecsRem).padStart(2, '0')} until you can pull off
+                  <div style={{
+                    fontFamily: FONTS.mono, fontSize: 28, fontWeight: 700,
+                    color: dUrgent ? COLORS.red : COLORS.white,
+                    lineHeight: 1,
+                  }}>
+                    {waitMins}:{String(waitSecsRem).padStart(2, '0')}
+                  </div>
+                  <div style={{ fontSize: 12, color: dUrgent ? COLORS.red : COLORS.gray, marginTop: 4 }}>
+                    {dUrgent ? 'You can pull off soon' : 'until you can pull off'}
+                  </div>
+                </div>
+              )}
+              {/* Extension request from rider */}
+              {extensionPending && (
+                <div style={{
+                  padding: '12px 16px', marginBottom: 8, borderRadius: 14,
+                  backgroundColor: 'rgba(255,145,0,0.1)', border: '1px solid rgba(255,145,0,0.2)',
+                  textAlign: 'center',
+                }}>
+                  <div style={{ fontSize: 13, color: COLORS.orange, fontWeight: 600, marginBottom: 8 }}>
+                    Rider needs more time
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                    <button
+                      onClick={async () => {
+                        setExtensionPending(false);
+                        await fetch(`/api/rides/${rideId}/extend-wait`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ approve: true, extraMinutes: 3 }),
+                        }).catch(() => {});
+                      }}
+                      style={{
+                        padding: '8px 20px', borderRadius: 100, border: 'none',
+                        background: COLORS.green, color: COLORS.black,
+                        fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONTS.body,
+                      }}
+                    >
+                      +3 min
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setExtensionPending(false);
+                        await fetch(`/api/rides/${rideId}/extend-wait`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ approve: false }),
+                        }).catch(() => {});
+                      }}
+                      style={{
+                        padding: '8px 20px', borderRadius: 100,
+                        border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.1)',
+                        color: COLORS.red, fontSize: 13, fontWeight: 700,
+                        cursor: 'pointer', fontFamily: FONTS.body,
+                      }}
+                    >
+                      No
+                    </button>
+                  </div>
                 </div>
               )}
               {ride.addOns.length > 0 && renderAddOnSummary()}
@@ -1362,16 +1454,50 @@ export default function ActiveRideClient({
         const rWaitSecs = waitCountdown !== null ? Math.ceil(waitCountdown / 1000) : null;
         const rWaitMins = rWaitSecs !== null ? Math.floor(rWaitSecs / 60) : null;
         const rWaitSecsRem = rWaitSecs !== null ? rWaitSecs % 60 : null;
+        const rUrgent = rWaitSecs !== null && rWaitSecs < 60;
         return (
           <>
             <StatusMessage text="Your driver is here!" />
             {rWaitSecs !== null && rWaitSecs > 0 && (
               <div style={{
-                textAlign: 'center', padding: '6px 0', fontSize: 12,
-                color: rWaitSecs < 60 ? COLORS.red : COLORS.orange,
-                fontFamily: FONTS.mono,
+                textAlign: 'center', padding: '12px 16px', marginBottom: 8,
+                backgroundColor: rUrgent ? 'rgba(255,82,82,0.12)' : 'rgba(255,145,0,0.08)',
+                borderRadius: 14, border: rUrgent ? '1px solid rgba(255,82,82,0.2)' : '1px solid rgba(255,145,0,0.15)',
               }}>
-                Get to the car — {rWaitMins}:{String(rWaitSecsRem).padStart(2, '0')} before driver can leave
+                <div style={{
+                  fontFamily: FONTS.mono, fontSize: 28, fontWeight: 700,
+                  color: rUrgent ? COLORS.red : COLORS.orange,
+                  lineHeight: 1,
+                }}>
+                  {rWaitMins}:{String(rWaitSecsRem).padStart(2, '0')}
+                </div>
+                <div style={{ fontSize: 12, color: rUrgent ? COLORS.red : COLORS.grayLight, marginTop: 4 }}>
+                  {rUrgent ? 'Hurry — driver can leave soon' : 'Get to the car before driver can leave'}
+                </div>
+                {!extensionRequested && rWaitSecs < 120 && (
+                  <button
+                    onClick={async () => {
+                      setExtensionRequested(true);
+                      await fetch(`/api/rides/${rideId}/extend-wait`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                      }).catch(() => {});
+                    }}
+                    style={{
+                      marginTop: 8, padding: '8px 20px', borderRadius: 100,
+                      border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)',
+                      color: COLORS.white, fontSize: 12, fontWeight: 600,
+                      cursor: 'pointer', fontFamily: FONTS.body,
+                    }}
+                  >
+                    Need more time?
+                  </button>
+                )}
+                {extensionRequested && (
+                  <div style={{ fontSize: 11, color: COLORS.gray, marginTop: 6 }}>
+                    Waiting for driver to approve...
+                  </div>
+                )}
               </div>
             )}
             {ride.driverPlate && (

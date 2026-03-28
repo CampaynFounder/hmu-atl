@@ -94,7 +94,7 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
         driverPlate: ((ride.driver_vehicle_info as Record<string, unknown>)?.license_plate as string) || null,
         driverPlateState: ((ride.driver_vehicle_info as Record<string, unknown>)?.plate_state as string) || null,
         isCash: (ride.is_cash as boolean) || false,
-        waitMinutes: Number(ride.wait_minutes ?? 10),
+        waitMinutes: Number(ride.wait_minutes ?? 5),
         confirmDeadline: (ride.confirm_deadline as string) || null,
         addOns: addOnRows.map(a => ({
           id: a.id as string,
