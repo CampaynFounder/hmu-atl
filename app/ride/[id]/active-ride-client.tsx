@@ -175,7 +175,15 @@ export default function ActiveRideClient({
     switch (msg.name) {
       case 'status_update': {
         const newStatus = data.status as string;
-        setRide(prev => ({ ...prev, status: newStatus }));
+        const now = new Date().toISOString();
+        setRide(prev => ({
+          ...prev,
+          status: newStatus,
+          ...(newStatus === 'otw' ? { otwAt: now } : {}),
+          ...(newStatus === 'here' ? { hereAt: now, waitMinutes: Number(data.waitMinutes || prev.waitMinutes) } : {}),
+          ...(newStatus === 'active' ? { startedAt: now } : {}),
+          ...(newStatus === 'ended' ? { endedAt: now } : {}),
+        }));
         showStatusNotification(newStatus);
         break;
       }
@@ -218,7 +226,16 @@ export default function ActiveRideClient({
       case 'status_change': {
         const newStatus = data.status as string;
         if (newStatus) {
-          setRide(prev => ({ ...prev, status: newStatus }));
+          const now = new Date().toISOString();
+          setRide(prev => ({
+            ...prev,
+            status: newStatus,
+            ...(newStatus === 'otw' ? { otwAt: now } : {}),
+            ...(newStatus === 'here' ? { hereAt: now, waitMinutes: Number(data.waitMinutes || prev.waitMinutes) } : {}),
+            ...(newStatus === 'confirming' ? { confirmDeadline: (data.confirmDeadline as string) || null } : {}),
+            ...(newStatus === 'active' ? { startedAt: now } : {}),
+            ...(newStatus === 'ended' ? { endedAt: now } : {}),
+          }));
           showStatusNotification(newStatus);
         }
         break;
