@@ -158,9 +158,35 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
           <div style={{ fontFamily: 'var(--font-display, Bebas Neue, sans-serif)', fontSize: '36px', marginBottom: '8px' }}>
             You&apos;re All Set
           </div>
-          <p style={{ fontSize: '15px', color: '#bbb', marginBottom: '32px' }}>
+          <p style={{ fontSize: '15px', color: '#bbb', marginBottom: '20px' }}>
             Start accepting rides and get paid directly to your account.
           </p>
+
+          {/* Stripe verification notice */}
+          <div style={{
+            background: 'rgba(255,179,0,0.06)',
+            border: '1px solid rgba(255,179,0,0.15)',
+            borderRadius: '16px',
+            padding: '16px 20px',
+            marginBottom: '24px',
+            textAlign: 'left',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+              <span style={{ fontSize: '20px', lineHeight: 1 }}>&#x23F3;</span>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: '#FFB300', marginBottom: '6px' }}>
+                  Go ahead — start picking up riders
+                </div>
+                <p style={{ fontSize: '13px', color: '#999', lineHeight: 1.5, margin: 0 }}>
+                  Stripe is verifying your account in the background. This usually takes 1-2 days.
+                  Your earnings are safe and will be held until verification is complete.
+                </p>
+                <p style={{ fontSize: '13px', color: '#999', lineHeight: 1.5, margin: '8px 0 0' }}>
+                  We&apos;ll text you as soon as instant payouts are ready.
+                </p>
+              </div>
+            </div>
+          </div>
           {status.last4 && (
             <div style={{
               background: '#141414',
