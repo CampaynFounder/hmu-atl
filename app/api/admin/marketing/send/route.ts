@@ -13,9 +13,10 @@ export async function POST(req: NextRequest) {
   if (!admin) return unauthorizedResponse();
 
   try {
-    const { recipients, message } = await req.json() as {
+    const { recipients, message, link } = await req.json() as {
       recipients: Recipient[];
       message: string;
+      link?: string;
     };
 
     if (!recipients?.length) {
@@ -24,8 +25,13 @@ export async function POST(req: NextRequest) {
     if (!message?.trim()) {
       return NextResponse.json({ error: 'Message cannot be empty' }, { status: 400 });
     }
-    if (message.length > 160) {
-      return NextResponse.json({ error: 'Message too long (max 160 characters)' }, { status: 400 });
+
+    // Combine message + link and validate total length
+    const fullMessage = link ? `${message.trim()} ${link.trim()}` : message.trim();
+    if (fullMessage.length > 160) {
+      return NextResponse.json({
+        error: `Combined message + link is ${fullMessage.length} chars (max 160). Shorten your message.`,
+      }, { status: 400 });
     }
 
     const results = [];
@@ -41,11 +47,13 @@ export async function POST(req: NextRequest) {
       }
 
       // Personalize message if name is available
-      const personalizedMsg = recipient.name
+      let personalizedText = recipient.name
         ? message.replace(/\{name\}/g, recipient.name)
         : message.replace(/\{name\}/g, '');
 
-      const result = await sendSms(phone, personalizedMsg, {
+      const finalMsg = link ? `${personalizedText.trim()} ${link.trim()}` : personalizedText.trim();
+
+      const result = await sendSms(phone, finalMsg, {
         eventType: 'marketing',
         market: 'atl',
       });
@@ -70,7 +78,8 @@ export async function POST(req: NextRequest) {
       recipientCount: recipients.length,
       sent,
       failed,
-      messagePreview: message.slice(0, 100),
+      messagePreview: message.slice(0, 80),
+      link,
     });
 
     return NextResponse.json({ sent, failed, total: recipients.length, results });

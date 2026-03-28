@@ -20,40 +20,20 @@ interface SendResult {
 }
 
 const MESSAGE_TEMPLATES = [
-  {
-    label: 'General Signup',
-    text: 'Ride scammers hate HMU. Payment held BEFORE driver pulls up. Drivers get paid. Riders get rides. Sign up free: atl.hmucashride.com',
-  },
-  {
-    label: 'Driver Recruitment',
-    text: 'Drive with HMU ATL. Set your price, get paid upfront, keep 90%. No apps or background checks. Go live now: atl.hmucashride.com',
-  },
-  {
-    label: 'Rider Invite',
-    text: 'Need a ride in ATL? HMU connects you with local drivers. Cheaper than Uber, no surge. Try it free: atl.hmucashride.com',
-  },
-  {
-    label: 'No-Show Pain Point',
-    text: 'Tired of riders going ghost? HMU ATL = riders pay BEFORE you drive. No payment, no ride. Stop wasting gas: atl.hmucashride.com',
-  },
-  {
-    label: 'Safety Focused',
-    text: 'HMU ATL: GPS tracked, verified payments, real ratings. Safer than FB cash ride groups. Sign up: atl.hmucashride.com',
-  },
-  {
-    label: 'Platform Fees',
-    text: 'Uber takes 40%. HMU? 10% on first $50/day, capped at $40. Hit the cap = rest is ALL yours: atl.hmucashride.com',
-  },
-  {
-    label: 'Upfront Pay',
-    text: 'How drivers know before they go. HMU holds fare in escrow before you leave the house. Get paid every time: atl.hmucashride.com',
-  },
+  { label: 'General Signup', text: 'Ride scammers hate HMU. Payment held BEFORE driver pulls up. Drivers get paid. Riders get rides. Sign up free' },
+  { label: 'Driver Recruitment', text: 'Drive with HMU ATL. Set your price, get paid upfront, keep 90%. No apps or background checks. Go live now' },
+  { label: 'Rider Invite', text: 'Need a ride in ATL? HMU connects you with local drivers. Cheaper than Uber, no surge. Try it free' },
+  { label: 'No-Show Pain Point', text: 'Tired of riders going ghost? HMU ATL = riders pay BEFORE you drive. No payment, no ride. Stop wasting gas' },
+  { label: 'Safety Focused', text: 'HMU ATL: GPS tracked, verified payments, real ratings. Safer than FB cash ride groups. Sign up' },
+  { label: 'Platform Fees', text: 'Uber takes 40%. HMU? 10% on first $50/day, capped at $40. Hit the cap = rest is ALL yours' },
+  { label: 'Upfront Pay', text: 'How drivers know before they go. HMU holds fare in escrow before you leave the house. Get paid every time' },
 ];
 
 export function MarketingDashboard() {
-  const [tab, setTab] = useState<'compose' | 'csv'>('compose');
+  const [inputMode, setInputMode] = useState<'compose' | 'csv'>('compose');
   const [phones, setPhones] = useState('');
   const [message, setMessage] = useState('');
+  const [link, setLink] = useState('');
   const [csvRecipients, setCsvRecipients] = useState<Recipient[]>([]);
   const [csvColumns, setCsvColumns] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
@@ -61,114 +41,70 @@ export function MarketingDashboard() {
   const [summary, setSummary] = useState<{ sent: number; failed: number; total: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Parse phone numbers from text input
+  // Combined length preview
+  const totalLength = message.length + (link ? 1 + link.length : 0);
+  const messageMaxLength = 160 - (link ? 1 + link.length : 0);
+
   const parsePhones = (): Recipient[] => {
-    return phones
-      .split(/[\n,;]+/)
-      .map((p) => p.trim())
-      .filter(Boolean)
-      .map((p) => ({ phone: p }));
+    return phones.split(/[\n,;]+/).map((p) => p.trim()).filter(Boolean).map((p) => ({ phone: p }));
   };
 
-  // Parse CSV file
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
       const lines = text.split('\n').filter((l) => l.trim());
       if (lines.length < 2) return;
-
-      // Parse header
       const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/['"]/g, ''));
       setCsvColumns(headers);
-
-      // Find key columns — flexible matching
-      const phoneCol = headers.findIndex((h) =>
-        ['sms', 'phone', 'phone_number', 'phonenumber', 'mobile', 'cell', 'number'].includes(h)
-      );
-      const nameCol = headers.findIndex((h) =>
-        ['fb name', 'fb_name', 'fbname', 'name', 'first_name', 'firstname', 'full_name'].includes(h)
-      );
-      const sexCol = headers.findIndex((h) =>
-        ['sex', 'gender'].includes(h)
-      );
-      const issueCol = headers.findIndex((h) =>
-        ['issue', 'pain_point', 'pain point', 'reason', 'category'].includes(h)
-      );
-
-      if (phoneCol === -1) {
-        alert('CSV must have a column named "sms", "phone", or "number"');
-        return;
-      }
-
+      const phoneCol = headers.findIndex((h) => ['sms', 'phone', 'phone_number', 'mobile', 'cell', 'number'].includes(h));
+      const nameCol = headers.findIndex((h) => ['fb name', 'fb_name', 'fbname', 'name', 'first_name', 'full_name'].includes(h));
+      const sexCol = headers.findIndex((h) => ['sex', 'gender'].includes(h));
+      const issueCol = headers.findIndex((h) => ['issue', 'pain_point', 'pain point', 'reason', 'category'].includes(h));
+      if (phoneCol === -1) { alert('CSV must have a column named "sms", "phone", or "number"'); return; }
       const recipients: Recipient[] = [];
       for (let i = 1; i < lines.length; i++) {
         const cols = parseCSVLine(lines[i]);
         const phone = cols[phoneCol]?.trim();
         if (!phone) continue;
-
         const recipient: Recipient = { phone };
         if (nameCol !== -1) recipient.name = cols[nameCol]?.trim();
         if (sexCol !== -1) recipient.sex = cols[sexCol]?.trim();
         if (issueCol !== -1) recipient.issue = cols[issueCol]?.trim();
         recipient.fbName = nameCol !== -1 ? cols[nameCol]?.trim() : undefined;
-
-        // Store all extra columns
-        headers.forEach((h, idx) => {
-          if (idx !== phoneCol && cols[idx]?.trim()) {
-            recipient[h] = cols[idx].trim();
-          }
-        });
-
+        headers.forEach((h, idx) => { if (idx !== phoneCol && cols[idx]?.trim()) recipient[h] = cols[idx].trim(); });
         recipients.push(recipient);
       }
-
       setCsvRecipients(recipients);
     };
     reader.readAsText(file);
   };
 
-  // Handle CSV lines that may have quoted fields with commas
   const parseCSVLine = (line: string): string[] => {
     const result: string[] = [];
     let current = '';
     let inQuotes = false;
     for (const char of line) {
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        result.push(current.replace(/^['"]|['"]$/g, ''));
-        current = '';
-      } else {
-        current += char;
-      }
+      if (char === '"') inQuotes = !inQuotes;
+      else if (char === ',' && !inQuotes) { result.push(current.replace(/^['"]|['"]$/g, '')); current = ''; }
+      else current += char;
     }
     result.push(current.replace(/^['"]|['"]$/g, ''));
     return result;
   };
 
-  const getRecipients = (): Recipient[] => {
-    return tab === 'csv' ? csvRecipients : parsePhones();
-  };
+  const getRecipients = (): Recipient[] => inputMode === 'csv' ? csvRecipients : parsePhones();
 
   const handleSend = async () => {
     const recipients = getRecipients();
-    if (!recipients.length) {
-      alert('Add at least one phone number');
-      return;
-    }
-    if (!message.trim()) {
-      alert('Enter a message');
-      return;
-    }
+    if (!recipients.length) { alert('Add at least one phone number'); return; }
+    if (!message.trim()) { alert('Enter a message'); return; }
+    if (totalLength > 160) { alert(`Message + link is ${totalLength} chars. Max is 160. Shorten your message.`); return; }
 
-    const confirmed = confirm(
-      `Send this message to ${recipients.length} number${recipients.length !== 1 ? 's' : ''}?\n\n"${message.slice(0, 100)}${message.length > 100 ? '...' : ''}"`
-    );
-    if (!confirmed) return;
+    const preview = link ? `${message} ${link}` : message;
+    if (!confirm(`Send to ${recipients.length} number${recipients.length !== 1 ? 's' : ''}?\n\n"${preview}"`)) return;
 
     setSending(true);
     setResults(null);
@@ -178,9 +114,8 @@ export function MarketingDashboard() {
       const res = await fetch('/api/admin/marketing/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipients, message }),
+        body: JSON.stringify({ recipients, message: message.trim(), link: link.trim() || undefined }),
       });
-
       if (res.ok) {
         const data = await res.json();
         setResults(data.results);
@@ -203,16 +138,14 @@ export function MarketingDashboard() {
     <div className="space-y-6">
       <h1 className="text-xl font-bold">Marketing SMS</h1>
 
-      {/* Input Mode Tabs */}
+      {/* Input Mode */}
       <div className="flex gap-2">
         {(['compose', 'csv'] as const).map((t) => (
           <button
             key={t}
-            onClick={() => { setTab(t); setResults(null); setSummary(null); }}
+            onClick={() => { setInputMode(t); setResults(null); setSummary(null); }}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              tab === t
-                ? 'bg-white text-black'
-                : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white'
+              inputMode === t ? 'bg-white text-black' : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white'
             }`}
           >
             {t === 'csv' ? 'Upload CSV' : 'Enter Numbers'}
@@ -223,7 +156,7 @@ export function MarketingDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: Recipients */}
         <div className="space-y-4">
-          {tab === 'compose' ? (
+          {inputMode === 'compose' ? (
             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
               <h3 className="text-sm font-semibold mb-2">Phone Numbers</h3>
               <p className="text-xs text-neutral-500 mb-3">One per line, or comma separated</p>
@@ -233,23 +166,13 @@ export function MarketingDashboard() {
                 placeholder={"4045551234\n4045559876\n4045554321"}
                 className="w-full bg-neutral-800 border border-neutral-700 rounded-lg p-3 text-sm text-white placeholder:text-neutral-600 resize-none h-40 font-mono"
               />
-              <p className="text-xs text-neutral-500 mt-2">
-                {parsePhones().length} number{parsePhones().length !== 1 ? 's' : ''}
-              </p>
+              <p className="text-xs text-neutral-500 mt-2">{parsePhones().length} number{parsePhones().length !== 1 ? 's' : ''}</p>
             </div>
           ) : (
             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
               <h3 className="text-sm font-semibold mb-2">Upload CSV</h3>
-              <p className="text-xs text-neutral-500 mb-3">
-                Columns: <span className="text-neutral-400">fb name, sms, sex, issue</span> + any additional
-              </p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                onChange={handleCsvUpload}
-                className="hidden"
-              />
+              <p className="text-xs text-neutral-500 mb-3">Columns: <span className="text-neutral-400">fb name, sms, sex, issue</span> + any additional</p>
+              <input ref={fileInputRef} type="file" accept=".csv" onChange={handleCsvUpload} className="hidden" />
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="w-full border-2 border-dashed border-neutral-700 rounded-lg p-6 text-center hover:border-neutral-500 transition-colors"
@@ -262,24 +185,13 @@ export function MarketingDashboard() {
                 <div className="mt-4">
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs text-green-400">{csvRecipients.length} contacts loaded</p>
-                    <button
-                      onClick={() => { setCsvRecipients([]); setCsvColumns([]); if (fileInputRef.current) fileInputRef.current.value = ''; }}
-                      className="text-xs text-red-400 hover:text-red-300"
-                    >
-                      Clear
-                    </button>
+                    <button onClick={() => { setCsvRecipients([]); setCsvColumns([]); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="text-xs text-red-400 hover:text-red-300">Clear</button>
                   </div>
-
-                  {/* Column preview */}
                   <div className="flex gap-1 flex-wrap mb-3">
                     {csvColumns.map((col) => (
-                      <span key={col} className="text-[10px] px-2 py-0.5 rounded bg-neutral-800 text-neutral-400">
-                        {col}
-                      </span>
+                      <span key={col} className="text-[10px] px-2 py-0.5 rounded bg-neutral-800 text-neutral-400">{col}</span>
                     ))}
                   </div>
-
-                  {/* Recipient preview */}
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {csvRecipients.slice(0, 20).map((r, i) => (
                       <div key={i} className="flex items-center justify-between text-xs bg-neutral-800/50 rounded px-2 py-1.5">
@@ -288,9 +200,7 @@ export function MarketingDashboard() {
                           {r.name && <span className="text-neutral-400 truncate">{r.name}</span>}
                         </div>
                         <div className="flex gap-1.5 shrink-0">
-                          {r.sex && (
-                            <span className="text-[10px] px-1 py-0.5 rounded bg-neutral-700 text-neutral-400">{r.sex}</span>
-                          )}
+                          {r.sex && <span className="text-[10px] px-1 py-0.5 rounded bg-neutral-700 text-neutral-400">{r.sex}</span>}
                           {r.issue && (
                             <span className={`text-[10px] px-1 py-0.5 rounded font-medium ${
                               r.issue.toLowerCase().includes('no show') ? 'bg-red-500/20 text-red-400' :
@@ -298,34 +208,19 @@ export function MarketingDashboard() {
                               r.issue.toLowerCase().includes('upfront') ? 'bg-blue-500/20 text-blue-400' :
                               r.issue.toLowerCase().includes('fee') ? 'bg-green-500/20 text-green-400' :
                               'bg-neutral-700 text-neutral-400'
-                            }`}>
-                              {r.issue}
-                            </span>
+                            }`}>{r.issue}</span>
                           )}
                         </div>
                       </div>
                     ))}
-                    {csvRecipients.length > 20 && (
-                      <p className="text-[10px] text-neutral-600 text-center py-1">
-                        + {csvRecipients.length - 20} more
-                      </p>
-                    )}
+                    {csvRecipients.length > 20 && <p className="text-[10px] text-neutral-600 text-center py-1">+ {csvRecipients.length - 20} more</p>}
                   </div>
-
-                  {/* Issue breakdown */}
                   {csvRecipients.some((r) => r.issue) && (
                     <div className="mt-3 pt-3 border-t border-neutral-800">
                       <p className="text-[10px] text-neutral-500 mb-1">Issues breakdown</p>
                       <div className="flex gap-2 flex-wrap">
-                        {Object.entries(
-                          csvRecipients.reduce((acc, r) => {
-                            if (r.issue) acc[r.issue] = (acc[r.issue] || 0) + 1;
-                            return acc;
-                          }, {} as Record<string, number>)
-                        ).map(([issue, count]) => (
-                          <span key={issue} className="text-[10px] px-2 py-0.5 rounded bg-neutral-800 text-neutral-400">
-                            {issue}: {count}
-                          </span>
+                        {Object.entries(csvRecipients.reduce((acc, r) => { if (r.issue) acc[r.issue] = (acc[r.issue] || 0) + 1; return acc; }, {} as Record<string, number>)).map(([issue, count]) => (
+                          <span key={issue} className="text-[10px] px-2 py-0.5 rounded bg-neutral-800 text-neutral-400">{issue}: {count}</span>
                         ))}
                       </div>
                     </div>
@@ -336,29 +231,57 @@ export function MarketingDashboard() {
           )}
         </div>
 
-        {/* Right: Message Composer */}
+        {/* Right: Message + Link + UTM + Templates */}
         <div className="space-y-4">
+          {/* Message Body */}
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
             <h3 className="text-sm font-semibold mb-2">Message</h3>
             <p className="text-xs text-neutral-500 mb-3">
-              Use <span className="text-neutral-300 font-mono">{'{name}'}</span> to personalize (from CSV name column)
+              Use <span className="text-neutral-300 font-mono">{'{name}'}</span> to personalize. Link is appended automatically.
             </p>
             <textarea
               value={message}
-              onChange={(e) => setMessage(e.target.value.slice(0, 160))}
-              maxLength={160}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val.length <= Math.max(messageMaxLength, 0)) setMessage(val);
+              }}
               placeholder="Type your message here..."
-              className="w-full bg-neutral-800 border border-neutral-700 rounded-lg p-3 text-sm text-white placeholder:text-neutral-600 resize-none h-32"
+              className="w-full bg-neutral-800 border border-neutral-700 rounded-lg p-3 text-sm text-white placeholder:text-neutral-600 resize-none h-24"
             />
-            <div className="flex items-center justify-between mt-2">
-              <span className={`text-xs ${message.length > 160 ? 'text-red-400' : message.length > 140 ? 'text-yellow-400' : 'text-neutral-500'}`}>
-                {message.length}/160
-              </span>
+
+            {/* Link field */}
+            <div className="mt-3">
+              <label className="text-[10px] text-neutral-500 uppercase tracking-wide block mb-1">Link (appended after message)</label>
+              <input
+                type="text"
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                placeholder="atl.hmucashride.com"
+                className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 font-mono"
+              />
+            </div>
+
+            {/* Preview */}
+            <div className="mt-3 pt-3 border-t border-neutral-800">
+              <label className="text-[10px] text-neutral-500 uppercase tracking-wide block mb-1">SMS Preview</label>
+              <div className={`bg-neutral-800 rounded-lg p-3 text-sm break-all ${totalLength > 160 ? 'border border-red-500/50' : 'border border-neutral-700'}`}>
+                <span className="text-white">{message || <span className="text-neutral-600">Your message...</span>}</span>
+                {link && <span className="text-green-400"> {link}</span>}
+              </div>
+              <div className="flex items-center justify-between mt-2">
+                <span className={`text-xs ${totalLength > 160 ? 'text-red-400 font-medium' : totalLength > 140 ? 'text-yellow-400' : 'text-neutral-500'}`}>
+                  {totalLength}/160 chars
+                  {totalLength > 160 && ` — ${totalLength - 160} over limit!`}
+                </span>
+                <span className="text-xs text-neutral-600">
+                  msg: {message.length} + link: {link ? link.length + 1 : 0}
+                </span>
+              </div>
             </div>
           </div>
 
           {/* UTM Link Builder */}
-          <UtmBuilder onInsert={(url) => setMessage((prev) => (prev ? `${prev} ${url}` : url).slice(0, 160))} />
+          <UtmBuilder onInsert={(url) => setLink(url)} />
 
           {/* Templates */}
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
@@ -367,10 +290,13 @@ export function MarketingDashboard() {
               {MESSAGE_TEMPLATES.map((tmpl, i) => (
                 <button
                   key={i}
-                  onClick={() => setMessage(tmpl.text.slice(0, 160))}
+                  onClick={() => setMessage(tmpl.text)}
                   className="w-full text-left bg-neutral-800/50 border border-neutral-800 rounded-lg p-3 hover:border-neutral-600 transition-colors"
                 >
-                  <p className="text-xs font-medium text-neutral-300">{tmpl.label}</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-neutral-300">{tmpl.label}</p>
+                    <span className="text-[10px] text-neutral-600">{tmpl.text.length} chars</span>
+                  </div>
                   <p className="text-[11px] text-neutral-500 mt-1 line-clamp-2">{tmpl.text}</p>
                 </button>
               ))}
@@ -383,18 +309,13 @@ export function MarketingDashboard() {
       <div className="flex items-center gap-4">
         <button
           onClick={handleSend}
-          disabled={sending || !message.trim() || recipients.length === 0}
+          disabled={sending || !message.trim() || recipients.length === 0 || totalLength > 160}
           className="bg-green-600 hover:bg-green-700 disabled:bg-neutral-700 disabled:text-neutral-500 text-white text-sm font-semibold px-6 py-3 rounded-lg transition-colors"
         >
-          {sending
-            ? `Sending... (${recipients.length})`
-            : `Send to ${recipients.length} number${recipients.length !== 1 ? 's' : ''}`
-          }
+          {sending ? `Sending...` : `Send to ${recipients.length} number${recipients.length !== 1 ? 's' : ''}`}
         </button>
         {recipients.length > 0 && message.trim() && (
-          <p className="text-xs text-neutral-500">
-            Est. cost: ~${(recipients.length * 0.0075).toFixed(2)}
-          </p>
+          <p className="text-xs text-neutral-500">Est. cost: ~${(recipients.length * 0.0075).toFixed(2)}</p>
         )}
       </div>
 
@@ -416,7 +337,6 @@ export function MarketingDashboard() {
               <p className="text-[10px] text-neutral-500">Total</p>
             </div>
           </div>
-
           {results && results.length > 0 && (
             <div className="max-h-48 overflow-y-auto space-y-1">
               {results.map((r, i) => (
@@ -426,9 +346,7 @@ export function MarketingDashboard() {
                     <span className="text-white font-mono">{r.phone}</span>
                     {r.name && <span className="text-neutral-500">{r.name}</span>}
                   </div>
-                  <span className={`text-[10px] ${
-                    r.status === 'sent' ? 'text-green-400' : r.status === 'skipped' ? 'text-yellow-400' : 'text-red-400'
-                  }`}>
+                  <span className={`text-[10px] ${r.status === 'sent' ? 'text-green-400' : r.status === 'skipped' ? 'text-yellow-400' : 'text-red-400'}`}>
                     {r.status}{r.error ? `: ${r.error}` : ''}
                   </span>
                 </div>
