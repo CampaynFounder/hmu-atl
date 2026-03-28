@@ -182,37 +182,6 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
                 </div>
                 <span style={{ color: '#00E676', fontSize: '20px' }}>&#x2713;</span>
               </div>
-              <button
-                type="button"
-                onClick={async () => {
-                  setLoading(true);
-                  try {
-                    const res = await fetch('/api/driver/payout-setup/update', { method: 'POST' });
-                    const data = await res.json();
-                    if (data.url) window.location.href = data.url;
-                    else setError(data.error || 'Failed to open Stripe');
-                  } catch { setError('Network error'); }
-                  finally { setLoading(false); }
-                }}
-                disabled={loading}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  marginTop: '12px',
-                  padding: '10px',
-                  borderRadius: '100px',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  background: 'transparent',
-                  color: '#bbb',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  fontFamily: 'var(--font-body, DM Sans, sans-serif)',
-                  opacity: loading ? 0.5 : 1,
-                }}
-              >
-                {loading ? 'Opening Stripe...' : 'Update Payout Account'}
-              </button>
             </div>
           )}
           <Link
