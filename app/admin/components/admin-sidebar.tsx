@@ -5,17 +5,27 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { useClerk } from '@clerk/nextjs';
 
-const navItems = [
-  { href: '/admin', label: 'Live Ops', icon: '⚡' },
-  { href: '/admin/money', label: 'Money', icon: '💰' },
-  { href: '/admin/disputes', label: 'Disputes', icon: '⚖️' },
-  { href: '/admin/users', label: 'Users', icon: '👥' },
-  { href: '/admin/marketing', label: 'Marketing', icon: '📣' },
-];
-
-const quickLinks = [
-  { label: 'Driver Dashboard', href: '/driver/home', icon: '🚗' },
-  { label: 'Rider Dashboard', href: '/rider/home', icon: '🧑' },
+const navSections = [
+  {
+    label: 'MONITOR',
+    items: [
+      { href: '/admin', label: 'Live Ops', icon: '⚡' },
+      { href: '/admin/money', label: 'Revenue', icon: '💰' },
+    ],
+  },
+  {
+    label: 'ACT',
+    items: [
+      { href: '/admin/disputes', label: 'Disputes', icon: '⚖️' },
+      { href: '/admin/users', label: 'Users', icon: '👥' },
+    ],
+  },
+  {
+    label: 'GROW',
+    items: [
+      { href: '/admin/marketing', label: 'Outreach', icon: '📣' },
+    ],
+  },
 ];
 
 export function AdminSidebar() {
@@ -63,37 +73,43 @@ export function AdminSidebar() {
           <p className="text-xs text-neutral-500 mt-1">Operations Portal</p>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1">
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setMobileOpen(false)}
-              className={`
-                flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-                ${isActive(item.href)
-                  ? 'bg-white/10 text-white'
-                  : 'text-neutral-400 hover:text-white hover:bg-white/5'}
-              `}
-            >
-              <span className="text-base">{item.icon}</span>
-              {item.label}
-            </Link>
+        <nav className="flex-1 p-4 space-y-5 overflow-y-auto">
+          {navSections.map((section) => (
+            <div key={section.label}>
+              <p className="px-3 mb-2 text-[10px] font-bold tracking-[3px] text-neutral-600">
+                {section.label}
+              </p>
+              <div className="space-y-0.5">
+                {section.items.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileOpen(false)}
+                    className={`
+                      flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
+                      ${isActive(item.href)
+                        ? 'bg-white/10 text-white'
+                        : 'text-neutral-400 hover:text-white hover:bg-white/5'}
+                    `}
+                  >
+                    <span className="text-base">{item.icon}</span>
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 
-        <div className="p-4 border-t border-neutral-800 space-y-1.5">
-          {quickLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              onClick={() => setMobileOpen(false)}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-neutral-400 hover:text-white hover:bg-white/5 transition-colors"
-            >
-              <span>{link.icon}</span>
-              {link.label}
-            </Link>
-          ))}
+        <div className="p-4 border-t border-neutral-800 space-y-1">
+          <Link
+            href="/driver/home"
+            onClick={() => setMobileOpen(false)}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-neutral-400 hover:text-white hover:bg-white/5 transition-colors"
+          >
+            <span>🚗</span>
+            Driver Dashboard
+          </Link>
           <button
             onClick={() => signOut({ redirectUrl: '/' })}
             className="w-full text-left px-3 py-2 rounded-lg text-xs text-red-400/70 hover:text-red-400 hover:bg-white/5 transition-colors"
