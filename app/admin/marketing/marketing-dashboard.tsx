@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { UtmBuilder } from './utm-builder';
 
 interface Recipient {
   phone: string;
@@ -354,6 +355,9 @@ export function MarketingDashboard() {
               </span>
             </div>
           </div>
+
+          {/* UTM Link Builder */}
+          <UtmBuilder onInsert={(url) => setMessage((prev) => prev ? `${prev} ${url}` : url)} />
 
           {/* Templates */}
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
