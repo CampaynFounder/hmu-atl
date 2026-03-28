@@ -14,8 +14,11 @@ export default async function DriverRidesPage() {
   const rides = await sql`
     SELECT r.id, r.status, r.final_agreed_price, r.agreement_summary,
            r.created_at, r.started_at, r.ended_at, r.driver_payout_amount,
-           r.platform_fee_amount, r.driver_rating,
-           COALESCE(rp.handle, rp.display_name, 'Rider') as rider_name
+           r.platform_fee_amount, r.stripe_fee_amount, r.waived_fee_amount,
+           r.add_on_total, r.driver_rating, r.is_cash, r.pickup_address,
+           r.dropoff_address,
+           COALESCE(rp.handle, rp.display_name, 'Rider') as rider_name,
+           rp.handle as rider_handle
     FROM rides r
     LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
     WHERE r.driver_id = ${userId}
@@ -31,10 +34,17 @@ export default async function DriverRidesPage() {
           id: r.id as string,
           status: r.status as string,
           riderName: r.rider_name as string,
+          riderHandle: (r.rider_handle as string) || null,
           price: Number(r.final_agreed_price || 0),
           destination: (summary.destination as string) || (summary.message as string) || '',
+          pickup: (r.pickup_address as string) || (summary.pickup as string) || '',
+          dropoff: (r.dropoff_address as string) || (summary.dropoff as string) || '',
           payout: Number(r.driver_payout_amount || 0),
           platformFee: Number(r.platform_fee_amount || 0),
+          stripeFee: Number(r.stripe_fee_amount || 0),
+          waivedFee: Number(r.waived_fee_amount || 0),
+          addOnTotal: Number(r.add_on_total || 0),
+          isCash: !!(r.is_cash),
           rating: r.driver_rating as string | null,
           createdAt: r.created_at as string,
           startedAt: r.started_at as string | null,
