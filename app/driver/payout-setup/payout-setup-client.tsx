@@ -166,22 +166,52 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
               border: '1px solid rgba(0,230,118,0.2)',
               borderRadius: '16px',
               padding: '16px 20px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '14px',
-              marginBottom: '24px',
+              marginBottom: '16px',
               textAlign: 'left',
             }}>
-              <span style={{ fontSize: '24px' }}>{status.accountType === 'card' ? '\uD83D\uDCB3' : '\uD83C\uDFE6'}</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '15px', fontWeight: 600 }}>
-                  {status.bankName || (status.accountType === 'card' ? 'Debit Card' : 'Bank Account')}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <span style={{ fontSize: '24px' }}>{status.accountType === 'card' ? '\uD83D\uDCB3' : '\uD83C\uDFE6'}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '15px', fontWeight: 600 }}>
+                    {status.bankName || (status.accountType === 'card' ? 'Debit Card' : 'Bank Account')}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#888', fontFamily: 'var(--font-mono, Space Mono, monospace)' }}>
+                    ending in {status.last4}
+                  </div>
                 </div>
-                <div style={{ fontSize: '12px', color: '#888', fontFamily: 'var(--font-mono, Space Mono, monospace)' }}>
-                  ending in {status.last4}
-                </div>
+                <span style={{ color: '#00E676', fontSize: '20px' }}>&#x2713;</span>
               </div>
-              <span style={{ color: '#00E676', fontSize: '20px' }}>&#x2713;</span>
+              <button
+                type="button"
+                onClick={async () => {
+                  setLoading(true);
+                  try {
+                    const res = await fetch('/api/driver/payout-setup/update', { method: 'POST' });
+                    const data = await res.json();
+                    if (data.url) window.location.href = data.url;
+                    else setError(data.error || 'Failed to open Stripe');
+                  } catch { setError('Network error'); }
+                  finally { setLoading(false); }
+                }}
+                disabled={loading}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  marginTop: '12px',
+                  padding: '10px',
+                  borderRadius: '100px',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'transparent',
+                  color: '#bbb',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+                  opacity: loading ? 0.5 : 1,
+                }}
+              >
+                {loading ? 'Opening Stripe...' : 'Update Payout Account'}
+              </button>
             </div>
           )}
           <Link
