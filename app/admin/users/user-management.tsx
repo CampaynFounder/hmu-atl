@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { UserProfile } from './user-profile';
 import { PendingQueue } from './pending-queue';
+import { UserGrowthChart } from './user-growth-chart';
 
 interface UserItem {
   id: string;
@@ -23,7 +24,7 @@ export function UserManagement() {
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [tab, setTab] = useState<'search' | 'pending'>('search');
+  const [tab, setTab] = useState<'search' | 'growth' | 'pending'>('search');
   const [loading, setLoading] = useState(false);
 
   const fetchUsers = useCallback(async () => {
@@ -71,7 +72,7 @@ export function UserManagement() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-xl font-bold">User Management</h1>
         <div className="flex bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden">
-          {(['search', 'pending'] as const).map((t) => (
+          {(['search', 'growth', 'pending'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -79,7 +80,7 @@ export function UserManagement() {
                 tab === t ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-white'
               }`}
             >
-              {t === 'pending' ? 'Pending Activation' : 'Search'}
+              {t === 'pending' ? 'Pending Activation' : t === 'growth' ? 'Growth' : 'Search'}
             </button>
           ))}
         </div>
@@ -87,6 +88,8 @@ export function UserManagement() {
 
       {tab === 'pending' ? (
         <PendingQueue />
+      ) : tab === 'growth' ? (
+        <UserGrowthChart />
       ) : (
         <>
           {/* Search & Filters */}
