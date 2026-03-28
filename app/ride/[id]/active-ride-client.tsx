@@ -239,8 +239,13 @@ export default function ActiveRideClient({
           quickKey: (data.quickKey as string) || null,
         };
         setChatMessages(prev => {
+          // Skip if we already have this exact message
           if (prev.some(m => m.id === msg.id)) return prev;
-          return [...prev, msg];
+          // Replace optimistic message from same sender with matching content
+          const withoutOptimistic = prev.filter(m =>
+            !(m.id.startsWith('opt_') && m.senderId === msg.senderId && m.content === msg.content)
+          );
+          return [...withoutOptimistic, msg];
         });
         if (msg.senderId !== userId && !chatOpenRef.current) {
           setChatUnread(prev => prev + 1);
@@ -619,15 +624,30 @@ export default function ActiveRideClient({
     setEta({ minutes, miles });
   }, [driverLocation, ride.status, ride.riderLat, ride.riderLng]);
 
-  // ── Load chat history on mount if applicable ──
+  // ── Load chat history + poll every 10s as Ably fallback ──
   useEffect(() => {
-    if (['otw', 'here', 'confirming', 'active', 'ended'].includes(ride.status)) {
+    if (!['otw', 'here', 'confirming', 'active', 'ended'].includes(ride.status)) return;
+
+    const fetchMessages = () => {
       fetch(`/api/rides/${rideId}/messages`)
         .then(r => r.json())
-        .then(data => { if (data.messages) setChatMessages(data.messages); })
+        .then(data => {
+          if (data.messages) {
+            setChatMessages(prev => {
+              // Merge: keep optimistic messages that haven't been confirmed, add new server messages
+              const serverIds = new Set((data.messages as Array<{ id: string }>).map((m: { id: string }) => m.id));
+              const optimistic = prev.filter(m => m.id.startsWith('opt_') && !serverIds.has(m.id));
+              return [...data.messages, ...optimistic];
+            });
+          }
+        })
         .catch(() => {});
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    };
+
+    fetchMessages(); // initial load
+    const interval = setInterval(fetchMessages, 10000); // poll every 10s
+    return () => clearInterval(interval);
+  }, [ride.status, rideId]);
 
   // ── Load add-ons for this ride ──
   useEffect(() => {
@@ -1082,7 +1102,7 @@ export default function ActiveRideClient({
       </div>
 
       {/* Chat bubble — visible from OTW through ride end */}
-      {['otw', 'here', 'active', 'ended'].includes(ride.status) && !chatOpen && (
+      {['otw', 'here', 'confirming', 'active', 'ended'].includes(ride.status) && !chatOpen && (
         <button
           onClick={() => setChatOpen(true)}
           style={{
@@ -1127,7 +1147,18 @@ export default function ActiveRideClient({
           messages={chatMessages}
           open={chatOpen}
           onClose={() => setChatOpen(false)}
-          onSend={() => {/* message arrives via Ably */}}
+          onSend={(content: string) => {
+            // Optimistically add sender's own message immediately
+            const optimisticMsg = {
+              id: `opt_${Date.now()}`,
+              senderId: userId,
+              content,
+              createdAt: new Date().toISOString(),
+              type: 'chat' as string,
+              quickKey: null as string | null,
+            };
+            setChatMessages(prev => [...prev, optimisticMsg]);
+          }}
           rideStatus={ride.status}
         />
       )}
