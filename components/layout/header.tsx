@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { FeatureSearch } from '@/components/search/feature-search';
 
 const MARKETING_PATHS = ['/', '/driver', '/rider'];
 
@@ -74,13 +75,16 @@ export function Header() {
                 </span>
               )}
             </div>
-            <button
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-              className="p-2 rounded-lg hover:bg-white/10 transition-colors text-white"
-              aria-label="Toggle menu"
-            >
-              {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </button>
+            <div className="flex items-center gap-1">
+              {isSignedIn && <FeatureSearch profileType={profileType} />}
+              <button
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
+                className="p-2 rounded-lg hover:bg-white/10 transition-colors text-white"
+                aria-label="Toggle menu"
+              >
+                {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              </button>
+            </div>
           </div>
         </div>
       </header>
