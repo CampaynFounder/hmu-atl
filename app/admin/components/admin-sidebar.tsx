@@ -3,17 +3,20 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
+import { useClerk } from '@clerk/nextjs';
 
 const navItems = [
   { href: '/admin', label: 'Live Ops', icon: '⚡' },
   { href: '/admin/money', label: 'Money', icon: '💰' },
   { href: '/admin/disputes', label: 'Disputes', icon: '⚖️' },
   { href: '/admin/users', label: 'Users', icon: '👥' },
+  { href: '/admin/marketing', label: 'Marketing', icon: '📣' },
 ];
 
 export function AdminSidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { signOut } = useClerk();
 
   const isActive = (href: string) => {
     if (href === '/admin') return pathname === '/admin';
@@ -74,13 +77,19 @@ export function AdminSidebar() {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-neutral-800">
+        <div className="p-4 border-t border-neutral-800 space-y-2">
           <Link
             href="/"
-            className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+            className="block text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
           >
             Back to App
           </Link>
+          <button
+            onClick={() => signOut({ redirectUrl: '/' })}
+            className="block text-xs text-red-400/70 hover:text-red-400 transition-colors"
+          >
+            Log Out
+          </button>
         </div>
       </aside>
 

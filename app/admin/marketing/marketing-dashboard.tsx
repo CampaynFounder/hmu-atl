@@ -1,0 +1,437 @@
+'use client';
+
+import { useState, useRef } from 'react';
+
+interface Recipient {
+  phone: string;
+  name?: string;
+  sex?: string;
+  issue?: string;
+  fbName?: string;
+  [key: string]: string | undefined;
+}
+
+interface SendResult {
+  phone: string;
+  name?: string;
+  status: string;
+  error?: string;
+}
+
+const MESSAGE_TEMPLATES = [
+  {
+    label: 'General Signup',
+    text: 'Tired of ride scammers? HMU ATL holds rider payment BEFORE you pull up. Drivers get paid. Riders get rides. No more games. Sign up free: atl.hmucashride.com',
+  },
+  {
+    label: 'Driver Recruitment',
+    text: 'Drive with HMU ATL. Set your own price, get paid upfront, keep 90% of your first $50/day. No applications, no background checks, just go live. atl.hmucashride.com',
+  },
+  {
+    label: 'Rider Invite',
+    text: 'Need a ride in Atlanta? HMU ATL connects you with local drivers — cheaper than Uber, payment protected, no surge pricing. Try it free: atl.hmucashride.com',
+  },
+  {
+    label: 'No-Show Pain Point',
+    text: 'Tired of riders going ghost? On HMU ATL, riders pay BEFORE you drive. No payment = no ride. Stop wasting gas. atl.hmucashride.com',
+  },
+  {
+    label: 'Safety Focused',
+    text: 'HMU ATL — GPS tracked rides, verified payments, driver ratings you can trust. Safer than Facebook cash ride groups. Sign up: atl.hmucashride.com',
+  },
+  {
+    label: 'Platform Fees',
+    text: 'Uber takes 40%. HMU ATL? 10% on your first $50/day, capped at $40 max. Hit the cap and the rest is ALL yours. atl.hmucashride.com',
+  },
+  {
+    label: 'Upfront Pay',
+    text: 'How drivers know before they go. HMU ATL holds the fare in escrow before you even leave the house. Get paid every time. atl.hmucashride.com',
+  },
+];
+
+export function MarketingDashboard() {
+  const [tab, setTab] = useState<'compose' | 'csv'>('compose');
+  const [phones, setPhones] = useState('');
+  const [message, setMessage] = useState('');
+  const [csvRecipients, setCsvRecipients] = useState<Recipient[]>([]);
+  const [csvColumns, setCsvColumns] = useState<string[]>([]);
+  const [sending, setSending] = useState(false);
+  const [results, setResults] = useState<SendResult[] | null>(null);
+  const [summary, setSummary] = useState<{ sent: number; failed: number; total: number } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Parse phone numbers from text input
+  const parsePhones = (): Recipient[] => {
+    return phones
+      .split(/[\n,;]+/)
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((p) => ({ phone: p }));
+  };
+
+  // Parse CSV file
+  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      const lines = text.split('\n').filter((l) => l.trim());
+      if (lines.length < 2) return;
+
+      // Parse header
+      const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/['"]/g, ''));
+      setCsvColumns(headers);
+
+      // Find key columns — flexible matching
+      const phoneCol = headers.findIndex((h) =>
+        ['sms', 'phone', 'phone_number', 'phonenumber', 'mobile', 'cell', 'number'].includes(h)
+      );
+      const nameCol = headers.findIndex((h) =>
+        ['fb name', 'fb_name', 'fbname', 'name', 'first_name', 'firstname', 'full_name'].includes(h)
+      );
+      const sexCol = headers.findIndex((h) =>
+        ['sex', 'gender'].includes(h)
+      );
+      const issueCol = headers.findIndex((h) =>
+        ['issue', 'pain_point', 'pain point', 'reason', 'category'].includes(h)
+      );
+
+      if (phoneCol === -1) {
+        alert('CSV must have a column named "sms", "phone", or "number"');
+        return;
+      }
+
+      const recipients: Recipient[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = parseCSVLine(lines[i]);
+        const phone = cols[phoneCol]?.trim();
+        if (!phone) continue;
+
+        const recipient: Recipient = { phone };
+        if (nameCol !== -1) recipient.name = cols[nameCol]?.trim();
+        if (sexCol !== -1) recipient.sex = cols[sexCol]?.trim();
+        if (issueCol !== -1) recipient.issue = cols[issueCol]?.trim();
+        recipient.fbName = nameCol !== -1 ? cols[nameCol]?.trim() : undefined;
+
+        // Store all extra columns
+        headers.forEach((h, idx) => {
+          if (idx !== phoneCol && cols[idx]?.trim()) {
+            recipient[h] = cols[idx].trim();
+          }
+        });
+
+        recipients.push(recipient);
+      }
+
+      setCsvRecipients(recipients);
+    };
+    reader.readAsText(file);
+  };
+
+  // Handle CSV lines that may have quoted fields with commas
+  const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (const char of line) {
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        result.push(current.replace(/^['"]|['"]$/g, ''));
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.replace(/^['"]|['"]$/g, ''));
+    return result;
+  };
+
+  const getRecipients = (): Recipient[] => {
+    return tab === 'csv' ? csvRecipients : parsePhones();
+  };
+
+  const handleSend = async () => {
+    const recipients = getRecipients();
+    if (!recipients.length) {
+      alert('Add at least one phone number');
+      return;
+    }
+    if (!message.trim()) {
+      alert('Enter a message');
+      return;
+    }
+
+    const confirmed = confirm(
+      `Send this message to ${recipients.length} number${recipients.length !== 1 ? 's' : ''}?\n\n"${message.slice(0, 100)}${message.length > 100 ? '...' : ''}"`
+    );
+    if (!confirmed) return;
+
+    setSending(true);
+    setResults(null);
+    setSummary(null);
+
+    try {
+      const res = await fetch('/api/admin/marketing/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipients, message }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setResults(data.results);
+        setSummary({ sent: data.sent, failed: data.failed, total: data.total });
+      } else {
+        const err = await res.json();
+        alert(`Failed: ${err.error}`);
+      }
+    } catch (err) {
+      console.error('Send failed:', err);
+      alert('Send failed — check console');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const recipients = getRecipients();
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-xl font-bold">Marketing SMS</h1>
+
+      {/* Input Mode Tabs */}
+      <div className="flex gap-2">
+        {(['compose', 'csv'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => { setTab(t); setResults(null); setSummary(null); }}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              tab === t
+                ? 'bg-white text-black'
+                : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white'
+            }`}
+          >
+            {t === 'csv' ? 'Upload CSV' : 'Enter Numbers'}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left: Recipients */}
+        <div className="space-y-4">
+          {tab === 'compose' ? (
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+              <h3 className="text-sm font-semibold mb-2">Phone Numbers</h3>
+              <p className="text-xs text-neutral-500 mb-3">One per line, or comma separated</p>
+              <textarea
+                value={phones}
+                onChange={(e) => setPhones(e.target.value)}
+                placeholder={"4045551234\n4045559876\n4045554321"}
+                className="w-full bg-neutral-800 border border-neutral-700 rounded-lg p-3 text-sm text-white placeholder:text-neutral-600 resize-none h-40 font-mono"
+              />
+              <p className="text-xs text-neutral-500 mt-2">
+                {parsePhones().length} number{parsePhones().length !== 1 ? 's' : ''}
+              </p>
+            </div>
+          ) : (
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+              <h3 className="text-sm font-semibold mb-2">Upload CSV</h3>
+              <p className="text-xs text-neutral-500 mb-3">
+                Columns: <span className="text-neutral-400">fb name, sms, sex, issue</span> + any additional
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                onChange={handleCsvUpload}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full border-2 border-dashed border-neutral-700 rounded-lg p-6 text-center hover:border-neutral-500 transition-colors"
+              >
+                <p className="text-sm text-neutral-400">Tap to upload CSV</p>
+                <p className="text-xs text-neutral-600 mt-1">or drag & drop</p>
+              </button>
+
+              {csvRecipients.length > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs text-green-400">{csvRecipients.length} contacts loaded</p>
+                    <button
+                      onClick={() => { setCsvRecipients([]); setCsvColumns([]); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      Clear
+                    </button>
+                  </div>
+
+                  {/* Column preview */}
+                  <div className="flex gap-1 flex-wrap mb-3">
+                    {csvColumns.map((col) => (
+                      <span key={col} className="text-[10px] px-2 py-0.5 rounded bg-neutral-800 text-neutral-400">
+                        {col}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Recipient preview */}
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {csvRecipients.slice(0, 20).map((r, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs bg-neutral-800/50 rounded px-2 py-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-white font-mono shrink-0">{r.phone}</span>
+                          {r.name && <span className="text-neutral-400 truncate">{r.name}</span>}
+                        </div>
+                        <div className="flex gap-1.5 shrink-0">
+                          {r.sex && (
+                            <span className="text-[10px] px-1 py-0.5 rounded bg-neutral-700 text-neutral-400">{r.sex}</span>
+                          )}
+                          {r.issue && (
+                            <span className={`text-[10px] px-1 py-0.5 rounded font-medium ${
+                              r.issue.toLowerCase().includes('no show') ? 'bg-red-500/20 text-red-400' :
+                              r.issue.toLowerCase().includes('safety') ? 'bg-yellow-500/20 text-yellow-400' :
+                              r.issue.toLowerCase().includes('upfront') ? 'bg-blue-500/20 text-blue-400' :
+                              r.issue.toLowerCase().includes('fee') ? 'bg-green-500/20 text-green-400' :
+                              'bg-neutral-700 text-neutral-400'
+                            }`}>
+                              {r.issue}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {csvRecipients.length > 20 && (
+                      <p className="text-[10px] text-neutral-600 text-center py-1">
+                        + {csvRecipients.length - 20} more
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Issue breakdown */}
+                  {csvRecipients.some((r) => r.issue) && (
+                    <div className="mt-3 pt-3 border-t border-neutral-800">
+                      <p className="text-[10px] text-neutral-500 mb-1">Issues breakdown</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {Object.entries(
+                          csvRecipients.reduce((acc, r) => {
+                            if (r.issue) acc[r.issue] = (acc[r.issue] || 0) + 1;
+                            return acc;
+                          }, {} as Record<string, number>)
+                        ).map(([issue, count]) => (
+                          <span key={issue} className="text-[10px] px-2 py-0.5 rounded bg-neutral-800 text-neutral-400">
+                            {issue}: {count}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Right: Message Composer */}
+        <div className="space-y-4">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+            <h3 className="text-sm font-semibold mb-2">Message</h3>
+            <p className="text-xs text-neutral-500 mb-3">
+              Use <span className="text-neutral-300 font-mono">{'{name}'}</span> to personalize (from CSV name column)
+            </p>
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Type your message here..."
+              className="w-full bg-neutral-800 border border-neutral-700 rounded-lg p-3 text-sm text-white placeholder:text-neutral-600 resize-none h-32"
+            />
+            <div className="flex items-center justify-between mt-2">
+              <span className={`text-xs ${message.length > 320 ? 'text-red-400' : message.length > 160 ? 'text-yellow-400' : 'text-neutral-500'}`}>
+                {message.length}/320 {message.length > 160 ? '(2 segments)' : '(1 segment)'}
+              </span>
+            </div>
+          </div>
+
+          {/* Templates */}
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+            <h3 className="text-sm font-semibold mb-3">Quick Templates</h3>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {MESSAGE_TEMPLATES.map((tmpl, i) => (
+                <button
+                  key={i}
+                  onClick={() => setMessage(tmpl.text)}
+                  className="w-full text-left bg-neutral-800/50 border border-neutral-800 rounded-lg p-3 hover:border-neutral-600 transition-colors"
+                >
+                  <p className="text-xs font-medium text-neutral-300">{tmpl.label}</p>
+                  <p className="text-[11px] text-neutral-500 mt-1 line-clamp-2">{tmpl.text}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Send Button */}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={handleSend}
+          disabled={sending || !message.trim() || recipients.length === 0}
+          className="bg-green-600 hover:bg-green-700 disabled:bg-neutral-700 disabled:text-neutral-500 text-white text-sm font-semibold px-6 py-3 rounded-lg transition-colors"
+        >
+          {sending
+            ? `Sending... (${recipients.length})`
+            : `Send to ${recipients.length} number${recipients.length !== 1 ? 's' : ''}`
+          }
+        </button>
+        {recipients.length > 0 && message.trim() && (
+          <p className="text-xs text-neutral-500">
+            Est. cost: ~${(recipients.length * 0.0075).toFixed(2)}
+          </p>
+        )}
+      </div>
+
+      {/* Results */}
+      {summary && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+          <h3 className="text-sm font-semibold mb-3">Send Results</h3>
+          <div className="flex gap-4 mb-4">
+            <div className="bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-2 text-center">
+              <p className="text-lg font-bold text-green-400">{summary.sent}</p>
+              <p className="text-[10px] text-green-400/70">Sent</p>
+            </div>
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2 text-center">
+              <p className="text-lg font-bold text-red-400">{summary.failed}</p>
+              <p className="text-[10px] text-red-400/70">Failed</p>
+            </div>
+            <div className="bg-neutral-800 rounded-lg px-4 py-2 text-center">
+              <p className="text-lg font-bold text-white">{summary.total}</p>
+              <p className="text-[10px] text-neutral-500">Total</p>
+            </div>
+          </div>
+
+          {results && results.length > 0 && (
+            <div className="max-h-48 overflow-y-auto space-y-1">
+              {results.map((r, i) => (
+                <div key={i} className="flex items-center justify-between text-xs bg-neutral-800/50 rounded px-2 py-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-1.5 h-1.5 rounded-full ${r.status === 'sent' ? 'bg-green-500' : r.status === 'skipped' ? 'bg-yellow-500' : 'bg-red-500'}`} />
+                    <span className="text-white font-mono">{r.phone}</span>
+                    {r.name && <span className="text-neutral-500">{r.name}</span>}
+                  </div>
+                  <span className={`text-[10px] ${
+                    r.status === 'sent' ? 'text-green-400' : r.status === 'skipped' ? 'text-yellow-400' : 'text-red-400'
+                  }`}>
+                    {r.status}{r.error ? `: ${r.error}` : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
