@@ -41,9 +41,9 @@ export function MarketingDashboard() {
   const [summary, setSummary] = useState<{ sent: number; failed: number; total: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Combined length preview
-  const totalLength = message.length + (link ? 1 + link.length : 0);
-  const messageMaxLength = 160 - (link ? 1 + link.length : 0);
+  const hasMessage = message.trim().length > 0;
+  const hasLink = link.trim().length > 0;
+  const smsCount = (hasMessage ? 1 : 0) + (hasLink ? 1 : 0);
 
   const parsePhones = (): Recipient[] => {
     return phones.split(/[\n,;]+/).map((p) => p.trim()).filter(Boolean).map((p) => ({ phone: p }));
@@ -100,11 +100,14 @@ export function MarketingDashboard() {
   const handleSend = async () => {
     const recipients = getRecipients();
     if (!recipients.length) { alert('Add at least one phone number'); return; }
-    if (!message.trim()) { alert('Enter a message'); return; }
-    if (totalLength > 160) { alert(`Message + link is ${totalLength} chars. Max is 160. Shorten your message.`); return; }
+    if (!hasMessage && !hasLink) { alert('Enter a message, a link, or both'); return; }
+    if (hasMessage && message.length > 160) { alert(`Message is ${message.length} chars (max 160)`); return; }
+    if (hasLink && link.length > 160) { alert(`Link is ${link.length} chars (max 160)`); return; }
 
-    const preview = link ? `${message} ${link}` : message;
-    if (!confirm(`Send to ${recipients.length} number${recipients.length !== 1 ? 's' : ''}?\n\n"${preview}"`)) return;
+    const parts = [];
+    if (hasMessage) parts.push(`Text: "${message}"`);
+    if (hasLink) parts.push(`Link: ${link}`);
+    if (!confirm(`Send ${smsCount} SMS${smsCount > 1 ? ' each' : ''} to ${recipients.length} number${recipients.length !== 1 ? 's' : ''}?\n\n${parts.join('\n')}`)) return;
 
     setSending(true);
     setResults(null);
@@ -241,11 +244,9 @@ export function MarketingDashboard() {
             </p>
             <textarea
               value={message}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val.length <= Math.max(messageMaxLength, 0)) setMessage(val);
-              }}
-              placeholder="Type your message here..."
+              onChange={(e) => setMessage(e.target.value.slice(0, 160))}
+              maxLength={160}
+              placeholder="Type your message here... (optional if link is set)"
               className="w-full bg-neutral-800 border border-neutral-700 rounded-lg p-3 text-sm text-white placeholder:text-neutral-600 resize-none h-24"
             />
 
@@ -263,19 +264,31 @@ export function MarketingDashboard() {
 
             {/* Preview */}
             <div className="mt-3 pt-3 border-t border-neutral-800">
-              <label className="text-[10px] text-neutral-500 uppercase tracking-wide block mb-1">SMS Preview</label>
-              <div className={`bg-neutral-800 rounded-lg p-3 text-sm break-all ${totalLength > 160 ? 'border border-red-500/50' : 'border border-neutral-700'}`}>
-                <span className="text-white">{message || <span className="text-neutral-600">Your message...</span>}</span>
-                {link && <span className="text-green-400"> {link}</span>}
-              </div>
-              <div className="flex items-center justify-between mt-2">
-                <span className={`text-xs ${totalLength > 160 ? 'text-red-400 font-medium' : totalLength > 140 ? 'text-yellow-400' : 'text-neutral-500'}`}>
-                  {totalLength}/160 chars
-                  {totalLength > 160 && ` — ${totalLength - 160} over limit!`}
-                </span>
-                <span className="text-xs text-neutral-600">
-                  msg: {message.length} + link: {link ? link.length + 1 : 0}
-                </span>
+              <label className="text-[10px] text-neutral-500 uppercase tracking-wide block mb-1">SMS Preview ({smsCount} message{smsCount !== 1 ? 's' : ''} per recipient)</label>
+              <div className="space-y-2">
+                {hasMessage && (
+                  <div className={`bg-neutral-800 rounded-lg p-3 text-sm break-all ${message.length > 160 ? 'border border-red-500/50' : 'border border-neutral-700'}`}>
+                    <p className="text-[10px] text-neutral-500 mb-1">SMS 1: Text</p>
+                    <span className="text-white">{message}</span>
+                    <p className={`text-[10px] mt-1 ${message.length > 160 ? 'text-red-400' : message.length > 140 ? 'text-yellow-400' : 'text-neutral-600'}`}>
+                      {message.length}/160
+                    </p>
+                  </div>
+                )}
+                {hasLink && (
+                  <div className={`bg-neutral-800 rounded-lg p-3 text-sm break-all ${link.length > 160 ? 'border border-red-500/50' : 'border border-neutral-700'}`}>
+                    <p className="text-[10px] text-neutral-500 mb-1">SMS {hasMessage ? '2' : '1'}: Link</p>
+                    <span className="text-green-400">{link}</span>
+                    <p className={`text-[10px] mt-1 ${link.length > 160 ? 'text-red-400' : link.length > 140 ? 'text-yellow-400' : 'text-neutral-600'}`}>
+                      {link.length}/160
+                    </p>
+                  </div>
+                )}
+                {!hasMessage && !hasLink && (
+                  <div className="bg-neutral-800 border border-neutral-700 rounded-lg p-3 text-sm text-neutral-600">
+                    Enter a message, a link, or both...
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -309,13 +322,15 @@ export function MarketingDashboard() {
       <div className="flex items-center gap-4">
         <button
           onClick={handleSend}
-          disabled={sending || !message.trim() || recipients.length === 0 || totalLength > 160}
+          disabled={sending || (!hasMessage && !hasLink) || recipients.length === 0 || message.length > 160 || link.length > 160}
           className="bg-green-600 hover:bg-green-700 disabled:bg-neutral-700 disabled:text-neutral-500 text-white text-sm font-semibold px-6 py-3 rounded-lg transition-colors"
         >
           {sending ? `Sending...` : `Send to ${recipients.length} number${recipients.length !== 1 ? 's' : ''}`}
         </button>
-        {recipients.length > 0 && message.trim() && (
-          <p className="text-xs text-neutral-500">Est. cost: ~${(recipients.length * 0.0075).toFixed(2)}</p>
+        {recipients.length > 0 && (hasMessage || hasLink) && (
+          <p className="text-xs text-neutral-500">
+            {smsCount} SMS x {recipients.length} = {smsCount * recipients.length} messages (~${(smsCount * recipients.length * 0.0075).toFixed(2)})
+          </p>
         )}
       </div>
 
