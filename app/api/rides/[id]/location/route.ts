@@ -26,7 +26,7 @@ export async function POST(
     const rideRows = await sql`
       SELECT status FROM rides
       WHERE id = ${rideId} AND (driver_id = ${userId} OR rider_id = ${userId})
-      AND status IN ('otw', 'here', 'active')
+      AND status IN ('otw', 'here', 'confirming', 'active')
       LIMIT 1
     `;
     if (!rideRows.length) {

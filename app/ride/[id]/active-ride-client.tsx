@@ -132,6 +132,9 @@ export default function ActiveRideClient({
   const [disputeWindowRemaining, setDisputeWindowRemaining] = useState<number | null>(null);
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [eta, setEta] = useState<{ minutes: number; miles: number } | null>(null);
+  const [lastLocationUpdate, setLastLocationUpdate] = useState<number>(Date.now());
+  const [etaStale, setEtaStale] = useState(false);
+  const smsNudgeSent = useRef(false);
   const [chatMessages, setChatMessages] = useState<{ id: string; senderId: string; content: string; createdAt: string }[]>([]);
   const [chatOpen, setChatOpen] = useState(false);
   const chatOpenRef = useRef(false);
@@ -219,6 +222,8 @@ export default function ActiveRideClient({
       }
       case 'location': {
         setDriverLocation({ lat: data.lat as number, lng: data.lng as number });
+        setLastLocationUpdate(Date.now());
+        setEtaStale(false);
         break;
       }
       case 'chat_message': {
@@ -444,19 +449,34 @@ export default function ActiveRideClient({
   }, [ride.status, ride.disputeWindowExpiresAt]);
 
   // ── Wait countdown at HERE ──
+  // Pauses when driver ETA is stale — rider shouldn't be penalized for a driver who went offline
+  const stalePauseRef = useRef(0); // accumulated pause time in ms
+  const lastStaleCheck = useRef(false);
   useEffect(() => {
-    if (ride.status !== 'here' || !ride.hereAt) { setWaitCountdown(null); return; }
+    if (ride.status !== 'here' || !ride.hereAt) { setWaitCountdown(null); stalePauseRef.current = 0; return; }
     const waitMs = (ride.waitMinutes || 10) * 60 * 1000;
     const updateCountdown = () => {
-      const elapsed = Date.now() - new Date(ride.hereAt!).getTime();
+      // Track cumulative stale pause time
+      if (etaStale && !lastStaleCheck.current) {
+        // Just went stale — start tracking
+        lastStaleCheck.current = true;
+      } else if (!etaStale && lastStaleCheck.current) {
+        // Came back — stop tracking
+        lastStaleCheck.current = false;
+      }
+      if (etaStale) {
+        stalePauseRef.current += 1000; // accumulate 1s per tick while stale
+      }
+
+      const elapsed = Date.now() - new Date(ride.hereAt!).getTime() - stalePauseRef.current;
       const remaining = Math.max(0, waitMs - elapsed);
       setWaitCountdown(remaining);
-      if (remaining <= 0) setShowPulloff(true);
+      if (remaining <= 0 && !etaStale) setShowPulloff(true); // Don't show pulloff while stale
     };
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
-  }, [ride.status, ride.hereAt, ride.waitMinutes]);
+  }, [ride.status, ride.hereAt, ride.waitMinutes, etaStale]);
 
   // ── Confirm countdown (rider has 2 min to confirm they're in the car) ──
   useEffect(() => {
@@ -509,6 +529,42 @@ export default function ActiveRideClient({
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
   }, [ride.status, ride.confirmDeadline, isDriver, rideId]);
+
+  // ── Stale ETA detection (90s) + SMS nudge to driver ──
+  useEffect(() => {
+    // Only track staleness during pickup phases, from rider's perspective
+    if (isDriver || !['otw', 'here', 'confirming'].includes(ride.status)) {
+      setEtaStale(false);
+      return;
+    }
+
+    const STALE_THRESHOLD = 90_000; // 90 seconds
+    const SMS_NUDGE_THRESHOLD = 90_000; // send SMS at 90s
+
+    const check = () => {
+      const elapsed = Date.now() - lastLocationUpdate;
+      const isStale = elapsed >= STALE_THRESHOLD;
+      setEtaStale(isStale);
+
+      // Send SMS nudge to driver once after threshold
+      if (isStale && !smsNudgeSent.current && elapsed >= SMS_NUDGE_THRESHOLD) {
+        smsNudgeSent.current = true;
+        fetch(`/api/rides/${rideId}/eta-nudge`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }).catch(() => {});
+      }
+    };
+
+    check();
+    const interval = setInterval(check, 5000);
+    return () => clearInterval(interval);
+  }, [isDriver, ride.status, lastLocationUpdate, rideId]);
+
+  // Reset SMS nudge flag when ride status changes
+  useEffect(() => {
+    smsNudgeSent.current = false;
+  }, [ride.status]);
 
   // ── ETA calculation ──
   useEffect(() => {
@@ -941,6 +997,30 @@ export default function ActiveRideClient({
             textAlign: 'center',
           }}>
             {error}
+          </div>
+        )}
+
+        {/* ETA tracking banner */}
+        {['otw', 'here', 'confirming'].includes(ride.status) && (
+          <div style={{
+            padding: '8px 14px', borderRadius: 12, marginBottom: 8,
+            background: etaStale ? 'rgba(255,145,0,0.1)' : 'rgba(0,230,118,0.06)',
+            border: etaStale ? '1px solid rgba(255,145,0,0.2)' : '1px solid rgba(0,230,118,0.1)',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+              background: etaStale ? COLORS.orange : COLORS.green,
+              animation: etaStale ? 'none' : 'pulse 1.5s ease-in-out infinite',
+            }} />
+            <span style={{ fontSize: 11, color: etaStale ? COLORS.orange : COLORS.grayLight }}>
+              {isDriver
+                ? `Keep HMU open so ${ride.riderName} can see your ETA`
+                : etaStale
+                  ? "Driver's ETA unavailable — we sent them a reminder"
+                  : "Your driver's ETA is live — keep HMU open to track"
+              }
+            </span>
           </div>
         )}
 

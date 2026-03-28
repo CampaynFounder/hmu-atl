@@ -48,6 +48,26 @@ export async function POST(
       return NextResponse.json({ error: 'Can only pull off from HERE or CONFIRMING status' }, { status: 400 });
     }
 
+    // Check if driver ETA was stale (went offline) — block no-show charge if so
+    if (chargePercent > 0) {
+      const lastLocRows = await sql`
+        SELECT recorded_at FROM ride_locations
+        WHERE ride_id = ${rideId} AND user_id = ${userId}
+        ORDER BY recorded_at DESC LIMIT 1
+      `;
+      if (lastLocRows.length) {
+        const lastLocTime = new Date((lastLocRows[0] as Record<string, unknown>).recorded_at as string).getTime();
+        const staleDuration = Date.now() - lastLocTime;
+        // If driver's last location update was >2 min ago, they were offline — can't charge rider
+        if (staleDuration > 2 * 60 * 1000) {
+          return NextResponse.json({
+            error: 'Your ETA was offline for over 2 minutes — rider can\'t be charged a no-show fee. You can still cancel the ride.',
+            code: 'driver_eta_stale',
+          }, { status: 400 });
+        }
+      }
+    }
+
     // Save driver GPS
     await sql`
       UPDATE rides SET
