@@ -49,6 +49,18 @@ export async function GET() {
     const pending = balance.pending.reduce((sum, b) => sum + b.amount, 0) / 100;
     const instantAvailable = balance.instant_available?.reduce((sum, b) => sum + b.amount, 0) ?? 0;
 
+    // Determine payout readiness
+    let payoutStatus: string;
+    if (available <= 0 && pending <= 0 && instantAvailable <= 0) {
+      payoutStatus = 'no_balance';
+    } else if (available > 0) {
+      payoutStatus = 'ready';
+    } else if (instantAvailable > 0) {
+      payoutStatus = 'instant_only';
+    } else {
+      payoutStatus = 'pending_hold';
+    }
+
     return NextResponse.json({
       available,
       pending,
@@ -56,6 +68,7 @@ export async function GET() {
       instantEligible: driver.stripe_instant_eligible || instantAvailable > 0,
       tier: driver.tier,
       currency: 'usd',
+      payoutStatus,
     });
   } catch (error) {
     console.error('Balance error:', error);

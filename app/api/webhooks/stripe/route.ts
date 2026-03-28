@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { sql } from '@/lib/db/client';
+import { sendSms } from '@/lib/sms/textbee';
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2026-02-25.clover' });
@@ -78,6 +79,36 @@ export async function POST(request: NextRequest) {
               WHERE stripe_account_id = ${account.id}
             )
           `;
+
+          // Check if this is a new payout-ready transition — notify driver via SMS
+          const driverRows = await sql`
+            SELECT dp.phone, dp.stripe_onboarding_complete, dp.first_name, u.id as user_id
+            FROM driver_profiles dp
+            JOIN users u ON u.id = dp.user_id
+            WHERE dp.stripe_account_id = ${account.id}
+            LIMIT 1
+          `;
+
+          if (driverRows.length) {
+            const driver = driverRows[0];
+            const wasAlreadyComplete = driver.stripe_onboarding_complete;
+
+            // Update onboarding status
+            await sql`
+              UPDATE driver_profiles
+              SET stripe_onboarding_complete = true, updated_at = NOW()
+              WHERE stripe_account_id = ${account.id}
+            `;
+
+            // Only SMS on first transition to payout-ready
+            if (!wasAlreadyComplete && driver.phone) {
+              await sendSms(
+                driver.phone as string,
+                `HMU ATL: ${driver.first_name || 'Hey'}, your payout account is verified! You can now cash out your earnings. atl.hmucashride.com/driver/home`,
+                { userId: driver.user_id as string, eventType: 'payout_ready' }
+              );
+            }
+          }
         }
         break;
       }

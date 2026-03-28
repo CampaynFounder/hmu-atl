@@ -190,8 +190,25 @@ export default function CashoutCard() {
         <div className={`co-amount ${cashableAmount <= 0 ? 'co-amount--zero' : ''}`}>
           ${cashableAmount.toFixed(2)}
         </div>
-        {balance.available <= 0 && cashableAmount > 0 && (
-          <div className="co-pending" style={{ color: '#00E676' }}>Ready for instant payout</div>
+        {cashableAmount > 0 && balance.available <= 0 && (
+          <div style={{
+            background: 'rgba(255,179,0,0.06)',
+            border: '1px solid rgba(255,179,0,0.15)',
+            borderRadius: '12px',
+            padding: '10px 14px',
+            marginBottom: '16px',
+            marginTop: '4px',
+          }}>
+            <div style={{ fontSize: '12px', color: '#FFB300', fontWeight: 600, marginBottom: '4px' }}>
+              Stripe is verifying your account
+            </div>
+            <div style={{ fontSize: '11px', color: '#999', lineHeight: 1.5 }}>
+              New accounts have a 1-2 day hold on first payouts while Stripe confirms your identity. Your ${cashableAmount.toFixed(2)} is safe — you&apos;ll be able to cash out soon.
+            </div>
+          </div>
+        )}
+        {cashableAmount > 0 && balance.available > 0 && balance.available === cashableAmount && (
+          <div className="co-pending" style={{ color: '#00E676' }}>Ready to cash out</div>
         )}
 
         {error && (
