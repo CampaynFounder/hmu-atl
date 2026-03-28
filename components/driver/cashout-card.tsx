@@ -19,6 +19,8 @@ export default function CashoutCard() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [result, setResult] = useState<{ amount: number; method: string; fee: number; arrival: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<string | null>(null);
   const [selectedMethod, setSelectedMethod] = useState<'standard' | 'instant'>('standard');
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [payoutAmount, setPayoutAmount] = useState<number>(0);
@@ -69,6 +71,8 @@ export default function CashoutCard() {
     fbCustomEvent('CashoutInitiated', { amount: payoutAmount, method: selectedMethod, tier: balance?.tier });
     setCashingOut(true);
     setError(null);
+    setErrorDetail(null);
+    setErrorType(null);
     try {
       const res = await fetch('/api/driver/cashout', {
         method: 'POST',
@@ -78,6 +82,8 @@ export default function CashoutCard() {
       const data = await res.json();
       if (!res.ok) {
         setError(data.error);
+        setErrorDetail(data.detail ?? null);
+        setErrorType(data.errorType ?? null);
         setCashingOut(false);
         return;
       }
@@ -188,7 +194,61 @@ export default function CashoutCard() {
           <div className="co-pending" style={{ color: '#00E676' }}>Ready for instant payout</div>
         )}
 
-        {error && <div className="co-error">{error}</div>}
+        {error && (
+          <div style={{
+            marginBottom: '12px',
+            borderRadius: '14px',
+            overflow: 'hidden',
+            border: errorType === 'instant_limit' ? '1px solid rgba(255,179,0,0.25)' : '1px solid rgba(255,68,68,0.25)',
+          }}>
+            <div style={{
+              padding: '12px 14px',
+              background: errorType === 'instant_limit' ? 'rgba(255,179,0,0.08)' : 'rgba(255,68,68,0.08)',
+              color: errorType === 'instant_limit' ? '#FFB300' : '#FF5252',
+              fontSize: '13px',
+              fontWeight: 600,
+            }}>
+              {error}
+            </div>
+            {errorDetail && (
+              <div style={{
+                padding: '10px 14px',
+                background: 'rgba(255,255,255,0.02)',
+                color: '#aaa',
+                fontSize: '12px',
+                lineHeight: 1.5,
+              }}>
+                {errorDetail}
+              </div>
+            )}
+            {errorType === 'instant_limit' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedMethod('standard');
+                  setError(null);
+                  setErrorDetail(null);
+                  setErrorType(null);
+                }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  padding: '12px',
+                  background: 'rgba(0,230,118,0.06)',
+                  color: '#00E676',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  border: 'none',
+                  borderTop: '1px solid rgba(255,255,255,0.04)',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+                }}
+              >
+                Switch to Standard Payout (Free)
+              </button>
+            )}
+          </div>
+        )}
 
         {result ? (
           <div className="co-result">

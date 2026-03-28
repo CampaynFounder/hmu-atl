@@ -137,8 +137,19 @@ export async function POST(req: NextRequest) {
     }
   } catch (error) {
     console.error('Cashout error:', error);
+    const msg = error instanceof Error ? error.message : 'Cashout failed';
+
+    // Detect Stripe instant payout volume limit
+    if (msg.includes('daily volume limit') || msg.includes('Instant Payouts')) {
+      return NextResponse.json({
+        error: 'Instant payouts are temporarily unavailable.',
+        errorType: 'instant_limit',
+        detail: 'Use Standard payout instead — it\'s free and arrives in 1-2 business days. Your balance is safe and will be there when you\'re ready.',
+      }, { status: 400 });
+    }
+
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Cashout failed' },
+      { error: msg },
       { status: 500 }
     );
   }
