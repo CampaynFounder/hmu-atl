@@ -1068,7 +1068,7 @@ export default function ActiveRideClient({
       )}
 
       {/* Chat panel */}
-      {['otw', 'here', 'active', 'ended'].includes(ride.status) && (
+      {['otw', 'here', 'confirming', 'active', 'ended'].includes(ride.status) && (
         <RideChat
           rideId={rideId}
           userId={userId}
@@ -1077,6 +1077,7 @@ export default function ActiveRideClient({
           open={chatOpen}
           onClose={() => setChatOpen(false)}
           onSend={() => {/* message arrives via Ably */}}
+          rideStatus={ride.status}
         />
       )}
 
