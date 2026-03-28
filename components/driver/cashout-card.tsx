@@ -21,6 +21,8 @@ export default function CashoutCard() {
   const [error, setError] = useState<string | null>(null);
   const [selectedMethod, setSelectedMethod] = useState<'standard' | 'instant'>('standard');
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [payoutAmount, setPayoutAmount] = useState<number>(0);
+  const [showSlider, setShowSlider] = useState(false);
 
   useEffect(() => {
     fetch('/api/driver/balance')
@@ -31,19 +33,47 @@ export default function CashoutCard() {
   }, []);
 
   const isHmuFirst = balance?.tier === 'hmu_first';
-  // Show the max cashable amount — instant_available includes pending funds Stripe will front
   const cashableAmount = balance ? Math.max(balance.available, balance.instantAvailable ?? 0) : 0;
-  const instantFee = isHmuFirst ? 0 : Math.max(1, cashableAmount * 0.01);
+
+  // Set default payout amount when balance loads
+  useEffect(() => {
+    if (cashableAmount > 0 && payoutAmount === 0) {
+      setPayoutAmount(cashableAmount);
+    }
+  }, [cashableAmount, payoutAmount]);
+
+  // Calculate fee based on selected amount and method
+  const calculateFee = (amount: number, method: 'standard' | 'instant') => {
+    if (method === 'standard') return 0;
+    if (isHmuFirst) return 0;
+    const percentFee = amount * 0.01;
+    return Math.max(1, Math.round(percentFee * 100) / 100);
+  };
+
+  const currentFee = calculateFee(payoutAmount, selectedMethod);
+  const driverReceives = Math.max(0, payoutAmount - currentFee);
+
+  // Minimum payout: $1 or the fee + $1, whichever lets driver receive something
+  const minPayout = selectedMethod === 'instant' && !isHmuFirst
+    ? Math.min(cashableAmount, 2) // At least $2 so driver gets $1 after fee
+    : Math.min(cashableAmount, 1);
+
+  const handleMethodSelect = (method: 'standard' | 'instant') => {
+    setSelectedMethod(method);
+    setShowSlider(true);
+    // Reset to max when switching methods
+    setPayoutAmount(cashableAmount);
+  };
 
   async function handleCashout() {
-    fbCustomEvent('CashoutInitiated', { amount: balance?.available, method: selectedMethod, tier: balance?.tier });
+    fbCustomEvent('CashoutInitiated', { amount: payoutAmount, method: selectedMethod, tier: balance?.tier });
     setCashingOut(true);
     setError(null);
     try {
       const res = await fetch('/api/driver/cashout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: selectedMethod }),
+        body: JSON.stringify({ method: selectedMethod, amount: payoutAmount }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -54,8 +84,8 @@ export default function CashoutCard() {
       fbCustomEvent('CashoutCompleted', { amount: data.amount, method: data.method, fee: data.fee });
       setResult(data);
       setShowConfetti(true);
+      setShowSlider(false);
       setTimeout(() => setShowConfetti(false), 4000);
-      // Refresh balance
       const balRes = await fetch('/api/driver/balance');
       if (balRes.ok) setBalance(await balRes.json());
     } catch {
@@ -73,6 +103,8 @@ export default function CashoutCard() {
     id: i, x: Math.random() * 100, delay: Math.random() * 1,
     color: confettiColors[i % confettiColors.length], drift: (Math.random() - 0.5) * 80,
   })) : [];
+
+  const sliderPercent = cashableAmount > 0 ? ((payoutAmount - minPayout) / (cashableAmount - minPayout)) * 100 : 0;
 
   return (
     <>
@@ -106,6 +138,24 @@ export default function CashoutCard() {
         .co-result-icon { font-size: 40px; margin-bottom: 8px; }
         .co-result-amount { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 36px; color: #00E676; }
         .co-result-sub { font-size: 13px; color: #888; margin-top: 4px; }
+        .co-slider-section { margin-bottom: 20px; }
+        .co-slider-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+        .co-slider-amount { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 36px; color: #fff; line-height: 1; }
+        .co-slider-max { font-size: 11px; color: #888; cursor: pointer; padding: 4px 10px; border-radius: 100px; background: #1a1a1a; border: 1px solid rgba(255,255,255,0.08); }
+        .co-slider-max:active { background: #222; }
+        .co-slider-track { position: relative; width: 100%; height: 40px; display: flex; align-items: center; touch-action: none; }
+        .co-slider-rail { width: 100%; height: 6px; background: #222; border-radius: 3px; position: relative; overflow: hidden; }
+        .co-slider-fill { position: absolute; left: 0; top: 0; height: 100%; background: #00E676; border-radius: 3px; transition: width 0.05s; }
+        .co-slider-input { position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; margin: 0; -webkit-appearance: none; }
+        .co-slider-thumb { position: absolute; top: 50%; width: 28px; height: 28px; background: #00E676; border: 3px solid #080808; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; box-shadow: 0 2px 8px rgba(0,230,118,0.3); transition: left 0.05s; }
+        .co-breakdown { margin-top: 14px; padding: 12px 14px; background: #1a1a1a; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }
+        .co-breakdown-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
+        .co-breakdown-label { font-size: 12px; color: #888; }
+        .co-breakdown-value { font-size: 12px; color: #fff; font-weight: 500; }
+        .co-breakdown-value--green { color: #00E676; }
+        .co-breakdown-value--yellow { color: #FFB300; }
+        .co-breakdown-divider { border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 6px 0; }
+        .co-breakdown-total { font-size: 14px; font-weight: 700; }
         @keyframes coConfetti {
           0% { transform: translateY(-10px) translateX(0) rotate(0deg); opacity: 0; }
           10% { opacity: 1; }
@@ -151,11 +201,11 @@ export default function CashoutCard() {
           </div>
         ) : (
           <>
-            {/* Method picker — always visible */}
+            {/* Method picker */}
             <div className="co-methods">
               <div
                 className={`co-method ${selectedMethod === 'standard' ? 'co-method--selected' : ''}`}
-                onClick={() => setSelectedMethod('standard')}
+                onClick={() => handleMethodSelect('standard')}
               >
                 <div className="co-method-label">Standard</div>
                 <div className="co-method-sub">1-2 business days</div>
@@ -163,7 +213,7 @@ export default function CashoutCard() {
               </div>
               <div
                 className={`co-method ${selectedMethod === 'instant' ? 'co-method--selected' : ''}`}
-                onClick={() => setSelectedMethod('instant')}
+                onClick={() => handleMethodSelect('instant')}
               >
                 <div className="co-method-label">Instant {'\u26A1'}</div>
                 <div className="co-method-sub">Arrives in minutes</div>
@@ -177,13 +227,71 @@ export default function CashoutCard() {
               </div>
             </div>
 
+            {/* Amount Slider — shows after selecting a method */}
+            {showSlider && cashableAmount > 0 && (
+              <div className="co-slider-section">
+                <div className="co-slider-header">
+                  <div className="co-slider-amount">${payoutAmount.toFixed(2)}</div>
+                  <button
+                    type="button"
+                    className="co-slider-max"
+                    onClick={() => setPayoutAmount(cashableAmount)}
+                  >
+                    Max
+                  </button>
+                </div>
+
+                {/* Slider */}
+                <div className="co-slider-track">
+                  <div className="co-slider-rail">
+                    <div className="co-slider-fill" style={{ width: `${sliderPercent}%` }} />
+                  </div>
+                  <div className="co-slider-thumb" style={{ left: `${sliderPercent}%` }} />
+                  <input
+                    type="range"
+                    className="co-slider-input"
+                    min={Math.round(minPayout * 100)}
+                    max={Math.round(cashableAmount * 100)}
+                    step={100}
+                    value={Math.round(payoutAmount * 100)}
+                    onChange={(e) => setPayoutAmount(parseInt(e.target.value) / 100)}
+                  />
+                </div>
+
+                {/* Breakdown */}
+                <div className="co-breakdown">
+                  <div className="co-breakdown-row">
+                    <span className="co-breakdown-label">Payout amount</span>
+                    <span className="co-breakdown-value">${payoutAmount.toFixed(2)}</span>
+                  </div>
+                  {currentFee > 0 && (
+                    <div className="co-breakdown-row">
+                      <span className="co-breakdown-label">Instant fee ({isHmuFirst ? 'waived' : '$1 or 1%'})</span>
+                      <span className="co-breakdown-value co-breakdown-value--yellow">-${currentFee.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <hr className="co-breakdown-divider" />
+                  <div className="co-breakdown-row">
+                    <span className="co-breakdown-label co-breakdown-total">You receive</span>
+                    <span className="co-breakdown-value co-breakdown-value--green co-breakdown-total">
+                      ${driverReceives.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <button
               type="button"
               className="co-btn co-btn--green"
               onClick={handleCashout}
-              disabled={cashingOut || cashableAmount <= 0}
+              disabled={cashingOut || cashableAmount <= 0 || payoutAmount < minPayout}
             >
-              {cashingOut ? 'Processing...' : cashableAmount > 0 ? `Cash Out $${cashableAmount.toFixed(2)}` : 'No balance yet — complete a ride'}
+              {cashingOut
+                ? 'Processing...'
+                : cashableAmount > 0
+                  ? `Cash Out $${driverReceives.toFixed(2)}`
+                  : 'No balance yet — complete a ride'}
             </button>
 
             {!isHmuFirst && (

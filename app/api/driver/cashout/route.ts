@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json();
-    const { method } = body as { method: 'standard' | 'instant' };
+    const { method, amount: requestedAmount } = body as { method: 'standard' | 'instant'; amount?: number };
 
     const rows = await sql`
       SELECT dp.stripe_account_id, dp.stripe_instant_eligible, u.tier, u.id as user_id
@@ -55,18 +55,27 @@ export async function POST(req: NextRequest) {
     const instantAvailableCents = balance.instant_available?.reduce((sum, b) => sum + b.amount, 0) ?? 0;
 
     if (method === 'instant') {
-      // For instant payouts, use instant_available (includes pending funds Stripe will front)
-      const payableCents = Math.max(availableCents, instantAvailableCents);
+      const maxPayableCents = Math.max(availableCents, instantAvailableCents);
 
-      if (payableCents <= 0) {
+      if (maxPayableCents <= 0) {
         return NextResponse.json({ error: 'No balance to cash out' }, { status: 400 });
       }
 
+      // Use requested amount or max
+      const requestedCents = requestedAmount
+        ? Math.round(requestedAmount * 100)
+        : maxPayableCents;
+
+      const payableCents = Math.min(requestedCents, maxPayableCents);
+
+      if (payableCents <= 0) {
+        return NextResponse.json({ error: 'Amount too low' }, { status: 400 });
+      }
+
       let fee = 0;
-      // HMU First gets free instant payouts
       if (driver.tier !== 'hmu_first') {
         const percentFee = Math.round(payableCents * 0.01);
-        fee = Math.max(100, percentFee); // $1.00 or 1% whichever is higher
+        fee = Math.max(100, percentFee);
       }
 
       const payoutAmountCents = payableCents - fee;
@@ -102,9 +111,13 @@ export async function POST(req: NextRequest) {
         }, { status: 400 });
       }
 
+      const standardCents = requestedAmount
+        ? Math.min(Math.round(requestedAmount * 100), availableCents)
+        : availableCents;
+
       const payout = await stripe.payouts.create(
         {
-          amount: availableCents,
+          amount: standardCents,
           currency: 'usd',
           method: 'standard',
           metadata: { driverId: driver.user_id },
@@ -115,7 +128,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         payoutId: payout.id,
-        amount: availableCents / 100,
+        amount: standardCents / 100,
         fee: 0,
         method: 'standard',
         arrival: '1-2 business days',
