@@ -113,6 +113,11 @@ export async function POST(
       message: riderMessage,
     }).catch(() => {});
 
+    // Mark linked post as cancelled
+    if (ride.hmu_post_id) {
+      await sql`UPDATE hmu_posts SET status = 'cancelled' WHERE id = ${ride.hmu_post_id}`.catch(() => {});
+    }
+
     return NextResponse.json({
       status: chargePercent === 0 ? 'cancelled' : 'ended',
       chargePercent,

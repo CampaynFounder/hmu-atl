@@ -116,6 +116,11 @@ export async function POST(
       WHERE id = ${rideId} AND status = 'active'
     `;
 
+    // Mark linked post as completed
+    if (ride.hmu_post_id) {
+      await sql`UPDATE hmu_posts SET status = 'expired' WHERE id = ${ride.hmu_post_id}`.catch(() => {});
+    }
+
     await publishRideUpdate(rideId, 'status_change', {
       status: 'ended',
       message: 'Ride ended',
