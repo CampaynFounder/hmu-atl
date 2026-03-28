@@ -125,7 +125,11 @@ export default function ActiveRideClient({
   initialRide,
   mapboxToken,
 }: ActiveRideClientProps) {
-  const [ride, setRide] = useState<RideData>(initialRide);
+  const [ride, setRide] = useState<RideData>({
+    ...initialRide,
+    agreedPrice: Number(initialRide.agreedPrice || 0),
+    addOnTotal: Number(initialRide.addOnTotal || 0),
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rated, setRated] = useState(false);
@@ -1025,9 +1029,9 @@ export default function ActiveRideClient({
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            {ride.addOnTotal > 0 && (
+            {Number(ride.addOnTotal || 0) > 0 && (
               <div style={{ fontSize: 11, color: COLORS.gray, fontFamily: FONTS.mono, lineHeight: 1 }}>
-                ${ride.agreedPrice.toFixed(2)} + ${ride.addOnTotal.toFixed(2)}
+                ${Number(ride.agreedPrice || 0).toFixed(2)} + ${Number(ride.addOnTotal || 0).toFixed(2)}
               </div>
             )}
             <div style={{
@@ -1037,7 +1041,7 @@ export default function ActiveRideClient({
               color: COLORS.green,
               lineHeight: 1,
             }}>
-              ${(ride.agreedPrice + ride.addOnTotal).toFixed(2)}
+              ${(Number(ride.agreedPrice || 0) + Number(ride.addOnTotal || 0)).toFixed(2)}
             </div>
           </div>
         </div>
