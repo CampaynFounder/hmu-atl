@@ -18,7 +18,7 @@ export async function GET(
     sql`
       SELECT
         u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
-        u.og_status, u.chill_score, COALESCE(u.completed_rides, 0) as completed_rides,
+        u.og_status, u.chill_score, u.is_admin, COALESCE(u.completed_rides, 0) as completed_rides,
         (SELECT COUNT(*) FROM disputes WHERE filed_by = u.id) as dispute_count,
         u.created_at, u.updated_at,
         dp.first_name as driver_first, dp.last_name as driver_last,
@@ -75,6 +75,7 @@ export async function GET(
       accountStatus: u.account_status,
       tier: u.tier,
       ogStatus: u.og_status,
+      isAdmin: u.is_admin ?? false,
       chillScore: Number(u.chill_score ?? 0),
       completedRides: Number(u.completed_rides ?? 0),
       disputeCount: Number(u.dispute_count ?? 0),

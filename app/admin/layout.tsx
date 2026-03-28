@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth/guards';
+import { sql } from '@/lib/db/client';
 import { AdminSidebar } from './components/admin-sidebar';
 
 export const metadata = {
@@ -14,7 +15,10 @@ export default async function AdminLayout({
   const user = await getCurrentUser();
 
   if (!user) redirect('/sign-in');
-  if (user.profile_type !== 'admin' && user.profile_type !== 'both') redirect('/');
+
+  // Check is_admin flag
+  const adminCheck = await sql`SELECT is_admin FROM users WHERE id = ${user.id} LIMIT 1`;
+  if (!adminCheck.length || !adminCheck[0].is_admin) redirect('/');
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white flex">

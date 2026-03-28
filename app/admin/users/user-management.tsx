@@ -69,18 +69,20 @@ export function UserManagement() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="space-y-3">
         <h1 className="text-xl font-bold">User Management</h1>
-        <div className="flex bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden">
+        <div className="flex gap-2">
           {(['search', 'growth', 'pending'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
-                tab === t ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-white'
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                tab === t
+                  ? 'bg-white text-black'
+                  : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white'
               }`}
             >
-              {t === 'pending' ? 'Pending Activation' : t === 'growth' ? 'Growth' : 'Search'}
+              {t === 'pending' ? 'Pending' : t === 'growth' ? 'Growth' : 'Search'}
             </button>
           ))}
         </div>

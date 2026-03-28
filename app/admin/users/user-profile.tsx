@@ -13,6 +13,7 @@ interface UserData {
     chillScore: number;
     completedRides: number;
     disputeCount: number;
+    isAdmin: boolean;
     createdAt: string;
     displayName: string;
     handle: string;
@@ -124,6 +125,9 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
           {user.handle && <p className="text-sm text-neutral-500">@{user.handle}</p>}
         </div>
         <div className="flex items-center gap-2">
+          {user.isAdmin && (
+            <span className="text-[10px] px-2 py-1 rounded bg-purple-500/20 text-purple-400 font-medium">ADMIN</span>
+          )}
           {weirdo3x && (
             <span className="text-[10px] px-2 py-1 rounded bg-red-500/20 text-red-400 font-medium">WEIRDO x3+</span>
           )}
@@ -276,6 +280,34 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             className="bg-neutral-700 hover:bg-neutral-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
           >
             Reset Chill Score
+          </button>
+          <button
+            onClick={async () => {
+              setSaving(true);
+              setMessage('');
+              try {
+                const res = await fetch('/api/admin/grant', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ userId: user.id, grant: !user.isAdmin }),
+                });
+                if (res.ok) {
+                  setMessage(user.isAdmin ? 'Admin revoked' : 'Admin granted');
+                  fetchUser();
+                } else {
+                  setMessage('Failed');
+                }
+              } catch { setMessage('Failed'); }
+              finally { setSaving(false); }
+            }}
+            disabled={saving}
+            className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+              user.isAdmin
+                ? 'bg-red-800 hover:bg-red-900 text-white'
+                : 'bg-purple-600 hover:bg-purple-700 text-white'
+            }`}
+          >
+            {user.isAdmin ? 'Revoke Admin' : 'Grant Admin'}
           </button>
         </div>
       </div>

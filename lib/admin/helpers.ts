@@ -20,7 +20,7 @@ export async function requireAdmin(): Promise<AdminUser | null> {
 
   const rows = await sql`
     SELECT id, clerk_id, profile_type FROM users
-    WHERE clerk_id = ${clerkId} AND profile_type IN ('admin', 'both')
+    WHERE clerk_id = ${clerkId} AND is_admin = true
     LIMIT 1
   `;
   if (!rows.length) return null;

@@ -8,19 +8,19 @@ export async function POST(req: NextRequest) {
   const { userId: clerkId } = await auth();
   if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  // Must currently be admin or both
+  // Must be an admin
   const userRows = await sql`
-    SELECT id, profile_type FROM users WHERE clerk_id = ${clerkId} LIMIT 1
+    SELECT id, profile_type, is_admin FROM users WHERE clerk_id = ${clerkId} LIMIT 1
   `;
   if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
   const user = userRows[0];
-  if (user.profile_type !== 'admin' && user.profile_type !== 'both') {
+  if (!user.is_admin) {
     return NextResponse.json({ error: 'Only admins can switch roles' }, { status: 403 });
   }
 
   const { role } = await req.json();
-  const allowed = ['admin', 'driver', 'rider', 'both'];
+  const allowed = ['driver', 'rider'];
   if (!allowed.includes(role)) {
     return NextResponse.json({ error: `Invalid role. Use: ${allowed.join(', ')}` }, { status: 400 });
   }
