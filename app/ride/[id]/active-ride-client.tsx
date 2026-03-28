@@ -356,7 +356,7 @@ export default function ActiveRideClient({
     }
   }, [isDriver]);
 
-  useAbly({
+  const { connected: ablyConnected } = useAbly({
     channelName: `ride:${rideId}`,
     rideId,
     onMessage: handleAblyMessage,
@@ -947,8 +947,14 @@ export default function ActiveRideClient({
               letterSpacing: 2,
               color: statusDisplay.color,
               lineHeight: 1,
+              display: 'flex', alignItems: 'center', gap: 8,
             }}>
               {statusDisplay.label}
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: ablyConnected ? COLORS.green : COLORS.red,
+                flexShrink: 0, marginTop: 2,
+              }} title={ablyConnected ? 'Live' : 'Reconnecting...'} />
             </div>
             <div
               onClick={() => {
