@@ -192,13 +192,16 @@ function NavSeparator() {
 
 function NavSection({ label }: { label: string }) {
   return (
-    <li className="pt-3 first:pt-0">
-      <span
-        className="block px-4 pb-1 text-[10px] font-bold tracking-[3px] text-zinc-600"
-        style={{ fontFamily: 'var(--font-mono, Space Mono, monospace)' }}
-      >
-        {label}
-      </span>
+    <li className="pt-4 first:pt-0">
+      <div className="flex items-center gap-3 px-4 pb-1">
+        <span
+          className="text-[11px] font-bold tracking-[2px] text-[#00E676]/50"
+          style={{ fontFamily: 'var(--font-mono, Space Mono, monospace)' }}
+        >
+          {label}
+        </span>
+        <div className="flex-1 h-px bg-white/6" />
+      </div>
     </li>
   );
 }
