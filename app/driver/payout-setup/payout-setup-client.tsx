@@ -5,6 +5,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 
 const DriverPaymentForm = dynamic(() => import('@/components/payments/driver-payment-form'), { ssr: false });
+const StripeEmbedded = dynamic(() => import('./stripe-embedded'), { ssr: false });
 import ManageAccounts from './manage-accounts';
 
 interface PayoutStatus {
@@ -227,6 +228,8 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
           >
             Go Live
           </Link>
+
+          <StripeEmbedded />
 
           <ManageAccounts onUpdate={refreshStatus} />
         </div>
