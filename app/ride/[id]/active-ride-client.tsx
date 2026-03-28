@@ -1223,7 +1223,33 @@ export default function ActiveRideClient({
                   textAlign: 'center', padding: '12px 16px', marginBottom: 8,
                   backgroundColor: dUrgent ? 'rgba(255,82,82,0.12)' : 'rgba(255,255,255,0.04)',
                   borderRadius: 14, border: dUrgent ? '1px solid rgba(255,82,82,0.2)' : '1px solid rgba(255,255,255,0.06)',
+                  position: 'relative',
                 }}>
+                  {/* Emergency pulloff — driver safety */}
+                  <button
+                    onClick={() => {
+                      if (confirm('Leave immediately? This cancels the ride with no charge to the rider. Use this if you feel unsafe.')) {
+                        fetch(`/api/rides/${rideId}/pulloff`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ chargePercent: 0, driverLat: geo.lat, driverLng: geo.lng }),
+                        }).then(r => r.json()).then(data => {
+                          if (data.status) setRide(prev => ({ ...prev, status: data.status }));
+                        }).catch(() => {});
+                      }
+                    }}
+                    style={{
+                      position: 'absolute', top: 8, right: 8,
+                      background: 'rgba(255,82,82,0.15)', border: '1px solid rgba(255,82,82,0.2)',
+                      borderRadius: 8, padding: '4px 8px',
+                      color: COLORS.red, fontSize: 16, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      lineHeight: 1,
+                    }}
+                    title="Emergency — leave immediately"
+                  >
+                    <span>🚨</span>
+                  </button>
                   <div style={{
                     fontFamily: FONTS.mono, fontSize: 28, fontWeight: 700,
                     color: dUrgent ? COLORS.red : COLORS.white,
@@ -1471,32 +1497,7 @@ export default function ActiveRideClient({
                 textAlign: 'center', padding: '12px 16px', marginBottom: 8,
                 backgroundColor: rUrgent ? 'rgba(255,82,82,0.12)' : 'rgba(255,145,0,0.08)',
                 borderRadius: 14, border: rUrgent ? '1px solid rgba(255,82,82,0.2)' : '1px solid rgba(255,145,0,0.15)',
-                position: 'relative',
               }}>
-                {/* Emergency pulloff — rider can signal driver to leave */}
-                <button
-                  onClick={() => {
-                    if (confirm('Signal the driver to leave immediately? Use this if you feel unsafe or there\'s an emergency.')) {
-                      fetch(`/api/rides/${rideId}/cancel`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ reason: 'emergency', agreeToCancel: true }),
-                      }).then(() => setRide(prev => ({ ...prev, status: 'cancelled' })))
-                        .catch(() => {});
-                    }
-                  }}
-                  style={{
-                    position: 'absolute', top: 8, right: 8,
-                    background: 'rgba(255,82,82,0.15)', border: '1px solid rgba(255,82,82,0.2)',
-                    borderRadius: 8, padding: '4px 8px',
-                    color: COLORS.red, fontSize: 16, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', gap: 4,
-                    lineHeight: 1,
-                  }}
-                  title="Emergency — signal driver to leave"
-                >
-                  <span>🚨</span>
-                </button>
                 <div style={{
                   fontFamily: FONTS.mono, fontSize: 28, fontWeight: 700,
                   color: rUrgent ? COLORS.red : COLORS.orange,
