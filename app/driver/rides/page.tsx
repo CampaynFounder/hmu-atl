@@ -15,8 +15,7 @@ export default async function DriverRidesPage() {
     SELECT r.id, r.status, r.final_agreed_price, r.agreement_summary,
            r.created_at, r.started_at, r.ended_at, r.driver_payout_amount,
            r.platform_fee_amount, r.stripe_fee_amount, r.waived_fee_amount,
-           r.add_on_total, r.driver_rating, r.is_cash, r.pickup_address,
-           r.dropoff_address,
+           r.add_on_total, r.driver_rating, r.is_cash,
            COALESCE(rp.handle, rp.display_name, 'Rider') as rider_name,
            rp.handle as rider_handle
     FROM rides r
@@ -37,8 +36,8 @@ export default async function DriverRidesPage() {
           riderHandle: (r.rider_handle as string) || null,
           price: Number(r.final_agreed_price || 0),
           destination: (summary.destination as string) || (summary.message as string) || '',
-          pickup: (r.pickup_address as string) || (summary.pickup as string) || '',
-          dropoff: (r.dropoff_address as string) || (summary.dropoff as string) || '',
+          pickup: (summary.pickup as string) || '',
+          dropoff: (summary.dropoff as string) || (summary.destination as string) || '',
           payout: Number(r.driver_payout_amount || 0),
           platformFee: Number(r.platform_fee_amount || 0),
           stripeFee: Number(r.stripe_fee_amount || 0),
