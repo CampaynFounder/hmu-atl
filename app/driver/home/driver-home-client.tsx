@@ -462,11 +462,11 @@ function RequestCard({ req, actionLoading, onAction }: {
           )}
           {req.isCash && (
             <div style={{
-              marginTop: 8, fontSize: 11, fontWeight: 700, color: '#4CAF50',
-              background: 'rgba(76,175,80,0.1)', borderRadius: 100,
+              marginTop: 8, fontSize: 11, fontWeight: 700, color: '#FFC107',
+              background: 'rgba(255,193,7,0.12)', borderRadius: 100,
               padding: '4px 10px', display: 'inline-block',
             }}>
-              Cash Ride
+              💵 Cash Ride
             </div>
           )}
         </div>

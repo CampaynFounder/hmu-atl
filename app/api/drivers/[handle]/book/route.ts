@@ -18,14 +18,14 @@ export async function POST(
 
   const { handle } = await params;
 
-  let body: { price: number; areas?: string[]; timeWindow?: Record<string, unknown> };
+  let body: { price: number; areas?: string[]; timeWindow?: Record<string, unknown>; is_cash?: boolean };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { price, timeWindow } = body;
+  const { price, timeWindow, is_cash } = body;
   if (!price) {
     return NextResponse.json({ error: 'price is required' }, { status: 400 });
   }
@@ -81,7 +81,7 @@ export async function POST(
   }
 
   // Re-run eligibility server-side (never trust client)
-  const eligibility = await checkRiderEligibility(rider.id, driverUserId);
+  const eligibility = await checkRiderEligibility(rider.id, driverUserId, is_cash);
   if (!eligibility.eligible) {
     return NextResponse.json({ error: eligibility.reason, code: eligibility.code }, { status: 403 });
   }
@@ -92,6 +92,7 @@ export async function POST(
     price,
     areas,
     timeWindow: timeWindow || {},
+    isCash: is_cash,
   });
 
   // Fire Ably notification to driver
@@ -120,12 +121,26 @@ export async function POST(
       const tw = (timeWindow || {}) as Record<string, unknown>;
       const dest = (tw.destination as string) || '';
       const when = (tw.time as string) || '';
+
+      // Build cash ride suffix if applicable
+      let cashSuffix = '';
+      if (is_cash) {
+        try {
+          const cashRows = await sql`
+            SELECT cash_rides_remaining, cash_pack_balance FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
+          `;
+          const cashInfo = cashRows[0] as { cash_rides_remaining: number; cash_pack_balance: number } | undefined;
+          const remaining = (cashInfo?.cash_rides_remaining ?? 0) + (cashInfo?.cash_pack_balance ?? 0);
+          cashSuffix = ` CASH. ${remaining} left`;
+        } catch { cashSuffix = ' CASH'; }
+      }
+
       // Keep under 160 chars — VoIP.ms rejects longer messages
       let smsMsg: string;
       if (!payoutSetup) {
-        smsMsg = `HMU: ${riderName} wants a ride. $${price}${dest ? ' ' + dest : ''}${when ? ' ' + when : ''}. 15min to respond. Link payout first: atl.hmucashride.com/driver/payout-setup`;
+        smsMsg = `HMU: ${riderName} wants a ride. $${price}${dest ? ' ' + dest : ''}${cashSuffix}. Link payout: atl.hmucashride.com/driver/payout-setup`;
       } else {
-        smsMsg = `HMU: ${riderName} wants a ride. $${price}${dest ? ' ' + dest : ''}${when ? ' ' + when : ''}. Expires 15min. atl.hmucashride.com/driver/home`;
+        smsMsg = `HMU: ${riderName} wants a ride. $${price}${dest ? ' ' + dest : ''}${cashSuffix}. 15min. atl.hmucashride.com/driver/home`;
       }
       // Truncate to 160 if still too long
       if (smsMsg.length > 160) smsMsg = smsMsg.slice(0, 157) + '...';

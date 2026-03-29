@@ -405,8 +405,8 @@ function SwipeableCard({
                 </span>
               )}
               {request.isCash && (
-                <span style={{ fontSize: 10, background: 'rgba(76,175,80,0.2)', color: '#4CAF50', padding: '2px 8px', borderRadius: 100, fontWeight: 600 }}>
-                  Cash
+                <span style={{ fontSize: 10, background: 'rgba(255,193,7,0.2)', color: '#FFC107', padding: '2px 8px', borderRadius: 100, fontWeight: 600 }}>
+                  💵 Cash
                 </span>
               )}
             </div>

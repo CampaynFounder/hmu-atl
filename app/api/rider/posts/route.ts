@@ -24,7 +24,7 @@ export async function GET() {
 
     const rows = await sql`
       SELECT p.id, p.areas, p.price, p.time_window, p.status, p.post_type,
-             p.created_at, p.booking_expires_at,
+             p.created_at, p.booking_expires_at, p.is_cash,
              dp.display_name as driver_name, dp.handle as driver_handle
       FROM hmu_posts p
       LEFT JOIN driver_profiles dp ON dp.user_id = p.target_driver_id
@@ -44,6 +44,7 @@ export async function GET() {
         status: r.status,
         driverName: (r.driver_name as string) || null,
         driverHandle: (r.driver_handle as string) || null,
+        isCash: (r.is_cash as boolean) || false,
         expiresAt: (r.booking_expires_at as string) || null,
         createdAt: r.created_at,
       };

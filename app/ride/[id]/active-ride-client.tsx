@@ -1772,7 +1772,14 @@ export default function ActiveRideClient({
             }}>
               {/* Base ride */}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                <span style={{ fontSize: 13, color: COLORS.grayLight }}>Ride</span>
+                <span style={{ fontSize: 13, color: COLORS.grayLight, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Ride
+                  {ride.isCash && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#FFC107', background: 'rgba(255,193,7,0.15)', padding: '1px 7px', borderRadius: 100 }}>
+                      CASH
+                    </span>
+                  )}
+                </span>
                 <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.white }}>${ride.agreedPrice.toFixed(2)}</span>
               </div>
 
@@ -1938,6 +1945,20 @@ export default function ActiveRideClient({
           )}
         </div>
 
+        {ride.isCash && isDriver && (
+          <div style={{
+            background: 'rgba(255,193,7,0.12)', border: '1px solid rgba(255,193,7,0.3)',
+            borderRadius: 14, padding: '14px 16px', textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#FFC107' }}>
+              💵 Collect ${ride.agreedPrice.toFixed(0)} cash from rider
+            </div>
+            <div style={{ fontSize: 12, color: '#FFC107', opacity: 0.7, marginTop: 4 }}>
+              This was a cash ride — no digital payment
+            </div>
+          </div>
+        )}
+
         {/* Ride analytics summary */}
         <RideAnalyticsSummary rideId={rideId} payout={ride.driverPayoutAmount} />
 
@@ -1946,7 +1967,7 @@ export default function ActiveRideClient({
           color: COLORS.gray,
           textAlign: 'center',
         }}>
-          Cash out from your home screen
+          {ride.isCash ? 'Cash ride — no cashout needed' : 'Cash out from your home screen'}
         </div>
 
         {!rated && renderRatingCards()}

@@ -6,6 +6,7 @@ import { captureRiderPayment } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { isWithinProximity } from '@/lib/geo/distance';
 import { calculateAndStoreRideAnalytics } from '@/lib/rides/analytics';
+import { getDriverEnrollment, updateEnrollmentProgress, isDriverInFreeWindow } from '@/lib/db/enrollment-offers';
 import Stripe from 'stripe';
 
 export async function POST(
@@ -103,6 +104,17 @@ export async function POST(
         }
       } catch (e) {
         console.error('Cash ride counter decrement failed:', e);
+      }
+
+      // Track cash ride in launch offer enrollment
+      try {
+        const cashAmount = Number(ride.amount || ride.final_agreed_price || 0);
+        const enrollment = await getDriverEnrollment(userId);
+        if (enrollment && await isDriverInFreeWindow(userId)) {
+          await updateEnrollmentProgress(userId, cashAmount, 0);
+        }
+      } catch (e) {
+        console.error('Launch offer update for cash ride failed:', e);
       }
     }
 

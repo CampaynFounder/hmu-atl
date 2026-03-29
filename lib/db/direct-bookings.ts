@@ -168,6 +168,7 @@ export async function createDirectBookingPost(params: {
   price: number;
   areas: string[];
   timeWindow: Record<string, unknown>;
+  isCash?: boolean;
 }): Promise<HmuPost> {
   const result = await sql`
     INSERT INTO hmu_posts (
@@ -179,7 +180,8 @@ export async function createDirectBookingPost(params: {
       status,
       target_driver_id,
       booking_expires_at,
-      expires_at
+      expires_at,
+      is_cash
     ) VALUES (
       ${params.riderId},
       'direct_booking',
@@ -189,7 +191,8 @@ export async function createDirectBookingPost(params: {
       'active',
       ${params.driverUserId},
       NOW() + INTERVAL '15 minutes',
-      NOW() + INTERVAL '15 minutes'
+      NOW() + INTERVAL '15 minutes',
+      ${params.isCash || false}
     )
     RETURNING *
   `;

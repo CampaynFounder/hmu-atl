@@ -17,6 +17,7 @@ interface PostedRequest {
   message: string;
   price: number;
   status: string;
+  isCash?: boolean;
   driverName?: string | null;
   driverHandle?: string | null;
   expiresAt?: string | null;
@@ -562,6 +563,11 @@ function ActivePostCard({
           ) : (
             <span style={{ fontSize: 11, background: 'rgba(0,230,118,0.1)', color: '#00E676', padding: '2px 8px', borderRadius: 100, fontWeight: 600 }}>
               Open
+            </span>
+          )}
+          {post.isCash && (
+            <span style={{ fontSize: 11, background: 'rgba(255,193,7,0.15)', color: '#FFC107', padding: '2px 8px', borderRadius: 100, fontWeight: 600 }}>
+              Cash
             </span>
           )}
           {post.driverHandle && (
