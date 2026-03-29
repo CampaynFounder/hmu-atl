@@ -188,10 +188,15 @@ export default function CashoutCard() {
           {isHmuFirst ? '\uD83E\uDD47 HMU First' : 'Free Tier'}
         </div>
 
-        <div className="co-title">Digital Balance</div>
+        <div className="co-title">Ready to Cash Out</div>
         <div className={`co-amount ${cashableAmount <= 0 ? 'co-amount--zero' : ''}`}>
           ${cashableAmount.toFixed(2)}
         </div>
+        {balance.pending > 0 && (
+          <div style={{ fontSize: 12, color: '#FFB300', marginBottom: 4, marginTop: -2 }}>
+            + ${balance.pending.toFixed(2)} pending (processing by Stripe)
+          </div>
+        )}
 
         {/* Earnings breakdown — cash vs digital */}
         {(balance.cashEarnings || balance.digitalEarnings) && (
