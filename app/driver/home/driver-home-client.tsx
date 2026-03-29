@@ -7,6 +7,7 @@ import DealCard from '@/components/driver/deal-card';
 
 interface BookingRequest {
   id: string;
+  type?: string;
   riderName: string;
   riderHandle: string | null;
   riderAvatarUrl: string | null;
@@ -131,9 +132,15 @@ export default function DriverHomeClient({
       const res = await fetch(`/api/bookings/${postId}/${action}`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
-        setRequests((prev) => prev.filter((r) => r.id !== postId));
         if (action === 'accept' && data.rideId) {
-          if (data.rideId) window.location.replace(`/ride/${data.rideId}`);
+          // Direct booking — instant match
+          setRequests((prev) => prev.filter((r) => r.id !== postId));
+          window.location.replace(`/ride/${data.rideId}`);
+        } else if (action === 'accept' && data.status === 'interested') {
+          // Open request — interest registered, remove card
+          setRequests((prev) => prev.filter((r) => r.id !== postId));
+        } else {
+          setRequests((prev) => prev.filter((r) => r.id !== postId));
         }
       } else if (data.error === 'PAYOUT_REQUIRED') {
         if (confirm('Set up your payout account to accept rides. Go to payout setup?')) {
@@ -510,7 +517,7 @@ function RequestCard({ req, actionLoading, onAction }: {
             onClick={() => onAction(req.id, 'accept')}
             disabled={actionLoading === req.id}
           >
-            Accept
+            {req.type === 'direct' ? 'Accept' : 'HMU'}
           </button>
         </div>
       )}

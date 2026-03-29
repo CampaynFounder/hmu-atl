@@ -80,7 +80,57 @@ export async function POST(
       }
     }
 
-    // ── Single-ride invariant: check BOTH rider and driver ──
+    // Get driver display name
+    const driverNameRows = await sql`
+      SELECT handle, display_name, video_url FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
+    `;
+    const driverProfile = driverNameRows[0] as Record<string, unknown> | undefined;
+    const driverName = (driverProfile?.handle as string) || (driverProfile?.display_name as string) || 'A driver';
+
+    const isDirectBooking = post.post_type === 'direct_booking';
+
+    // ── OPEN REQUESTS: Register interest (rider picks later) ──
+    if (!isDirectBooking) {
+      // Check driver doesn't already have interest or active ride
+      const [existingInterest, driverActiveRides] = await Promise.all([
+        sql`SELECT id FROM ride_interests WHERE post_id = ${postId} AND driver_id = ${driverUserId} LIMIT 1`,
+        sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('matched','otw','here','active') LIMIT 1`,
+      ]);
+
+      if (existingInterest.length) {
+        return NextResponse.json({ error: 'You already expressed interest in this ride' }, { status: 409 });
+      }
+      if (driverActiveRides.length) {
+        return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });
+      }
+
+      await sql`
+        INSERT INTO ride_interests (post_id, driver_id, price_offered, status)
+        VALUES (${postId}, ${driverUserId}, ${price}, 'interested')
+        ON CONFLICT (post_id, driver_id) DO NOTHING
+      `;
+
+      // Notify rider that a driver is interested
+      await notifyUser(riderId, 'driver_interested', {
+        postId,
+        driverUserId,
+        driverName,
+        driverHandle: driverProfile?.handle || null,
+        driverVideoUrl: driverProfile?.video_url || null,
+        price,
+        message: `${driverName} wants your ride!`,
+      }).catch(() => {});
+
+      // Count total interested drivers
+      const countRows = await sql`SELECT COUNT(*) as count FROM ride_interests WHERE post_id = ${postId} AND status = 'interested'`;
+      const interestCount = Number((countRows[0] as Record<string, unknown>).count);
+
+      publishAdminEvent('driver_interested', { postId, driverUserId, driverName, interestCount }).catch(() => {});
+
+      return NextResponse.json({ status: 'interested', interestCount });
+    }
+
+    // ── DIRECT BOOKINGS: Instant match (driver was specifically chosen) ──
     const [riderActiveRides, driverActiveRides] = await Promise.all([
       sql`SELECT id FROM rides WHERE rider_id = ${riderId} AND status IN ('matched','otw','here','active') LIMIT 1`,
       sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('matched','otw','here','active') LIMIT 1`,
@@ -100,7 +150,7 @@ export async function POST(
     // Update this post to matched
     await sql`UPDATE hmu_posts SET status = 'matched' WHERE id = ${postId}`;
 
-    // Cascade: expire all OTHER active posts for this rider (first-accept-wins)
+    // Cascade: expire all OTHER active posts for this rider
     await sql`
       UPDATE hmu_posts SET status = 'expired'
       WHERE user_id = ${riderId}
@@ -135,12 +185,6 @@ export async function POST(
     `;
 
     const rideId = (rideRows[0] as { id: string }).id;
-
-    // Get driver display name for notification
-    const driverNameRows = await sql`
-      SELECT handle, display_name FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
-    `;
-    const driverName = (driverNameRows[0] as Record<string, unknown>)?.handle as string || (driverNameRows[0] as Record<string, unknown>)?.display_name as string || 'A driver';
 
     // Notify rider via Ably
     await notifyUser(riderId, 'booking_accepted', {

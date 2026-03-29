@@ -24,6 +24,22 @@ interface PostedRequest {
   createdAt: string;
 }
 
+interface InterestedDriver {
+  interestId: string;
+  driverUserId: string;
+  handle: string | null;
+  displayName: string;
+  avatarUrl: string | null;
+  videoUrl: string | null;
+  chillScore: number;
+  completedRides: number;
+  tier: string;
+  fwu: boolean;
+  lgbtqFriendly: boolean;
+  priceOffered: number;
+  interestedAt: string;
+}
+
 interface MatchNotification {
   rideId: string;
   driverName?: string;
@@ -44,6 +60,8 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
   const [matchNotif, setMatchNotif] = useState<MatchNotification | null>(null);
   const [pastExpanded, setPastExpanded] = useState(false);
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
+  const [interestedDrivers, setInterestedDrivers] = useState<Map<string, InterestedDriver[]>>(new Map());
+  const [selectingDriver, setSelectingDriver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const activePosts = posts.filter(p => ACTIVE_STATUSES.includes(p.status));
@@ -86,7 +104,52 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
         }
       }
     }
+    if (msg.name === 'driver_interested') {
+      const postId = data.postId as string;
+      const driver: InterestedDriver = {
+        interestId: '',
+        driverUserId: data.driverUserId as string,
+        handle: (data.driverHandle as string) || null,
+        displayName: (data.driverName as string) || 'Driver',
+        avatarUrl: null,
+        videoUrl: (data.driverVideoUrl as string) || null,
+        chillScore: 0,
+        completedRides: 0,
+        tier: 'free',
+        fwu: false,
+        lgbtqFriendly: false,
+        priceOffered: Number(data.price || 0),
+        interestedAt: new Date().toISOString(),
+      };
+      setInterestedDrivers(prev => {
+        const next = new Map(prev);
+        const existing = next.get(postId) || [];
+        if (!existing.find(d => d.driverUserId === driver.driverUserId)) {
+          next.set(postId, [...existing, driver]);
+        }
+        return next;
+      });
+    }
   }, []);
+
+  // Fetch interested drivers for active posts
+  useEffect(() => {
+    const active = posts.filter(p => p.status === 'active' && p.type !== 'direct');
+    for (const post of active) {
+      fetch(`/api/bookings/${post.id}/select`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data?.drivers?.length) {
+            setInterestedDrivers(prev => {
+              const next = new Map(prev);
+              next.set(post.id, data.drivers);
+              return next;
+            });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [posts]);
 
   useAbly({
     channelName: userId ? `user:${userId}:notify` : null,
@@ -294,14 +357,121 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
         {activePosts.length > 0 && (
           <>
             <div className="rf-section">Active ({activePosts.length})</div>
-            {activePosts.map(post => (
-              <ActivePostCard
-                key={post.id}
-                post={post}
-                displayName={displayName}
-                onDelete={handleDelete}
-              />
-            ))}
+            {activePosts.map(post => {
+              const drivers = interestedDrivers.get(post.id) || [];
+              return (
+                <div key={post.id}>
+                  <ActivePostCard
+                    post={post}
+                    displayName={displayName}
+                    onDelete={handleDelete}
+                  />
+                  {/* Interested drivers for this post */}
+                  {post.status === 'active' && drivers.length > 0 && (
+                    <div style={{ margin: '0 20px 12px' }}>
+                      <div style={{
+                        fontSize: 10, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase',
+                        color: '#00E676', padding: '0 4px 6px',
+                        fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+                      }}>
+                        {drivers.length} DRIVER{drivers.length > 1 ? 'S' : ''} INTERESTED
+                      </div>
+                      {drivers.map(driver => (
+                        <div
+                          key={driver.driverUserId}
+                          style={{
+                            background: '#141414', border: '1px solid rgba(0,230,118,0.15)',
+                            borderRadius: 16, padding: '12px 16px', marginBottom: 8,
+                            display: 'flex', alignItems: 'center', gap: 12,
+                          }}
+                        >
+                          {/* Avatar or video thumbnail */}
+                          <div style={{
+                            width: 48, height: 48, borderRadius: 12, overflow: 'hidden',
+                            background: '#1a1a1a', flexShrink: 0,
+                          }}>
+                            {driver.videoUrl ? (
+                              <video src={driver.videoUrl} muted playsInline preload="metadata"
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : driver.avatarUrl ? (
+                              <img src={driver.avatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: '#444' }}>
+                                {(driver.displayName || 'D').charAt(0)}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Driver info */}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                              <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>
+                                {driver.handle ? `@${driver.handle}` : driver.displayName}
+                              </span>
+                              {driver.tier === 'hmu_first' && (
+                                <span style={{ fontSize: 9, background: 'rgba(0,230,118,0.15)', color: '#00E676', padding: '1px 6px', borderRadius: 100, fontWeight: 700 }}>1ST</span>
+                              )}
+                              {driver.fwu && (
+                                <span style={{ fontSize: 9, background: 'rgba(156,39,176,0.15)', color: '#CE93D8', padding: '1px 6px', borderRadius: 100, fontWeight: 700 }}>FWU</span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#888' }}>
+                              {driver.chillScore > 0 && <span style={{ color: '#00E676', fontWeight: 600 }}>{driver.chillScore}% Chill</span>}
+                              {driver.completedRides > 0 && <span> · {driver.completedRides} rides</span>}
+                            </div>
+                          </div>
+
+                          {/* Select button */}
+                          <button
+                            disabled={selectingDriver}
+                            onClick={async () => {
+                              setSelectingDriver(true);
+                              try {
+                                const res = await fetch(`/api/bookings/${post.id}/select`, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ driverUserId: driver.driverUserId }),
+                                });
+                                const data = await res.json();
+                                if (data.rideId) {
+                                  setMatchNotif({
+                                    rideId: data.rideId,
+                                    driverName: driver.handle || driver.displayName,
+                                    price: post.price,
+                                    message: `Matched with ${driver.handle || driver.displayName}!`,
+                                  });
+                                  setPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'matched' } : p));
+                                  setTimeout(() => { window.location.replace(`/ride/${data.rideId}`); }, 2500);
+                                } else {
+                                  setError(data.error || 'Failed to select driver');
+                                }
+                              } catch { setError('Network error'); }
+                              setSelectingDriver(false);
+                            }}
+                            style={{
+                              padding: '8px 16px', borderRadius: 100, border: 'none',
+                              background: '#00E676', color: '#000', fontSize: 13, fontWeight: 700,
+                              cursor: 'pointer', fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                              flexShrink: 0, opacity: selectingDriver ? 0.5 : 1,
+                            }}
+                          >
+                            HMU
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {post.status === 'active' && drivers.length === 0 && post.type !== 'direct' && (
+                    <div style={{
+                      margin: '0 20px 12px', padding: '8px 14px',
+                      fontSize: 12, color: '#555', textAlign: 'center',
+                    }}>
+                      Waiting for drivers to express interest...
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </>
         )}
 

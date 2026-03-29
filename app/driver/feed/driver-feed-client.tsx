@@ -73,9 +73,14 @@ export default function DriverFeedClient({ driverAreas }: Props) {
       const data = await res.json();
       if (res.ok) {
         setRequests((prev) => prev.filter((r) => r.id !== postId));
-        setActionFeedback('Accepted!');
         if (data.rideId) {
-          if (data.rideId) window.location.replace(`/ride/${data.rideId}`);
+          setActionFeedback('Matched!');
+          window.location.replace(`/ride/${data.rideId}`);
+        } else if (data.status === 'interested') {
+          setActionFeedback('Interest sent — waiting for rider to pick you');
+          setTimeout(() => setActionFeedback(null), 4000);
+        } else {
+          setActionFeedback('Accepted!');
         }
       } else if (data.code === 'no_cash_rides') {
         setShowCashPackPurchase(true);
@@ -461,7 +466,7 @@ function SwipeableCard({
         {/* Actions */}
         <div className="rc-actions">
           <button className="rc-btn rc-btn--accept" onClick={handleAcceptClick} disabled={!!dismissed}>
-            Accept ${request.price}
+            {request.type === 'direct' ? `Accept $${request.price}` : `HMU $${request.price}`}
           </button>
           <button className="rc-btn rc-btn--decline" onClick={handlePassClick} disabled={!!dismissed}>
             Pass
