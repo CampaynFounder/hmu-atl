@@ -73,6 +73,8 @@ interface RideData {
   driverPlate: string | null;
   driverPlateState: string | null;
   isCash: boolean;
+  proposedPrice: number | null;
+  proposedPriceReason: string | null;
   waitMinutes: number;
   confirmDeadline: string | null;
   addOns: { id: string; name: string; unitPrice: number; quantity: number; subtotal: number; status: string; addedBy: string }[];
@@ -164,6 +166,8 @@ export default function ActiveRideClient({
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [menuSheetOpen, setMenuSheetOpen] = useState(false);
+  const [pendingStop, setPendingStop] = useState<{ address: string; latitude?: number; longitude?: number } | null>(null);
+  const [endRideConfirm, setEndRideConfirm] = useState<{ show: boolean; reason: string; notes: string }>({ show: false, reason: '', notes: '' });
   const [notification, setNotification] = useState<{
     message: string;
     emoji: string;
@@ -353,6 +357,72 @@ export default function ActiveRideClient({
         setExtensionPending(false);
         if (!isDriver) {
           showNotification('Driver can\'t wait longer — hurry!', '🏃', COLORS.red);
+        }
+        break;
+      }
+      case 'price_update_proposed': {
+        if (!isDriver) {
+          const proposed = Number(data.newPrice);
+          setRide(prev => ({ ...prev, proposedPrice: proposed, proposedPriceReason: (data.reason as string) || null }));
+          showNotification(`Driver updated price to $${proposed}`, '💰', COLORS.orange, 'Review the new price');
+          if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        }
+        break;
+      }
+      case 'price_update_accepted': {
+        const accepted = Number(data.newPrice);
+        setRide(prev => ({ ...prev, agreedPrice: accepted, proposedPrice: null, proposedPriceReason: null }));
+        if (isDriver) {
+          showNotification('Rider accepted the new price', '✅', COLORS.green);
+        }
+        break;
+      }
+      case 'price_update_declined': {
+        setRide(prev => ({ ...prev, proposedPrice: null, proposedPriceReason: null }));
+        if (isDriver) {
+          showNotification('Rider declined — keeping original price', '❌', COLORS.red);
+        }
+        break;
+      }
+      case 'stops_updated': {
+        const updatedStops = data.stops as unknown[];
+        if (Array.isArray(updatedStops)) {
+          setRide(prev => ({ ...prev, stops: updatedStops }));
+          // Check if a stop was just reached
+          const justReached = (updatedStops as { reached_at?: string; address?: string }[]).find(s => {
+            const reachedAt = s.reached_at ? new Date(s.reached_at).getTime() : 0;
+            return Date.now() - reachedAt < 30000; // within last 30s
+          });
+          if (justReached) {
+            showNotification(`Stop reached: ${justReached.address || 'Stop'}`, '✅', COLORS.green);
+          }
+        }
+        break;
+      }
+      case 'stop_requested': {
+        if (isDriver) {
+          setPendingStop({ address: data.address as string, latitude: data.latitude as number, longitude: data.longitude as number });
+          showNotification('Rider wants to add a stop', '📍', COLORS.orange, data.address as string);
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        }
+        break;
+      }
+      case 'stop_accepted': {
+        const stop = data.stop as Record<string, unknown>;
+        setRide(prev => ({
+          ...prev,
+          stops: [...(Array.isArray(prev.stops) ? prev.stops : []), stop],
+        }));
+        setPendingStop(null);
+        if (!isDriver) {
+          showNotification('Driver accepted your stop', '✅', COLORS.green);
+        }
+        break;
+      }
+      case 'stop_declined': {
+        setPendingStop(null);
+        if (!isDriver) {
+          showNotification('Driver declined the stop', '❌', COLORS.red, data.message as string);
         }
         break;
       }
@@ -1297,6 +1367,49 @@ export default function ActiveRideClient({
             <>
               <StatusMessage text="Rider is ready!" />
               <TappableAddresses ride={ride} />
+              {/* Update price option for driver */}
+              {!ride.proposedPrice && (
+                <div style={{ marginBottom: 8 }}>
+                  <button
+                    onClick={() => {
+                      const input = prompt(`Current price: $${Number(ride.agreedPrice || 0).toFixed(0)}\n\nEnter new price (stops may justify a higher price):`, String(Math.ceil(Number(ride.agreedPrice || 0))));
+                      if (!input) return;
+                      const newPrice = parseFloat(input);
+                      if (isNaN(newPrice) || newPrice < 1) { setError('Enter a valid price'); return; }
+                      if (newPrice === Number(ride.agreedPrice)) return;
+                      fetch(`/api/rides/${rideId}/update-price`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ newPrice, reason: 'Price adjusted for stops' }),
+                      }).then(r => r.json()).then(data => {
+                        if (data.status === 'proposed') {
+                          setRide(prev => ({ ...prev, proposedPrice: newPrice }));
+                          showNotification('Price update sent to rider', '💰', COLORS.orange);
+                        } else {
+                          setError(data.error || 'Failed to update price');
+                        }
+                      }).catch(() => setError('Network error'));
+                    }}
+                    style={{
+                      width: '100%', padding: '10px', borderRadius: 100,
+                      border: '1px solid rgba(255,145,0,0.3)', background: 'transparent',
+                      color: COLORS.orange, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                      fontFamily: FONTS.body,
+                    }}
+                  >
+                    Update Price
+                  </button>
+                </div>
+              )}
+              {ride.proposedPrice && (
+                <div style={{
+                  padding: '10px 14px', borderRadius: 12, marginBottom: 8,
+                  background: 'rgba(255,145,0,0.1)', border: '1px solid rgba(255,145,0,0.2)',
+                  textAlign: 'center', fontSize: 13, color: COLORS.orange,
+                }}>
+                  Waiting for rider to accept ${ride.proposedPrice}...
+                </div>
+              )}
               <ActionButton
                 label="OTW"
                 color={COLORS.green}
@@ -1305,7 +1418,7 @@ export default function ActiveRideClient({
               />
             </>
           ) : (
-            <StatusMessage text={`Waiting for rider to verify $${ride.agreedPrice.toFixed(0)} payment...`} />
+            <StatusMessage text={`Waiting for rider to verify $${Number(ride.agreedPrice || 0).toFixed(0)} payment...`} />
           );
 
         case 'otw':
@@ -1582,17 +1695,139 @@ export default function ActiveRideClient({
         case 'active':
           return (
             <>
+            {/* Pending stop request from rider */}
+            {pendingStop && (
+              <div style={{
+                background: 'rgba(255,145,0,0.1)', border: '1px solid rgba(255,145,0,0.25)',
+                borderRadius: 14, padding: '14px 16px', marginBottom: 8,
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.orange, marginBottom: 4 }}>
+                  📍 Rider wants to add a stop
+                </div>
+                <div style={{ fontSize: 14, color: COLORS.white, marginBottom: 10 }}>{pendingStop.address}</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => {
+                      fetch(`/api/rides/${rideId}/add-stop`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'accept', ...pendingStop }),
+                      }).catch(() => {});
+                      setPendingStop(null);
+                    }}
+                    style={{ flex: 1, padding: 10, borderRadius: 100, border: 'none', background: COLORS.green, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONTS.body }}
+                  >
+                    Accept Stop
+                  </button>
+                  <button
+                    onClick={() => {
+                      fetch(`/api/rides/${rideId}/add-stop`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'decline', address: pendingStop.address }),
+                      }).catch(() => {});
+                      setPendingStop(null);
+                    }}
+                    style={{ flex: 1, padding: 10, borderRadius: 100, border: '1px solid rgba(255,82,82,0.3)', background: 'transparent', color: COLORS.red, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: FONTS.body }}
+                  >
+                    Decline
+                  </button>
+                </div>
+              </div>
+            )}
             {ride.addOns.length > 0 && renderAddOnSummary()}
+
+            {/* End ride reason picker (shown when far from dropoff) */}
+            {endRideConfirm.show && (
+              <div style={{
+                background: 'rgba(255,82,82,0.08)', border: '1px solid rgba(255,82,82,0.2)',
+                borderRadius: 14, padding: '14px 16px', marginBottom: 8,
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.red, marginBottom: 8 }}>
+                  You're not near the drop-off — what happened?
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                  {['Rider asked to stop here', 'Rider no-show / left early', 'Route change agreed', 'Safety concern', 'Other'].map(r => (
+                    <button
+                      key={r}
+                      onClick={() => setEndRideConfirm(prev => ({ ...prev, reason: r }))}
+                      style={{
+                        padding: '8px 12px', borderRadius: 10, fontSize: 13, textAlign: 'left',
+                        border: endRideConfirm.reason === r ? '1px solid rgba(255,82,82,0.5)' : '1px solid rgba(255,255,255,0.1)',
+                        background: endRideConfirm.reason === r ? 'rgba(255,82,82,0.15)' : 'transparent',
+                        color: endRideConfirm.reason === r ? COLORS.red : COLORS.grayLight,
+                        cursor: 'pointer', fontFamily: FONTS.body,
+                      }}
+                    >{r}</button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  placeholder="Add details (optional)"
+                  value={endRideConfirm.notes}
+                  onChange={(e) => setEndRideConfirm(prev => ({ ...prev, notes: e.target.value }))}
+                  style={{
+                    width: '100%', padding: '8px 12px', borderRadius: 10, marginBottom: 10,
+                    border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)',
+                    color: COLORS.white, fontSize: 13, fontFamily: FONTS.body, outline: 'none',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => setEndRideConfirm({ show: false, reason: '', notes: '' })}
+                    style={{ flex: 1, padding: 10, borderRadius: 100, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: COLORS.gray, fontSize: 13, cursor: 'pointer', fontFamily: FONTS.body }}
+                  >Back</button>
+                  <ActionButton
+                    label="Confirm End"
+                    color={COLORS.red}
+                    onPress={async () => {
+                      if (!endRideConfirm.reason) { setError('Select a reason'); return; }
+                      setLoading(true);
+                      try {
+                        const res = await fetch(`/api/rides/${rideId}/end`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            driverLat: geo.lat, driverLng: geo.lng,
+                            earlyEndReason: endRideConfirm.reason,
+                            earlyEndNotes: endRideConfirm.notes || null,
+                          }),
+                        });
+                        const data = await res.json();
+                        if (data.status) setRide(prev => ({ ...prev, status: data.status }));
+                        if (data.driver_payout_amount !== undefined) {
+                          setRide(prev => ({ ...prev, driverPayoutAmount: Number(data.driverReceives || data.driver_payout_amount), platformFeeAmount: Number(data.platformFee || prev.platformFeeAmount) }));
+                        }
+                        setEndRideConfirm({ show: false, reason: '', notes: '' });
+                      } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+                      setLoading(false);
+                    }}
+                    loading={loading}
+                  />
+                </div>
+              </div>
+            )}
+
+            {!endRideConfirm.show && (
             <ActionButton
               label="END RIDE"
               color={COLORS.red}
               onPress={async () => {
+                // Check proximity to dropoff before ending
+                const dLat = geo.lat;
+                const dLng = geo.lng;
+                if (dLat && dLng && ride.dropoffLat && ride.dropoffLng) {
+                  const miles = haversineDistance(dLat, dLng, ride.dropoffLat, ride.dropoffLng);
+                  const feet = miles * 5280;
+                  if (feet > 1000) {
+                    // Far from dropoff — ask for reason
+                    setEndRideConfirm({ show: true, reason: '', notes: '' });
+                    return;
+                  }
+                }
+                // Close to dropoff or no dropoff GPS — end normally
                 setLoading(true);
                 try {
-                  // Capture driver GPS at end
-                  let dLat: number | null = null;
-                  let dLng: number | null = null;
-                  if (geo.lat && geo.lng) { dLat = geo.lat; dLng = geo.lng; }
                   const res = await fetch(`/api/rides/${rideId}/end`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1614,6 +1849,7 @@ export default function ActiveRideClient({
               }}
               loading={loading}
             />
+            )}
             </>
           );
 
@@ -1639,7 +1875,71 @@ export default function ActiveRideClient({
       case 'matched':
         return ride.cooAt ? (
           <>
-            <StatusMessage text="Pull Up sent — waiting for driver to go OTW..." />
+            {ride.proposedPrice ? (
+              <div style={{
+                background: 'rgba(255,145,0,0.1)', border: '1px solid rgba(255,145,0,0.25)',
+                borderRadius: 16, padding: '16px', marginBottom: 8, textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 13, color: COLORS.orange, marginBottom: 4 }}>
+                  Driver updated the price
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 8 }}>
+                  <span style={{ fontSize: 16, color: COLORS.gray, textDecoration: 'line-through', fontFamily: FONTS.mono }}>${Number(ride.agreedPrice || 0).toFixed(0)}</span>
+                  <span style={{ fontSize: 11, color: COLORS.gray }}>→</span>
+                  <span style={{ fontSize: 28, fontWeight: 700, color: COLORS.green, fontFamily: FONTS.mono }}>${ride.proposedPrice}</span>
+                </div>
+                {ride.proposedPriceReason && (
+                  <div style={{ fontSize: 12, color: COLORS.grayLight, marginBottom: 10 }}>{ride.proposedPriceReason}</div>
+                )}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={async () => {
+                      const res = await fetch(`/api/rides/${rideId}/update-price`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'accept' }),
+                      });
+                      const data = await res.json();
+                      if (data.status === 'accepted') {
+                        setRide(prev => ({ ...prev, agreedPrice: data.newPrice, proposedPrice: null, proposedPriceReason: null }));
+                        showNotification('Price accepted', '✅', COLORS.green);
+                      }
+                    }}
+                    style={{
+                      flex: 1, padding: 12, borderRadius: 100, border: 'none',
+                      background: COLORS.green, color: '#000', fontSize: 14, fontWeight: 700,
+                      cursor: 'pointer', fontFamily: FONTS.body,
+                    }}
+                  >
+                    Accept ${ride.proposedPrice}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const res = await fetch(`/api/rides/${rideId}/update-price`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'decline' }),
+                      });
+                      const data = await res.json();
+                      if (data.status === 'declined') {
+                        setRide(prev => ({ ...prev, proposedPrice: null, proposedPriceReason: null }));
+                        showNotification('Keeping original price', '💰', COLORS.orange);
+                      }
+                    }}
+                    style={{
+                      flex: 1, padding: 12, borderRadius: 100,
+                      border: '1px solid rgba(255,82,82,0.3)', background: 'transparent',
+                      color: COLORS.red, fontSize: 14, fontWeight: 600,
+                      cursor: 'pointer', fontFamily: FONTS.body,
+                    }}
+                  >
+                    Decline
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <StatusMessage text="Pull Up sent — waiting for driver to go OTW..." />
+            )}
             <CancelButton rideId={rideId} label="Cancel Ride" onCancelled={() => setRide(prev => ({ ...prev, status: 'cancelled' }))} />
           </>
         ) : (
@@ -1919,6 +2219,32 @@ export default function ActiveRideClient({
             <StatusMessage text="Ride in progress" />
             {ride.addOns.length > 0 && renderAddOnSummary()}
             {renderAddServicesButton()}
+            {/* Add a stop button */}
+            <button
+              onClick={() => {
+                const addr = prompt('Where do you need to stop?');
+                if (!addr?.trim()) return;
+                fetch(`/api/rides/${rideId}/add-stop`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ address: addr.trim() }),
+                }).then(r => r.json()).then(data => {
+                  if (data.status === 'requested') {
+                    showNotification('Stop request sent to driver', '📍', COLORS.orange);
+                  } else {
+                    setError(data.error || 'Could not add stop');
+                  }
+                }).catch(() => setError('Network error'));
+              }}
+              style={{
+                width: '100%', padding: 10, borderRadius: 100, marginTop: 6,
+                border: '1px solid rgba(255,145,0,0.3)', background: 'transparent',
+                color: COLORS.orange, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                fontFamily: FONTS.body,
+              }}
+            >
+              + Add a Stop
+            </button>
           </>
         );
 

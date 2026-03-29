@@ -21,10 +21,14 @@ export async function POST(
 
     let driverLat: number | null = null;
     let driverLng: number | null = null;
+    let earlyEndReason: string | null = null;
+    let earlyEndNotes: string | null = null;
     try {
       const body = await req.json();
       driverLat = body.driverLat || null;
       driverLng = body.driverLng || null;
+      earlyEndReason = body.earlyEndReason || null;
+      earlyEndNotes = body.earlyEndNotes || null;
     } catch { /* no body is ok */ }
 
     const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
@@ -139,6 +143,8 @@ export async function POST(
         driver_end_lng = ${driverLng},
         end_proximity_ft = ${endProximityFt},
         end_verified = ${endVerified},
+        early_end_reason = ${earlyEndReason},
+        early_end_notes = ${earlyEndNotes},
         dispute_window_expires_at = NOW() + ${disputeMinutes + ' minutes'}::interval,
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'active'

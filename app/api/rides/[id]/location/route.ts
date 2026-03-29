@@ -41,6 +41,42 @@ export async function POST(
     // Publish location to ride channel for real-time map
     await publishRideUpdate(rideId, 'location', { userId, lat, lng, timestamp: Date.now() }).catch(() => {});
 
+    // Background stop tracking — auto-mark stops as reached when within ~300ft
+    const rideStatus = (rideRows[0] as Record<string, unknown>).status;
+    if (rideStatus === 'active') {
+      try {
+        const stopsRows = await sql`SELECT stops FROM rides WHERE id = ${rideId} LIMIT 1`;
+        const stops = stopsRows.length ? (stopsRows[0] as Record<string, unknown>).stops as Record<string, unknown>[] | null : null;
+        if (stops && Array.isArray(stops)) {
+          let updated = false;
+          const THRESHOLD_FT = 300;
+          for (const stop of stops) {
+            if (stop.reached_at) continue; // already reached
+            const sLat = Number(stop.latitude);
+            const sLng = Number(stop.longitude);
+            if (!sLat || !sLng) continue;
+            // Haversine distance in feet
+            const R = 3958.8; // Earth radius in miles
+            const dLat = (sLat - lat) * Math.PI / 180;
+            const dLon = (sLng - lng) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat * Math.PI / 180) * Math.cos(sLat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+            const distFt = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 5280;
+            if (distFt <= THRESHOLD_FT) {
+              stop.reached_at = new Date().toISOString();
+              stop.verified = true;
+              updated = true;
+            }
+          }
+          if (updated) {
+            await sql`UPDATE rides SET stops = ${JSON.stringify(stops)}::jsonb, updated_at = NOW() WHERE id = ${rideId}`;
+            await publishRideUpdate(rideId, 'stops_updated', { stops }).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.error('Stop tracking error:', e);
+      }
+    }
+
     return NextResponse.json({ saved: true });
   } catch (error) {
     console.error('Location error:', error);

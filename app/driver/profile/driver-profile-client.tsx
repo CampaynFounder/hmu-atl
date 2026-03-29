@@ -33,6 +33,7 @@ interface ProfileData {
   fwu: boolean;
   acceptsCash: boolean;
   cashOnly: boolean;
+  allowInRouteStops: boolean;
   waitMinutes: number;
   advanceNoticeHours: number;
 }
@@ -95,7 +96,7 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
     try {
       let res: Response;
 
-      if ('acceptDirectBookings' in patch || 'minRiderChillScore' in patch || 'requireOgStatus' in patch || 'showVideoOnLink' in patch || 'profileVisible' in patch || 'fwu' in patch || 'acceptsCash' in patch || 'cashOnly' in patch || 'waitMinutes' in patch || 'advanceNoticeHours' in patch) {
+      if ('acceptDirectBookings' in patch || 'minRiderChillScore' in patch || 'requireOgStatus' in patch || 'showVideoOnLink' in patch || 'profileVisible' in patch || 'fwu' in patch || 'acceptsCash' in patch || 'cashOnly' in patch || 'waitMinutes' in patch || 'advanceNoticeHours' in patch || 'allowInRouteStops' in patch) {
         res = await fetch('/api/drivers/booking-settings', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -108,6 +109,7 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             fwu: patch.fwu ?? data.fwu,
             accepts_cash: patch.acceptsCash ?? data.acceptsCash,
             cash_only: patch.cashOnly ?? data.cashOnly,
+            allow_in_route_stops: patch.allowInRouteStops ?? data.allowInRouteStops,
             wait_minutes: patch.waitMinutes ?? data.waitMinutes,
             advance_notice_hours: patch.advanceNoticeHours ?? data.advanceNoticeHours,
           }),
@@ -481,6 +483,19 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               Stripe typically enables same-day payouts 1-2 days after your first digital ride
             </div>
           )}
+
+          <div className="dp-row">
+            <div className="dp-row-left">
+              <div className="dp-row-label">In-Route Stops</div>
+              <div className="dp-row-sub">Allow riders to add stops during the ride</div>
+            </div>
+            <button
+              className={`toggle ${data.allowInRouteStops ? 'on' : 'off'}`}
+              onClick={() => update({ allowInRouteStops: !data.allowInRouteStops })}
+            >
+              <div className="toggle-thumb" />
+            </button>
+          </div>
 
           <div className="dp-row">
             <div className="dp-row-left">
