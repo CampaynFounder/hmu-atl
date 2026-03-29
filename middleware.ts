@@ -59,12 +59,14 @@ export default clerkMiddleware(async (auth, req) => {
     return;
   }
 
-  // Protect all other routes - require authentication
-  await auth.protect();
-
-  // Note: Account status checks (pending_activation, active, suspended, banned)
-  // are handled by server components using requireAccountStatus() guard
-  // This middleware only ensures the user is authenticated via Clerk
+  // Check if authenticated — redirect to our own sign-in page if not
+  // (avoid Clerk's default redirect which may use accounts.* subdomain)
+  const { userId } = await auth();
+  if (!userId) {
+    const signInUrl = new URL('/sign-in', req.url);
+    signInUrl.searchParams.set('redirect_url', req.nextUrl.pathname);
+    return Response.redirect(signInUrl);
+  }
 });
 
 export const config = {

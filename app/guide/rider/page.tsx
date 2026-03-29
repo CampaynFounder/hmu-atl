@@ -160,7 +160,7 @@ export default function RiderGuidePage() {
         {/* CTA */}
         <div style={{ textAlign: 'center', marginTop: '20px' }}>
           <a
-            href="/rider/home"
+            href="/sign-up?type=rider"
             style={{
               display: 'inline-block', padding: '16px 48px', borderRadius: '100px',
               background: '#448AFF', color: '#fff', fontWeight: 700, fontSize: '16px',
