@@ -1418,10 +1418,55 @@ export default function ActiveRideClient({
               />
             </>
           ) : (
-            <StatusMessage text={ride.isCash
-              ? `Waiting for ${ride.riderHandle ? '@' + ride.riderHandle : ride.riderName || 'rider'} to confirm cash ride details...`
-              : `Waiting for rider to verify $${Number(ride.agreedPrice || 0).toFixed(0)} payment...`
-            } />
+            <>
+              <StatusMessage text={ride.isCash
+                ? `Waiting for ${ride.riderHandle ? '@' + ride.riderHandle : ride.riderName || 'rider'} to confirm cash ride details...`
+                : `Waiting for rider to verify $${Number(ride.agreedPrice || 0).toFixed(0)} payment...`
+              } />
+              {/* Update price — available even before Pull Up */}
+              {!ride.proposedPrice && (
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    onClick={() => {
+                      const input = prompt(`Current price: $${Number(ride.agreedPrice || 0).toFixed(0)}\n\nEnter new price:`, String(Math.ceil(Number(ride.agreedPrice || 0))));
+                      if (!input) return;
+                      const newPrice = parseFloat(input);
+                      if (isNaN(newPrice) || newPrice < 1) { setError('Enter a valid price'); return; }
+                      if (newPrice === Number(ride.agreedPrice)) return;
+                      fetch(`/api/rides/${rideId}/update-price`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ newPrice, reason: 'Price adjusted' }),
+                      }).then(r => r.json()).then(data => {
+                        if (data.status === 'proposed') {
+                          setRide(prev => ({ ...prev, proposedPrice: newPrice }));
+                          showNotification('Price update sent to rider', '💰', COLORS.orange);
+                        } else {
+                          setError(data.error || 'Failed to update price');
+                        }
+                      }).catch(() => setError('Network error'));
+                    }}
+                    style={{
+                      width: '100%', padding: '10px', borderRadius: 100,
+                      border: '1px solid rgba(255,145,0,0.3)', background: 'transparent',
+                      color: COLORS.orange, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                      fontFamily: FONTS.body,
+                    }}
+                  >
+                    Update Price
+                  </button>
+                </div>
+              )}
+              {ride.proposedPrice && (
+                <div style={{
+                  padding: '10px 14px', borderRadius: 12, marginTop: 8,
+                  background: 'rgba(255,145,0,0.1)', border: '1px solid rgba(255,145,0,0.2)',
+                  textAlign: 'center', fontSize: 13, color: COLORS.orange,
+                }}>
+                  Waiting for rider to accept ${ride.proposedPrice}...
+                </div>
+              )}
+            </>
           );
 
         case 'otw':
