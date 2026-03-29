@@ -16,6 +16,9 @@ export default async function DriverRidesPage() {
            r.created_at, r.started_at, r.ended_at, r.driver_payout_amount,
            r.platform_fee_amount, r.stripe_fee_amount, r.waived_fee_amount,
            r.add_on_total, r.driver_rating, r.is_cash,
+           r.total_distance_miles, r.total_duration_minutes,
+           r.rate_per_mile, r.rate_per_minute,
+           r.pickup_address, r.dropoff_address,
            COALESCE(rp.handle, rp.display_name, 'Rider') as rider_name,
            rp.handle as rider_handle
     FROM rides r
@@ -48,6 +51,12 @@ export default async function DriverRidesPage() {
           createdAt: r.created_at as string,
           startedAt: r.started_at as string | null,
           endedAt: r.ended_at as string | null,
+          distanceMiles: r.total_distance_miles ? Number(r.total_distance_miles) : null,
+          durationMinutes: r.total_duration_minutes ? Number(r.total_duration_minutes) : null,
+          ratePerMile: r.rate_per_mile ? Number(r.rate_per_mile) : null,
+          ratePerMinute: r.rate_per_minute ? Number(r.rate_per_minute) : null,
+          pickupAddress: (r.pickup_address as string) || null,
+          dropoffAddress: (r.dropoff_address as string) || null,
         };
       })}
     />

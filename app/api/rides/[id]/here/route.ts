@@ -4,9 +4,10 @@ import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 import { notifyRiderDriverHere } from '@/lib/sms/textbee';
+import { isWithinProximity } from '@/lib/geo/distance';
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -14,6 +15,15 @@ export async function POST(
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id: rideId } = await params;
+
+    // Accept driver GPS from body
+    let driverLat: number | null = null;
+    let driverLng: number | null = null;
+    try {
+      const body = await req.json();
+      driverLat = body.driverLat || null;
+      driverLng = body.driverLng || null;
+    } catch { /* no body is ok */ }
 
     const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -29,10 +39,26 @@ export async function POST(
       return NextResponse.json({ error: `Cannot mark HERE from status: ${ride.status}` }, { status: 400 });
     }
 
+    // Geo-verify: is driver near validated pickup address?
+    let hereProximityFt: number | null = null;
+    let hereVerified: boolean | null = null;
+    if (driverLat && driverLng && ride.pickup_lat && ride.pickup_lng) {
+      const result = isWithinProximity(
+        { latitude: driverLat, longitude: driverLng },
+        { latitude: Number(ride.pickup_lat), longitude: Number(ride.pickup_lng) }
+      );
+      hereProximityFt = result.distanceFeet;
+      hereVerified = result.within;
+    }
+
     await sql`
       UPDATE rides SET
         status = 'here',
         here_at = NOW(),
+        driver_here_lat = ${driverLat},
+        driver_here_lng = ${driverLng},
+        here_proximity_ft = ${hereProximityFt},
+        here_verified = ${hereVerified},
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'otw'
     `;

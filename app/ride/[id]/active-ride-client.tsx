@@ -8,6 +8,8 @@ import Link from 'next/link';
 import RideChat from '@/components/ride/ride-chat';
 import RiderProfileOverlay from '@/components/rider/rider-profile-overlay';
 import DriverProfileOverlay from '@/components/driver/driver-profile-overlay';
+import { AddressAutocomplete } from '@/components/ride/address-autocomplete';
+import type { ValidatedAddress, ValidatedStop } from '@/lib/db/types';
 import AddOnMenuSheet from '@/components/ride/add-on-menu-sheet';
 import dynamic from 'next/dynamic';
 
@@ -49,6 +51,12 @@ interface RideData {
   pickup: Record<string, unknown> | null;
   dropoff: Record<string, unknown> | null;
   stops: unknown[] | null;
+  pickupAddress: string | null;
+  pickupLat: number | null;
+  pickupLng: number | null;
+  dropoffAddress: string | null;
+  dropoffLat: number | null;
+  dropoffLng: number | null;
   otwAt: string | null;
   hereAt: string | null;
   startedAt: string | null;
@@ -216,12 +224,21 @@ export default function ActiveRideClient({
         break;
       }
       case 'coo': {
+        const pickup = data.pickup as Record<string, unknown> | null;
+        const dropoff = data.dropoff as Record<string, unknown> | null;
         setRide(prev => ({
           ...prev,
           cooAt: new Date().toISOString(),
           riderLat: data.riderLat as number | null,
           riderLng: data.riderLng as number | null,
           riderLocationText: data.riderLocation as string | null,
+          pickupAddress: (pickup?.address as string) || (data.riderLocation as string) || prev.pickupAddress,
+          pickupLat: (pickup?.latitude as number) || prev.pickupLat,
+          pickupLng: (pickup?.longitude as number) || prev.pickupLng,
+          dropoffAddress: (dropoff?.address as string) || prev.dropoffAddress,
+          dropoffLat: (dropoff?.latitude as number) || prev.dropoffLat,
+          dropoffLng: (dropoff?.longitude as number) || prev.dropoffLng,
+          stops: (data.stops as unknown[]) || prev.stops,
         }));
         showNotification('Pull Up — Payment ready!', '\uD83D\uDCB0', COLORS.green, 'Rider confirmed pickup location');
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
@@ -394,6 +411,49 @@ export default function ActiveRideClient({
       setDriverLocation({ lat: geo.lat, lng: geo.lng });
     }
   }, [isDriver, geo.lat, geo.lng]);
+
+  // Auto-detect stop proximity during active ride (driver only)
+  const reachedStopsRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    if (!isDriver || !geo.lat || !geo.lng) return;
+    if (!['active', 'otw', 'here'].includes(ride.status)) return;
+    const stops = Array.isArray(ride.stops) ? ride.stops as Record<string, unknown>[] : [];
+    if (stops.length === 0) return;
+
+    for (const stop of stops) {
+      const order = Number(stop.order);
+      if (stop.verified || reachedStopsRef.current.has(order)) continue;
+
+      const stopLat = Number(stop.latitude);
+      const stopLng = Number(stop.longitude);
+      if (!stopLat || !stopLng) continue;
+
+      // Simple distance check in feet (Haversine)
+      const R = 3958.8 * 5280; // earth radius in feet
+      const dLat = (stopLat - geo.lat) * Math.PI / 180;
+      const dLng = (stopLng - geo.lng) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(geo.lat * Math.PI / 180) * Math.cos(stopLat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+      const distFeet = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+      if (distFeet <= 300) {
+        reachedStopsRef.current.add(order);
+        fetch(`/api/rides/${rideId}/stop-reached`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stopOrder: order, driverLat: geo.lat, driverLng: geo.lng }),
+        }).then(res => res.json()).then(data => {
+          if (data.status === 'verified') {
+            setRide(prev => {
+              const updatedStops = Array.isArray(prev.stops) ? [...prev.stops] as Record<string, unknown>[] : [];
+              const idx = updatedStops.findIndex(s => Number(s.order) === order);
+              if (idx !== -1) updatedStops[idx] = { ...updatedStops[idx], verified: true, reached_at: new Date().toISOString() };
+              return { ...prev, stops: updatedStops };
+            });
+          }
+        }).catch(() => {});
+      }
+    }
+  }, [isDriver, geo.lat, geo.lng, ride.status, ride.stops, rideId]);
 
   // ── Map initialization — wait for Mapbox GL to load ──
   useEffect(() => {
@@ -1237,7 +1297,8 @@ export default function ActiveRideClient({
         case 'matched':
           return ride.cooAt ? (
             <>
-              <StatusMessage text={`Rider is ready! ${ride.riderLocationText ? 'Pickup: ' + ride.riderLocationText : 'Location shared on map'}`} />
+              <StatusMessage text="Rider is ready!" />
+              <TappableAddresses ride={ride} />
               <ActionButton
                 label="OTW"
                 color={COLORS.green}
@@ -1261,11 +1322,32 @@ export default function ActiveRideClient({
                 </div>
               )}
               <StatusMessage text="Heading to rider..." />
+              <TappableAddresses ride={ride} />
               {ride.addOns.length > 0 && renderAddOnSummary()}
               <ActionButton
                 label="I'M HERE"
                 color={COLORS.green}
-                onPress={() => callAction('here')}
+                onPress={async () => {
+                  setLoading(true);
+                  setError(null);
+                  try {
+                    const res = await fetch(`/api/rides/${rideId}/here`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ driverLat: geo.lat, driverLng: geo.lng }),
+                    });
+                    if (!res.ok) {
+                      const body = await res.json().catch(() => ({}));
+                      throw new Error((body as Record<string, string>).error || 'Something went wrong');
+                    }
+                    const data = await res.json();
+                    if (data.status) setRide(prev => ({ ...prev, status: data.status }));
+                  } catch (err: unknown) {
+                    setError(err instanceof Error ? err.message : 'Request failed');
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
                 loading={loading}
               />
             </>
@@ -1533,8 +1615,21 @@ export default function ActiveRideClient({
           </>
         ) : (
           <>
-            <CooButton rideId={rideId} onCooSent={(lat, lng, text) => {
-              setRide(prev => ({ ...prev, cooAt: new Date().toISOString(), riderLat: lat, riderLng: lng, riderLocationText: text }));
+            <CooButton rideId={rideId} onCooSent={(lat, lng, text, pickup, dropoff, stops) => {
+              setRide(prev => ({
+                ...prev,
+                cooAt: new Date().toISOString(),
+                riderLat: lat,
+                riderLng: lng,
+                riderLocationText: text,
+                pickupAddress: pickup?.address || text || null,
+                pickupLat: pickup?.latitude || null,
+                pickupLng: pickup?.longitude || null,
+                dropoffAddress: dropoff?.address || null,
+                dropoffLat: dropoff?.latitude || null,
+                dropoffLng: dropoff?.longitude || null,
+                stops: stops || prev.stops,
+              }));
             }} />
             <CancelButton rideId={rideId} label="Cancel" onCancelled={() => setRide(prev => ({ ...prev, status: 'cancelled' }))} />
           </>
@@ -1849,6 +1944,9 @@ export default function ActiveRideClient({
             </div>
           )}
         </div>
+
+        {/* Ride analytics summary */}
+        <RideAnalyticsSummary rideId={rideId} payout={ride.driverPayoutAmount} />
 
         <div style={{
           fontSize: 13,
@@ -2386,7 +2484,7 @@ function getStatusNotificationData(
 // ── COO Button component ──
 function CooButton({ rideId, onCooSent }: {
   rideId: string;
-  onCooSent: (lat: number | null, lng: number | null, text: string | null) => void;
+  onCooSent: (lat: number | null, lng: number | null, text: string | null, pickup?: ValidatedAddress, dropoff?: ValidatedAddress, stops?: ValidatedStop[]) => void;
 }) {
   const [locationText, setLocationText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -2398,6 +2496,12 @@ function CooButton({ rideId, onCooSent }: {
   const [geoPermanentlyDenied, setGeoPermanentlyDenied] = useState(false);
   const [needsPayment, setNeedsPayment] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Validated address state
+  const [pickupAddr, setPickupAddr] = useState<ValidatedAddress | null>(null);
+  const [dropoffAddr, setDropoffAddr] = useState<ValidatedAddress | null>(null);
+  const [stopAddrs, setStopAddrs] = useState<ValidatedAddress[]>([]);
+  const [showStops, setShowStops] = useState(false);
 
   function getMyLocation() {
     if (!navigator.geolocation) {
@@ -2436,6 +2540,13 @@ function CooButton({ rideId, onCooSent }: {
 
   async function handleCoo() {
     fbCustomEvent('COO_Tapped', { ride_id: rideId });
+
+    // Require dropoff address
+    if (!dropoffAddr) {
+      setError('Enter your drop-off address so your driver knows where to go');
+      return;
+    }
+
     // Check payment method first
     setLoading(true);
     try {
@@ -2448,16 +2559,31 @@ function CooButton({ rideId, onCooSent }: {
       }
     } catch { /* proceed */ }
 
+    // Build validated stops with order
+    const validatedStops: ValidatedStop[] = stopAddrs.map((s, i) => ({
+      ...s,
+      order: i + 1,
+      reached_at: null,
+      verified: false,
+    }));
+
     try {
       const res = await fetch(`/api/rides/${rideId}/coo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat: geoLat, lng: geoLng, locationText: locationText.trim() || null }),
+        body: JSON.stringify({
+          lat: geoLat,
+          lng: geoLng,
+          locationText: pickupAddr?.address || locationText.trim() || null,
+          validatedPickup: pickupAddr,
+          validatedDropoff: dropoffAddr,
+          validatedStops: validatedStops.length > 0 ? validatedStops : undefined,
+        }),
       });
       const data = await res.json();
       if (res.ok) {
         fbEvent('InitiateCheckout', { content_name: 'ride_coo', content_category: 'rides' });
-        onCooSent(geoLat, geoLng, locationText.trim() || null);
+        onCooSent(geoLat, geoLng, pickupAddr?.address || locationText.trim() || null, pickupAddr || undefined, dropoffAddr, validatedStops.length > 0 ? validatedStops : undefined);
       } else {
         if (data.code === 'no_payment_method') {
           setNeedsPayment(true);
@@ -2522,21 +2648,85 @@ function CooButton({ rideId, onCooSent }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <div style={{ fontSize: '14px', color: COLORS.grayLight, marginBottom: '4px' }}>
-        Share your pickup location so your driver can find you
+        Where are you and where are you going?
       </div>
 
-      <input
-        type="text"
-        value={locationText}
-        onChange={(e) => setLocationText(e.target.value)}
-        placeholder="e.g. 123 Peachtree St, in front of Starbucks"
-        style={{
-          background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)',
-          borderRadius: '12px', padding: '14px 16px', color: '#fff',
-          fontSize: '15px', outline: 'none', width: '100%',
-          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-        }}
+      {/* Pickup address autocomplete */}
+      <AddressAutocomplete
+        label="Pickup"
+        placeholder="Where should your driver pick you up?"
+        onSelect={(addr) => setPickupAddr(addr)}
+        onClear={() => setPickupAddr(null)}
+        proximity={geoLat && geoLng ? { lat: geoLat, lng: geoLng } : undefined}
+        value={pickupAddr}
       />
+
+      {/* Dropoff address autocomplete */}
+      <AddressAutocomplete
+        label="Drop-off"
+        placeholder="Where are you headed?"
+        onSelect={(addr) => setDropoffAddr(addr)}
+        onClear={() => setDropoffAddr(null)}
+        proximity={geoLat && geoLng ? { lat: geoLat, lng: geoLng } : undefined}
+        required
+        value={dropoffAddr}
+      />
+
+      {/* Optional stops */}
+      {showStops && stopAddrs.map((_, i) => (
+        <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+          <div style={{ flex: 1 }}>
+            <AddressAutocomplete
+              label={`Stop ${i + 1}`}
+              placeholder="Add a stop along the way"
+              onSelect={(addr) => {
+                const updated = [...stopAddrs];
+                updated[i] = addr;
+                setStopAddrs(updated);
+              }}
+              onClear={() => {
+                const updated = stopAddrs.filter((_, idx) => idx !== i);
+                setStopAddrs(updated);
+                if (updated.length === 0) setShowStops(false);
+              }}
+              proximity={geoLat && geoLng ? { lat: geoLat, lng: geoLng } : undefined}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const updated = stopAddrs.filter((_, idx) => idx !== i);
+              setStopAddrs(updated);
+              if (updated.length === 0) setShowStops(false);
+            }}
+            style={{
+              background: 'rgba(255,82,82,0.15)', border: '1px solid rgba(255,82,82,0.3)',
+              borderRadius: '8px', padding: '10px 12px', color: COLORS.red,
+              fontSize: '14px', cursor: 'pointer', marginBottom: '2px',
+            }}
+          >
+            X
+          </button>
+        </div>
+      ))}
+
+      {stopAddrs.length < 3 && (
+        <button
+          type="button"
+          onClick={() => {
+            setShowStops(true);
+            setStopAddrs([...stopAddrs, {} as ValidatedAddress]);
+          }}
+          style={{
+            background: 'transparent', border: '1px dashed rgba(255,255,255,0.15)',
+            borderRadius: '10px', padding: '10px 14px', color: COLORS.grayLight,
+            fontSize: '13px', cursor: 'pointer', width: '100%',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          }}
+        >
+          + Add a stop
+        </button>
+      )}
 
       <button
         type="button"
@@ -2549,7 +2739,7 @@ function CooButton({ rideId, onCooSent }: {
           fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
         }}
       >
-        {gettingLocation ? 'Getting location...' : geoLat ? `\uD83D\uDCCD Location shared (${geoLat.toFixed(4)}, ${geoLng?.toFixed(4)})` : '\uD83D\uDCCD Share my GPS location'}
+        {gettingLocation ? 'Getting location...' : geoLat ? `\uD83D\uDCCD GPS shared (${geoLat.toFixed(4)}, ${geoLng?.toFixed(4)})` : '\uD83D\uDCCD Share my GPS location'}
       </button>
 
       {/* GPS error message — shows settings help for denied, retry for other errors */}
@@ -2719,5 +2909,203 @@ function CancelButton({ rideId, label, needsApproval, onCancelled }: {
     >
       {cancelling ? 'Cancelling...' : label}
     </button>
+  );
+}
+
+// ── Tappable Addresses for Driver ──
+function TappableAddresses({ ride }: { ride: RideData }) {
+  const hasPickup = ride.pickupAddress || ride.riderLocationText;
+  const hasDropoff = ride.dropoffAddress;
+  const stops = Array.isArray(ride.stops) ? ride.stops as Record<string, unknown>[] : [];
+
+  if (!hasPickup && !hasDropoff) return null;
+
+  function openInMaps(address: string, lat?: number | null, lng?: number | null) {
+    const q = lat && lng ? `${lat},${lng}` : encodeURIComponent(address);
+    // Apple Maps on iOS, Google Maps on Android/desktop
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const url = isIOS
+      ? `maps://maps.apple.com/?q=${q}`
+      : `https://www.google.com/maps/search/?api=1&query=${q}`;
+    window.open(url, '_blank');
+  }
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: '6px',
+      padding: '10px 12px', borderRadius: '12px',
+      background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+      marginBottom: '8px',
+    }}>
+      {/* Pickup */}
+      {hasPickup && (
+        <button
+          type="button"
+          onClick={() => openInMaps(ride.pickupAddress || ride.riderLocationText || '', ride.pickupLat, ride.pickupLng)}
+          style={{
+            display: 'flex', alignItems: 'flex-start', gap: '8px',
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            textAlign: 'left', padding: '6px 4px', width: '100%',
+          }}
+        >
+          <span style={{ fontSize: '14px', flexShrink: 0, marginTop: '1px' }}>A</span>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: COLORS.green }}>Pickup</div>
+            <div style={{ fontSize: '13px', color: COLORS.white }}>{ride.pickupAddress || ride.riderLocationText}</div>
+          </div>
+          <span style={{ marginLeft: 'auto', color: COLORS.blue, fontSize: '13px', flexShrink: 0 }}>Navigate</span>
+        </button>
+      )}
+
+      {/* Stops */}
+      {stops.map((stop, i) => (
+        <button
+          key={i}
+          type="button"
+          onClick={() => openInMaps((stop.address as string) || (stop.name as string) || '', stop.latitude as number, stop.longitude as number)}
+          style={{
+            display: 'flex', alignItems: 'flex-start', gap: '8px',
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            textAlign: 'left', padding: '6px 4px', width: '100%',
+            borderTop: '1px solid rgba(255,255,255,0.06)',
+          }}
+        >
+          <span style={{ fontSize: '14px', flexShrink: 0, marginTop: '1px' }}>{i + 1}</span>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: COLORS.yellow }}>
+              Stop {i + 1}
+              {(stop.verified as boolean) && <span style={{ color: COLORS.green, marginLeft: '6px' }}>Done</span>}
+            </div>
+            <div style={{ fontSize: '13px', color: COLORS.white }}>{(stop.name as string) || (stop.address as string)}</div>
+          </div>
+          <span style={{ marginLeft: 'auto', color: COLORS.blue, fontSize: '13px', flexShrink: 0 }}>Navigate</span>
+        </button>
+      ))}
+
+      {/* Dropoff */}
+      {hasDropoff && (
+        <button
+          type="button"
+          onClick={() => openInMaps(ride.dropoffAddress || '', ride.dropoffLat, ride.dropoffLng)}
+          style={{
+            display: 'flex', alignItems: 'flex-start', gap: '8px',
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            textAlign: 'left', padding: '6px 4px', width: '100%',
+            borderTop: '1px solid rgba(255,255,255,0.06)',
+          }}
+        >
+          <span style={{ fontSize: '14px', flexShrink: 0, marginTop: '1px' }}>B</span>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: COLORS.red }}>Drop-off</div>
+            <div style={{ fontSize: '13px', color: COLORS.white }}>{ride.dropoffAddress}</div>
+          </div>
+          <span style={{ marginLeft: 'auto', color: COLORS.blue, fontSize: '13px', flexShrink: 0 }}>Navigate</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Ride Analytics Summary (shown post-ride for drivers) ──
+function RideAnalyticsSummary({ rideId, payout }: { rideId: string; payout: number }) {
+  const [analytics, setAnalytics] = useState<{
+    distanceMiles: number | null;
+    durationMinutes: number | null;
+    ratePerMile: number | null;
+    ratePerMinute: number | null;
+    comparison?: { percentile: number; area: string; areaAvgPerMile: number } | null;
+  } | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    // Fetch ride details + analytics after a short delay (analytics may still be calculating)
+    const timer = setTimeout(async () => {
+      try {
+        // Get this ride's analytics
+        const rideRes = await fetch(`/api/rides/${rideId}`);
+        if (rideRes.ok) {
+          const rideData = await rideRes.json();
+          const ride = rideData.ride || rideData;
+
+          // Also fetch driver comparison
+          let comparison = null;
+          try {
+            const analyticsRes = await fetch('/api/driver/analytics');
+            if (analyticsRes.ok) {
+              const analyticsData = await analyticsRes.json();
+              comparison = analyticsData.comparison || null;
+            }
+          } catch { /* non-critical */ }
+
+          setAnalytics({
+            distanceMiles: ride.total_distance_miles ? Number(ride.total_distance_miles) : null,
+            durationMinutes: ride.total_duration_minutes ? Number(ride.total_duration_minutes) : null,
+            ratePerMile: ride.rate_per_mile ? Number(ride.rate_per_mile) : null,
+            ratePerMinute: ride.rate_per_minute ? Number(ride.rate_per_minute) : null,
+            comparison,
+          });
+        }
+      } catch { /* silent */ }
+      setLoaded(true);
+    }, 2000); // Wait 2s for analytics to calculate
+
+    return () => clearTimeout(timer);
+  }, [rideId]);
+
+  if (!loaded || !analytics || (!analytics.distanceMiles && !analytics.durationMinutes)) return null;
+
+  return (
+    <div style={{
+      display: 'flex', flexWrap: 'wrap', gap: '8px',
+      padding: '12px', borderRadius: '14px',
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px solid rgba(255,255,255,0.06)',
+    }}>
+      {analytics.distanceMiles != null && (
+        <div style={{ flex: '1 1 45%', textAlign: 'center', padding: '4px 0' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', fontFamily: "'Space Mono', monospace" }}>
+            {analytics.distanceMiles.toFixed(1)} mi
+          </div>
+          <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase' }}>Distance</div>
+        </div>
+      )}
+      {analytics.durationMinutes != null && (
+        <div style={{ flex: '1 1 45%', textAlign: 'center', padding: '4px 0' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', fontFamily: "'Space Mono', monospace" }}>
+            {analytics.durationMinutes} min
+          </div>
+          <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase' }}>Duration</div>
+        </div>
+      )}
+      {analytics.ratePerMile != null && (
+        <div style={{ flex: '1 1 45%', textAlign: 'center', padding: '4px 0' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.green, fontFamily: "'Space Mono', monospace" }}>
+            ${analytics.ratePerMile.toFixed(2)}/mi
+          </div>
+          <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase' }}>Your Rate</div>
+        </div>
+      )}
+      {analytics.ratePerMinute != null && (
+        <div style={{ flex: '1 1 45%', textAlign: 'center', padding: '4px 0' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.green, fontFamily: "'Space Mono', monospace" }}>
+            ${analytics.ratePerMinute.toFixed(2)}/min
+          </div>
+          <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase' }}>Your Rate</div>
+        </div>
+      )}
+      {analytics.comparison && analytics.comparison.percentile > 0 && (
+        <div style={{
+          flex: '1 1 100%', textAlign: 'center', padding: '6px 0',
+          borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: '4px',
+        }}>
+          <span style={{ fontSize: 13, color: COLORS.green, fontWeight: 600 }}>
+            Top {100 - analytics.comparison.percentile}% in {analytics.comparison.area}
+          </span>
+          <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>
+            avg ${analytics.comparison.areaAvgPerMile.toFixed(2)}/mi
+          </span>
+        </div>
+      )}
+    </div>
   );
 }

@@ -16,10 +16,13 @@ export async function POST(
 
     const { id: rideId } = await params;
     const body = await req.json();
-    const { lat, lng, locationText } = body as {
+    const { lat, lng, locationText, validatedPickup, validatedDropoff, validatedStops } = body as {
       lat?: number;
       lng?: number;
       locationText?: string;
+      validatedPickup?: { address: string; name: string; latitude: number; longitude: number; mapbox_id: string };
+      validatedDropoff?: { address: string; name: string; latitude: number; longitude: number; mapbox_id: string };
+      validatedStops?: { address: string; name: string; latitude: number; longitude: number; mapbox_id: string; order: number }[];
     };
 
     const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
@@ -122,23 +125,38 @@ export async function POST(
     }
     } // end if (!isCashRide)
 
-    // Update ride with rider location and COO status
+    // Prepare validated stops as JSONB (with reached_at/verified fields for tracking)
+    const stopsJson = validatedStops?.length
+      ? JSON.stringify(validatedStops.map(s => ({ ...s, reached_at: null, verified: false })))
+      : null;
+
+    // Update ride with rider location, validated addresses, and COO status
     await sql`
       UPDATE rides SET
         coo_at = NOW(),
         rider_lat = ${lat || null},
         rider_lng = ${lng || null},
         rider_location_text = ${locationText || null},
+        pickup_address = ${validatedPickup?.address || locationText || null},
+        pickup_lat = ${validatedPickup?.latitude || null},
+        pickup_lng = ${validatedPickup?.longitude || null},
+        dropoff_address = ${validatedDropoff?.address || null},
+        dropoff_lat = ${validatedDropoff?.latitude || null},
+        dropoff_lng = ${validatedDropoff?.longitude || null},
+        stops = ${stopsJson}::jsonb,
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'matched'
     `;
 
-    // Notify driver with rider's location
+    // Notify driver with rider's location + validated addresses
     await publishRideUpdate(rideId, 'coo', {
       status: 'coo',
       riderLat: lat,
       riderLng: lng,
       riderLocation: locationText,
+      pickup: validatedPickup || null,
+      dropoff: validatedDropoff || null,
+      stops: validatedStops || null,
       message: 'Rider is ready — COO! Payment authorized.',
     }).catch(() => {});
 

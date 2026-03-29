@@ -113,6 +113,31 @@ export function isValidCoordinates(coords: Coordinates): boolean {
   );
 }
 
+const FEET_PER_MILE = 5280;
+
+/**
+ * Calculate distance between two points in feet
+ */
+export function calculateDistanceFeet(
+  point1: Coordinates,
+  point2: Coordinates
+): number {
+  return calculateDistance(point1, point2) * FEET_PER_MILE;
+}
+
+/**
+ * Check if two points are within a proximity threshold
+ * @param thresholdFeet Default 300ft (per CLAUDE.md spec for dispute verification)
+ */
+export function isWithinProximity(
+  point1: Coordinates,
+  point2: Coordinates,
+  thresholdFeet: number = 300
+): { within: boolean; distanceFeet: number } {
+  const feet = calculateDistanceFeet(point1, point2);
+  return { within: feet <= thresholdFeet, distanceFeet: Math.round(feet) };
+}
+
 // Helper: Convert degrees to radians
 function toRadians(degrees: number): number {
   return degrees * (Math.PI / 180);

@@ -24,6 +24,12 @@ interface Ride {
   createdAt: string;
   startedAt: string | null;
   endedAt: string | null;
+  distanceMiles: number | null;
+  durationMinutes: number | null;
+  ratePerMile: number | null;
+  ratePerMinute: number | null;
+  pickupAddress: string | null;
+  dropoffAddress: string | null;
 }
 
 interface Props {
@@ -234,19 +240,53 @@ function RideCard({ ride, expanded, onToggle }: { ride: Ride; expanded: boolean;
           marginTop: 12, paddingTop: 12,
           borderTop: '1px solid rgba(255,255,255,0.06)',
         }}>
-          {/* Trip details */}
-          {(ride.pickup || ride.dropoff) && (
+          {/* Trip details — prefer validated addresses */}
+          {(ride.pickupAddress || ride.pickup || ride.dropoffAddress || ride.dropoff) && (
             <div style={{ marginBottom: 12 }}>
-              {ride.pickup && (
+              {(ride.pickupAddress || ride.pickup) && (
                 <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
                   <span style={{ fontSize: 12, color: '#00E676' }}>A</span>
-                  <span style={{ fontSize: 12, color: '#bbb' }}>{ride.pickup}</span>
+                  <span style={{ fontSize: 12, color: '#bbb' }}>{ride.pickupAddress || ride.pickup}</span>
                 </div>
               )}
-              {ride.dropoff && (
+              {(ride.dropoffAddress || ride.dropoff) && (
                 <div style={{ display: 'flex', gap: 8 }}>
                   <span style={{ fontSize: 12, color: '#FF5252' }}>B</span>
-                  <span style={{ fontSize: 12, color: '#bbb' }}>{ride.dropoff}</span>
+                  <span style={{ fontSize: 12, color: '#bbb' }}>{ride.dropoffAddress || ride.dropoff}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Ride analytics */}
+          {(ride.distanceMiles || ride.durationMinutes) && (
+            <div style={{
+              display: 'flex', gap: 12, marginBottom: 12, padding: '8px 10px',
+              background: 'rgba(255,255,255,0.03)', borderRadius: 10,
+              border: '1px solid rgba(255,255,255,0.06)',
+            }}>
+              {ride.distanceMiles != null && (
+                <div style={{ textAlign: 'center', flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{ride.distanceMiles.toFixed(1)} mi</div>
+                  <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase' }}>Distance</div>
+                </div>
+              )}
+              {ride.durationMinutes != null && (
+                <div style={{ textAlign: 'center', flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{ride.durationMinutes} min</div>
+                  <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase' }}>Duration</div>
+                </div>
+              )}
+              {ride.ratePerMile != null && (
+                <div style={{ textAlign: 'center', flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#00E676' }}>${ride.ratePerMile.toFixed(2)}/mi</div>
+                  <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase' }}>Rate</div>
+                </div>
+              )}
+              {ride.ratePerMinute != null && (
+                <div style={{ textAlign: 'center', flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#00E676' }}>${ride.ratePerMinute.toFixed(2)}/min</div>
+                  <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase' }}>Rate</div>
                 </div>
               )}
             </div>

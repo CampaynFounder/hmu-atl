@@ -4,6 +4,8 @@ import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { captureRiderPayment } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { isWithinProximity } from '@/lib/geo/distance';
+import { calculateAndStoreRideAnalytics } from '@/lib/rides/analytics';
 import Stripe from 'stripe';
 
 export async function POST(
@@ -104,6 +106,18 @@ export async function POST(
       }
     }
 
+    // Geo-verify: is driver near validated dropoff address?
+    let endProximityFt: number | null = null;
+    let endVerified: boolean | null = null;
+    if (driverLat && driverLng && ride.dropoff_lat && ride.dropoff_lng) {
+      const result = isWithinProximity(
+        { latitude: driverLat, longitude: driverLng },
+        { latitude: Number(ride.dropoff_lat), longitude: Number(ride.dropoff_lng) }
+      );
+      endProximityFt = result.distanceFeet;
+      endVerified = result.within;
+    }
+
     await sql`
       UPDATE rides SET
         status = 'ended',
@@ -111,10 +125,15 @@ export async function POST(
         driver_confirmed_end = true,
         driver_end_lat = ${driverLat},
         driver_end_lng = ${driverLng},
+        end_proximity_ft = ${endProximityFt},
+        end_verified = ${endVerified},
         dispute_window_expires_at = NOW() + ${disputeMinutes + ' minutes'}::interval,
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'active'
     `;
+
+    // Calculate ride analytics (non-blocking)
+    calculateAndStoreRideAnalytics(rideId).catch(() => {});
 
     // Mark linked post as completed
     if (ride.hmu_post_id) {

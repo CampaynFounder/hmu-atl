@@ -5,7 +5,7 @@ import { useUser, useClerk } from '@clerk/nextjs';
 import UpgradeOverlay from '@/components/driver/upgrade-overlay';
 import CashPackCard from '@/components/driver/cash-pack-card';
 import Link from 'next/link';
-import { ChevronLeft, Shield, Zap, Clock, MessageCircle, DollarSign, UtensilsCrossed, Star, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, Shield, Zap, Clock, MessageCircle, DollarSign, UtensilsCrossed, Star, Plus, Trash2, BarChart3 } from 'lucide-react';
 import RatingsInfo from '@/components/shared/ratings-info';
 
 interface Props {
@@ -18,6 +18,7 @@ const TABS = [
   { id: 'ratings', label: 'Ratings', icon: Star },
   { id: 'cash', label: 'Cash Rides', icon: DollarSign },
   { id: 'hmu-first', label: 'HMU First', icon: Zap },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'history', label: 'Ride History', icon: Clock },
   { id: 'support', label: 'Support', icon: MessageCircle },
 ] as const;
@@ -30,7 +31,7 @@ export default function DriverSettingsClient({ tier }: Props) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as TabId | null;
-    if (tab && ['security', 'menu', 'ratings', 'cash', 'hmu-first', 'history', 'support'].includes(tab)) {
+    if (tab && ['security', 'menu', 'ratings', 'cash', 'hmu-first', 'analytics', 'history', 'support'].includes(tab)) {
       setActiveTab(tab);
     }
   }, []);
@@ -179,6 +180,7 @@ export default function DriverSettingsClient({ tier }: Props) {
           {activeTab === 'ratings' && <RatingsTab />}
           {activeTab === 'cash' && <CashPackCard />}
           {activeTab === 'hmu-first' && <HmuFirstTab tier={tier} />}
+          {activeTab === 'analytics' && <AnalyticsTab tier={tier} />}
           {activeTab === 'history' && <HistoryTab />}
           {activeTab === 'support' && <SupportTab />}
         </div>
@@ -922,6 +924,200 @@ function MenuTab({ tier }: { tier: string }) {
           onUpgraded={() => { setShowUpgrade(false); fetchMenu(); }}
         />
       )}
+    </div>
+  );
+}
+
+// ── Analytics Tab ──
+function AnalyticsTab({ tier }: { tier: string }) {
+  const isHmuFirst = tier === 'hmu_first';
+  const [data, setData] = useState<{
+    rides: { id: string; date: string; pickup: string | null; dropoff: string | null; amount: number; distanceMiles: number | null; durationMinutes: number | null; ratePerMile: number | null; ratePerMinute: number | null }[];
+    aggregate: { avgRatePerMile: number; avgRatePerMinute: number; totalMiles: number; totalMinutes: number; totalRides: number; totalEarned: number };
+    comparison: { area: string; yourAvgPerMile: number; areaAvgPerMile: number; percentile: number; yourAvgPerMinute: number; areaAvgPerMinute: number } | null;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/driver/analytics')
+      .then(r => r.json())
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 0', color: '#888' }}>
+        Loading your analytics...
+      </div>
+    );
+  }
+
+  if (!data || data.aggregate.totalRides === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>📊</div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: '#fff', marginBottom: 8 }}>No ride data yet</div>
+        <div style={{ fontSize: 13, color: '#888' }}>Complete some rides and your analytics will show up here</div>
+      </div>
+    );
+  }
+
+  const agg = data.aggregate;
+  const comp = data.comparison;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Aggregate stats */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+      }}>
+        <StatCard label="Total Rides" value={String(agg.totalRides)} />
+        <StatCard label="Total Earned" value={`$${agg.totalEarned.toFixed(0)}`} color="#00E676" />
+        <StatCard label="Total Miles" value={`${agg.totalMiles.toFixed(0)} mi`} />
+        <StatCard label="Total Time" value={`${Math.round(agg.totalMinutes / 60)}h ${agg.totalMinutes % 60}m`} />
+        <StatCard label="Avg $/mile" value={`$${agg.avgRatePerMile.toFixed(2)}`} color="#00E676" />
+        <StatCard label="Avg $/min" value={`$${agg.avgRatePerMinute.toFixed(2)}`} color="#00E676" />
+      </div>
+
+      {/* Area comparison — HMU First only */}
+      {comp && comp.percentile > 0 && (
+        isHmuFirst ? (
+          <div style={{
+            background: '#141414', borderRadius: 16, padding: 16,
+            border: '1px solid rgba(0,230,118,0.15)',
+          }}>
+            <div style={{ fontSize: 12, color: '#888', textTransform: 'uppercase', marginBottom: 8, fontWeight: 600 }}>
+              How you compare — {comp.area}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: '#00E676', fontFamily: "'Space Mono', monospace" }}>
+                  Top {Math.max(1, 100 - comp.percentile)}%
+                </div>
+                <div style={{ fontSize: 12, color: '#bbb' }}>of drivers in {comp.area}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 13, color: '#bbb' }}>Your avg: <span style={{ color: '#fff', fontWeight: 600 }}>${comp.yourAvgPerMile.toFixed(2)}/mi</span></div>
+                <div style={{ fontSize: 13, color: '#bbb' }}>Area avg: <span style={{ color: '#fff' }}>${comp.areaAvgPerMile.toFixed(2)}/mi</span></div>
+              </div>
+            </div>
+            {/* Percentile bar */}
+            <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', borderRadius: 3,
+                background: 'linear-gradient(90deg, #00E676, #69F0AE)',
+                width: `${Math.min(100, comp.percentile)}%`,
+                transition: 'width 0.5s ease',
+              }} />
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            background: '#141414', borderRadius: 16, padding: 16,
+            border: '1px solid rgba(255,255,255,0.08)',
+            position: 'relative', overflow: 'hidden',
+          }}>
+            <div style={{
+              position: 'absolute', inset: 0, backdropFilter: 'blur(6px)',
+              background: 'rgba(0,0,0,0.6)', zIndex: 1,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              padding: 20, textAlign: 'center',
+            }}>
+              <Zap className="h-6 w-6" style={{ color: '#00E676', marginBottom: 8 }} />
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 4 }}>
+                See how you compare
+              </div>
+              <div style={{ fontSize: 12, color: '#bbb', marginBottom: 12 }}>
+                HMU First members see their ranking vs other drivers in their area
+              </div>
+              <Link
+                href="/driver/settings?tab=hmu-first"
+                style={{
+                  padding: '8px 20px', borderRadius: 100,
+                  background: '#00E676', color: '#080808',
+                  fontSize: 13, fontWeight: 700, textDecoration: 'none',
+                }}
+              >
+                Upgrade to HMU First
+              </Link>
+            </div>
+            {/* Blurred preview behind the overlay */}
+            <div style={{ fontSize: 12, color: '#888', textTransform: 'uppercase', marginBottom: 8, fontWeight: 600 }}>
+              How you compare — {comp.area}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#00E676', fontFamily: "'Space Mono', monospace" }}>
+                Top ??%
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 13, color: '#bbb' }}>Your avg: $?.??/mi</div>
+                <div style={{ fontSize: 13, color: '#bbb' }}>Area avg: $?.??/mi</div>
+              </div>
+            </div>
+          </div>
+        )
+      )}
+
+      {/* Recent rides with analytics */}
+      {data.rides.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, color: '#888', textTransform: 'uppercase', marginBottom: 8, fontWeight: 600 }}>
+            Recent Rides
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {data.rides.slice(0, 10).map((ride) => (
+              <Link
+                key={ride.id}
+                href={`/ride/${ride.id}`}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 12px', borderRadius: 12,
+                  background: '#141414', border: '1px solid rgba(255,255,255,0.06)',
+                  textDecoration: 'none', color: '#fff',
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {ride.dropoff || ride.pickup || 'Ride'}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#888' }}>
+                    {ride.date ? new Date(ride.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
+                    {ride.distanceMiles != null && ` · ${ride.distanceMiles.toFixed(1)} mi`}
+                    {ride.durationMinutes != null && ` · ${ride.durationMinutes} min`}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#00E676' }}>${ride.amount.toFixed(2)}</div>
+                  {ride.ratePerMile != null && (
+                    <div style={{ fontSize: 11, color: '#888' }}>${ride.ratePerMile.toFixed(2)}/mi</div>
+                  )}
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatCard({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div style={{
+      background: '#141414', borderRadius: 14, padding: '14px 12px',
+      border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center',
+    }}>
+      <div style={{
+        fontSize: 20, fontWeight: 700, color: color || '#fff',
+        fontFamily: "'Space Mono', monospace",
+      }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', marginTop: 2 }}>
+        {label}
+      </div>
     </div>
   );
 }

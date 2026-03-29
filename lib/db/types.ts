@@ -187,6 +187,21 @@ export type PricingType = 'flat' | 'per_unit' | 'per_minute';
 export type ServiceCategory = 'ride' | 'vibe' | 'vehicle' | 'errand' | 'custom';
 export type AddOnStatus = 'pre_selected' | 'confirmed' | 'disputed' | 'adjusted' | 'removed';
 
+// Validated address from Mapbox Search Box
+export interface ValidatedAddress {
+  address: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  mapbox_id: string;
+}
+
+export interface ValidatedStop extends ValidatedAddress {
+  order: number;
+  reached_at: string | null;
+  verified: boolean;
+}
+
 export interface ServiceMenuItem {
   id: string;
   name: string;
