@@ -1099,7 +1099,7 @@ export default function ActiveRideClient({
           </div>
         </div>
 
-        {/* Agreement summary */}
+        {/* Itinerary — pickup → stops → dropoff */}
         {(pickupAddress || dropoffAddress) && (
           <div style={{
             backgroundColor: COLORS.card,
@@ -1110,20 +1110,25 @@ export default function ActiveRideClient({
             color: COLORS.grayLight,
           }}>
             {pickupAddress && (
-              <div style={{ marginBottom: dropoffAddress ? 6 : 0 }}>
-                <span style={{ color: COLORS.green, marginRight: 8 }}>FROM</span>
-                {pickupAddress}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                <span style={{ color: COLORS.green, fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>PICKUP</span>
+                <span>{pickupAddress}</span>
               </div>
             )}
+            {ride.stops && ride.stops.length > 0 && (ride.stops as { address?: string; reached_at?: string }[]).map((stop, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8, paddingLeft: 4 }}>
+                <span style={{ color: COLORS.orange, fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>
+                  {stop.reached_at ? '✓' : `STOP ${i + 1}`}
+                </span>
+                <span style={{ color: stop.reached_at ? COLORS.gray : COLORS.grayLight, textDecoration: stop.reached_at ? 'line-through' : 'none' }}>
+                  {stop.address || `Stop ${i + 1}`}
+                </span>
+              </div>
+            ))}
             {dropoffAddress && (
-              <div>
-                <span style={{ color: COLORS.red, marginRight: 8 }}>TO</span>
-                {dropoffAddress}
-              </div>
-            )}
-            {stopCount > 0 && (
-              <div style={{ marginTop: 6, fontSize: 12, color: COLORS.gray }}>
-                + {stopCount} stop{stopCount > 1 ? 's' : ''}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <span style={{ color: COLORS.red, fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>DROP</span>
+                <span>{dropoffAddress}</span>
               </div>
             )}
           </div>
@@ -1517,10 +1522,41 @@ export default function ActiveRideClient({
           const cSecs = confirmCountdown !== null ? Math.ceil(confirmCountdown / 1000) : null;
           const cMins = cSecs !== null ? Math.floor(cSecs / 60) : null;
           const cSecsRem = cSecs !== null ? cSecs % 60 : null;
+          const dConfirmAddOns = ride.addOns.filter(a => a.status !== 'removed' && a.status !== 'disputed');
+          const dConfirmExtras = dConfirmAddOns.reduce((s, a) => s + Number(a.subtotal || 0), 0);
+          const dConfirmTotal = Number(ride.agreedPrice || 0) + dConfirmExtras;
           return (
             <>
               <StatusMessage text="Waiting for rider to confirm..." />
-              {ride.addOns.length > 0 && renderAddOnSummary()}
+
+              {/* Breakdown matching rider's view */}
+              <div style={{
+                backgroundColor: COLORS.card, borderRadius: 14, padding: '14px 16px', marginBottom: 12,
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                  <span style={{ fontSize: 13, color: COLORS.grayLight, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    Ride
+                    {ride.isCash && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#FFC107', background: 'rgba(255,193,7,0.15)', padding: '1px 7px', borderRadius: 100 }}>CASH</span>
+                    )}
+                  </span>
+                  <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.white }}>${Number(ride.agreedPrice || 0).toFixed(2)}</span>
+                </div>
+                {dConfirmAddOns.length > 0 && dConfirmAddOns.map(a => (
+                  <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                    <span style={{ fontSize: 12, color: COLORS.grayLight }}>{a.name}{Number(a.quantity) > 1 ? ` ×${a.quantity}` : ''}</span>
+                    <span style={{ fontFamily: FONTS.mono, fontSize: 12, color: COLORS.green }}>${Number(a.subtotal || 0).toFixed(2)}</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: COLORS.white }}>
+                    {ride.isCash ? 'Collect from rider' : 'Total charged'}
+                  </span>
+                  <span style={{ fontFamily: FONTS.mono, fontSize: 20, fontWeight: 700, color: COLORS.green }}>${dConfirmTotal.toFixed(2)}</span>
+                </div>
+              </div>
+
               {cSecs !== null && cSecs > 0 && (
                 <div style={{
                   textAlign: 'center', padding: '8px 0', fontSize: 13,
