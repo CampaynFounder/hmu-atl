@@ -2395,7 +2395,7 @@ export default function ActiveRideClient({
             borderRadius: 14, padding: '14px 16px', textAlign: 'center',
           }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#FFC107' }}>
-              💵 Collect ${Number(ride.agreedPrice || 0).toFixed(0)} cash from rider
+              💵 Collect ${(Number(ride.agreedPrice || 0) + Number(ride.addOnTotal || 0)).toFixed(0)} cash from rider
             </div>
             <div style={{ fontSize: 12, color: '#FFC107', opacity: 0.7, marginTop: 4 }}>
               This was a cash ride — no digital payment
