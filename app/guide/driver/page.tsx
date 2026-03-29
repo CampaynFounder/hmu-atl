@@ -169,7 +169,7 @@ export default function DriverGuidePage() {
         {/* CTA */}
         <div style={{ textAlign: 'center', marginTop: '20px' }}>
           <a
-            href="/sign-up?type=driver"
+            href="/sign-in?type=driver"
             style={{
               display: 'inline-block', padding: '16px 48px', borderRadius: '100px',
               background: '#00E676', color: '#080808', fontWeight: 700, fontSize: '16px',
