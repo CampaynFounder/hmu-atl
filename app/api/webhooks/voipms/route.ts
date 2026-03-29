@@ -10,7 +10,8 @@ async function handleInbound(params: Record<string, string>) {
   const voipmsId = params.id ?? '';
 
   if (!from || !message) {
-    return NextResponse.json({ error: 'Missing from or message' }, { status: 400 });
+    // Return 200 for validation pings from VoIP.ms
+    return NextResponse.json({ status: 'ok' });
   }
 
   const fromPhone = from.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
