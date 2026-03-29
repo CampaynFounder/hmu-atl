@@ -940,8 +940,13 @@ function AnalyticsTab({ tier }: { tier: string }) {
 
   useEffect(() => {
     fetch('/api/driver/analytics')
-      .then(r => r.json())
-      .then(setData)
+      .then(r => {
+        if (!r.ok) throw new Error('Failed');
+        return r.json();
+      })
+      .then(d => {
+        if (d && d.aggregate) setData(d);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -954,7 +959,7 @@ function AnalyticsTab({ tier }: { tier: string }) {
     );
   }
 
-  if (!data || data.aggregate.totalRides === 0) {
+  if (!data || !data.aggregate || data.aggregate.totalRides === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 20px' }}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>📊</div>
