@@ -30,6 +30,7 @@ const isPublicRoute = createRouteMatcher([
   '/guidelines',
   '/cookies',
   '/contact',
+  '/guide/(.*)',
 ]);
 
 // Define pending-only routes (only for pending_activation users)

@@ -11,6 +11,7 @@ import {
 } from '@/lib/db/profiles';
 import { sql } from '@/lib/db/client';
 import { getActiveOffer, enrollDriver } from '@/lib/db/enrollment-offers';
+import { sendSms } from '@/lib/sms/textbee';
 
 export async function POST(request: NextRequest) {
   try {
@@ -228,6 +229,28 @@ export async function POST(request: NextRequest) {
     } catch (clerkErr) {
       // Non-fatal — user can still use the app, just log it
       console.error('[ONBOARDING] Failed to sync profileType to Clerk:', clerkErr);
+    }
+
+    // Send welcome SMS with guide link
+    if (phone) {
+      try {
+        if (profile_type === 'driver') {
+          await sendSms(
+            phone,
+            `${first_name || 'Hey'}, welcome to HMU ATL! We're Atlanta-based and built this for you. See how drivers get paid: atl.hmucashride.com/guide/driver`,
+            { userId, eventType: 'welcome_driver' }
+          );
+        } else {
+          await sendSms(
+            phone,
+            `${first_name || 'Hey'}, welcome to HMU ATL! We're Atlanta-based and value every rider's voice. See how booking works: atl.hmucashride.com/guide/rider`,
+            { userId, eventType: 'welcome_rider' }
+          );
+        }
+      } catch (smsErr) {
+        console.error('[ONBOARDING] Welcome SMS failed:', smsErr);
+        // Non-fatal — don't block onboarding
+      }
     }
 
     return NextResponse.json({
