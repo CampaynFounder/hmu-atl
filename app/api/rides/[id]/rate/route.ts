@@ -88,9 +88,8 @@ export async function POST(
     // Also mark the associated hmu_post as completed
     try {
       await sql`
-        UPDATE hmu_posts SET status = 'completed'
-        WHERE id = (SELECT hmu_post_id FROM rides WHERE id = ${rideId})
-          AND hmu_post_id IS NOT NULL
+        UPDATE hmu_posts SET status = 'completed', updated_at = NOW()
+        WHERE id = (SELECT hmu_post_id FROM rides WHERE id = ${rideId} AND hmu_post_id IS NOT NULL)
       `;
     } catch (e) {
       console.error('Failed to update hmu_post status:', e);

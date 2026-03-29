@@ -153,10 +153,8 @@ export async function POST(
     // Calculate ride analytics (non-blocking)
     calculateAndStoreRideAnalytics(rideId).catch(() => {});
 
-    // Mark linked post as completed
-    if (ride.hmu_post_id) {
-      await sql`UPDATE hmu_posts SET status = 'expired' WHERE id = ${ride.hmu_post_id}`.catch(() => {});
-    }
+    // Post stays 'matched' during ended/dispute phase
+    // Rating endpoint will set it to 'completed'
 
     await publishRideUpdate(rideId, 'status_change', {
       status: 'ended',

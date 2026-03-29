@@ -22,6 +22,18 @@ export async function GET() {
         AND (expires_at < NOW() OR booking_expires_at < NOW())
     `;
 
+    // Sync orphaned posts — matched posts whose ride is done
+    await sql`
+      UPDATE hmu_posts SET status = 'completed'
+      WHERE user_id = ${userId}
+        AND status = 'matched'
+        AND id IN (
+          SELECT hmu_post_id FROM rides
+          WHERE hmu_post_id IS NOT NULL
+            AND status IN ('completed', 'ended', 'cancelled', 'refunded')
+        )
+    `.catch(() => {});
+
     const rows = await sql`
       SELECT p.id, p.areas, p.price, p.time_window, p.status, p.post_type,
              p.created_at, p.booking_expires_at, p.is_cash,
