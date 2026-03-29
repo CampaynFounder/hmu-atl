@@ -75,7 +75,7 @@ export default function TermsPage() {
           </p>
           <h3>3.3 Escrow and Payment</h3>
           <p>
-            All payments are processed through Stripe. HMU does not hold funds directly. Payment is authorized when the Rider confirms a ride (&ldquo;COO&rdquo;) and captured after the ride ends and the dispute window passes. Drivers receive payouts via Stripe Connect to their linked bank account or debit card.
+            All payments are processed through Stripe. HMU does not hold funds directly. Payment is authorized when the Rider confirms a ride (&ldquo;Pull Up&rdquo;) and captured after the ride ends and the dispute window passes. Drivers receive payouts via Stripe Connect to their linked bank account or debit card.
           </p>
 
           <h2>4. Platform Fees</h2>

@@ -56,7 +56,7 @@ Ride Details:
 - Ride status: ${d.ride_status}
 - Pickup: ${JSON.stringify(d.pickup)}
 - Dropoff: ${JSON.stringify(d.dropoff)}
-- COO (rider paid): ${d.coo_at ?? 'N/A'}
+- Pull Up / COO (rider confirmed): ${d.coo_at ?? 'N/A'}
 - OTW: ${d.otw_at ?? 'N/A'}
 - HERE: ${d.here_at ?? 'N/A'}
 - Ride started: ${d.started_at ?? 'N/A'}

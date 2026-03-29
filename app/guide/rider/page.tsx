@@ -26,9 +26,9 @@ const steps = [
   },
   {
     num: '03',
-    title: 'Confirm Payment — Tap COO',
+    title: 'Confirm Payment — Tap Pull Up',
     sub: 'Your payment is held safely',
-    body: 'When you\'re ready, tap COO (Coming Out Outside). Your payment is held in escrow — the driver sees the hold and knows you\'re real. They won\'t drive until your money is locked in.',
+    body: 'When you\'re ready, tap Pull Up. Your payment is held in escrow — the driver sees the hold and knows you\'re real. They won\'t drive until your money is locked in.',
     tip: 'You\'re NOT charged yet — the money is held and only captured when the ride starts. If the driver cancels, you get a full refund.',
     icon: '🔒',
     color: '#FFB300',

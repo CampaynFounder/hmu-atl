@@ -254,7 +254,7 @@ export default function RiderHomeClient() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {[
               { icon: '\uD83D\uDCB0', title: 'Name Your Price', desc: 'No algorithms. You say what you\'re paying. Driver accepts or passes.' },
-              { icon: '\uD83D\uDD12', title: 'Payment Secured Before Pickup', desc: 'Your card is held when you tap COO. Driver knows funds are real before they pull up.' },
+              { icon: '\uD83D\uDD12', title: 'Payment Secured Before Pickup', desc: 'Your card is held when you tap Pull Up. Driver knows funds are real before they pull up.' },
               { icon: '\uD83D\uDCCD', title: 'Live ETA Tracking', desc: 'See your driver\'s location in real-time once they\'re OTW. Know exactly when they\'re pulling up.' },
               { icon: '\uD83D\uDCAC', title: 'In-Ride Chat', desc: 'Message your driver during the ride. No need to share your phone number.' },
               { icon: '\uD83D\uDD10', title: 'Your Info Stays Private', desc: 'Drivers see your display name only. Legal name, phone, and payment details are never shared.' },

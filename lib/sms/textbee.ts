@@ -209,7 +209,7 @@ export async function notifyRiderBookingAccepted(
   rideId: string,
   options: SmsOptions = {}
 ): Promise<SendSmsResult> {
-  const message = `HMU ATL: ${driverName} accepted your ride! Open the app to send COO and share your location. atl.hmucashride.com/ride/${rideId}`;
+  const message = `HMU ATL: ${driverName} accepted your ride! Open the app to tap Pull Up and share your location. atl.hmucashride.com/ride/${rideId}`;
   return sendSms(riderPhone, message, { ...options, eventType: 'booking_accepted', rideId });
 }
 

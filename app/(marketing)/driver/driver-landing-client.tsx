@@ -268,7 +268,7 @@ export default function DriverLandingClient() {
           <div className={`${styles.step} ${styles.reveal}`}>
             <div className={styles.stepNum}>02</div>
             <div>
-              <div className={styles.stepTitle}>Rider taps COO — money locked</div>
+              <div className={styles.stepTitle}>Rider taps Pull Up — money locked</div>
               <div className={styles.stepBody}>When a rider confirms, <span className={styles.highlight}>payment is held before you go anywhere.</span> Not a promise. The money is secured the second they say BET.</div>
             </div>
           </div>

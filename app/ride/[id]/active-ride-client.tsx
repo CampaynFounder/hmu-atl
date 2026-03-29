@@ -223,7 +223,7 @@ export default function ActiveRideClient({
           riderLng: data.riderLng as number | null,
           riderLocationText: data.riderLocation as string | null,
         }));
-        showNotification('COO — Payment ready!', '\uD83D\uDCB0', COLORS.green, 'Rider confirmed pickup location');
+        showNotification('Pull Up — Payment ready!', '\uD83D\uDCB0', COLORS.green, 'Rider confirmed pickup location');
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
         break;
       }
@@ -1528,7 +1528,7 @@ export default function ActiveRideClient({
       case 'matched':
         return ride.cooAt ? (
           <>
-            <StatusMessage text="COO sent — waiting for driver to go OTW..." />
+            <StatusMessage text="Pull Up sent — waiting for driver to go OTW..." />
             <CancelButton rideId={rideId} label="Cancel Ride" onCancelled={() => setRide(prev => ({ ...prev, status: 'cancelled' }))} />
           </>
         ) : (
@@ -2359,7 +2359,7 @@ function getStatusNotificationData(
     case 'matched':
       return isDriver
         ? { message: 'You got a match!', emoji: '\uD83E\uDD1D', color: '#00E676', sub: 'Waiting for rider to verify payment' }
-        : { message: 'Matched with a driver!', emoji: '\uD83E\uDD1D', color: '#00E676', sub: 'Send COO to confirm your ride' };
+        : { message: 'Matched with a driver!', emoji: '\uD83E\uDD1D', color: '#00E676', sub: 'Tap Pull Up to confirm your ride' };
     case 'otw':
       return isDriver
         ? { message: 'You\u2019re OTW', emoji: '\uD83D\uDE97', color: '#FF9100', sub: 'GPS tracking is active' }
@@ -2462,7 +2462,7 @@ function CooButton({ rideId, onCooSent }: {
         if (data.code === 'no_payment_method') {
           setNeedsPayment(true);
         } else {
-          setError(data.error || 'COO failed — try again');
+          setError(data.error || 'Pull Up failed — try again');
         }
       }
     } catch {
@@ -2492,7 +2492,7 @@ function CooButton({ rideId, onCooSent }: {
             Link a payment method to continue
           </div>
           <div style={{ fontSize: '13px', color: COLORS.grayLight, marginTop: 4 }}>
-            Your driver knows payment is secured once you send COO
+            Your driver knows payment is secured once you tap Pull Up
           </div>
         </div>
         <div style={{
@@ -2501,7 +2501,7 @@ function CooButton({ rideId, onCooSent }: {
         }}>
           <InlinePaymentForm onSuccess={() => {
             setNeedsPayment(false);
-            // Auto-send COO after payment method is linked
+            // Auto-send Pull Up after payment method is linked
             setTimeout(() => handleCoo(), 500);
           }} />
         </div>
@@ -2606,7 +2606,7 @@ function CooButton({ rideId, onCooSent }: {
           opacity: loading ? 0.4 : 1,
         }}
       >
-        {loading ? 'Sending...' : 'COO \u2014 I\'m ready'}
+        {loading ? 'Sending...' : 'Pull Up \u2014 I\'m ready'}
       </button>
 
       <div style={{ fontSize: '12px', color: COLORS.gray, textAlign: 'center' }}>

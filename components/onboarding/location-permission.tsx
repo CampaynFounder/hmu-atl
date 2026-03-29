@@ -140,7 +140,7 @@ export function LocationPermission({ userType }: LocationPermissionProps) {
       <p className="text-center text-xs text-zinc-500">
         {userType === 'driver'
           ? 'Location is only tracked during active rides — never in the background.'
-          : 'Your location is only shared when you tap COO — never tracked otherwise.'}
+          : 'Your location is only shared when you tap Pull Up — never tracked otherwise.'}
       </p>
     </div>
   );

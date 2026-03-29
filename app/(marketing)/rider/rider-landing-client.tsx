@@ -192,7 +192,7 @@ export default function RiderLandingClient() {
             <div className={styles.stepNum}>03</div>
             <div>
               <div className={styles.stepTitle}>Lock In & Pay</div>
-              <div className={styles.stepBody}>Tap COO to confirm. <span className={styles.highlight}>Your payment is held in escrow</span> &mdash; driver doesn&apos;t get paid until you arrive safe.</div>
+              <div className={styles.stepBody}>Tap Pull Up to confirm. <span className={styles.highlight}>Your payment is held in escrow</span> &mdash; driver doesn&apos;t get paid until you arrive safe.</div>
             </div>
           </div>
           <div className={`${styles.step} ${styles.reveal}`}>

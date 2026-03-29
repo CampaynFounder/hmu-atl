@@ -37,7 +37,7 @@ const steps = [
     num: '04',
     title: 'Payment Is Confirmed',
     sub: 'Money held before you drive',
-    body: 'When the rider taps COO (Coming Out Outside), their payment is held in escrow. You don\'t leave the house until their money is locked in. No more ride scammers.',
+    body: 'When the rider taps Pull Up, their payment is held in escrow. You don\'t leave the house until their money is locked in. No more ride scammers.',
     tip: 'The hold amount includes the ride price + any add-on reserve.',
     icon: '🔒',
     color: '#00E676',
