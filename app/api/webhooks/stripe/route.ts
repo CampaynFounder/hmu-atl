@@ -141,22 +141,27 @@ export async function POST(request: NextRequest) {
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
         const sub = event.data.object as Stripe.Subscription;
-        const isActive = sub.status === 'active' || sub.status === 'trialing';
-        const tier = isActive ? 'hmu_first' : 'free';
-
-        await sql`
-          UPDATE users SET tier = ${tier}, updated_at = NOW()
-          WHERE stripe_customer_id = ${sub.customer as string}
-        `;
+        const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
+        if (customerId) {
+          const isActive = sub.status === 'active' || sub.status === 'trialing';
+          const tier = isActive ? 'hmu_first' : 'free';
+          await sql`
+            UPDATE users SET tier = ${tier}, updated_at = NOW()
+            WHERE stripe_customer_id = ${customerId}
+          `;
+        }
         break;
       }
 
       case 'customer.subscription.deleted': {
         const sub = event.data.object as Stripe.Subscription;
-        await sql`
-          UPDATE users SET tier = 'free', updated_at = NOW()
-          WHERE stripe_customer_id = ${sub.customer as string}
-        `;
+        const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
+        if (customerId) {
+          await sql`
+            UPDATE users SET tier = 'free', updated_at = NOW()
+            WHERE stripe_customer_id = ${customerId}
+          `;
+        }
         break;
       }
 
@@ -204,9 +209,10 @@ export async function POST(request: NextRequest) {
       // ─── Chargebacks ──────────────────────────────────────────────────────────
       case 'charge.dispute.created': {
         const dispute = event.data.object as Stripe.Dispute;
-        const charge = dispute.charge as string;
+        const chargeId = typeof dispute.charge === 'string' ? dispute.charge : dispute.charge?.id;
+        if (!chargeId) break;
         // Find ride by payment_intent_id from the charge
-        const chargeObj = await stripe.charges.retrieve(charge);
+        const chargeObj = await stripe.charges.retrieve(chargeId);
         const piId = typeof chargeObj.payment_intent === 'string'
           ? chargeObj.payment_intent
           : chargeObj.payment_intent?.id;
