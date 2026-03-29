@@ -110,12 +110,12 @@ export async function POST(
         console.error('Cash ride counter decrement failed:', e);
       }
 
-      // Track cash ride in launch offer enrollment
+      // Track cash ride in launch offer enrollment (gross: ride + add-ons)
       try {
-        const cashAmount = Number(ride.amount || ride.final_agreed_price || 0);
+        const cashGross = Number(ride.final_agreed_price || ride.amount || 0) + Number(ride.add_on_total || 0);
         const enrollment = await getDriverEnrollment(userId);
         if (enrollment && await isDriverInFreeWindow(userId)) {
-          await updateEnrollmentProgress(userId, cashAmount, 0);
+          await updateEnrollmentProgress(userId, cashGross, 0);
         }
       } catch (e) {
         console.error('Launch offer update for cash ride failed:', e);

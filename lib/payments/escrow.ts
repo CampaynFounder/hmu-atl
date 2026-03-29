@@ -227,9 +227,10 @@ export async function captureRiderPayment(rideId: string): Promise<{
   let offerProgress = null;
   let offerJustExhausted = false;
   if (inFreeWindow) {
+    // Track gross ride amount (base + add-ons) for consistent launch offer accounting
     const { enrollment, justExhausted } = await updateEnrollmentProgress(
       ride.driver_id as string,
-      driverReceives,
+      totalRideAmount,
       waivedFee
     );
     offerJustExhausted = justExhausted;
