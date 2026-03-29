@@ -112,13 +112,13 @@ export function Header() {
                   {isSignedIn && profileType === 'driver' && (
                     <>
                       <NavSection label="GO" />
-                      <NavItem href="/driver/go-live" label="Go Live" icon="🟢" active={pathname === '/driver/go-live'} accent onClick={close} />
-                      <NavItem href="/driver/feed" label="Find Riders" icon="🔍" active={pathname === '/driver/feed'} onClick={close} />
+                      <NavItem href="/driver/go-live" label="Go Live" icon="🟢" active={pathname.startsWith('/driver/go-live')} accent onClick={close} />
+                      <NavItem href="/driver/feed" label="Find Riders" icon="🔍" active={pathname.startsWith('/driver/feed')} onClick={close} />
                       <NavSection label="RIDES" />
-                      <NavItem href="/driver/rides" label="My Rides" icon="📋" active={pathname === '/driver/rides'} onClick={close} />
-                      <NavItem href="/driver/home" label="Cashout" icon="💰" onClick={close} />
+                      <NavItem href="/driver/rides" label="My Rides" icon="📋" active={pathname.startsWith('/driver/rides') || pathname.startsWith('/ride/')} onClick={close} />
+                      <NavItem href="/driver/home" label="Cashout" icon="💰" active={pathname === '/driver/home'} onClick={close} />
                       <NavSection label="ME" />
-                      <NavItem href="/driver/profile" label="Profile" icon="👤" active={pathname === '/driver/profile'} onClick={close} />
+                      <NavItem href="/driver/profile" label="Profile" icon="👤" active={pathname.startsWith('/driver/profile')} onClick={close} />
                       <NavItem href="/driver/settings" label="Settings" icon="⚙️" active={pathname.startsWith('/driver/settings')} onClick={close} />
                     </>
                   )}
@@ -127,8 +127,8 @@ export function Header() {
                   {isSignedIn && profileType === 'rider' && (
                     <>
                       <NavItem href="/rider/home" label="Find a Ride" active={pathname === '/rider/home'} accent onClick={close} />
-                      <NavItem href="/rider/browse" label="Browse Drivers" active={pathname === '/rider/browse'} onClick={close} />
-                      <NavItem href="/rider/profile" label="HMU Profile" active={pathname === '/rider/profile'} onClick={close} />
+                      <NavItem href="/rider/browse" label="Browse Drivers" active={pathname.startsWith('/rider/browse') || pathname.startsWith('/d/')} onClick={close} />
+                      <NavItem href="/rider/profile" label="HMU Profile" active={pathname.startsWith('/rider/profile')} onClick={close} />
                       <NavItem href="/rider/settings" label="HMU Settings" active={pathname.startsWith('/rider/settings')} onClick={close} />
                     </>
                   )}
