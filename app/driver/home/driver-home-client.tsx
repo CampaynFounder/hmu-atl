@@ -500,7 +500,18 @@ function RequestCard({ req, actionLoading, onAction }: {
           Round trip
         </div>
       )}
-      <div className="request-price">${req.price}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="request-price" style={{ margin: 0 }}>${req.price}</div>
+        {req.isCash && (
+          <span style={{
+            fontSize: 11, fontWeight: 700, color: '#FFC107',
+            background: 'rgba(255,193,7,0.12)', borderRadius: 100,
+            padding: '4px 10px',
+          }}>
+            💵 Cash
+          </span>
+        )}
+      </div>
 
       {/* Actions */}
       {!isExpired && (
