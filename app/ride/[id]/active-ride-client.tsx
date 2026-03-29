@@ -2351,55 +2351,61 @@ export default function ActiveRideClient({
   function renderDriverPayout() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{
-          backgroundColor: COLORS.card,
-          borderRadius: 16,
-          padding: '20px 16px',
-          textAlign: 'center',
-        }}>
-          <div style={{ fontSize: 13, color: COLORS.grayLight, marginBottom: 4 }}>
-            You earned
-          </div>
-          <div style={{
-            fontFamily: FONTS.mono,
-            fontSize: 42,
-            fontWeight: 700,
-            color: COLORS.green,
-            lineHeight: 1.1,
-          }}>
-            ${ride.driverPayoutAmount.toFixed(2)}
-          </div>
-          <div style={{
-            fontSize: 13,
-            color: COLORS.gray,
-            marginTop: 8,
-            fontFamily: FONTS.mono,
-          }}>
-            HMU took: ${ride.platformFeeAmount.toFixed(2)}
-          </div>
-          {ride.platformFeeAmount === 0 && ride.driverPayoutAmount > 0 && (
-            <div style={{
-              marginTop: 8,
-              fontSize: 14,
-              color: COLORS.green,
-              fontWeight: 600,
-            }}>
-              Daily cap hit — rest of today is ALL yours
-            </div>
-          )}
-        </div>
-
-        {ride.isCash && isDriver && (
+        {ride.isCash && isDriver ? (
+          /* Cash ride — show collect banner, no Stripe payout info */
           <div style={{
             background: 'rgba(255,193,7,0.12)', border: '1px solid rgba(255,193,7,0.3)',
-            borderRadius: 14, padding: '14px 16px', textAlign: 'center',
+            borderRadius: 16, padding: '20px 16px', textAlign: 'center',
           }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#FFC107' }}>
-              💵 Collect ${(Number(ride.agreedPrice || 0) + Number(ride.addOnTotal || 0)).toFixed(0)} cash from rider
+            <div style={{ fontSize: 13, color: '#FFC107', opacity: 0.7, marginBottom: 4 }}>Cash ride complete</div>
+            <div style={{
+              fontFamily: FONTS.mono, fontSize: 42, fontWeight: 700,
+              color: '#FFC107', lineHeight: 1.1,
+            }}>
+              ${(Number(ride.agreedPrice || 0) + Number(ride.addOnTotal || 0)).toFixed(2)}
             </div>
-            <div style={{ fontSize: 12, color: '#FFC107', opacity: 0.7, marginTop: 4 }}>
-              This was a cash ride — no digital payment
+            <div style={{ fontSize: 13, color: '#FFC107', opacity: 0.7, marginTop: 8 }}>
+              💵 Collect this from rider — not added to your balance
             </div>
+          </div>
+        ) : (
+          /* Digital ride — show Stripe payout info */
+          <div style={{
+            backgroundColor: COLORS.card,
+            borderRadius: 16,
+            padding: '20px 16px',
+            textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 13, color: COLORS.grayLight, marginBottom: 4 }}>
+              You earned
+            </div>
+            <div style={{
+              fontFamily: FONTS.mono,
+              fontSize: 42,
+              fontWeight: 700,
+              color: COLORS.green,
+              lineHeight: 1.1,
+            }}>
+              ${Number(ride.driverPayoutAmount || 0).toFixed(2)}
+            </div>
+            <div style={{
+              fontSize: 13,
+              color: COLORS.gray,
+              marginTop: 8,
+              fontFamily: FONTS.mono,
+            }}>
+              HMU took: ${Number(ride.platformFeeAmount || 0).toFixed(2)}
+            </div>
+            {ride.platformFeeAmount === 0 && ride.driverPayoutAmount > 0 && (
+              <div style={{
+                marginTop: 8,
+                fontSize: 14,
+                color: COLORS.green,
+                fontWeight: 600,
+              }}>
+                Daily cap hit — rest of today is ALL yours
+              </div>
+            )}
           </div>
         )}
 
