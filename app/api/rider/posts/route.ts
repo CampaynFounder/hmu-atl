@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { publishToChannel } from '@/lib/ably/server';
 
 // GET — list rider's active posts
 export async function GET() {
@@ -88,7 +89,12 @@ export async function POST(req: NextRequest) {
       RETURNING id
     `;
 
-    return NextResponse.json({ postId: (rows[0] as { id: string }).id }, { status: 201 });
+    const postId = (rows[0] as { id: string }).id;
+
+    // Publish to area channels so driver feeds update in real-time
+    publishToChannel('area:atl:feed', 'rider_request', { postId, price, message }).catch(() => {});
+
+    return NextResponse.json({ postId }, { status: 201 });
   } catch (error) {
     console.error('Create rider post error:', error);
     return NextResponse.json({ error: 'Failed to post' }, { status: 500 });

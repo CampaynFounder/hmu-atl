@@ -2,6 +2,7 @@
 // Handles both GET (query params) and POST (form body or JSON body)
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
+import { publishAdminEvent } from '@/lib/ably/server';
 
 async function handleInbound(params: Record<string, string>) {
   const from = params.from ?? '';
@@ -22,6 +23,7 @@ async function handleInbound(params: Record<string, string>) {
       INSERT INTO sms_inbound (from_phone, to_did, message, voipms_id)
       VALUES (${fromPhone}, ${toDid}, ${message}, ${voipmsId || null})
     `;
+    publishAdminEvent('sms_inbound', { from: fromPhone, message }).catch(() => {});
   } catch (error) {
     console.error('Inbound SMS error:', error);
   }

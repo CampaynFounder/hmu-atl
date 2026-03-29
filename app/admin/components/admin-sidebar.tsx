@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useClerk } from '@clerk/nextjs';
+import { useAbly } from '@/hooks/use-ably';
 
 const navSections = [
   {
@@ -35,17 +36,21 @@ export function AdminSidebar() {
   const [unreadMessages, setUnreadMessages] = useState(0);
   const { signOut } = useClerk();
 
-  useEffect(() => {
-    const fetchUnread = () => {
-      fetch('/api/admin/messages/unread')
-        .then(r => r.json())
-        .then(d => setUnreadMessages(d.unread ?? 0))
-        .catch(() => {});
-    };
-    fetchUnread();
-    const i = setInterval(fetchUnread, 30000);
-    return () => clearInterval(i);
+  const fetchUnread = useCallback(() => {
+    fetch('/api/admin/messages/unread')
+      .then(r => r.json())
+      .then(d => setUnreadMessages(d.unread ?? 0))
+      .catch(() => {});
   }, []);
+
+  useEffect(() => { fetchUnread(); }, [fetchUnread]);
+
+  // Re-fetch unread count on inbound SMS events
+  const handleAdminEvent = useCallback((msg: { name: string }) => {
+    if (msg.name === 'sms_inbound') fetchUnread();
+  }, [fetchUnread]);
+
+  useAbly({ channelName: 'admin:feed', onMessage: handleAdminEvent });
 
   const isActive = (href: string) => {
     if (href === '/admin') return pathname === '/admin';

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useAbly } from '@/hooks/use-ably';
 
 interface Thread {
   phone: string;
@@ -48,7 +49,14 @@ export function MessageHistory() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchThreads(); const i = setInterval(fetchThreads, 30000); return () => clearInterval(i); }, [fetchThreads]);
+  useEffect(() => { fetchThreads(); }, [fetchThreads]);
+
+  // Re-fetch threads instantly on inbound SMS
+  const handleAdminEvent = useCallback((msg: { name: string }) => {
+    if (msg.name === 'sms_inbound') fetchThreads();
+  }, [fetchThreads]);
+
+  useAbly({ channelName: 'admin:feed', onMessage: handleAdminEvent });
 
   const openConversation = async (phone: string) => {
     setSelectedPhone(phone);

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
-import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyRiderDriverHere } from '@/lib/sms/textbee';
 import { isWithinProximity } from '@/lib/geo/distance';
 
@@ -67,6 +67,7 @@ export async function POST(
 
     await publishRideUpdate(rideId, 'status_change', { status: 'here', message: 'Driver has arrived', waitMinutes }).catch(() => {});
     await notifyUser(ride.rider_id as string, 'ride_update', { rideId, status: 'here', message: 'Your driver is here!', waitMinutes }).catch(() => {});
+    publishAdminEvent('ride_status_change', { rideId, status: 'here', hereVerified }).catch(() => {});
 
     // SMS rider
     try {

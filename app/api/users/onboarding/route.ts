@@ -12,6 +12,7 @@ import {
 import { sql } from '@/lib/db/client';
 import { getActiveOffer, enrollDriver } from '@/lib/db/enrollment-offers';
 import { sendSms } from '@/lib/sms/textbee';
+import { publishAdminEvent } from '@/lib/ably/server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -252,6 +253,8 @@ export async function POST(request: NextRequest) {
         // Non-fatal — don't block onboarding
       }
     }
+
+    publishAdminEvent('user_signup', { userId, profileType: profile_type, name: first_name }).catch(() => {});
 
     return NextResponse.json({
       success: true,

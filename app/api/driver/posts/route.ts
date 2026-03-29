@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { publishToChannel, publishAdminEvent } from '@/lib/ably/server';
 
 // GET — list driver's active availability posts
 export async function GET() {
@@ -96,7 +97,17 @@ export async function POST(req: NextRequest) {
       RETURNING id
     `;
 
-    return NextResponse.json({ postId: (rows[0] as { id: string }).id }, { status: 201 });
+    const postId = (rows[0] as { id: string }).id;
+
+    // Publish to area channels so rider feeds update in real-time
+    const postData = { postId, userId, areas: driverAreas, price: parsedPrice, message };
+    for (const area of driverAreas) {
+      const slug = area.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      publishToChannel(`area:${slug}:feed`, 'driver_available', postData).catch(() => {});
+    }
+    publishAdminEvent('driver_live', { userId, areas: driverAreas }).catch(() => {});
+
+    return NextResponse.json({ postId }, { status: 201 });
   } catch (error) {
     console.error('Create driver post error:', error);
     return NextResponse.json({ error: 'Failed to post' }, { status: 500 });
@@ -116,10 +127,24 @@ export async function DELETE(req: NextRequest) {
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     const userId = (userRows[0] as { id: string }).id;
 
+    // Get areas before cancelling to notify area channels
+    const postRows = await sql`
+      SELECT areas FROM hmu_posts WHERE id = ${postId} AND user_id = ${userId} LIMIT 1
+    `;
+    const areas = postRows.length && Array.isArray((postRows[0] as Record<string, unknown>).areas)
+      ? (postRows[0] as Record<string, unknown>).areas as string[]
+      : [];
+
     await sql`
       UPDATE hmu_posts SET status = 'cancelled'
       WHERE id = ${postId} AND user_id = ${userId} AND status = 'active'
     `;
+
+    // Notify area channels that driver went offline
+    for (const area of areas) {
+      const slug = area.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      publishToChannel(`area:${slug}:feed`, 'driver_offline', { postId, userId }).catch(() => {});
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -85,7 +85,7 @@ export async function POST(req: Request) {
 
       // Create Stripe Connect account for drivers only
       let stripeAccountId: string | undefined;
-      if (profileType === 'driver' || profileType === 'both') {
+      if (profileType === 'driver') {
         stripeAccountId = await createConnectAccount({
           clerkId: id,
           email,

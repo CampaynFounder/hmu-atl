@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useAbly } from '@/hooks/use-ably';
 import { StatCard } from './stat-card';
 import { AlertBadge } from './alert-badge';
 import { LiveMap } from './live-map';
@@ -70,9 +71,17 @@ export function LiveOpsDashboard() {
 
   useEffect(() => {
     fetchAll();
-    const interval = setInterval(fetchAll, 15000); // Refresh every 15s
-    return () => clearInterval(interval);
   }, [fetchAll]);
+
+  // Re-fetch on any admin:feed event (ride created, status change, user signup, etc.)
+  const handleAdminEvent = useCallback(() => {
+    fetchAll();
+  }, [fetchAll]);
+
+  const { connected: ablyConnected } = useAbly({
+    channelName: 'admin:feed',
+    onMessage: handleAdminEvent,
+  });
 
   if (loading) {
     return (
@@ -93,7 +102,7 @@ export function LiveOpsDashboard() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Live Operations</h1>
         <span className="text-xs text-neutral-500">
-          Auto-refreshing every 15s
+          {ablyConnected ? '🟢 Live' : '🔴 Connecting...'}
         </span>
       </div>
 

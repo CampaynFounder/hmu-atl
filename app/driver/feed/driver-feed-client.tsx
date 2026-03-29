@@ -7,6 +7,7 @@ import DealPill from '@/components/driver/deal-pill';
 import { MapPin, Clock, DollarSign, ArrowRight, ChevronLeft } from 'lucide-react';
 import RiderProfileOverlay from '@/components/rider/rider-profile-overlay';
 import CashPackCard from '@/components/driver/cash-pack-card';
+import { useAbly } from '@/hooks/use-ably';
 
 interface RiderRequest {
   id: string;
@@ -56,11 +57,15 @@ export default function DriverFeedClient({ driverAreas }: Props) {
     }
   }, []);
 
-  useEffect(() => {
-    fetchRequests();
-    const interval = setInterval(fetchRequests, 15000);
-    return () => clearInterval(interval);
-  }, [fetchRequests]);
+  // Initial load — Ably handles real-time updates
+  useEffect(() => { fetchRequests(); }, [fetchRequests]);
+
+  // Subscribe to area channels for real-time rider request notifications
+  const primaryArea = driverAreas[0]?.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'atl';
+  useAbly({
+    channelName: `area:${primaryArea}:feed`,
+    onMessage: useCallback(() => { fetchRequests(); }, [fetchRequests]),
+  });
 
   const handleAccept = async (postId: string) => {
     try {

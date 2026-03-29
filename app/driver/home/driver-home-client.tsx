@@ -67,10 +67,9 @@ export default function DriverHomeClient({
     }
   }, []);
 
+  // Initial load — Ably handles real-time updates, visibility change handles tab return
   useEffect(() => {
     fetchRequests();
-    const interval = setInterval(fetchRequests, 30000);
-    return () => clearInterval(interval);
   }, [fetchRequests]);
 
   // Re-fetch immediately on any Ably notification (cancelled ride, new request, etc.)

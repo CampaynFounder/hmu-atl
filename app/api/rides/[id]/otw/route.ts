@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
-import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyRiderDriverOtw } from '@/lib/sms/textbee';
 
 export async function POST(
@@ -48,6 +48,7 @@ export async function POST(
     // Notify rider via Ably
     await publishRideUpdate(rideId, 'status_change', { status: 'otw', message: 'Driver is on the way' }).catch(() => {});
     await notifyUser(ride.rider_id as string, 'ride_update', { rideId, status: 'otw', message: 'Your driver is on the way!' }).catch(() => {});
+    publishAdminEvent('ride_status_change', { rideId, status: 'otw' }).catch(() => {});
 
     // SMS rider
     try {

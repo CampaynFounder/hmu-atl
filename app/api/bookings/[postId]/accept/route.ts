@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyRiderBookingAccepted } from '@/lib/sms/textbee';
 
 export async function POST(
@@ -156,6 +156,8 @@ export async function POST(
       status: 'matched',
       message: 'Ride matched — driver will be OTW soon',
     }).catch(() => {});
+
+    publishAdminEvent('ride_created', { rideId, driverUserId, riderId, price, status: 'matched' }).catch(() => {});
 
     // SMS rider that their booking was accepted
     try {

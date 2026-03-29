@@ -705,29 +705,22 @@ export default function ActiveRideClient({
     setEta({ minutes, miles });
   }, [driverLocation, ride.status, ride.riderLat, ride.riderLng]);
 
-  // ── Load chat history + poll every 10s as Ably fallback ──
+  // ── Load chat history on status change (Ably handles real-time messages) ──
   useEffect(() => {
     if (!['otw', 'here', 'confirming', 'active', 'ended'].includes(ride.status)) return;
 
-    const fetchMessages = () => {
-      fetch(`/api/rides/${rideId}/messages`)
-        .then(r => r.json())
-        .then(data => {
-          if (data.messages) {
-            setChatMessages(prev => {
-              // Merge: keep optimistic messages that haven't been confirmed, add new server messages
-              const serverIds = new Set((data.messages as Array<{ id: string }>).map((m: { id: string }) => m.id));
-              const optimistic = prev.filter(m => m.id.startsWith('opt_') && !serverIds.has(m.id));
-              return [...data.messages, ...optimistic];
-            });
-          }
-        })
-        .catch(() => {});
-    };
-
-    fetchMessages(); // initial load
-    const interval = setInterval(fetchMessages, 10000); // poll every 10s
-    return () => clearInterval(interval);
+    fetch(`/api/rides/${rideId}/messages`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.messages) {
+          setChatMessages(prev => {
+            const serverIds = new Set((data.messages as Array<{ id: string }>).map((m: { id: string }) => m.id));
+            const optimistic = prev.filter(m => m.id.startsWith('opt_') && !serverIds.has(m.id));
+            return [...data.messages, ...optimistic];
+          });
+        }
+      })
+      .catch(() => {});
   }, [ride.status, rideId]);
 
   // ── Load add-ons for this ride ──

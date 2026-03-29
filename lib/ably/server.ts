@@ -45,3 +45,10 @@ export async function notifyUser(
 ): Promise<void> {
   await publishToChannel(`user:${userId}:notify`, event, data);
 }
+
+export async function publishAdminEvent(
+  event: string,
+  data: unknown
+): Promise<void> {
+  await publishToChannel('admin:feed', event, data);
+}

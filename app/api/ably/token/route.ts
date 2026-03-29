@@ -19,6 +19,15 @@ export async function POST(req: NextRequest) {
       [`user:${userId}:notify`]: ['subscribe', 'publish'],
     };
 
+    // Grant admin:feed subscribe for admin users
+    const adminRows = await sql`SELECT is_admin FROM users WHERE id = ${userId} LIMIT 1`;
+    if ((adminRows[0] as Record<string, unknown>)?.is_admin) {
+      capability['admin:feed'] = ['subscribe'];
+    }
+
+    // Grant area feed channels — wildcard so any area works
+    capability['area:*:feed'] = ['subscribe'];
+
     // If rideId provided, scope to that ride channel
     if (rideId) {
       // Verify user is part of this ride

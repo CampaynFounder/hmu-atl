@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { sql } from '@/lib/db/client';
 import { sendSms } from '@/lib/sms/textbee';
+import { publishAdminEvent } from '@/lib/ably/server';
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2026-02-25.clover' });
@@ -178,6 +179,73 @@ export async function POST(request: NextRequest) {
           // Grace period — don't downgrade immediately, Stripe will retry
           console.warn('HMU First invoice payment failed for customer:', customerId);
         }
+        break;
+      }
+
+      // ─── Refunds ─────────────────────────────────────────────────────────────
+      case 'charge.refunded': {
+        const charge = event.data.object as Stripe.Charge;
+        const rideId = charge.metadata?.rideId;
+        if (rideId) {
+          const refundedCents = charge.amount_refunded;
+          await sql`
+            UPDATE rides SET
+              status = 'refunded',
+              refund_amount = ${refundedCents / 100},
+              refunded_at = NOW(),
+              updated_at = NOW()
+            WHERE id = ${rideId}
+          `;
+          publishAdminEvent('ride_refunded', { rideId, amount: refundedCents / 100 }).catch(() => {});
+        }
+        break;
+      }
+
+      // ─── Chargebacks ──────────────────────────────────────────────────────────
+      case 'charge.dispute.created': {
+        const dispute = event.data.object as Stripe.Dispute;
+        const charge = dispute.charge as string;
+        // Find ride by payment_intent_id from the charge
+        const chargeObj = await stripe.charges.retrieve(charge);
+        const piId = typeof chargeObj.payment_intent === 'string'
+          ? chargeObj.payment_intent
+          : chargeObj.payment_intent?.id;
+        if (piId) {
+          await sql`
+            UPDATE rides SET
+              status = 'disputed',
+              updated_at = NOW()
+            WHERE payment_intent_id = ${piId}
+          `;
+          publishAdminEvent('chargeback_created', {
+            disputeId: dispute.id,
+            amount: dispute.amount / 100,
+            reason: dispute.reason,
+          }).catch(() => {});
+        }
+        break;
+      }
+
+      // ─── Payout delivery tracking ───────────────────────────��─────────────────
+      case 'payout.paid': {
+        const payout = event.data.object as Stripe.Payout;
+        // This fires on connected account payouts — log for monitoring
+        publishAdminEvent('payout_delivered', {
+          payoutId: payout.id,
+          amount: payout.amount / 100,
+          destination: payout.destination,
+        }).catch(() => {});
+        break;
+      }
+
+      case 'payout.failed': {
+        const payout = event.data.object as Stripe.Payout;
+        publishAdminEvent('payout_failed', {
+          payoutId: payout.id,
+          amount: payout.amount / 100,
+          failureCode: payout.failure_code,
+          failureMessage: payout.failure_message,
+        }).catch(() => {});
         break;
       }
 

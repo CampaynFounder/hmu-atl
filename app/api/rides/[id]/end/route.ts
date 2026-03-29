@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { captureRiderPayment } from '@/lib/payments/escrow';
-import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { isWithinProximity } from '@/lib/geo/distance';
 import { calculateAndStoreRideAnalytics } from '@/lib/rides/analytics';
 import Stripe from 'stripe';
@@ -148,6 +148,11 @@ export async function POST(
     }).catch(() => {});
     await notifyUser(ride.rider_id as string, 'ride_update', {
       rideId, status: 'ended', message: 'Ride complete — rate your driver',
+    }).catch(() => {});
+    publishAdminEvent('ride_status_change', {
+      rideId, status: 'ended', endVerified,
+      driverReceives: payoutResult.driverReceives,
+      platformFee: payoutResult.platformReceives,
     }).catch(() => {});
 
     // ── Phase 2: Auto-instant payout for HMU First drivers ──
