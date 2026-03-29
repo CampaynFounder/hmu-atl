@@ -147,7 +147,11 @@ export async function POST(request: NextRequest) {
           const tier = isActive ? 'hmu_first' : 'free';
           await sql`
             UPDATE users SET tier = ${tier}, updated_at = NOW()
-            WHERE stripe_customer_id = ${customerId}
+            WHERE id IN (
+              SELECT user_id FROM driver_profiles WHERE stripe_customer_id = ${customerId}
+              UNION
+              SELECT user_id FROM rider_profiles WHERE stripe_customer_id = ${customerId}
+            )
           `;
         }
         break;
@@ -159,7 +163,11 @@ export async function POST(request: NextRequest) {
         if (customerId) {
           await sql`
             UPDATE users SET tier = 'free', updated_at = NOW()
-            WHERE stripe_customer_id = ${customerId}
+            WHERE id IN (
+              SELECT user_id FROM driver_profiles WHERE stripe_customer_id = ${customerId}
+              UNION
+              SELECT user_id FROM rider_profiles WHERE stripe_customer_id = ${customerId}
+            )
           `;
         }
         break;
@@ -171,7 +179,11 @@ export async function POST(request: NextRequest) {
         if (customerId) {
           await sql`
             UPDATE users SET tier = 'hmu_first', updated_at = NOW()
-            WHERE stripe_customer_id = ${customerId}
+            WHERE id IN (
+              SELECT user_id FROM driver_profiles WHERE stripe_customer_id = ${customerId}
+              UNION
+              SELECT user_id FROM rider_profiles WHERE stripe_customer_id = ${customerId}
+            )
           `;
         }
         break;
@@ -192,16 +204,11 @@ export async function POST(request: NextRequest) {
         const charge = event.data.object as Stripe.Charge;
         const rideId = charge.metadata?.rideId;
         if (rideId) {
-          const refundedCents = charge.amount_refunded;
           await sql`
-            UPDATE rides SET
-              status = 'refunded',
-              refund_amount = ${refundedCents / 100},
-              refunded_at = NOW(),
-              updated_at = NOW()
+            UPDATE rides SET status = 'refunded', updated_at = NOW()
             WHERE id = ${rideId}
           `;
-          publishAdminEvent('ride_refunded', { rideId, amount: refundedCents / 100 }).catch(() => {});
+          publishAdminEvent('ride_refunded', { rideId, amount: charge.amount_refunded / 100 }).catch(() => {});
         }
         break;
       }
