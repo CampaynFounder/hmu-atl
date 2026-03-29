@@ -163,12 +163,12 @@ export async function POST(
     const rideRows = await sql`
       INSERT INTO rides (
         driver_id, rider_id, status, amount, final_agreed_price,
-        price_mode, proposed_price, price_accepted_at,
+        price_mode, price_accepted_at,
         hmu_post_id, agreement_summary,
         dispute_window_minutes, is_cash, wait_minutes
       ) VALUES (
         ${driverUserId}, ${riderId}, 'matched', ${price}, ${price},
-        'proposed', ${price}, NOW(),
+        'proposed', NOW(),
         ${postId}, ${JSON.stringify({
           destination: timeWindow.destination || timeWindow.note || '',
           time: timeWindow.time || 'ASAP',
