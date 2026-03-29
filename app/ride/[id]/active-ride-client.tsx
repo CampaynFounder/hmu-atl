@@ -2179,7 +2179,7 @@ export default function ActiveRideClient({
                     </span>
                   )}
                 </span>
-                <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.white }}>${ride.agreedPrice.toFixed(2)}</span>
+                <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.white }}>${Number(ride.agreedPrice || 0).toFixed(2)}</span>
               </div>
 
               {/* Extras with remove buttons */}
@@ -2376,7 +2376,7 @@ export default function ActiveRideClient({
             borderRadius: 14, padding: '14px 16px', textAlign: 'center',
           }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#FFC107' }}>
-              💵 Collect ${ride.agreedPrice.toFixed(0)} cash from rider
+              💵 Collect ${Number(ride.agreedPrice || 0).toFixed(0)} cash from rider
             </div>
             <div style={{ fontSize: 12, color: '#FFC107', opacity: 0.7, marginTop: 4 }}>
               This was a cash ride — no digital payment
@@ -2426,7 +2426,7 @@ export default function ActiveRideClient({
         ))}
         <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <span style={{ fontSize: 12, color: COLORS.gray }}>Base ride</span>
-          <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.white }}>${ride.agreedPrice.toFixed(2)}</span>
+          <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.white }}>${Number(ride.agreedPrice || 0).toFixed(2)}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
           <span style={{ fontSize: 12, color: COLORS.gray }}>Extras</span>
@@ -2434,7 +2434,7 @@ export default function ActiveRideClient({
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.08)', fontWeight: 700 }}>
           <span style={{ fontSize: 13, color: COLORS.white }}>Ride total</span>
-          <span style={{ fontFamily: FONTS.mono, fontSize: 16, color: COLORS.green }}>${(ride.agreedPrice + extrasTotal).toFixed(2)}</span>
+          <span style={{ fontFamily: FONTS.mono, fontSize: 16, color: COLORS.green }}>${(Number(ride.agreedPrice || 0) + extrasTotal).toFixed(2)}</span>
         </div>
       </div>
     );
@@ -2503,7 +2503,7 @@ export default function ActiveRideClient({
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
             <span style={{ fontSize: 15, color: COLORS.white }}>Base Ride</span>
             <span style={{ fontFamily: FONTS.mono, fontSize: 15, color: COLORS.white, fontWeight: 700 }}>
-              ${ride.agreedPrice.toFixed(2)}
+              ${Number(ride.agreedPrice || 0).toFixed(2)}
             </span>
           </div>
           <div style={{ fontSize: 11, color: COLORS.gray, marginTop: 4 }}>Locked — non-editable</div>
