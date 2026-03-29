@@ -2881,8 +2881,9 @@ function CooButton({ rideId, onCooSent }: {
   // Validated address state
   const [pickupAddr, setPickupAddr] = useState<ValidatedAddress | null>(null);
   const [dropoffAddr, setDropoffAddr] = useState<ValidatedAddress | null>(null);
-  const [stopAddrs, setStopAddrs] = useState<ValidatedAddress[]>([]);
+  const [stopAddrs, setStopAddrs] = useState<(ValidatedAddress & { _key?: string })[]>([]);
   const [showStops, setShowStops] = useState(false);
+  const stopKeyCounter = useRef(0);
 
   function getMyLocation() {
     if (!navigator.geolocation) {
@@ -3054,8 +3055,8 @@ function CooButton({ rideId, onCooSent }: {
       />
 
       {/* Optional stops */}
-      {showStops && stopAddrs.map((_, i) => (
-        <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+      {showStops && stopAddrs.map((stopEntry, i) => (
+        <div key={stopEntry._key || `stop-${i}`} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
           <div style={{ flex: 1 }}>
             <AddressAutocomplete
               label={`Stop ${i + 1}`}
@@ -3066,9 +3067,10 @@ function CooButton({ rideId, onCooSent }: {
                 setStopAddrs(updated);
               }}
               onClear={() => {
-                const updated = stopAddrs.filter((_, idx) => idx !== i);
+                // Just clear the selection, don't remove the slot — X button handles removal
+                const updated = [...stopAddrs];
+                updated[i] = {} as ValidatedAddress;
                 setStopAddrs(updated);
-                if (updated.length === 0) setShowStops(false);
               }}
               proximity={geoLat && geoLng ? { lat: geoLat, lng: geoLng } : undefined}
             />
@@ -3096,7 +3098,8 @@ function CooButton({ rideId, onCooSent }: {
           type="button"
           onClick={() => {
             setShowStops(true);
-            setStopAddrs([...stopAddrs, {} as ValidatedAddress]);
+            stopKeyCounter.current += 1;
+            setStopAddrs([...stopAddrs, { _key: `stop-${stopKeyCounter.current}` } as ValidatedAddress & { _key: string }]);
           }}
           style={{
             background: 'transparent', border: '1px dashed rgba(255,255,255,0.15)',

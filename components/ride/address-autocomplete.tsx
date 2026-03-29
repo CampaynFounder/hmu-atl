@@ -98,11 +98,18 @@ export function AddressAutocomplete({
 
   const handleInputChange = (val: string) => {
     setQuery(val);
-    setSelected(false);
-    if (onClear) onClear();
+    if (selected) {
+      // User is editing a previously selected address — deselect but don't remove
+      setSelected(false);
+    }
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fetchSuggestions(val), 300);
+    if (val.trim().length === 0 && onClear) {
+      // Only call onClear when input is fully emptied
+      onClear();
+    } else {
+      debounceRef.current = setTimeout(() => fetchSuggestions(val), 300);
+    }
   };
 
   const handleSelect = async (suggestion: Suggestion) => {
