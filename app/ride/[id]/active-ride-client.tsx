@@ -3063,16 +3063,16 @@ function CooButton({ rideId, onCooSent }: {
               placeholder="Add a stop along the way"
               onSelect={(addr) => {
                 const updated = [...stopAddrs];
-                updated[i] = addr;
+                updated[i] = { ...addr, _key: stopEntry._key };
                 setStopAddrs(updated);
               }}
               onClear={() => {
-                // Just clear the selection, don't remove the slot — X button handles removal
                 const updated = [...stopAddrs];
-                updated[i] = {} as ValidatedAddress;
+                updated[i] = { _key: stopEntry._key } as ValidatedAddress & { _key: string };
                 setStopAddrs(updated);
               }}
               proximity={geoLat && geoLng ? { lat: geoLat, lng: geoLng } : undefined}
+              value={stopEntry.name ? stopEntry as ValidatedAddress : null}
             />
           </div>
           <button
