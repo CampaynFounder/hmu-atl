@@ -76,21 +76,25 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
   }, [open, rideId]);
 
   const activeAddOns = addOns.filter(a => a.status !== 'removed' && a.status !== 'disputed');
-  const extrasTotal = activeAddOns.reduce((sum, a) => sum + a.subtotal, 0);
+  const extrasTotal = activeAddOns.reduce((sum, a) => sum + Number(a.subtotal || 0), 0);
 
   // Group add-ons by name for display
   const groupedAddOns = activeAddOns.reduce<{ name: string; unitPrice: number; totalQty: number; totalSubtotal: number; ids: string[] }[]>((groups, a) => {
+    const sub = Number(a.subtotal || 0);
+    const qty = Number(a.quantity) || 1;
+    const up = Number(a.unitPrice || 0);
     const existing = groups.find(g => g.name === a.name);
     if (existing) {
-      existing.totalQty += a.quantity;
-      existing.totalSubtotal += a.subtotal;
+      existing.totalQty += qty;
+      existing.totalSubtotal += sub;
       existing.ids.push(a.id);
     } else {
-      groups.push({ name: a.name, unitPrice: a.unitPrice, totalQty: a.quantity, totalSubtotal: a.subtotal, ids: [a.id] });
+      groups.push({ name: a.name, unitPrice: up, totalQty: qty, totalSubtotal: sub, ids: [a.id] });
     }
     return groups;
   }, []);
-  const rideTotal = agreedPrice + extrasTotal;
+  const safeAgreedPrice = Number(agreedPrice || 0);
+  const rideTotal = safeAgreedPrice + extrasTotal;
   const remaining = Math.max(0, reserve - extrasTotal);
   const budgetUsedPct = reserve > 0 ? Math.min(100, (extrasTotal / reserve) * 100) : 0;
 
@@ -218,7 +222,7 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 8 }}>
             <span style={{ fontSize: 13, color: COLORS.grayLight }}>Base ride</span>
             <span style={{ fontFamily: FONTS.mono, fontSize: 14, fontWeight: 700, color: COLORS.white }}>
-              ${agreedPrice.toFixed(2)}
+              ${safeAgreedPrice.toFixed(2)}
             </span>
           </div>
 
@@ -257,12 +261,12 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
                         )}
                         {g.totalQty > 1 && (
                           <span style={{ fontSize: 10, color: COLORS.gray, marginLeft: 4 }}>
-                            @ ${g.unitPrice.toFixed(2)} ea
+                            @ ${Number(g.unitPrice || 0).toFixed(2)} ea
                           </span>
                         )}
                       </div>
                       <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.green, flexShrink: 0 }}>
-                        ${g.totalSubtotal.toFixed(2)}
+                        ${Number(g.totalSubtotal || 0).toFixed(2)}
                       </span>
                       <button
                         onClick={() => handleRemove({ id: lastId, name: g.name, unitPrice: g.unitPrice, quantity: 1, subtotal: g.unitPrice, status: 'pre_selected', addedBy: 'rider' })}
@@ -333,7 +337,7 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
             borderRadius: 12, padding: '12px 14px', marginBottom: 16,
           }}>
             <div style={{ fontSize: 11, color: COLORS.gray, marginBottom: 8 }}>
-              We held <span style={{ color: COLORS.white, fontFamily: FONTS.mono, fontWeight: 700 }}>${(agreedPrice + reserve).toFixed(2)}</span> on your card — ${agreedPrice.toFixed(2)} ride + ${reserve.toFixed(2)} for extras
+              We held <span style={{ color: COLORS.white, fontFamily: FONTS.mono, fontWeight: 700 }}>${(agreedPrice + reserve).toFixed(2)}</span> on your card — ${safeAgreedPrice.toFixed(2)} ride + ${reserve.toFixed(2)} for extras
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <span style={{ fontSize: 11, color: COLORS.gray }}>Extras budget</span>
@@ -366,7 +370,7 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
             borderRadius: 12, padding: '10px 14px', marginBottom: 16,
             fontSize: 12, color: COLORS.orange,
           }}>
-            Your card was only authorized for the ${agreedPrice.toFixed(2)} ride — extras aren't available for this trip. You can browse the menu for next time.
+            Your card was only authorized for the ${safeAgreedPrice.toFixed(2)} ride — extras aren't available for this trip. You can browse the menu for next time.
           </div>
         )}
 

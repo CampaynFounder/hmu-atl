@@ -168,6 +168,7 @@ export default function ActiveRideClient({
   const [menuSheetOpen, setMenuSheetOpen] = useState(false);
   const [pendingStop, setPendingStop] = useState<{ address: string; latitude?: number; longitude?: number } | null>(null);
   const [endRideConfirm, setEndRideConfirm] = useState<{ show: boolean; reason: string; notes: string }>({ show: false, reason: '', notes: '' });
+  const [addingMidRideStop, setAddingMidRideStop] = useState(false);
   const [notification, setNotification] = useState<{
     message: string;
     emoji: string;
@@ -2280,23 +2281,10 @@ export default function ActiveRideClient({
             <StatusMessage text="Ride in progress" />
             {ride.addOns.length > 0 && renderAddOnSummary()}
             {renderAddServicesButton()}
-            {/* Add a stop button */}
+            {/* Add a stop — inline Mapbox search */}
+            {!addingMidRideStop ? (
             <button
-              onClick={() => {
-                const addr = prompt('Where do you need to stop?');
-                if (!addr?.trim()) return;
-                fetch(`/api/rides/${rideId}/add-stop`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ address: addr.trim() }),
-                }).then(r => r.json()).then(data => {
-                  if (data.status === 'requested') {
-                    showNotification('Stop request sent to driver', '📍', COLORS.orange);
-                  } else {
-                    setError(data.error || 'Could not add stop');
-                  }
-                }).catch(() => setError('Network error'));
-              }}
+              onClick={() => setAddingMidRideStop(true)}
               style={{
                 width: '100%', padding: 10, borderRadius: 100, marginTop: 6,
                 border: '1px solid rgba(255,145,0,0.3)', background: 'transparent',
@@ -2306,6 +2294,37 @@ export default function ActiveRideClient({
             >
               + Add a Stop
             </button>
+            ) : (
+              <div style={{ marginTop: 6, background: COLORS.card, borderRadius: 14, padding: '12px 14px', border: '1px solid rgba(255,145,0,0.2)' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.orange, marginBottom: 8 }}>Where do you need to stop?</div>
+                <AddressAutocomplete
+                  label="Stop address"
+                  placeholder="Search address..."
+                  onSelect={(addr) => {
+                    fetch(`/api/rides/${rideId}/add-stop`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ address: addr.address || addr.name, latitude: addr.latitude, longitude: addr.longitude }),
+                    }).then(r => r.json()).then(data => {
+                      if (data.status === 'requested') {
+                        showNotification('Stop request sent to driver', '📍', COLORS.orange);
+                      } else {
+                        setError(data.error || 'Could not add stop');
+                      }
+                    }).catch(() => setError('Network error'));
+                    setAddingMidRideStop(false);
+                  }}
+                  onClear={() => {}}
+                  proximity={driverLocation ? { lat: driverLocation.lat, lng: driverLocation.lng } : undefined}
+                />
+                <button
+                  onClick={() => setAddingMidRideStop(false)}
+                  style={{ marginTop: 8, width: '100%', padding: 8, borderRadius: 100, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: COLORS.gray, fontSize: 12, cursor: 'pointer', fontFamily: FONTS.body }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </>
         );
 
