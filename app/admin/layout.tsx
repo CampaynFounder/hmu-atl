@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { getCurrentUser } from '@/lib/auth/guards';
+import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { AdminSidebar } from './components/admin-sidebar';
 
@@ -12,13 +12,15 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const user = await getCurrentUser();
+  const { userId: clerkId } = await auth();
 
-  if (!user) redirect('/sign-in');
+  if (!clerkId) redirect('/sign-in');
 
-  // Check is_admin flag
-  const adminCheck = await sql`SELECT is_admin FROM users WHERE id = ${user.id} LIMIT 1`;
-  if (!adminCheck.length || !adminCheck[0].is_admin) redirect('/');
+  // Check is_admin flag directly
+  const rows = await sql`
+    SELECT is_admin FROM users WHERE clerk_id = ${clerkId} LIMIT 1
+  `;
+  if (!rows.length || !rows[0].is_admin) redirect('/');
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white flex">
