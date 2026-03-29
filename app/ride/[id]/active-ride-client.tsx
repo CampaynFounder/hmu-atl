@@ -754,9 +754,11 @@ export default function ActiveRideClient({
     return () => clearInterval(interval);
   }, [isDriver, ride.status, lastLocationUpdate, rideId]);
 
-  // Reset SMS nudge flag when ride status changes
+  // Reset SMS nudge flag and stale timer when ride status changes
   useEffect(() => {
     smsNudgeSent.current = false;
+    setLastLocationUpdate(Date.now());
+    setEtaStale(false);
   }, [ride.status]);
 
   // ── ETA calculation ──
@@ -794,19 +796,30 @@ export default function ActiveRideClient({
   }, [ride.status, rideId]);
 
   // ── Load add-ons for this ride ──
-  useEffect(() => {
-    if (['active', 'ended', 'completed'].includes(ride.status)) {
+  const refreshAddOns = useCallback(() => {
+    if (['otw', 'here', 'confirming', 'active', 'ended', 'completed'].includes(ride.status)) {
       fetch(`/api/rides/${rideId}/add-ons`)
         .then(r => { if (r.ok) return r.json(); return null; })
         .then(data => {
           if (data && data.addOns) {
-            const total = (data.addOns as RideData['addOns']).reduce((s: number, a: { subtotal: number; status: string }) => a.status !== 'removed' ? s + a.subtotal : s, 0);
+            const total = (data.addOns as RideData['addOns']).reduce((s: number, a: { subtotal: number; status: string }) => a.status !== 'removed' ? s + Number(a.subtotal || 0) : s, 0);
             setRide(prev => ({ ...prev, addOns: data.addOns, addOnTotal: total }));
           }
         })
         .catch(() => {});
     }
   }, [ride.status, rideId]);
+
+  useEffect(() => { refreshAddOns(); }, [refreshAddOns]);
+
+  // Refresh add-ons when page becomes visible (catches missed Ably events)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refreshAddOns();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [refreshAddOns]);
 
   // ── Sync chatOpen ref ──
   useEffect(() => {

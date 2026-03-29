@@ -13,7 +13,7 @@ import {
   calculateAddOnTotal,
   getDriverMenuForRider,
 } from '@/lib/db/service-menu';
-import { publishRideUpdate } from '@/lib/ably/server';
+import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 
 // GET — list add-ons for a ride
 export async function GET(
@@ -117,11 +117,21 @@ export async function POST(
     const total = await calculateAddOnTotal(rideId);
     await sql`UPDATE rides SET add_on_total = ${total} WHERE id = ${rideId}`;
 
-    // Notify both parties via Ably
+    // Notify both parties via Ably (ride channel + driver personal channel as backup)
     publishRideUpdate(rideId, 'add_on_added', {
       addOn: { id: addOn.id, name: addOn.name, subtotal: addOn.subtotal, quantity: addOn.quantity },
       addOnTotal: total,
     }).catch(() => {});
+
+    // Also notify driver directly in case ride channel subscription is stale
+    if (ride.driver_id && ride.driver_id !== userId) {
+      notifyUser(ride.driver_id as string, 'ride_update', {
+        rideId,
+        type: 'add_on_added',
+        addOn: { name: addOn.name, subtotal: addOn.subtotal },
+        message: `Rider added: ${addOn.name} (+$${Number(addOn.subtotal || 0).toFixed(2)})`,
+      }).catch(() => {});
+    }
 
     return NextResponse.json({ addOn, total }, { status: 201 });
   } catch (error) {
