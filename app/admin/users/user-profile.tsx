@@ -60,6 +60,9 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [smsText, setSmsText] = useState('');
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsResult, setSmsResult] = useState<string | null>(null);
 
   const fetchUser = useCallback(async () => {
     setLoading(true);
@@ -310,6 +313,62 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             {user.isAdmin ? 'Revoke Admin' : 'Grant Admin'}
           </button>
         </div>
+
+        {/* Send SMS */}
+        {user.phone && (
+          <div className="mt-4 pt-4 border-t border-neutral-800">
+            <h4 className="text-xs font-semibold text-neutral-400 mb-2">Send SMS to {user.phone}</h4>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={smsText}
+                onChange={(e) => setSmsText(e.target.value.slice(0, 160))}
+                maxLength={160}
+                placeholder="Type a message..."
+                className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600"
+              />
+              <button
+                onClick={async () => {
+                  if (!smsText.trim()) return;
+                  setSmsSending(true);
+                  setSmsResult(null);
+                  try {
+                    const res = await fetch('/api/admin/marketing/send', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        recipients: [{ phone: user.phone, name: user.displayName }],
+                        message: smsText.trim(),
+                      }),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.sent > 0) {
+                      setSmsResult('Sent');
+                      setSmsText('');
+                    } else {
+                      setSmsResult(data.error || 'Failed');
+                    }
+                  } catch { setSmsResult('Network error'); }
+                  finally { setSmsSending(false); }
+                }}
+                disabled={smsSending || !smsText.trim()}
+                className="bg-green-600 hover:bg-green-700 disabled:bg-neutral-700 disabled:text-neutral-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
+              >
+                {smsSending ? '...' : 'Send'}
+              </button>
+            </div>
+            <div className="flex items-center justify-between mt-1">
+              <span className={`text-[10px] ${smsText.length > 140 ? 'text-yellow-400' : 'text-neutral-600'}`}>
+                {smsText.length}/160
+              </span>
+              {smsResult && (
+                <span className={`text-[10px] font-medium ${smsResult === 'Sent' ? 'text-green-400' : 'text-red-400'}`}>
+                  {smsResult}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Rating History */}
