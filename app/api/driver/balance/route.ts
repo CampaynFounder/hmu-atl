@@ -61,6 +61,34 @@ export async function GET() {
       payoutStatus = 'pending_hold';
     }
 
+    // Query cash ride earnings from DB (not in Stripe)
+    const userIdRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    const driverUserId = (userIdRows[0] as { id: string }).id;
+
+    const cashRows = await sql`
+      SELECT
+        COUNT(*) as cash_rides,
+        COALESCE(SUM(COALESCE(final_agreed_price, amount, 0) + COALESCE(add_on_total, 0)), 0) as cash_total
+      FROM rides
+      WHERE driver_id = ${driverUserId}
+        AND is_cash = true
+        AND status IN ('ended', 'completed')
+    `;
+    const cashRides = Number((cashRows[0] as Record<string, unknown>).cash_rides || 0);
+    const cashTotal = Number((cashRows[0] as Record<string, unknown>).cash_total || 0);
+
+    const digitalRows = await sql`
+      SELECT
+        COUNT(*) as digital_rides,
+        COALESCE(SUM(driver_payout_amount), 0) as digital_total
+      FROM rides
+      WHERE driver_id = ${driverUserId}
+        AND (is_cash IS NULL OR is_cash = false)
+        AND status IN ('ended', 'completed')
+    `;
+    const digitalRides = Number((digitalRows[0] as Record<string, unknown>).digital_rides || 0);
+    const digitalTotal = Number((digitalRows[0] as Record<string, unknown>).digital_total || 0);
+
     return NextResponse.json({
       available,
       pending,
@@ -69,6 +97,8 @@ export async function GET() {
       tier: driver.tier,
       currency: 'usd',
       payoutStatus,
+      cashEarnings: { rides: cashRides, total: cashTotal },
+      digitalEarnings: { rides: digitalRides, total: digitalTotal },
     });
   } catch (error) {
     console.error('Balance error:', error);

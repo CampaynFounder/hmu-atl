@@ -10,6 +10,8 @@ interface BalanceData {
   instantAvailable: number;
   instantEligible: boolean;
   tier: string;
+  cashEarnings?: { rides: number; total: number };
+  digitalEarnings?: { rides: number; total: number };
 }
 
 export default function CashoutCard() {
@@ -186,10 +188,46 @@ export default function CashoutCard() {
           {isHmuFirst ? '\uD83E\uDD47 HMU First' : 'Free Tier'}
         </div>
 
-        <div className="co-title">Available Balance</div>
+        <div className="co-title">Digital Balance</div>
         <div className={`co-amount ${cashableAmount <= 0 ? 'co-amount--zero' : ''}`}>
           ${cashableAmount.toFixed(2)}
         </div>
+
+        {/* Earnings breakdown — cash vs digital */}
+        {(balance.cashEarnings || balance.digitalEarnings) && (
+          <div style={{
+            display: 'flex', gap: 8, marginBottom: 12, marginTop: 4,
+          }}>
+            {balance.cashEarnings && balance.cashEarnings.rides > 0 && (
+              <div style={{
+                flex: 1, background: 'rgba(255,193,7,0.08)', border: '1px solid rgba(255,193,7,0.15)',
+                borderRadius: 12, padding: '10px 12px',
+              }}>
+                <div style={{ fontSize: 10, color: '#FFC107', textTransform: 'uppercase', letterSpacing: 1, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
+                  Cash collected
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#FFC107', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
+                  ${balance.cashEarnings.total.toFixed(2)}
+                </div>
+                <div style={{ fontSize: 10, color: '#888' }}>{balance.cashEarnings.rides} ride{balance.cashEarnings.rides !== 1 ? 's' : ''}</div>
+              </div>
+            )}
+            {balance.digitalEarnings && balance.digitalEarnings.rides > 0 && (
+              <div style={{
+                flex: 1, background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.12)',
+                borderRadius: 12, padding: '10px 12px',
+              }}>
+                <div style={{ fontSize: 10, color: '#00E676', textTransform: 'uppercase', letterSpacing: 1, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
+                  Digital earned
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#00E676', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
+                  ${balance.digitalEarnings.total.toFixed(2)}
+                </div>
+                <div style={{ fontSize: 10, color: '#888' }}>{balance.digitalEarnings.rides} ride{balance.digitalEarnings.rides !== 1 ? 's' : ''}</div>
+              </div>
+            )}
+          </div>
+        )}
         {cashableAmount > 0 && balance.available <= 0 && (
           <div style={{
             background: 'rgba(255,179,0,0.06)',
