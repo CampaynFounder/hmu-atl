@@ -37,7 +37,8 @@ export default function CashoutCard() {
   }, []);
 
   const isHmuFirst = balance?.tier === 'hmu_first';
-  const cashableAmount = balance ? Math.max(balance.available, balance.instantAvailable ?? 0) : 0;
+  // Only show settled funds — instantAvailable may include fronted/unsettled amounts
+  const cashableAmount = balance ? balance.available : 0;
 
   // Set default payout amount when balance loads
   useEffect(() => {

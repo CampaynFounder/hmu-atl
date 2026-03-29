@@ -55,7 +55,8 @@ export async function POST(req: NextRequest) {
     const instantAvailableCents = balance.instant_available?.reduce((sum, b) => sum + b.amount, 0) ?? 0;
 
     if (method === 'instant') {
-      const maxPayableCents = Math.max(availableCents, instantAvailableCents);
+      // Use available (settled) — instantAvailable may include unsettled/fronted amounts
+      const maxPayableCents = availableCents > 0 ? availableCents : instantAvailableCents;
 
       if (maxPayableCents <= 0) {
         return NextResponse.json({ error: 'No balance to cash out' }, { status: 400 });
@@ -104,8 +105,8 @@ export async function POST(req: NextRequest) {
         tier: driver.tier,
       });
     } else {
-      // Standard payout — try available first, fall back to full balance
-      const standardMax = Math.max(availableCents, instantAvailableCents);
+      // Standard payout — use settled available funds
+      const standardMax = availableCents;
       if (standardMax <= 0) {
         return NextResponse.json({
           error: 'No balance to cash out.',
