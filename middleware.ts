@@ -59,14 +59,10 @@ export default clerkMiddleware(async (auth, req) => {
     return;
   }
 
-  // Check if authenticated — redirect to our own sign-in page if not
-  // (avoid Clerk's default redirect which may use accounts.* subdomain)
-  const { userId } = await auth();
-  if (!userId) {
-    const signInUrl = new URL('/sign-in', req.url);
-    signInUrl.searchParams.set('redirect_url', req.nextUrl.pathname);
-    return Response.redirect(signInUrl);
-  }
+  // Protect all other routes — redirect to our sign-in page if not authenticated
+  await auth.protect({
+    unauthenticatedUrl: new URL('/sign-in', req.url).toString(),
+  });
 });
 
 export const config = {
