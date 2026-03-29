@@ -1418,7 +1418,10 @@ export default function ActiveRideClient({
               />
             </>
           ) : (
-            <StatusMessage text={`Waiting for rider to verify $${Number(ride.agreedPrice || 0).toFixed(0)} payment...`} />
+            <StatusMessage text={ride.isCash
+              ? `Waiting for ${ride.riderHandle ? '@' + ride.riderHandle : ride.riderName || 'rider'} to confirm cash ride details...`
+              : `Waiting for rider to verify $${Number(ride.agreedPrice || 0).toFixed(0)} payment...`
+            } />
           );
 
         case 'otw':
@@ -2834,7 +2837,7 @@ function getStatusNotificationData(
   switch (status) {
     case 'matched':
       return isDriver
-        ? { message: 'You got a match!', emoji: '\uD83E\uDD1D', color: '#00E676', sub: 'Waiting for rider to verify payment' }
+        ? { message: 'You got a match!', emoji: '\uD83E\uDD1D', color: '#00E676', sub: 'Waiting for rider to confirm ride details' }
         : { message: 'Matched with a driver!', emoji: '\uD83E\uDD1D', color: '#00E676', sub: 'Tap Pull Up to confirm your ride' };
     case 'otw':
       return isDriver
