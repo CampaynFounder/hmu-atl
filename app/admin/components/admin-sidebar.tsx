@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useClerk } from '@clerk/nextjs';
 
 const navSections = [
@@ -24,6 +24,7 @@ const navSections = [
     label: 'GROW',
     items: [
       { href: '/admin/marketing', label: 'Outreach', icon: '📣' },
+      { href: '/admin/messages', label: 'Messages', icon: '💬', badge: true },
     ],
   },
 ];
@@ -31,7 +32,20 @@ const navSections = [
 export function AdminSidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [unreadMessages, setUnreadMessages] = useState(0);
   const { signOut } = useClerk();
+
+  useEffect(() => {
+    const fetchUnread = () => {
+      fetch('/api/admin/messages/unread')
+        .then(r => r.json())
+        .then(d => setUnreadMessages(d.unread ?? 0))
+        .catch(() => {});
+    };
+    fetchUnread();
+    const i = setInterval(fetchUnread, 30000);
+    return () => clearInterval(i);
+  }, []);
 
   const isActive = (href: string) => {
     if (href === '/admin') return pathname === '/admin';
@@ -93,7 +107,12 @@ export function AdminSidebar() {
                     `}
                   >
                     <span className="text-base">{item.icon}</span>
-                    {item.label}
+                    <span className="flex-1">{item.label}</span>
+                    {(item as { badge?: boolean }).badge && unreadMessages > 0 && (
+                      <span className="bg-[#00E676] text-black text-[9px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1">
+                        {unreadMessages}
+                      </span>
+                    )}
                   </Link>
                 ))}
               </div>
