@@ -12,6 +12,29 @@ interface Feature {
   icon: string;
 }
 
+const RIDER_FEATURES: Feature[] = [
+  // RIDE
+  { label: 'Find a Driver', description: 'Browse available drivers and book a ride', breadcrumb: 'Ride > Browse', href: '/rider/browse', keywords: ['browse', 'search', 'drivers', 'book', 'ride', 'find', 'available', 'pick up'], icon: '🔍' },
+  { label: 'Post a Ride Request', description: 'Tell drivers where you need to go and your price', breadcrumb: 'Ride > Post', href: '/rider/home', keywords: ['post', 'request', 'need a ride', 'hmu', 'destination', 'where', 'going', 'trip'], icon: '📝' },
+  { label: 'My Rides', description: 'View your ride history, receipts, and past trips', breadcrumb: 'Me > Ride History', href: '/rider/settings?tab=history', keywords: ['rides', 'history', 'past', 'trips', 'receipt', 'completed', 'cancelled', 'how much', 'spent'], icon: '📋' },
+
+  // ACTIVE RIDE (href updated dynamically when active ride exists)
+  { label: 'Track My Driver', description: 'See where your driver is and their ETA', breadcrumb: 'Ride > Track', href: '/rider/home', keywords: ['track', 'where', 'driver', 'map', 'eta', 'location', 'far', 'coming', 'otw', 'here'], icon: '📍' },
+  { label: 'Chat with Driver', description: 'Send a message to your driver during a ride', breadcrumb: 'Ride > Chat', href: '/rider/home', keywords: ['chat', 'message', 'text', 'talk', 'driver', 'say', 'tell', 'contact'], icon: '💬' },
+  { label: 'Rate a Driver', description: 'Leave a rating after your ride', breadcrumb: 'Ride > Rate', href: '/rider/home', keywords: ['rate', 'review', 'chill', 'cool', 'weirdo', 'creepy', 'stars', 'feedback'], icon: '⭐' },
+  { label: 'Dispute a Ride', description: 'Challenge a charge or report an issue with a ride', breadcrumb: 'Ride > Dispute', href: '/rider/home', keywords: ['dispute', 'refund', 'wrong', 'charge', 'overcharged', 'problem', 'issue', 'complaint', 'not right'], icon: '⚖️' },
+
+  // ACCOUNT
+  { label: 'Payment Methods', description: 'Add, remove, or change your card or Apple Pay', breadcrumb: 'Me > Payment', href: '/rider/settings?tab=payment', keywords: ['card', 'pay', 'payment', 'apple pay', 'add card', 'remove', 'change', 'visa', 'mastercard', 'debit', 'credit'], icon: '💳' },
+  { label: 'Edit Profile', description: 'Update your photo, name, and rider preferences', breadcrumb: 'Me > Profile', href: '/rider/profile', keywords: ['profile', 'photo', 'name', 'edit', 'avatar', 'picture', 'preferences'], icon: '👤' },
+  { label: 'Record Vibe Video', description: 'Record a short intro video for drivers to see', breadcrumb: 'Me > Profile > Video', href: '/rider/profile', keywords: ['video', 'vibe', 'record', 'intro', 'clip', 'film'], icon: '🎬' },
+  { label: 'Security & Passkeys', description: 'Manage Face ID, Touch ID, and sign-in security', breadcrumb: 'Me > Security', href: '/rider/settings?tab=security', keywords: ['security', 'passkey', 'face id', 'touch id', 'password', 'login', 'sign in', 'biometric'], icon: '🔐' },
+
+  // HELP
+  { label: 'How Booking Works', description: 'Step-by-step guide to booking your first ride', breadcrumb: 'Help > Guide', href: '/guide/rider', keywords: ['how', 'guide', 'help', 'tutorial', 'booking', 'first', 'learn', 'steps', 'new'], icon: '📖' },
+  { label: 'Get Support', description: 'Report an issue or chat with the HMU team', breadcrumb: 'Help > Support', href: '/rider/settings?tab=support', keywords: ['help', 'support', 'issue', 'report', 'contact', 'problem', 'question', 'chat'], icon: '🆘' },
+];
+
 const DRIVER_FEATURES: Feature[] = [
   // GO
   { label: 'Go Live', description: 'Start broadcasting your availability to riders', breadcrumb: 'Go > Go Live', href: '/driver/go-live', keywords: ['live', 'broadcast', 'available', 'start', 'hmu', 'online'], icon: '🟢' },
@@ -66,13 +89,27 @@ function trackSearch(event: string, data: Record<string, unknown>) {
   }).catch(() => {});
 }
 
+// Active ride feature labels that should deep-link to the ride page
+const ACTIVE_RIDE_LABELS = new Set(['Track My Driver', 'Chat with Driver', 'Rate a Driver', 'Dispute a Ride']);
+
 export function FeatureSearch({ profileType }: { profileType?: string }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-  const features = profileType === 'rider' ? [] : DRIVER_FEATURES;
+  const isRider = profileType === 'rider';
+  const baseFeatures = isRider ? RIDER_FEATURES : DRIVER_FEATURES;
+
+  // For riders, update active-ride feature hrefs if they have an active ride
+  const features = isRider && activeRideId
+    ? baseFeatures.map(f =>
+        ACTIVE_RIDE_LABELS.has(f.label)
+          ? { ...f, href: `/ride/${activeRideId}` }
+          : f
+      )
+    : baseFeatures;
 
   const results = query.trim()
     ? features
@@ -87,6 +124,13 @@ export function FeatureSearch({ profileType }: { profileType?: string }) {
     if (open) {
       setTimeout(() => inputRef.current?.focus(), 100);
       trackSearch('opened', {});
+      // Fetch active ride for riders so ride features deep-link correctly
+      if (isRider) {
+        fetch('/api/rides/active')
+          .then(r => r.ok ? r.json() : null)
+          .then(d => { if (d?.rideId) setActiveRideId(d.rideId); })
+          .catch(() => {});
+      }
     } else {
       // Track what they searched when closing
       if (query.trim()) {
@@ -201,7 +245,9 @@ export function FeatureSearch({ profileType }: { profileType?: string }) {
                 {query && results.length === 0 ? (
                   <div className="px-4 py-8 text-center">
                     <p className="text-zinc-500 text-sm">No results for &ldquo;{query}&rdquo;</p>
-                    <p className="text-zinc-600 text-xs mt-2">Try: cashout, earnings, go live, fees</p>
+                    <p className="text-zinc-600 text-xs mt-2">
+                      {isRider ? 'Try: find a driver, my rides, payment, dispute' : 'Try: cashout, earnings, go live, fees'}
+                    </p>
                   </div>
                 ) : (
                   <div className="p-2">
