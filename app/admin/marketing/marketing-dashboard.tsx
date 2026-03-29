@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { UtmBuilder } from './utm-builder';
+import { RecentSignups } from './recent-signups';
 
 interface Recipient {
   phone: string;
@@ -30,7 +31,7 @@ const MESSAGE_TEMPLATES = [
 ];
 
 export function MarketingDashboard() {
-  const [inputMode, setInputMode] = useState<'compose' | 'csv'>('compose');
+  const [inputMode, setInputMode] = useState<'signups' | 'compose' | 'csv'>('signups');
   const [phones, setPhones] = useState('');
   const [message, setMessage] = useState('');
   const [link, setLink] = useState('');
@@ -143,7 +144,7 @@ export function MarketingDashboard() {
 
       {/* Input Mode */}
       <div className="flex gap-2">
-        {(['compose', 'csv'] as const).map((t) => (
+        {(['signups', 'compose', 'csv'] as const).map((t) => (
           <button
             key={t}
             onClick={() => { setInputMode(t); setResults(null); setSummary(null); }}
@@ -151,11 +152,15 @@ export function MarketingDashboard() {
               inputMode === t ? 'bg-white text-black' : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white'
             }`}
           >
-            {t === 'csv' ? 'Upload CSV' : 'Enter Numbers'}
+            {t === 'signups' ? 'New Signups' : t === 'csv' ? 'Upload CSV' : 'Enter Numbers'}
           </button>
         ))}
       </div>
 
+      {inputMode === 'signups' ? (
+        <RecentSignups />
+      ) : (
+      <>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: Recipients */}
         <div className="space-y-4">
@@ -369,6 +374,8 @@ export function MarketingDashboard() {
             </div>
           )}
         </div>
+      )}
+      </>
       )}
     </div>
   );
