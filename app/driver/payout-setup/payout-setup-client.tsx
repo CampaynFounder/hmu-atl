@@ -231,7 +231,9 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
 
           <StripeEmbedded />
 
+          {/* Fallback: ManageAccounts — re-enable if embedded components fail
           <ManageAccounts onUpdate={refreshStatus} />
+          */}
         </div>
       ) : (
         /* Steps */
