@@ -1,6 +1,14 @@
 -- Migration: Validated Addresses & Geo-Verification
 -- Adds columns for address verification at HERE/End Ride and ride analytics
 
+-- Validated address columns (CLAUDE.md schema had these but they were never created)
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS pickup_address TEXT;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS pickup_lat NUMERIC(10,8);
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS pickup_lng NUMERIC(11,8);
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS dropoff_address TEXT;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS dropoff_lat NUMERIC(10,8);
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS dropoff_lng NUMERIC(11,8);
+
 -- Geo-verification: driver GPS at HERE tap vs validated pickup
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS driver_here_lat NUMERIC(10,8);
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS driver_here_lng NUMERIC(11,8);
