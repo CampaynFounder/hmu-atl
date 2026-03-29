@@ -43,6 +43,17 @@ export async function POST(
       return NextResponse.json({ sent: false, reason: 'already_sent' });
     }
 
+    // Check if driver actually has a recent GPS update — if yes, don't nudge
+    // (client may show stale ETA due to Ably reconnect, but driver is actually sending)
+    const recentLocation = await sql`
+      SELECT id FROM ride_locations
+      WHERE ride_id = ${rideId} AND recorded_at > NOW() - INTERVAL '2 minutes'
+      LIMIT 1
+    `;
+    if (recentLocation.length > 0) {
+      return NextResponse.json({ sent: false, reason: 'driver_active' });
+    }
+
     // Get driver phone + rider name
     const driverRows = await sql`
       SELECT dp.phone, dp.display_name as driver_name

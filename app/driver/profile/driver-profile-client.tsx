@@ -450,14 +450,35 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             <div className="dp-row">
               <div className="dp-row-left">
                 <div className="dp-row-label">Cash Only</div>
-                <div className="dp-row-sub">Only show cash ride requests — no digital payments</div>
+                <div className="dp-row-sub">
+                  {data.cashOnly && !payout.setupComplete
+                    ? 'Link a payout account to accept digital rides'
+                    : 'Only show cash ride requests — no digital payments'}
+                </div>
               </div>
               <button
                 className={`toggle ${data.cashOnly ? 'on' : 'off'}`}
-                onClick={() => update({ cashOnly: !data.cashOnly })}
+                onClick={() => {
+                  if (data.cashOnly && !payout.setupComplete) {
+                    // Must set up payout before accepting digital rides
+                    window.location.href = '/driver/payout-setup';
+                    return;
+                  }
+                  update({ cashOnly: !data.cashOnly });
+                }}
               >
                 <div className="toggle-thumb" />
               </button>
+            </div>
+          )}
+          {data.cashOnly && !payout.setupComplete && (
+            <div style={{ padding: '0 16px 12px', fontSize: 12, color: '#FFC107' }}>
+              💡 Set up your payout account to accept digital rides and earn more
+            </div>
+          )}
+          {!data.cashOnly && payout.setupComplete && (
+            <div style={{ padding: '0 16px 12px', fontSize: 12, color: '#888' }}>
+              Stripe typically enables same-day payouts 1-2 days after your first digital ride
             </div>
           )}
 

@@ -283,7 +283,9 @@ export async function createDriverProfile(
       handle,
       accept_direct_bookings,
       min_rider_chill_score,
-      require_og_status
+      require_og_status,
+      accepts_cash,
+      cash_only
     ) VALUES (
       ${params.user_id},
       ${params.first_name},
@@ -300,7 +302,9 @@ export async function createDriverProfile(
       ${handle},
       ${params.accept_direct_bookings ?? true},
       ${params.min_rider_chill_score ?? 0},
-      ${params.require_og_status ?? false}
+      ${params.require_og_status ?? false},
+      ${true},
+      ${true}
     )
     RETURNING *
   `;

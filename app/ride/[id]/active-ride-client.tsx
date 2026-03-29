@@ -379,16 +379,16 @@ export default function ActiveRideClient({
             addOns: [...prev.addOns.filter(a => a.id !== addOn.id), {
               id: addOn.id,
               name: addOn.name,
-              unitPrice: addOn.subtotal / (addOn.quantity || 1),
-              quantity: addOn.quantity,
-              subtotal: addOn.subtotal,
+              unitPrice: Number(addOn.subtotal || 0) / (Number(addOn.quantity) || 1),
+              quantity: Number(addOn.quantity) || 1,
+              subtotal: Number(addOn.subtotal || 0),
               status: 'pre_selected',
               addedBy: 'rider',
             }],
             addOnTotal,
           }));
           if (isDriver) {
-            showNotification(`Rider added: ${addOn.name}`, '\uD83D\uDED2', COLORS.green, `+$${addOn.subtotal.toFixed(2)}`);
+            showNotification(`Rider added: ${addOn.name}`, '\uD83D\uDED2', COLORS.green, `+$${Number(addOn.subtotal || 0).toFixed(2)}`);
             if (navigator.vibrate) navigator.vibrate([100]);
           }
         }
@@ -1734,12 +1734,14 @@ export default function ActiveRideClient({
         const cMins = cSecs !== null ? Math.floor(cSecs / 60) : null;
         const cSecsRem = cSecs !== null ? cSecs % 60 : null;
         const confirmAddOns = ride.addOns.filter(a => a.status !== 'removed' && a.status !== 'disputed');
-        const confirmExtras = confirmAddOns.reduce((s, a) => s + a.subtotal, 0);
-        const confirmTotal = ride.agreedPrice + confirmExtras;
+        const confirmExtras = confirmAddOns.reduce((s, a) => s + Number(a.subtotal || 0), 0);
+        const confirmTotal = Number(ride.agreedPrice || 0) + confirmExtras;
         const confirmGrouped = confirmAddOns.reduce<{ name: string; qty: number; total: number; lastId: string }[]>((g, a) => {
+          const sub = Number(a.subtotal || 0);
+          const qty = Number(a.quantity) || 1;
           const ex = g.find(x => x.name === a.name);
-          if (ex) { ex.qty += a.quantity; ex.total += a.subtotal; ex.lastId = a.id; }
-          else { g.push({ name: a.name, qty: a.quantity, total: a.subtotal, lastId: a.id }); }
+          if (ex) { ex.qty += qty; ex.total += sub; ex.lastId = a.id; }
+          else { g.push({ name: a.name, qty, total: sub, lastId: a.id }); }
           return g;
         }, []);
         return (
@@ -1982,8 +1984,8 @@ export default function ActiveRideClient({
     const active = ride.addOns.filter(a => a.status !== 'removed' && a.status !== 'disputed');
     const grouped = active.reduce<{ name: string; qty: number; total: number }[]>((groups, a) => {
       const existing = groups.find(g => g.name === a.name);
-      if (existing) { existing.qty += a.quantity; existing.total += a.subtotal; }
-      else { groups.push({ name: a.name, qty: a.quantity, total: a.subtotal }); }
+      if (existing) { existing.qty += Number(a.quantity) || 1; existing.total += Number(a.subtotal || 0); }
+      else { groups.push({ name: a.name, qty: Number(a.quantity) || 1, total: Number(a.subtotal || 0) }); }
       return groups;
     }, []);
     if (grouped.length === 0) return null;
@@ -2106,7 +2108,7 @@ export default function ActiveRideClient({
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontFamily: FONTS.mono, fontSize: 14, color: decision === 'dispute' ? COLORS.gray : COLORS.green }}>
-                    ${addOn.subtotal.toFixed(2)}
+                    ${Number(addOn.subtotal || 0).toFixed(2)}
                   </span>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
@@ -2127,7 +2129,7 @@ export default function ActiveRideClient({
           <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, marginTop: 8, fontWeight: 700 }}>
             <span style={{ fontSize: 15, color: COLORS.white }}>Total</span>
             <span style={{ fontFamily: FONTS.mono, fontSize: 18, color: COLORS.green }}>
-              ${(ride.agreedPrice + ride.addOns.filter(a => (addOnReview.get(a.id) || 'keep') !== 'dispute' && a.status !== 'removed').reduce((s, a) => s + a.subtotal, 0)).toFixed(2)}
+              ${(Number(ride.agreedPrice || 0) + ride.addOns.filter(a => (addOnReview.get(a.id) || 'keep') !== 'dispute' && a.status !== 'removed').reduce((s, a) => s + Number(a.subtotal || 0), 0)).toFixed(2)}
             </span>
           </div>
 
