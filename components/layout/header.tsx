@@ -118,6 +118,7 @@ export function Header() {
                       <NavItem href="/driver/rides" label="My Rides" icon="📋" active={pathname.startsWith('/driver/rides') || pathname.startsWith('/ride/')} onClick={close} />
                       <NavItem href="/driver/home" label="Cashout" icon="💰" active={pathname === '/driver/home'} onClick={close} />
                       <NavSection label="ME" />
+                      <NavItem href="/driver/schedule" label="Schedule" icon="📅" active={pathname.startsWith('/driver/schedule')} onClick={close} />
                       <NavItem href="/driver/profile" label="Profile" icon="👤" active={pathname.startsWith('/driver/profile')} onClick={close} />
                       <NavItem href="/driver/settings" label="Settings" icon="⚙️" active={pathname.startsWith('/driver/settings')} onClick={close} />
                     </>

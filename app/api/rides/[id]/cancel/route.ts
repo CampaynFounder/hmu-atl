@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/client';
 import { getRideForUser } from '@/lib/rides/state-machine';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 import { cancelPaymentHold } from '@/lib/payments/escrow';
+import { cancelRideBooking } from '@/lib/schedule/conflicts';
 
 export async function POST(
   req: NextRequest,
@@ -32,6 +33,7 @@ export async function POST(
 
       // Release Stripe hold if payment was authorized
       cancelPaymentHold(rideId, 'Rider cancelled before OTW').catch(e => console.error('Hold release failed:', e));
+      cancelRideBooking(rideId).catch(() => {});
 
       // Reactivate the original post so other drivers can accept
       if (ride.hmu_post_id) {
@@ -76,6 +78,7 @@ export async function POST(
 
       // Release Stripe hold
       cancelPaymentHold(rideId, 'Cancelled by agreement').catch(e => console.error('Hold release failed:', e));
+      cancelRideBooking(rideId).catch(() => {});
 
       if (ride.hmu_post_id) {
         await sql`
@@ -98,6 +101,7 @@ export async function POST(
 
       // Release Stripe hold if payment was authorized
       cancelPaymentHold(rideId, 'Driver cancelled before OTW').catch(e => console.error('Hold release failed:', e));
+      cancelRideBooking(rideId).catch(() => {});
 
       if (ride.hmu_post_id) {
         await sql`

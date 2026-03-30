@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyRiderBookingAccepted } from '@/lib/sms/textbee';
+import { checkDriverAvailability, createRideBooking } from '@/lib/schedule/conflicts';
 
 export async function POST(
   _req: NextRequest,
@@ -102,6 +103,21 @@ export async function POST(
       }
       if (driverActiveRides.length) {
         return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });
+      }
+
+      // Check schedule conflicts (non-blocking — driver may not have schedule set)
+      const tw = (timeWindow || {}) as Record<string, unknown>;
+      const proposedTime = tw.time as string;
+      if (proposedTime && proposedTime !== 'ASAP' && proposedTime !== 'now') {
+        const proposedStart = new Date().toISOString(); // fallback to now if can't parse
+        const proposedEnd = new Date(Date.now() + 45 * 60000).toISOString();
+        const availability = await checkDriverAvailability(driverUserId, proposedStart, proposedEnd);
+        if (!availability.available && availability.conflict) {
+          return NextResponse.json({
+            error: 'You have a booking conflict at this time',
+            code: 'schedule_conflict',
+          }, { status: 409 });
+        }
       }
 
       await sql`
@@ -211,6 +227,9 @@ export async function POST(
         notifyRiderBookingAccepted(riderPhone, driverName, rideId).catch(() => {});
       }
     } catch { /* non-blocking */ }
+
+    // Create calendar booking for this ride
+    createRideBooking(driverUserId, riderId, rideId, new Date().toISOString(), post.market_id as string || null).catch(() => {});
 
     return NextResponse.json({ status: 'matched', rideId });
   } catch (error) {

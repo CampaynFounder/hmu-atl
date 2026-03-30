@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyRiderBookingAccepted } from '@/lib/sms/textbee';
+import { createRideBooking } from '@/lib/schedule/conflicts';
 
 /**
  * POST — Rider selects a driver from interested drivers.
@@ -151,6 +152,9 @@ export async function POST(
         notifyRiderBookingAccepted(riderPhone, driverName, rideId).catch(() => {});
       }
     } catch { /* non-blocking */ }
+
+    // Create calendar booking
+    createRideBooking(driverUserId, riderId, rideId, new Date().toISOString(), post.market_id as string || null).catch(() => {});
 
     return NextResponse.json({ status: 'matched', rideId });
   } catch (error) {
