@@ -5,6 +5,7 @@ import { useAbly } from '@/hooks/use-ably';
 import { StatCard } from './stat-card';
 import { AlertBadge } from './alert-badge';
 import { LiveMap } from './live-map';
+import { useMarket } from './market-context';
 
 interface Stats {
   rides: { matched: number; active: number; completed: number; cancelled: number; disputed: number };
@@ -44,13 +45,15 @@ export function LiveOpsDashboard() {
   const [rides, setRides] = useState<ActiveRide[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
+  const { selectedMarketId } = useMarket();
 
   const fetchAll = useCallback(async () => {
+    const mq = selectedMarketId ? `?marketId=${selectedMarketId}` : '';
     try {
       const [statsRes, ridesRes, alertsRes] = await Promise.all([
-        fetch('/api/admin/stats'),
-        fetch('/api/admin/rides/active'),
-        fetch('/api/admin/alerts'),
+        fetch(`/api/admin/stats${mq}`),
+        fetch(`/api/admin/rides/active${mq}`),
+        fetch(`/api/admin/alerts${mq}`),
       ]);
 
       if (statsRes.ok) setStats(await statsRes.json());
@@ -67,7 +70,7 @@ export function LiveOpsDashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedMarketId]);
 
   useEffect(() => {
     fetchAll();

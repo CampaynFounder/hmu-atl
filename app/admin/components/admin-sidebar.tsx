@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useState, useEffect, useCallback } from 'react';
 import { useClerk } from '@clerk/nextjs';
 import { useAbly } from '@/hooks/use-ably';
+import { useMarket } from './market-context';
 
 const navSections = [
   {
@@ -34,6 +35,7 @@ export function AdminSidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const { markets, selectedMarketId, selectedMarket, setSelectedMarketId } = useMarket();
   const { signOut } = useClerk();
 
   const fetchUnread = useCallback(() => {
@@ -89,7 +91,27 @@ export function AdminSidebar() {
       >
         <div className="p-6 border-b border-neutral-800">
           <h1 className="text-lg font-bold tracking-wide">HMU ADMIN</h1>
-          <p className="text-xs text-neutral-500 mt-1">Operations Portal</p>
+          {markets.length > 0 && (
+            <select
+              value={selectedMarketId || ''}
+              onChange={(e) => setSelectedMarketId(e.target.value || null)}
+              style={{
+                marginTop: 8, width: '100%', padding: '6px 10px',
+                background: '#1a1a1a', border: '1px solid #333', borderRadius: 8,
+                color: '#fff', fontSize: 12, fontWeight: 600,
+                appearance: 'none', cursor: 'pointer',
+                backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\'%3E%3Cpath d=\'M0 0l5 6 5-6z\' fill=\'%23666\'/%3E%3C/svg%3E")',
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 10px center',
+              }}
+            >
+              {markets.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.status.toUpperCase()}) — {m.driverCount}D / {m.riderCount}R
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         <nav className="flex-1 p-4 space-y-5 overflow-y-auto">
