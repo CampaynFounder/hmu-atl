@@ -31,6 +31,7 @@
   },
   "vars": {
     "VOIPMS_API_USERNAME": "pharren.lowther@gmail.com",
+    "VOIPMS_API_PASSWORD": "98723**dgf9874983hh1HO",
     "VOIPMS_DID_ATL": "4049137292"
   },
   "observability": {

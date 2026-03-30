@@ -35,6 +35,7 @@ export const metadata: Metadata = {
     ],
     apple: '/apple-touch-icon.png',
   },
+  manifest: '/manifest.json',
   title: 'HMUCashRide - Drivers Get Paid UpFront',
   description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L.',
   alternates: {

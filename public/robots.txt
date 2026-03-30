@@ -3,9 +3,12 @@ Allow: /
 Allow: /driver
 Allow: /rider
 Allow: /privacy
+Allow: /terms
+Allow: /guide/
 Allow: /d/
 Allow: /sign-in
 Allow: /sign-up
+
 Disallow: /driver/home
 Disallow: /driver/feed
 Disallow: /driver/go-live
@@ -13,15 +16,15 @@ Disallow: /driver/settings
 Disallow: /driver/profile
 Disallow: /driver/payout-setup
 Disallow: /driver/rides
+Disallow: /driver/schedule
 Disallow: /rider/home
 Disallow: /rider/browse
 Disallow: /rider/profile
 Disallow: /rider/settings
 Disallow: /ride/
+Disallow: /admin/
 Disallow: /auth-callback
 Disallow: /pending
 Disallow: /api/
 
-Sitemap: https://hmucashride.com/sitemap.xml
-Sitemap: https://hmucashride.com/sitemap-main.xml
-Sitemap: https://atl.hmucashride.com/sitemap-atl.xml
+Sitemap: https://atl.hmucashride.com/sitemap.xml
