@@ -2006,7 +2006,7 @@ export default function ActiveRideClient({
           </>
         ) : (
           <>
-            <CooButton rideId={rideId} onCooSent={(lat, lng, text, pickup, dropoff, stops) => {
+            <CooButton rideId={rideId} isCash={ride.isCash} onCooSent={(lat, lng, text, pickup, dropoff, stops) => {
               setRide(prev => ({
                 ...prev,
                 cooAt: new Date().toISOString(),
@@ -2946,8 +2946,9 @@ function getStatusNotificationData(
 }
 
 // ── COO Button component ──
-function CooButton({ rideId, onCooSent }: {
+function CooButton({ rideId, isCash, onCooSent }: {
   rideId: string;
+  isCash: boolean;
   onCooSent: (lat: number | null, lng: number | null, text: string | null, pickup?: ValidatedAddress, dropoff?: ValidatedAddress, stops?: ValidatedStop[]) => void;
 }) {
   const [locationText, setLocationText] = useState('');
@@ -3012,17 +3013,19 @@ function CooButton({ rideId, onCooSent }: {
       return;
     }
 
-    // Check payment method first
+    // Check payment method — skip for cash rides
     setLoading(true);
-    try {
-      const pmRes = await fetch('/api/rider/payment-methods');
-      const pmData = await pmRes.json();
-      if (!pmData.methods || pmData.methods.length === 0) {
-        setNeedsPayment(true);
-        setLoading(false);
-        return;
-      }
-    } catch { /* proceed */ }
+    if (!isCash) {
+      try {
+        const pmRes = await fetch('/api/rider/payment-methods');
+        const pmData = await pmRes.json();
+        if (!pmData.methods || pmData.methods.length === 0) {
+          setNeedsPayment(true);
+          setLoading(false);
+          return;
+        }
+      } catch { /* proceed */ }
+    }
 
     // Build validated stops with order
     const validatedStops: ValidatedStop[] = stopAddrs.map((s, i) => ({
