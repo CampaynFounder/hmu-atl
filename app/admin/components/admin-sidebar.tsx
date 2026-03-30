@@ -13,6 +13,7 @@ const navSections = [
     items: [
       { href: '/admin', label: 'Live Ops', icon: '⚡' },
       { href: '/admin/money', label: 'Revenue', icon: '💰' },
+      { href: '/admin/schedule', label: 'Schedules', icon: '📅' },
     ],
   },
   {
