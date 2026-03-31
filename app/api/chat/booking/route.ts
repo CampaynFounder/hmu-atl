@@ -131,10 +131,11 @@ const TOOLS = [
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, driverHandle, extractedSoFar } = await req.json() as {
+    const { messages, driverHandle, extractedSoFar, currentStep } = await req.json() as {
       messages: { role: 'user' | 'assistant'; content: string }[];
       driverHandle: string;
-      extractedSoFar?: { destination?: string; time?: string; stops?: string; roundTrip?: boolean; price?: number; isCash?: boolean };
+      extractedSoFar?: Record<string, unknown>;
+      currentStep?: string;
     };
 
     if (!messages?.length || !driverHandle) {
@@ -165,13 +166,18 @@ export async function POST(req: NextRequest) {
     const pricing = (driver.pricing || {}) as Record<string, unknown>;
     const areas = Array.isArray(driver.areas) ? driver.areas : [];
 
-    // Build system prompt with driver context + conversation state
+    // Build system prompt with driver context + step state
     const systemPrompt = buildSystemPrompt(driver, pricing, areas);
-    const contextNote = extractedSoFar ? `\n\nCONVERSATION STATE (already discussed — DO NOT ask again):\n${JSON.stringify(extractedSoFar, null, 2)}\nIf the rider confirms, call ready_to_book with these details.` : '';
+    const step = currentStep || 'trip_details';
+    const stepNote = `\n\nCURRENT STEP: ${step}
+${extractedSoFar ? `COLLECTED SO FAR: ${JSON.stringify(extractedSoFar)}` : 'Nothing collected yet.'}
+
+STEP INSTRUCTIONS:
+${getStepInstructions(step, driver)}`;
 
     // Build full message array
     const fullMessages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt + contextNote },
+      { role: 'system', content: systemPrompt + stepNote },
       ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     ];
 
@@ -297,6 +303,7 @@ export async function POST(req: NextRequest) {
           reply: finalMessage,
           action: 'details_confirmed',
           booking,
+          nextStep: 'confirm',
         });
       }
 
@@ -316,14 +323,28 @@ export async function POST(req: NextRequest) {
         console.error('GPT follow-up failed:', e);
       }
 
-      // Check for sentiment flags and extracted data
+      // Check for flags and extracted data
       const sentimentFlag = toolResults.find(tr => tr.name === 'analyze_sentiment');
       const extractedResult = toolResults.find(tr => tr.name === 'extract_booking');
+      const routeResult = toolResults.find(tr => tr.name === 'calculate_route');
+      const pricingResult = toolResults.find(tr => tr.name === 'compare_pricing');
+
+      // Determine next step based on what tools were called
+      let nextStep = currentStep || 'trip_details';
+      if (routeResult && nextStep === 'trip_details') nextStep = 'stops';
+      if (pricingResult && (nextStep === 'extras' || nextStep === 'stops')) nextStep = 'quote';
+
+      // Merge extracted data from tools
+      const extracted: Record<string, unknown> = {};
+      if (extractedResult) Object.assign(extracted, extractedResult.result);
+      if (routeResult) Object.assign(extracted, { route: routeResult.result });
+      if (pricingResult) Object.assign(extracted, { pricing: pricingResult.result });
 
       return NextResponse.json({
-        reply: followUpMessage?.content || 'Got it! Anything else or should I book this?',
+        reply: followUpMessage?.content || 'What do you think?',
         sentiment: sentimentFlag ? (sentimentFlag.result as Record<string, unknown>).concern : null,
-        extracted: extractedResult ? (extractedResult.result as Record<string, unknown>) : null,
+        extracted: Object.keys(extracted).length > 0 ? extracted : null,
+        nextStep,
       });
     }
 
@@ -341,69 +362,67 @@ export async function POST(req: NextRequest) {
 function buildSystemPrompt(driver: Record<string, unknown>, pricing: Record<string, unknown>, areas: string[]): string {
   const name = driver.display_name || driver.handle;
   const minPrice = pricing.minimum ? `$${pricing.minimum}` : 'no minimum';
-  const cashStatus = driver.cash_only ? 'CASH ONLY — no digital payments' : driver.accepts_cash ? 'accepts cash and digital' : 'digital payments only';
+  const cashStatus = driver.cash_only ? 'CASH ONLY' : driver.accepts_cash ? 'cash + digital' : 'digital only';
 
-  return `You are the booking assistant for ${name}, a driver on HMU ATL — a peer-to-peer ride platform in Metro Atlanta.
+  return `You are ${name}'s booking assistant on HMU ATL — peer-to-peer rides in Metro Atlanta.
 
-ABOUT ${String(name).toUpperCase()}:
-- Areas: ${areas.join(', ') || 'Metro Atlanta'}
-- Minimum price: ${minPrice}
-- Base rate: ${pricing.base_rate ? `$${pricing.base_rate}/30min` : 'rider proposes price'}
-- Hourly: ${pricing.hourly ? `$${pricing.hourly}/hr` : 'N/A'}
-- Out of town: ${pricing.out_of_town ? `$${pricing.out_of_town}/hr` : 'N/A'}
-- Payment: ${cashStatus}
-- Chill Score: ${Number(driver.chill_score || 0).toFixed(0)}%
-- Completed rides: ${driver.total_rides || 0}
-- In-route stops: ${driver.allow_in_route_stops ? 'allowed' : 'not allowed'}
+DRIVER: ${name} | Areas: ${areas.join(', ') || 'ATL'} | Min: ${minPrice} | Payment: ${cashStatus} | Chill: ${Number(driver.chill_score || 0).toFixed(0)}%
 
-YOUR JOB:
-1. Ask where they're going and when (be natural, not robotic)
-2. Call calculate_route to get REAL distance and duration — NEVER guess
-3. Call compare_pricing to show Uber vs HMU savings
-4. Check availability using the check_availability tool
-5. When you have destination + time + price, call confirm_details to save them
-6. After confirm_details, ask "Want to lock this in?" — the app handles the actual booking
-7. If anything seems hostile or concerning, call analyze_sentiment
+STRICT RULES:
+1. EVERY response ends with a question — NO exceptions
+2. NEVER say "one sec", "let me check", "hold on" or any filler
+3. NEVER guess distance or price — use tools
+4. Keep responses to 2-3 sentences max
+5. Casual Atlanta voice — not corporate
+6. You collect trip details — the APP handles booking
+7. Follow the CURRENT STEP exactly — do not skip or repeat steps`;
+}
 
-CRITICAL RULES FOR RESPONSES:
-- EVERY response MUST end with a question or call to action — NEVER leave the rider hanging
-- NEVER say "one sec", "let me check", "hold on", "I'll look into that", "checking now", or ANY filler/waiting phrases
-- NEVER respond with just a statement — ALWAYS include a question at the end
-- When you call a tool, the result comes back immediately — present the answer directly
-- Example BAD: "One sec, let me check!" — this leaves the rider waiting
-- Example GOOD: "Cleveland Ave to Bankhead is 7.2 miles, about 18 min. Uber charges around $17 for that, but with CashUpfront expect $12-15. Want to go with $14?"
-- If a tool fails, say "I couldn't find that exact address — can you give me a cross street or landmark?"
-- If you don't have enough info, ask for it — don't stall
+function getStepInstructions(step: string, driver: Record<string, unknown>): string {
+  const name = driver.display_name || driver.handle;
+  const hasCash = driver.cash_only || driver.accepts_cash;
 
-TONE:
-- Casual Atlanta voice — friendly, direct, not corporate
-- Keep messages SHORT (2-3 sentences max)
-- Use "bet", "cool", "for sure" naturally but don't overdo it
-- Never say "I'm an AI" — you're ${name}'s booking assistant
-- YOU DO NOT BOOK RIDES — you help riders understand pricing and availability. The app handles booking after they sign up.
+  switch (step) {
+    case 'trip_details':
+      return `GOAL: Get pickup location, dropoff location, and when they need the ride.
+DO: Ask "Where you headed?" if no destination. Ask "When do you need the ride?" if no time.
+DO: If they give both in one message, call calculate_route immediately.
+DO: Accept natural language like "buckhead to airport tomorrow 2pm"
+ADVANCE TO NEXT STEP WHEN: You have pickup, dropoff, and time.
+OUTPUT: After calling calculate_route, share the distance and drive time, then ask about stops.`;
 
-PRICING STRATEGY:
-- ALWAYS call calculate_route first to get real distance
-- THEN call compare_pricing with the route data to get Uber vs HMU comparison
-- ALWAYS include time of day for accurate surge: morning_rush (7-9am), daytime (9am-4pm), evening_rush (4-7pm), night (10pm-2am), weekend
-- Present the comparison naturally: "Uber typically charges $X-Y for this. With ${name}, expect around $Z — save $W."
-- If rider says "Uber is cheaper" or quotes a low price, explain that Uber surges frequently and their average is higher
-- The HMU suggested price is halfway between driver minimum and Uber price
-- Always present a RANGE, not a fixed price: "expect $X-$Y"
-- Make it clear the driver sets the final price
-- NEVER show a non-surge Uber price — riders see surge prices in real life
+    case 'stops':
+      return `GOAL: Ask if they need any stops along the way.
+DO: Ask "Any stops along the way, or straight there?"
+DO: If yes, note the stop. If no, move on.
+ADVANCE TO NEXT STEP WHEN: Rider confirms stops or says no stops.
+OUTPUT: Acknowledge and move to pricing.`;
 
-RULES:
-- ALWAYS call calculate_route for distance — NEVER guess or estimate distance yourself
-- ALWAYS call compare_pricing after getting route data — show the Uber comparison
-- When sharing distance, include both miles and estimated drive time
-- NEVER make up availability — ALWAYS call check_availability before saying a driver is available
-- You MUST call check_availability before calling confirm_details
-- If the rider says "now" or "ASAP", still call check_availability with the current time
-- If the driver is not available, suggest alternative times or say they're booked
-- If price is below minimum (${minPrice}), explain the minimum
-- If driver is cash only, mention it early so rider knows
-- Always confirm: destination, time, price, round trip before calling ready_to_book`;
+    case 'extras':
+      return `GOAL: Mention driver's extras/add-on services if they have any.
+DO: If driver has service menu items, briefly mention 1-2 top ones: "FYI ${name} also offers [extras]. Want to add any?"
+DO: If no services, skip and say "Cool, let me get you a price."
+ADVANCE TO NEXT STEP WHEN: Rider says yes/no to extras.
+OUTPUT: Move to quote.`;
+
+    case 'quote':
+      return `GOAL: Call compare_pricing and present the price quote with Uber comparison.
+DO: Call compare_pricing with the route distance, duration, and driver minimum.
+DO: Present like: "Uber typically charges $X for this. With ${name}, expect $Y-Z — save about $W. ${hasCash ? 'This would be a cash ride.' : ''} Sound good?"
+DO: If rider negotiates, adjust within range. If below minimum, explain.
+ADVANCE TO NEXT STEP WHEN: Rider agrees to a price.
+OUTPUT: Confirm all details and call confirm_details.`;
+
+    case 'confirm':
+      return `GOAL: Summarize the trip and call confirm_details to save it.
+DO: Call confirm_details with destination, time, stops, price, roundTrip, isCash.
+DO: Say something like "Here's your trip: [pickup] to [dropoff], [time], $[price]. Ready to lock this in?"
+ADVANCE TO NEXT STEP WHEN: confirm_details is called successfully.
+OUTPUT: The app will show sign-up/booking buttons — your job is done.`;
+
+    default:
+      return 'Ask the rider where they want to go.';
+  }
 }
 
 function parseTimeToISO(timeStr: string): string {

@@ -38,6 +38,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [extractedSoFar, setExtractedSoFar] = useState<Record<string, unknown>>({});
+  const [currentStep, setCurrentStep] = useState('trip_details');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const initRef = useRef(false);
@@ -79,7 +80,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
       const res = await fetch('/api/chat/booking', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history, driverHandle: driver.handle, extractedSoFar }),
+        body: JSON.stringify({ messages: history, driverHandle: driver.handle, extractedSoFar, currentStep }),
       });
 
       if (!res.ok) {
@@ -95,6 +96,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
 
       const data = await res.json();
       if (data.extracted) setExtractedSoFar(prev => ({ ...prev, ...data.extracted }));
+      if (data.nextStep) setCurrentStep(data.nextStep);
 
       // GPT confirmed ride details — save for booking form pre-fill
       if (data.action === 'details_confirmed' && data.booking) {
