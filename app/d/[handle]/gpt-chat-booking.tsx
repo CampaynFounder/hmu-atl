@@ -327,17 +327,6 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
               )}
             </div>
 
-            <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <button
-                onClick={() => setAuthMode(authMode === 'signup' ? 'signin' : 'signup')}
-                style={{
-                  background: 'none', border: 'none', color: COLORS.green,
-                  fontSize: 13, cursor: 'pointer', fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                }}
-              >
-                {authMode === 'signup' ? 'Already have an account? Sign in' : 'New here? Create account'}
-              </button>
-            </div>
           </div>
         )}
 
