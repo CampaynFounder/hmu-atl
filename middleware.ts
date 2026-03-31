@@ -13,6 +13,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/meta-verify',
   '/d/(.*)',
   '/api/drivers/:handle',
+  '/api/chat/booking',
   '/api/og/(.*)',
   '/driver',
   '/rider',

@@ -140,6 +140,16 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: history, driverHandle: driver.handle, extractedSoFar }),
       });
+
+      if (!res.ok) {
+        const text = await res.text();
+        const isJson = text.startsWith('{');
+        const errMsg = isJson ? (JSON.parse(text).error || 'Request failed') : `Server error (${res.status})`;
+        setMessages(prev => [...prev, { id: `e-${Date.now()}`, from: 'system', text: errMsg }]);
+        setSending(false);
+        return;
+      }
+
       const data = await res.json();
 
       if (data.reply) {
