@@ -29,69 +29,157 @@ interface ChatMsg {
   booking?: Record<string, unknown>;
 }
 
-type FlowStep = 'auth' | 'chat' | 'payment' | 'booking' | 'done';
+type FlowStep = 'chat' | 'auth' | 'onboarding' | 'payment' | 'booking' | 'done';
 
 const COLORS = { green: '#00E676', black: '#080808', card: '#141414', white: '#fff', gray: '#888', red: '#FF5252', orange: '#FF9100' };
 
+const CLERK_DARK = {
+  variables: {
+    colorBackground: '#1a1a1a',
+    colorText: '#ffffff',
+    colorTextSecondary: '#888888',
+    colorPrimary: '#00E676',
+    colorInputBackground: '#141414',
+    colorInputText: '#ffffff',
+    borderRadius: '12px',
+  },
+  elements: {
+    rootBox: { width: '100%' },
+    card: { background: 'transparent', border: 'none', boxShadow: 'none' },
+    formButtonPrimary: { background: '#00E676', color: '#080808', fontWeight: 700 },
+    formFieldInput: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
+    footerActionLink: { color: '#00E676' },
+    headerTitle: { color: '#fff' },
+    headerSubtitle: { color: '#888' },
+    socialButtonsBlockButton: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
+    dividerLine: { background: '#333' },
+    dividerText: { color: '#666' },
+    formFieldLabel: { color: '#aaa' },
+    identityPreviewEditButton: { color: '#00E676' },
+    otpCodeFieldInput: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
+  },
+};
+
+// Commands riders can type in chat
+const COMMANDS: Record<string, { action: string; label: string }> = {
+  'log me in': { action: 'signin', label: 'Opening sign in...' },
+  'sign in': { action: 'signin', label: 'Opening sign in...' },
+  'login': { action: 'signin', label: 'Opening sign in...' },
+  'sign up': { action: 'signup', label: 'Opening sign up...' },
+  'create account': { action: 'signup', label: 'Creating account...' },
+  'my rides': { action: 'link:/rider/home', label: 'Opening your rides...' },
+  'my profile': { action: 'link:/rider/profile', label: 'Opening your profile...' },
+  'help': { action: 'help', label: '' },
+  'settings': { action: 'link:/rider/settings', label: 'Opening settings...' },
+};
+
 export default function GptChatBooking({ driver, open, onClose }: Props) {
-  const { isSignedIn, isLoaded } = useUser();
+  const { isSignedIn, isLoaded, user } = useUser();
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [bookingData, setBookingData] = useState<Record<string, unknown> | null>(null);
   const [extractedSoFar, setExtractedSoFar] = useState<Record<string, unknown>>({});
-  const [flowStep, setFlowStep] = useState<FlowStep>('auth');
+  const [flowStep, setFlowStep] = useState<FlowStep>('chat');
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signup');
   const [submittingBooking, setSubmittingBooking] = useState(false);
   const [bookingResult, setBookingResult] = useState<{ postId?: string; error?: string } | null>(null);
+  const [onboardingName, setOnboardingName] = useState('');
+  const [onboardingPhone, setOnboardingPhone] = useState('');
+  const [onboardingSubmitting, setOnboardingSubmitting] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const initRef = useRef(false);
+  const profileChecked = useRef(false);
 
-  const isCashRide = !!(bookingData?.isCash || driver.cashOnly);
-
-  // ── Determine initial flow step based on auth ──
+  // ── Check profile after auth ──
   useEffect(() => {
-    if (!isLoaded) return;
-    if (isSignedIn) {
-      setFlowStep('chat');
-    } else {
-      setFlowStep('auth');
-    }
-  }, [isLoaded, isSignedIn]);
+    if (!isLoaded || !isSignedIn || profileChecked.current) return;
+    profileChecked.current = true;
 
-  // ── When auth completes, move to chat ──
+    // Check if user has a rider profile
+    fetch('/api/users/onboarding')
+      .then(r => r.json())
+      .then(data => {
+        if (data.hasRiderProfile) {
+          // Already onboarded — go to chat
+          if (flowStep === 'auth') setFlowStep('chat');
+        } else {
+          // Needs onboarding — show inline form
+          setFlowStep('onboarding');
+          setOnboardingName(user?.firstName || '');
+        }
+      })
+      .catch(() => {
+        if (flowStep === 'auth') setFlowStep('chat');
+      });
+  }, [isLoaded, isSignedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── When auth completes inline, check profile ──
   useEffect(() => {
     if (flowStep === 'auth' && isLoaded && isSignedIn) {
-      setFlowStep('chat');
+      profileChecked.current = false; // reset so the check runs
     }
   }, [flowStep, isLoaded, isSignedIn]);
 
-  // ── Initial greeting when entering chat ──
+  // ── Initial greeting ──
   useEffect(() => {
     if (flowStep !== 'chat' || initRef.current) return;
     initRef.current = true;
     const minPrice = driver.pricing.minimum ? `$${driver.pricing.minimum} minimum` : '';
     const cashNote = driver.cashOnly ? ' Cash rides only.' : '';
-    setMessages([{
-      id: '0', from: 'assistant',
-      text: `What's good! I'm helping book rides for ${driver.displayName}. Where you headed?${minPrice ? ` (${minPrice})` : ''}${cashNote}`,
-    }]);
+    const greeting = isSignedIn
+      ? `What's good! I'm helping book rides for ${driver.displayName}. Where you headed?${minPrice ? ` (${minPrice})` : ''}${cashNote}`
+      : `What's good! To book with ${driver.displayName}, sign up or sign in first. Type "sign up" or tap below.${minPrice ? ` (${minPrice})` : ''}${cashNote}`;
+    setMessages([{ id: '0', from: 'assistant', text: greeting }]);
     setTimeout(() => inputRef.current?.focus(), 300);
   }, [flowStep]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-scroll ──
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, flowStep]);
 
-  // ── Check payment method, then book ──
+  // ── Inline onboarding ──
+  const handleOnboarding = async () => {
+    if (!onboardingName.trim() || !onboardingPhone.trim()) return;
+    setOnboardingSubmitting(true);
+    try {
+      const res = await fetch('/api/users/onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profile_type: 'rider',
+          first_name: onboardingName.trim(),
+          phone: onboardingPhone.replace(/\D/g, ''),
+        }),
+      });
+      if (res.ok) {
+        setFlowStep('chat');
+        setMessages(prev => [...prev, {
+          id: `s-${Date.now()}`, from: 'system',
+          text: `Welcome ${onboardingName.trim()}! You're all set. Where you headed?`,
+        }]);
+      } else {
+        const data = await res.json();
+        setMessages(prev => [...prev, {
+          id: `e-${Date.now()}`, from: 'system', text: data.error || 'Setup failed — try again',
+        }]);
+      }
+    } catch {
+      setMessages(prev => [...prev, {
+        id: `e-${Date.now()}`, from: 'system', text: 'Network error — try again',
+      }]);
+    }
+    setOnboardingSubmitting(false);
+  };
+
+  // ── Check payment, then book ──
   const checkPaymentAndBook = useCallback(async (booking: Record<string, unknown>) => {
     try {
       const pmRes = await fetch('/api/rider/payment-methods');
       const pmData = await pmRes.json();
-      const hasPm = pmData.methods && pmData.methods.length > 0;
-      if (hasPm) {
+      if (pmData.methods?.length > 0) {
         submitBooking(booking);
       } else {
         setFlowStep('payment');
@@ -100,12 +188,40 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
           text: 'Link a payment method to confirm your ride. Your card won\'t be charged until the driver accepts.',
         }]);
       }
-    } catch {
-      submitBooking(booking);
-    }
+    } catch { submitBooking(booking); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Send chat message ──
+  // ── Handle commands ──
+  const handleCommand = (text: string): boolean => {
+    const lower = text.toLowerCase().trim();
+    const cmd = COMMANDS[lower];
+    if (!cmd) return false;
+
+    if (cmd.action === 'signin' || cmd.action === 'signup') {
+      setAuthMode(cmd.action === 'signin' ? 'signin' : 'signup');
+      setFlowStep('auth');
+      setMessages(prev => [...prev, { id: `s-${Date.now()}`, from: 'system', text: cmd.label }]);
+      return true;
+    }
+    if (cmd.action.startsWith('link:')) {
+      if (!isSignedIn) {
+        setMessages(prev => [...prev, { id: `s-${Date.now()}`, from: 'system', text: 'Sign in first to access that. Type "sign in" or "sign up".' }]);
+      } else {
+        window.location.href = cmd.action.replace('link:', '');
+      }
+      return true;
+    }
+    if (cmd.action === 'help') {
+      setMessages(prev => [...prev, {
+        id: `s-${Date.now()}`, from: 'assistant',
+        text: `Here's what you can do:\n• Tell me where you need a ride\n• "sign up" or "log me in"\n• "my rides" to see your rides\n• "my profile" to edit your profile\n• "settings" for account settings`,
+      }]);
+      return true;
+    }
+    return false;
+  };
+
+  // ── Send message ──
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || sending) return;
@@ -113,8 +229,21 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
     const userMsg: ChatMsg = { id: `u-${Date.now()}`, from: 'rider', text };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
-    setSending(true);
 
+    // Check for commands first
+    if (handleCommand(text)) return;
+
+    // Must be signed in to use GPT chat
+    if (!isSignedIn) {
+      setMessages(prev => [...prev, {
+        id: `s-${Date.now()}`, from: 'assistant',
+        text: 'To book a ride, I need you to sign in first. Tap "Create Account" below or type "sign up".',
+      }]);
+      setFlowStep('auth');
+      return;
+    }
+
+    setSending(true);
     try {
       const history = [...messages.filter(m => m.from !== 'system'), userMsg].map(m => ({
         role: m.from === 'rider' ? 'user' as const : 'assistant' as const,
@@ -128,28 +257,25 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
       });
 
       if (!res.ok) {
-        const text = await res.text();
-        const isJson = text.startsWith('{');
-        const errMsg = isJson ? (JSON.parse(text).error || 'Request failed') : `Server error (${res.status})`;
-        setMessages(prev => [...prev, { id: `e-${Date.now()}`, from: 'system', text: errMsg }]);
+        const errText = await res.text();
+        const isJson = errText.startsWith('{');
+        setMessages(prev => [...prev, {
+          id: `e-${Date.now()}`, from: 'system',
+          text: isJson ? (JSON.parse(errText).error || 'Request failed') : `Server error (${res.status})`,
+        }]);
         setSending(false);
         return;
       }
 
       const data = await res.json();
-
       if (data.reply) {
         setMessages(prev => [...prev, {
           id: `a-${Date.now()}`, from: 'assistant', text: data.reply,
           action: data.action, booking: data.booking,
         }]);
       }
+      if (data.extracted) setExtractedSoFar(prev => ({ ...prev, ...data.extracted }));
 
-      if (data.extracted) {
-        setExtractedSoFar(prev => ({ ...prev, ...data.extracted }));
-      }
-
-      // GPT said rider is ready to book — they're already authenticated
       if (data.action === 'ready_to_book' && data.booking) {
         setBookingData(data.booking);
         if (data.booking.isCash || driver.cashOnly) {
@@ -159,9 +285,9 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
         }
       }
     } catch (err) {
-      const detail = err instanceof Error ? err.message : 'unknown';
       setMessages(prev => [...prev, {
-        id: `e-${Date.now()}`, from: 'system', text: `Something went wrong — try again (${detail})`,
+        id: `e-${Date.now()}`, from: 'system',
+        text: `Something went wrong — try again (${err instanceof Error ? err.message : 'unknown'})`,
       }]);
     }
     setSending(false);
@@ -202,9 +328,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
         }]);
         setFlowStep('chat');
       }
-    } catch {
-      setFlowStep('chat');
-    }
+    } catch { setFlowStep('chat'); }
     setSubmittingBooking(false);
   };
 
@@ -223,43 +347,23 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
         <style>{`
           @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
           @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-          .cl-card { border: none !important; box-shadow: none !important; background: transparent !important; }
+          .cl-card, .cl-signUp-root .cl-card, .cl-signIn-root .cl-card { border: none !important; box-shadow: none !important; background: transparent !important; }
           .cl-rootBox { width: 100% !important; }
           .cl-formButtonPrimary { background: #00E676 !important; color: #080808 !important; font-weight: 700 !important; }
-          .cl-formButtonReset { color: #00E676 !important; }
-          .cl-button { color: #fff !important; }
-          .cl-formResendCodeLink { color: #00E676 !important; }
-          .cl-otpCodeFieldInput { background: #1a1a1a !important; border-color: #333 !important; color: #fff !important; }
-          .cl-formFieldInput { background: #1a1a1a !important; border-color: #333 !important; color: #fff !important; }
+          .cl-formButtonReset, .cl-formFieldAction, .cl-footerActionLink, .cl-link, .cl-identityPreviewEditButton { color: #00E676 !important; }
+          .cl-formFieldInput, .cl-otpCodeFieldInput, .cl-phoneInputBox { background: #1a1a1a !important; border-color: #333 !important; color: #fff !important; }
           .cl-headerTitle, .cl-headerSubtitle { color: #fff !important; }
-          .cl-internal-b1zuoh { background: #00E676 !important; color: #080808 !important; }
-          .cl-formFieldAction { color: #00E676 !important; }
-          .cl-footerActionText { color: #888 !important; }
-          .cl-footerActionLink { color: #00E676 !important; }
-          .cl-alert { background: rgba(255,145,0,0.1) !important; border-color: rgba(255,145,0,0.3) !important; color: #FFB300 !important; }
           .cl-socialButtonsBlockButton { background: #1a1a1a !important; border-color: #333 !important; color: #fff !important; }
           .cl-dividerLine { background: #333 !important; }
-          .cl-dividerText { color: #666 !important; }
+          .cl-dividerText, .cl-footerActionText { color: #666 !important; }
           .cl-formFieldLabel { color: #aaa !important; }
           .cl-identityPreview { background: #1a1a1a !important; border-color: #333 !important; }
           .cl-identityPreviewText { color: #fff !important; }
-          .cl-identityPreviewEditButton { color: #00E676 !important; }
-          .cl-phoneInputBox { background: #1a1a1a !important; border-color: #333 !important; }
-          .cl-selectButton { background: #1a1a1a !important; border-color: #333 !important; color: #fff !important; }
-          .cl-selectOption { background: #141414 !important; color: #fff !important; }
-          .cl-selectOption:hover { background: #1a1a1a !important; }
-          .cl-alternativeMethods { color: #fff !important; }
           .cl-alternativeMethodsBlockButton { background: #1a1a1a !important; border-color: #333 !important; color: #fff !important; }
-          .cl-backLink { color: #00E676 !important; }
-          .cl-footerAction__signUp { color: #888 !important; }
-          .cl-footer { color: #888 !important; }
-          .cl-footer a, .cl-footer button { color: #00E676 !important; }
-          [data-localization-key] { color: #fff !important; }
           .cl-main button:not(.cl-formButtonPrimary) { color: #fff !important; }
-          .cl-card a { color: #00E676 !important; }
-          .cl-card p, .cl-card span, .cl-card div { color: inherit; }
+          .cl-selectButton, .cl-selectOption { background: #1a1a1a !important; color: #fff !important; }
+          .cl-alert { background: rgba(255,145,0,0.1) !important; border-color: rgba(255,145,0,0.3) !important; color: #FFB300 !important; }
           .cl-verificationLinkStatusBox { background: #1a1a1a !important; color: #fff !important; }
-          .cl-link { color: #00E676 !important; }
         `}</style>
 
         {/* Header */}
@@ -280,19 +384,38 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
           }}>&times;</button>
         </div>
 
-        {/* ── AUTH STEP: Sign in/up before chatting ── */}
-        {flowStep === 'auth' && (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
-            <div style={{ textAlign: 'center', marginBottom: 16 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: COLORS.white, marginBottom: 4 }}>
-                Sign in to book with {driver.displayName}
-              </div>
-              <div style={{ fontSize: 12, color: COLORS.gray }}>
-                Takes 30 seconds — then we'll get your ride set up
+        {/* Content area */}
+        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 8px' }}>
+          {/* Chat messages — always visible */}
+          {messages.map(msg => (
+            <div key={msg.id} style={{
+              display: 'flex', justifyContent: msg.from === 'rider' ? 'flex-end' : 'flex-start',
+              marginBottom: 10,
+            }}>
+              <div style={{
+                maxWidth: '80%', padding: '10px 14px', borderRadius: 16,
+                fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-line',
+                background: msg.from === 'rider' ? COLORS.green : msg.from === 'system' ? 'rgba(255,145,0,0.12)' : '#1f1f1f',
+                color: msg.from === 'rider' ? COLORS.black : msg.from === 'system' ? COLORS.orange : COLORS.white,
+                borderBottomRightRadius: msg.from === 'rider' ? 4 : 16,
+                borderBottomLeftRadius: msg.from === 'rider' ? 16 : 4,
+              }}>
+                {msg.text}
               </div>
             </div>
+          ))}
 
-            <div style={{ maxWidth: 400, margin: '0 auto' }}
+          {sending && (
+            <div style={{ display: 'flex', marginBottom: 10 }}>
+              <div style={{ padding: '10px 18px', borderRadius: 16, background: '#1f1f1f', color: COLORS.gray, borderBottomLeftRadius: 4 }}>
+                <span style={{ animation: 'pulse 1s ease-in-out infinite' }}>...</span>
+              </div>
+            </div>
+          )}
+
+          {/* ── Inline auth (no redirect) ── */}
+          {flowStep === 'auth' && (
+            <div style={{ maxWidth: 400, margin: '8px auto' }}
               onClick={(e) => {
                 const target = e.target as HTMLElement;
                 const link = target.closest('a');
@@ -303,211 +426,152 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
               }}
             >
               {authMode === 'signup' ? (
-                <SignUp
-                  routing="hash"
-                  signInUrl="#signin"
-                  forceRedirectUrl={`/auth-callback?type=rider&returnTo=${encodeURIComponent(`/d/${driver.handle}?book=1`)}`}
-                  appearance={{
-                    baseTheme: undefined,
-                    variables: {
-                      colorBackground: '#1a1a1a',
-                      colorText: '#ffffff',
-                      colorTextSecondary: '#888888',
-                      colorPrimary: '#00E676',
-                      colorInputBackground: '#141414',
-                      colorInputText: '#ffffff',
-                      borderRadius: '12px',
-                    },
-                    elements: {
-                      rootBox: { width: '100%' },
-                      card: { background: 'transparent', border: 'none', boxShadow: 'none' },
-                      formButtonPrimary: { background: '#00E676', color: '#080808', fontWeight: 700 },
-                      formFieldInput: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
-                      footerActionLink: { color: '#00E676' },
-                      headerTitle: { color: '#fff' },
-                      headerSubtitle: { color: '#888' },
-                      socialButtonsBlockButton: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
-                      dividerLine: { background: '#333' },
-                      dividerText: { color: '#666' },
-                      formFieldLabel: { color: '#aaa' },
-                      identityPreviewEditButton: { color: '#00E676' },
-                      otpCodeFieldInput: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
-                    },
-                  }}
-                />
+                <SignUp routing="hash" signInUrl="#signin" appearance={CLERK_DARK} />
               ) : (
-                <SignIn
-                  routing="hash"
-                  signUpUrl="#signup"
-                  forceRedirectUrl={`/d/${driver.handle}?book=1`}
-                  appearance={{
-                    variables: {
-                      colorBackground: '#1a1a1a',
-                      colorText: '#ffffff',
-                      colorTextSecondary: '#888888',
-                      colorPrimary: '#00E676',
-                      colorInputBackground: '#141414',
-                      colorInputText: '#ffffff',
-                      borderRadius: '12px',
-                    },
-                    elements: {
-                      rootBox: { width: '100%' },
-                      card: { background: 'transparent', border: 'none', boxShadow: 'none' },
-                      formButtonPrimary: { background: '#00E676', color: '#080808', fontWeight: 700 },
-                      formFieldInput: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
-                      footerActionLink: { color: '#00E676' },
-                      headerTitle: { color: '#fff' },
-                      headerSubtitle: { color: '#888' },
-                      socialButtonsBlockButton: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
-                      dividerLine: { background: '#333' },
-                      dividerText: { color: '#666' },
-                      formFieldLabel: { color: '#aaa' },
-                      identityPreviewEditButton: { color: '#00E676' },
-                      otpCodeFieldInput: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
-                    },
-                  }}
-                />
+                <SignIn routing="hash" signUpUrl="#signup" appearance={CLERK_DARK} />
               )}
             </div>
+          )}
 
+          {/* ── Inline onboarding (name + phone) ── */}
+          {flowStep === 'onboarding' && (
+            <div style={{
+              background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.15)',
+              borderRadius: 16, padding: 16, marginBottom: 10,
+            }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.green, marginBottom: 4 }}>
+                Quick setup — 2 fields
+              </div>
+              <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 12 }}>
+                So {driver.displayName} knows who&apos;s booking
+              </div>
+              <input
+                type="text" placeholder="Your name" value={onboardingName}
+                onChange={e => setOnboardingName(e.target.value)}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: 10, border: '1px solid #333', background: '#1a1a1a', color: '#fff', fontSize: 14, marginBottom: 8, outline: 'none' }}
+              />
+              <input
+                type="tel" placeholder="Phone number" value={onboardingPhone}
+                onChange={e => setOnboardingPhone(e.target.value)}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: 10, border: '1px solid #333', background: '#1a1a1a', color: '#fff', fontSize: 14, marginBottom: 12, outline: 'none' }}
+              />
+              <button onClick={handleOnboarding} disabled={onboardingSubmitting || !onboardingName.trim() || !onboardingPhone.trim()}
+                style={{
+                  width: '100%', padding: 14, borderRadius: 100, border: 'none',
+                  background: COLORS.green, color: COLORS.black, fontSize: 15, fontWeight: 700,
+                  cursor: 'pointer', opacity: onboardingSubmitting ? 0.5 : 1,
+                }}>
+                {onboardingSubmitting ? 'Setting up...' : 'Continue'}
+              </button>
+            </div>
+          )}
+
+          {/* ── Payment ── */}
+          {flowStep === 'payment' && (
+            <div style={{
+              background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.2)',
+              borderRadius: 16, padding: 16, marginBottom: 10,
+            }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.green, marginBottom: 4, textAlign: 'center' }}>
+                Link a payment method
+              </div>
+              <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 12, textAlign: 'center' }}>
+                Your card won&apos;t be charged until {driver.displayName} accepts
+              </div>
+              <InlinePaymentForm
+                onSuccess={() => {
+                  setMessages(prev => [...prev, { id: `s-${Date.now()}`, from: 'system', text: 'Payment linked! Sending your booking...' }]);
+                  if (bookingData) submitBooking(bookingData);
+                }}
+                onCancel={() => {
+                  setFlowStep('chat');
+                  setMessages(prev => [...prev, { id: `s-${Date.now()}`, from: 'system', text: 'No worries — you can switch to a cash ride.' }]);
+                }}
+                compact
+              />
+            </div>
+          )}
+
+          {/* ── Booking in progress ── */}
+          {flowStep === 'booking' && submittingBooking && (
+            <div style={{ textAlign: 'center', padding: '20px 0', color: COLORS.green, fontSize: 14 }}>
+              Sending your booking to {driver.displayName}...
+            </div>
+          )}
+
+          {/* ── Done ── */}
+          {flowStep === 'done' && bookingResult?.postId && (
+            <div style={{
+              background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.2)',
+              borderRadius: 16, padding: 16, textAlign: 'center', marginBottom: 10,
+            }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>🎉</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.green, marginBottom: 4 }}>Booking Sent!</div>
+              <div style={{ fontSize: 13, color: COLORS.gray, marginBottom: 12 }}>
+                {driver.displayName} has 15 min to respond. We&apos;ll text you.
+              </div>
+              <a href="/rider/profile" style={{
+                display: 'block', padding: 12, borderRadius: 100,
+                border: '1px solid rgba(0,230,118,0.3)', background: 'transparent',
+                color: COLORS.green, fontSize: 13, fontWeight: 600, textDecoration: 'none',
+              }}>Complete Your Profile</a>
+            </div>
+          )}
+        </div>
+
+        {/* Quick actions for unauthenticated users */}
+        {!isSignedIn && flowStep !== 'auth' && (
+          <div style={{ padding: '0 16px 8px', display: 'flex', gap: 6 }}>
+            <button onClick={() => { setAuthMode('signup'); setFlowStep('auth'); }}
+              style={{ flex: 1, padding: '10px', borderRadius: 100, border: 'none', background: COLORS.green, color: COLORS.black, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+              Create Account
+            </button>
+            <button onClick={() => { setAuthMode('signin'); setFlowStep('auth'); }}
+              style={{ flex: 1, padding: '10px', borderRadius: 100, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: COLORS.white, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              Sign In
+            </button>
           </div>
         )}
 
-        {/* ── CHAT + BOOKING STEPS ── */}
-        {flowStep !== 'auth' && (
-          <>
-            {/* Messages */}
-            <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 8px' }}>
-              {messages.map(msg => (
-                <div key={msg.id} style={{
-                  display: 'flex', justifyContent: msg.from === 'rider' ? 'flex-end' : 'flex-start',
-                  marginBottom: 10,
-                }}>
-                  <div style={{
-                    maxWidth: '80%', padding: '10px 14px', borderRadius: 16,
-                    fontSize: 14, lineHeight: 1.5,
-                    background: msg.from === 'rider' ? COLORS.green : msg.from === 'system' ? 'rgba(255,145,0,0.12)' : '#1f1f1f',
-                    color: msg.from === 'rider' ? COLORS.black : msg.from === 'system' ? COLORS.orange : COLORS.white,
-                    borderBottomRightRadius: msg.from === 'rider' ? 4 : 16,
-                    borderBottomLeftRadius: msg.from === 'rider' ? 16 : 4,
-                  }}>
-                    {msg.text}
-                  </div>
-                </div>
-              ))}
+        {/* Quick actions for new chat */}
+        {isSignedIn && flowStep === 'chat' && messages.length <= 2 && (
+          <div style={{ padding: '0 16px 8px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {['Need a ride now', 'Schedule for later', 'How much to the airport?'].map(q => (
+              <button key={q} onClick={() => setInput(q)}
+                style={{
+                  padding: '6px 12px', borderRadius: 100, fontSize: 12, fontWeight: 500,
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                  color: COLORS.gray, cursor: 'pointer',
+                }}>{q}</button>
+            ))}
+          </div>
+        )}
 
-              {sending && (
-                <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 10 }}>
-                  <div style={{ padding: '10px 18px', borderRadius: 16, background: '#1f1f1f', fontSize: 14, color: COLORS.gray, borderBottomLeftRadius: 4 }}>
-                    <span style={{ animation: 'pulse 1s ease-in-out infinite' }}>...</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Payment method prompt */}
-              {flowStep === 'payment' && (
-                <div style={{
-                  background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.2)',
-                  borderRadius: 16, padding: '16px', marginBottom: 10,
-                }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.green, marginBottom: 4, textAlign: 'center' }}>
-                    Link a payment method
-                  </div>
-                  <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 12, textAlign: 'center' }}>
-                    Your card won&apos;t be charged until {driver.displayName} accepts
-                  </div>
-                  <InlinePaymentForm
-                    onSuccess={() => {
-                      setMessages(prev => [...prev, {
-                        id: `s-${Date.now()}`, from: 'system', text: 'Payment linked! Sending your booking now...',
-                      }]);
-                      if (bookingData) submitBooking(bookingData);
-                    }}
-                    onCancel={() => {
-                      setFlowStep('chat');
-                      setMessages(prev => [...prev, {
-                        id: `s-${Date.now()}`, from: 'system', text: 'No worries — you can switch to a cash ride instead.',
-                      }]);
-                    }}
-                    compact
-                  />
-                </div>
-              )}
-
-              {/* Booking in progress */}
-              {flowStep === 'booking' && submittingBooking && (
-                <div style={{ textAlign: 'center', padding: '20px 0', color: COLORS.green, fontSize: 14 }}>
-                  Sending your booking to {driver.displayName}...
-                </div>
-              )}
-
-              {/* Done */}
-              {flowStep === 'done' && bookingResult?.postId && (
-                <div style={{
-                  background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.2)',
-                  borderRadius: 16, padding: '16px', textAlign: 'center', marginBottom: 10,
-                }}>
-                  <div style={{ fontSize: 28, marginBottom: 8 }}>🎉</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.green, marginBottom: 4 }}>Booking Sent!</div>
-                  <div style={{ fontSize: 13, color: COLORS.gray, marginBottom: 12 }}>
-                    {driver.displayName} has 15 min to respond. We&apos;ll text you when they do.
-                  </div>
-                  <a href="/rider/profile" style={{
-                    display: 'block', padding: '12px', borderRadius: 100,
-                    border: '1px solid rgba(0,230,118,0.3)', background: 'transparent',
-                    color: COLORS.green, fontSize: 13, fontWeight: 600, textDecoration: 'none',
-                  }}>
-                    Complete Your Profile
-                  </a>
-                </div>
-              )}
-            </div>
-
-            {/* Quick actions */}
-            {flowStep === 'chat' && messages.length <= 2 && (
-              <div style={{ padding: '0 16px 8px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {['Need a ride now', 'Schedule for later', 'How much to the airport?'].map(q => (
-                  <button key={q}
-                    onClick={() => setInput(q)}
-                    style={{
-                      padding: '6px 12px', borderRadius: 100, fontSize: 12, fontWeight: 500,
-                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                      color: COLORS.gray, cursor: 'pointer', fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                    }}
-                  >{q}</button>
-                ))}
-              </div>
-            )}
-
-            {/* Input */}
-            {flowStep === 'chat' && (
-              <div style={{
-                padding: '12px 16px 24px', borderTop: '1px solid rgba(255,255,255,0.06)',
-                display: 'flex', gap: 8, flexShrink: 0,
-              }}>
-                <input ref={inputRef} type="text" value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') sendMessage(); }}
-                  placeholder="Where you headed?"
-                  style={{
-                    flex: 1, padding: '12px 16px', borderRadius: 100,
-                    background: '#1f1f1f', border: '1px solid rgba(255,255,255,0.1)',
-                    color: COLORS.white, fontSize: 15, outline: 'none',
-                    fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                  }}
-                />
-                <button onClick={sendMessage} disabled={!input.trim() || sending}
-                  style={{
-                    width: 44, height: 44, borderRadius: '50%', border: 'none',
-                    background: input.trim() ? COLORS.green : 'rgba(255,255,255,0.06)',
-                    color: input.trim() ? COLORS.black : COLORS.gray,
-                    fontSize: 18, cursor: input.trim() ? 'pointer' : 'default',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
-                >↑</button>
-              </div>
-            )}
-          </>
+        {/* Input — always visible */}
+        {flowStep !== 'auth' && flowStep !== 'onboarding' && (
+          <div style={{
+            padding: '12px 16px 24px', borderTop: '1px solid rgba(255,255,255,0.06)',
+            display: 'flex', gap: 8, flexShrink: 0,
+          }}>
+            <input ref={inputRef} type="text" value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') sendMessage(); }}
+              placeholder={isSignedIn ? 'Where you headed?' : 'Type "sign up" or ask anything...'}
+              style={{
+                flex: 1, padding: '12px 16px', borderRadius: 100,
+                background: '#1f1f1f', border: '1px solid rgba(255,255,255,0.1)',
+                color: COLORS.white, fontSize: 15, outline: 'none',
+              }}
+            />
+            <button onClick={sendMessage} disabled={!input.trim() || sending}
+              style={{
+                width: 44, height: 44, borderRadius: '50%', border: 'none',
+                background: input.trim() ? COLORS.green : 'rgba(255,255,255,0.06)',
+                color: input.trim() ? COLORS.black : COLORS.gray,
+                fontSize: 18, cursor: input.trim() ? 'pointer' : 'default',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>↑</button>
+          </div>
         )}
       </div>
     </>
