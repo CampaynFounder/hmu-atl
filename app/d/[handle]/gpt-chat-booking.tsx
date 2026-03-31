@@ -265,9 +265,30 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
                   signInUrl="#signin"
                   forceRedirectUrl={`/auth-callback?type=rider&returnTo=${encodeURIComponent(`/d/${driver.handle}?book=1`)}`}
                   appearance={{
+                    baseTheme: undefined,
+                    variables: {
+                      colorBackground: '#1a1a1a',
+                      colorText: '#ffffff',
+                      colorTextSecondary: '#888888',
+                      colorPrimary: '#00E676',
+                      colorInputBackground: '#141414',
+                      colorInputText: '#ffffff',
+                      borderRadius: '12px',
+                    },
                     elements: {
                       rootBox: { width: '100%' },
                       card: { background: 'transparent', border: 'none', boxShadow: 'none' },
+                      formButtonPrimary: { background: '#00E676', color: '#080808', fontWeight: 700 },
+                      formFieldInput: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
+                      footerActionLink: { color: '#00E676' },
+                      headerTitle: { color: '#fff' },
+                      headerSubtitle: { color: '#888' },
+                      socialButtonsBlockButton: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
+                      dividerLine: { background: '#333' },
+                      dividerText: { color: '#666' },
+                      formFieldLabel: { color: '#aaa' },
+                      identityPreviewEditButton: { color: '#00E676' },
+                      otpCodeFieldInput: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
                     },
                   }}
                 />
@@ -277,9 +298,29 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
                   signUpUrl="#signup"
                   forceRedirectUrl={`/d/${driver.handle}?book=1`}
                   appearance={{
+                    variables: {
+                      colorBackground: '#1a1a1a',
+                      colorText: '#ffffff',
+                      colorTextSecondary: '#888888',
+                      colorPrimary: '#00E676',
+                      colorInputBackground: '#141414',
+                      colorInputText: '#ffffff',
+                      borderRadius: '12px',
+                    },
                     elements: {
                       rootBox: { width: '100%' },
                       card: { background: 'transparent', border: 'none', boxShadow: 'none' },
+                      formButtonPrimary: { background: '#00E676', color: '#080808', fontWeight: 700 },
+                      formFieldInput: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
+                      footerActionLink: { color: '#00E676' },
+                      headerTitle: { color: '#fff' },
+                      headerSubtitle: { color: '#888' },
+                      socialButtonsBlockButton: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
+                      dividerLine: { background: '#333' },
+                      dividerText: { color: '#666' },
+                      formFieldLabel: { color: '#aaa' },
+                      identityPreviewEditButton: { color: '#00E676' },
+                      otpCodeFieldInput: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
                     },
                   }}
                 />
