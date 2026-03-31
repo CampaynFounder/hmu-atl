@@ -58,8 +58,8 @@ const TOOLS = [
   {
     type: 'function' as const,
     function: {
-      name: 'ready_to_book',
-      description: 'Call this when the rider has confirmed all details and is ready to book. This triggers the sign-up / payment / booking flow on the client.',
+      name: 'confirm_details',
+      description: 'Call this when you have collected enough ride details (destination, time, price) to summarize for the rider. This saves the details for the booking form. After calling this, ask the rider if they want to proceed.',
       parameters: {
         type: 'object',
         properties: {
@@ -67,10 +67,10 @@ const TOOLS = [
           time: { type: 'string' },
           stops: { type: 'string' },
           roundTrip: { type: 'boolean' },
-          price: { type: 'number' },
+          suggestedPrice: { type: 'number' },
           isCash: { type: 'boolean' },
         },
-        required: ['destination', 'price'],
+        required: ['destination', 'suggestedPrice'],
       },
     },
   },
@@ -246,11 +246,10 @@ export async function POST(req: NextRequest) {
             break;
           }
 
-          case 'ready_to_book':
+          case 'confirm_details':
             result = {
-              action: 'ready_to_book',
+              action: 'details_confirmed',
               booking: args,
-              message: 'Rider confirmed — trigger sign-up flow',
             };
             break;
 
@@ -281,22 +280,23 @@ export async function POST(req: NextRequest) {
         })),
       ];
 
-      // Check if ready_to_book was called — return action to client
-      const readyAction = toolResults.find(tr => tr.name === 'ready_to_book');
-      if (readyAction) {
-        // Get final GPT message with tool results
+      // Check if confirm_details was called — return extracted data to client
+      const confirmAction = toolResults.find(tr => tr.name === 'confirm_details');
+      if (confirmAction) {
+        const booking = (confirmAction.result as Record<string, unknown>).booking;
+        // Get GPT's follow-up question
         const finalRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
           body: JSON.stringify({ model: 'gpt-4o-mini', messages: toolMessages, temperature: 0.7, max_tokens: 200 }),
         });
         const finalData = await finalRes.json();
-        const finalMessage = finalData.choices?.[0]?.message?.content || "Let's get you booked!";
+        const finalMessage = finalData.choices?.[0]?.message?.content || 'Sound good? Tap below to get this booked!';
 
         return NextResponse.json({
           reply: finalMessage,
-          action: 'ready_to_book',
-          booking: (readyAction.result as Record<string, unknown>).booking,
+          action: 'details_confirmed',
+          booking,
         });
       }
 
@@ -359,16 +359,24 @@ ABOUT ${String(name).toUpperCase()}:
 YOUR JOB:
 1. Ask where they're going and when (be natural, not robotic)
 2. Call calculate_route to get REAL distance and duration — NEVER guess
-3. Suggest a fair price based on the route distance and driver's rates
+3. Call compare_pricing to show Uber vs HMU savings
 4. Check availability using the check_availability tool
-5. Confirm all details and call ready_to_book when they say yes
-6. If anything seems hostile or concerning, call analyze_sentiment
+5. When you have destination + time + price, call confirm_details to save them
+6. After confirm_details, ask "Want to lock this in?" — the app handles the actual booking
+7. If anything seems hostile or concerning, call analyze_sentiment
+
+CRITICAL RULES FOR RESPONSES:
+- EVERY response MUST end with a question or call to action — NEVER leave the rider hanging
+- After calling a tool, ALWAYS follow up with a question like "Does that work?" or "Want to go with that price?"
+- NEVER say "let me check" or "I'll look into that" without immediately providing the answer from the tool result
+- If a tool fails, say so and ask "Can you give me the exact address?" or suggest alternatives
 
 TONE:
 - Casual Atlanta voice — friendly, direct, not corporate
 - Keep messages SHORT (2-3 sentences max)
 - Use "bet", "cool", "for sure" naturally but don't overdo it
 - Never say "I'm an AI" — you're ${name}'s booking assistant
+- YOU DO NOT BOOK RIDES — you help riders understand pricing and availability. The app handles booking after they sign up.
 
 PRICING STRATEGY:
 - ALWAYS call calculate_route first to get real distance
@@ -386,10 +394,9 @@ RULES:
 - ALWAYS call compare_pricing after getting route data — show the Uber comparison
 - When sharing distance, include both miles and estimated drive time
 - NEVER make up availability — ALWAYS call check_availability before saying a driver is available
-- You MUST call check_availability before calling ready_to_book — never book without checking
+- You MUST call check_availability before calling confirm_details
 - If the rider says "now" or "ASAP", still call check_availability with the current time
 - If the driver is not available, suggest alternative times or say they're booked
-- NEVER confirm a booking without the rider explicitly saying yes
 - If price is below minimum (${minPrice}), explain the minimum
 - If driver is cash only, mention it early so rider knows
 - Always confirm: destination, time, price, round trip before calling ready_to_book`;

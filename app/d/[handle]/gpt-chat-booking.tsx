@@ -96,32 +96,11 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
       const data = await res.json();
       if (data.extracted) setExtractedSoFar(prev => ({ ...prev, ...data.extracted }));
 
-      // GPT says rider is ready to book
-      if (data.action === 'ready_to_book') {
+      // GPT confirmed ride details — save for booking form pre-fill
+      if (data.action === 'details_confirmed' && data.booking) {
         const bookingDetails = { ...extractedSoFar, ...(data.booking || {}) };
-
-        // Save booking details for pre-fill after auth or handoff
         localStorage.setItem('hmu_chat_booking', JSON.stringify(bookingDetails));
-
-        if (isSignedIn) {
-          // Already logged in — close chat, pass data to booking form
-          setMessages(prev => [...prev, {
-            id: `a-${Date.now()}`, from: 'assistant',
-            text: data.reply || "You're all set — opening the booking form now!",
-          }]);
-          setTimeout(() => {
-            onClose();
-            window.dispatchEvent(new CustomEvent('hmu-open-booking', { detail: bookingDetails }));
-          }, 1500);
-        } else {
-          // Not logged in — show sign-up prompt
-          setMessages(prev => [...prev, {
-            id: `a-${Date.now()}`, from: 'assistant',
-            text: data.reply || "Let's lock this in! Create a quick account and you'll be right back here to book.",
-          }]);
-        }
-        setSending(false);
-        return;
+        setExtractedSoFar(bookingDetails);
       }
 
       if (data.reply) {
@@ -142,17 +121,8 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
 
   const signUpUrl = `/sign-up?type=rider&returnTo=${encodeURIComponent(`/d/${driver.handle}?bookingOpen=1`)}`;
   const signInUrl = `/sign-in?returnTo=${encodeURIComponent(`/d/${driver.handle}?bookingOpen=1`)}`;
-  const lastMsg = messages[messages.length - 1];
-  const showBookingPrompt = lastMsg?.from === 'assistant' && !isSignedIn &&
-    messages.some(m => m.id.startsWith('a-') && (m as ChatMsg & { action?: string }).action === 'ready_to_book');
 
-  // Check if GPT just said ready_to_book by looking for the booking prompt text patterns
-  const hasBookingReady = messages.some(m =>
-    m.from === 'assistant' && (
-      m.text.includes('lock this in') ||
-      m.text.includes('book') && m.text.includes('account')
-    )
-  );
+  const hasDetails = Object.keys(extractedSoFar).length > 0 && !!(extractedSoFar.destination || extractedSoFar.suggestedPrice);
 
   return (
     <>
@@ -232,15 +202,15 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
           </div>
         )}
 
-        {/* Sign up / Sign in prompt — shown after GPT says ready_to_book */}
-        {!isSignedIn && hasBookingReady && (
+        {/* Not signed in + has details → sign up to book */}
+        {!isSignedIn && hasDetails && (
           <div style={{ padding: '0 16px 8px', display: 'flex', gap: 8 }}>
             <a href={signUpUrl} style={{
               flex: 1, padding: 12, borderRadius: 100, border: 'none',
               background: COLORS.green, color: COLORS.black, fontSize: 14, fontWeight: 700,
               textDecoration: 'none', textAlign: 'center',
             }}>
-              Create Account
+              Sign Up to Book
             </a>
             <a href={signInUrl} style={{
               flex: 1, padding: 12, borderRadius: 100,
@@ -250,6 +220,22 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
             }}>
               Sign In
             </a>
+          </div>
+        )}
+
+        {/* Signed in + has details → book now */}
+        {isSignedIn && hasDetails && (
+          <div style={{ padding: '0 16px 8px' }}>
+            <button onClick={() => {
+              onClose();
+              window.dispatchEvent(new CustomEvent('hmu-open-booking', { detail: extractedSoFar }));
+            }} style={{
+              width: '100%', padding: 14, borderRadius: 100, border: 'none',
+              background: COLORS.green, color: COLORS.black, fontSize: 15, fontWeight: 700,
+              cursor: 'pointer',
+            }}>
+              {`Book Now — $${Number(extractedSoFar.suggestedPrice || extractedSoFar.price || 0).toFixed(0)}`}
+            </button>
           </div>
         )}
 
