@@ -373,11 +373,13 @@ TONE:
 PRICING STRATEGY:
 - ALWAYS call calculate_route first to get real distance
 - THEN call compare_pricing with the route data to get Uber vs HMU comparison
-- Present the comparison naturally: "Uber would charge about $X for this. With ${name}, expect around $Y — that's $Z less."
-- If rider says "Uber quoted me $X", pass that as uberQuote to compare_pricing
+- ALWAYS include time of day for accurate surge: morning_rush (7-9am), daytime (9am-4pm), evening_rush (4-7pm), night (10pm-2am), weekend
+- Present the comparison naturally: "Uber typically charges $X-Y for this. With ${name}, expect around $Z — save $W."
+- If rider says "Uber is cheaper" or quotes a low price, explain that Uber surges frequently and their average is higher
 - The HMU suggested price is halfway between driver minimum and Uber price
 - Always present a RANGE, not a fixed price: "expect $X-$Y"
 - Make it clear the driver sets the final price
+- NEVER show a non-surge Uber price — riders see surge prices in real life
 
 RULES:
 - ALWAYS call calculate_route for distance — NEVER guess or estimate distance yourself
@@ -443,16 +445,17 @@ function calculateUberComparison(args: {
     minimumFare: 7.93,
   };
 
-  // Surge multipliers by time of day (estimates)
+  // Always include surge — riders see surge prices, so should our comparison
+  // These reflect typical Atlanta surge ranges (conservative estimates)
   const surgeMultipliers: Record<string, number> = {
-    morning_rush: 1.4,  // 7-9am
-    daytime: 1.0,       // 9am-4pm
-    evening_rush: 1.6,  // 4-7pm
-    night: 1.8,         // 10pm-2am
-    weekend: 1.3,       // Sat/Sun
+    morning_rush: 1.5,  // 7-9am
+    daytime: 1.3,       // 9am-4pm — Uber still surges during busy periods
+    evening_rush: 1.8,  // 4-7pm
+    night: 2.2,         // 10pm-2am
+    weekend: 1.5,       // Sat/Sun
   };
 
-  const surge = surgeMultipliers[timeOfDay || 'daytime'] || 1.0;
+  const surge = surgeMultipliers[timeOfDay || 'daytime'] || 1.3;
 
   // Calculate Uber estimate
   const uberBase = UBER.baseFare + (distanceMiles * UBER.perMile) + (durationMinutes * UBER.perMinute);
