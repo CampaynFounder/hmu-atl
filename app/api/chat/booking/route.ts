@@ -77,6 +77,26 @@ const TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'calculate_route',
+      description: 'Calculate the actual driving distance and duration between locations using Mapbox. Call this when the rider asks about distance, duration, or to suggest an accurate price. Pass the full address or landmark name for pickup and dropoff.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pickup: { type: 'string', description: 'Pickup address or landmark (e.g. "Cleveland Ave, Atlanta, GA")' },
+          dropoff: { type: 'string', description: 'Dropoff address or landmark (e.g. "Bankhead, Atlanta, GA")' },
+          stops: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional intermediate stop addresses',
+          },
+        },
+        required: ['pickup', 'dropoff'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'analyze_sentiment',
       description: 'Analyze rider message for safety concerns, hostility, or spam. Call on any message that seems concerning.',
       parameters: {
@@ -193,6 +213,16 @@ export async function POST(req: NextRequest) {
             break;
           }
 
+          case 'calculate_route': {
+            try {
+              const routeData = await getMapboxRoute(args.pickup, args.dropoff, args.stops);
+              result = routeData;
+            } catch (e) {
+              result = { error: 'Could not calculate route', detail: e instanceof Error ? e.message : 'unknown' };
+            }
+            break;
+          }
+
           case 'ready_to_book':
             result = {
               action: 'ready_to_book',
@@ -297,10 +327,11 @@ ABOUT ${String(name).toUpperCase()}:
 
 YOUR JOB:
 1. Ask where they're going and when (be natural, not robotic)
-2. Suggest a fair price based on the driver's rates
-3. Check availability using the check_availability tool
-4. Confirm all details and call ready_to_book when they say yes
-5. If anything seems hostile or concerning, call analyze_sentiment
+2. Call calculate_route to get REAL distance and duration — NEVER guess
+3. Suggest a fair price based on the route distance and driver's rates
+4. Check availability using the check_availability tool
+5. Confirm all details and call ready_to_book when they say yes
+6. If anything seems hostile or concerning, call analyze_sentiment
 
 TONE:
 - Casual Atlanta voice — friendly, direct, not corporate
@@ -309,6 +340,9 @@ TONE:
 - Never say "I'm an AI" — you're ${name}'s booking assistant
 
 RULES:
+- ALWAYS call calculate_route for distance — NEVER guess or estimate distance yourself
+- When sharing distance, include both miles and estimated drive time
+- Use the route distance to suggest price: roughly $2-4/mile depending on time of day
 - NEVER make up availability — always call check_availability
 - NEVER confirm a booking without the rider explicitly saying yes
 - If price is below minimum (${minPrice}), explain the minimum
@@ -344,4 +378,126 @@ function parseTimeToISO(timeStr: string): string {
 
   // Fallback to now
   return now.toISOString();
+}
+
+/**
+ * Geocode an address to coordinates using Mapbox Search API.
+ */
+async function geocode(address: string): Promise<{ lat: number; lng: number; name: string } | null> {
+  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+  if (!token) return null;
+
+  // Add "Atlanta, GA" context if not already specific
+  const query = address.toLowerCase().includes('atlanta') || address.toLowerCase().includes(', ga')
+    ? address
+    : `${address}, Atlanta, GA`;
+
+  const params = new URLSearchParams({
+    q: query,
+    access_token: token,
+    country: 'us',
+    bbox: '-84.8,33.5,-84.1,34.1', // Atlanta metro
+    limit: '1',
+    types: 'address,poi,place,neighborhood,locality',
+    language: 'en',
+  });
+
+  const suggestRes = await fetch(`https://api.mapbox.com/search/searchbox/v1/suggest?${params}`);
+  if (!suggestRes.ok) return null;
+
+  const suggestData = await suggestRes.json();
+  const suggestion = suggestData.suggestions?.[0];
+  if (!suggestion?.mapbox_id) return null;
+
+  // Retrieve full details with coordinates
+  const retrieveRes = await fetch(
+    `https://api.mapbox.com/search/searchbox/v1/retrieve/${suggestion.mapbox_id}?access_token=${token}`
+  );
+  if (!retrieveRes.ok) return null;
+
+  const retrieveData = await retrieveRes.json();
+  const feature = retrieveData.features?.[0];
+  if (!feature?.geometry?.coordinates) return null;
+
+  const [lng, lat] = feature.geometry.coordinates;
+  return { lat, lng, name: suggestion.full_address || suggestion.name || address };
+}
+
+/**
+ * Get driving route from Mapbox Directions API.
+ * Returns distance in miles, duration in minutes, and route summary.
+ */
+async function getMapboxRoute(
+  pickup: string,
+  dropoff: string,
+  stops?: string[]
+): Promise<{
+  distanceMiles: number;
+  durationMinutes: number;
+  pickup: { address: string; lat: number; lng: number };
+  dropoff: { address: string; lat: number; lng: number };
+  stops?: { address: string; lat: number; lng: number }[];
+  suggestedPrice: { low: number; mid: number; high: number };
+}> {
+  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+  if (!token) throw new Error('Mapbox not configured');
+
+  // Geocode all locations
+  const [pickupGeo, dropoffGeo] = await Promise.all([
+    geocode(pickup),
+    geocode(dropoff),
+  ]);
+
+  if (!pickupGeo) throw new Error(`Could not find pickup location: ${pickup}`);
+  if (!dropoffGeo) throw new Error(`Could not find dropoff location: ${dropoff}`);
+
+  // Build waypoints: pickup → stops → dropoff
+  const waypoints: { lat: number; lng: number; address: string }[] = [
+    { ...pickupGeo, address: pickupGeo.name },
+  ];
+
+  let stopGeos: { lat: number; lng: number; address: string }[] = [];
+  if (stops?.length) {
+    const geocoded = await Promise.all(stops.map(s => geocode(s)));
+    stopGeos = geocoded
+      .filter((g): g is NonNullable<typeof g> => g !== null)
+      .map(g => ({ ...g, address: g.name }));
+    waypoints.push(...stopGeos);
+  }
+
+  waypoints.push({ ...dropoffGeo, address: dropoffGeo.name });
+
+  // Build coordinates string for Directions API
+  const coords = waypoints.map(w => `${w.lng},${w.lat}`).join(';');
+
+  const dirRes = await fetch(
+    `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?access_token=${token}&overview=false`
+  );
+
+  if (!dirRes.ok) {
+    const err = await dirRes.text();
+    throw new Error(`Mapbox Directions failed: ${err}`);
+  }
+
+  const dirData = await dirRes.json();
+  const route = dirData.routes?.[0];
+
+  if (!route) throw new Error('No route found between these locations');
+
+  const distanceMiles = Math.round((route.distance / 1609.34) * 10) / 10;
+  const durationMinutes = Math.round(route.duration / 60);
+
+  // Suggest price based on distance
+  const low = Math.max(10, Math.round(distanceMiles * 2));
+  const mid = Math.max(10, Math.round(distanceMiles * 3));
+  const high = Math.max(15, Math.round(distanceMiles * 4));
+
+  return {
+    distanceMiles,
+    durationMinutes,
+    pickup: { address: pickupGeo.name, lat: pickupGeo.lat, lng: pickupGeo.lng },
+    dropoff: { address: dropoffGeo.name, lat: dropoffGeo.lat, lng: dropoffGeo.lng },
+    stops: stopGeos.length > 0 ? stopGeos : undefined,
+    suggestedPrice: { low, mid, high },
+  };
 }
