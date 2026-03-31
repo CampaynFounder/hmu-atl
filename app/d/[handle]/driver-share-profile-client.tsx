@@ -47,7 +47,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [bookingFormOpen, setBookingFormOpen] = useState(false);
-  const [prefillData, setPrefillData] = useState<{ price?: string; destination?: string; time?: string } | null>(null);
+  const [prefillData, setPrefillData] = useState<{ price?: string; destination?: string; time?: string; stops?: string; roundTrip?: boolean; isCash?: boolean } | null>(null);
   const [videoMuted, setVideoMuted] = useState(true);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
 
@@ -93,8 +93,11 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
           const data = JSON.parse(saved);
           setPrefillData({
             price: data.price ? String(data.price) : data.suggestedPrice ? String(data.suggestedPrice) : undefined,
-            destination: data.destination || undefined,
-            time: data.time || undefined,
+            destination: (data.destination as string) || undefined,
+            time: (data.time as string) || undefined,
+            stops: (data.stops as string) || undefined,
+            roundTrip: (data.roundTrip as boolean) || false,
+            isCash: (data.isCash as boolean) || false,
           });
           localStorage.removeItem('hmu_chat_booking');
         }
@@ -112,6 +115,9 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
           price: detail.price ? String(detail.price) : detail.suggestedPrice ? String(detail.suggestedPrice) : undefined,
           destination: (detail.destination as string) || undefined,
           time: (detail.time as string) || undefined,
+          stops: (detail.stops as string) || undefined,
+          roundTrip: (detail.roundTrip as boolean) || false,
+          isCash: (detail.isCash as boolean) || false,
         });
       }
       setDrawerOpen(false);

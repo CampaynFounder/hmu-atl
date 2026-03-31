@@ -13,7 +13,7 @@ interface Props {
   driver: DriverData;
   open: boolean;
   onClose: () => void;
-  prefill?: { price?: string; destination?: string; time?: string } | null;
+  prefill?: { price?: string; destination?: string; time?: string; stops?: string; roundTrip?: boolean; isCash?: boolean } | null;
 }
 
 type DrawerState = 'form' | 'pending' | 'accepted' | 'expired' | 'error';
@@ -78,7 +78,18 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
       const res = await fetch(`/api/drivers/${driver.handle}/book`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ price: Number(price), areas, timeWindow: { note: timeWindow } }),
+        body: JSON.stringify({
+          price: Number(price),
+          areas,
+          timeWindow: {
+            destination: prefill?.destination || timeWindow,
+            time: prefill?.time || '',
+            note: timeWindow,
+            stops: prefill?.stops || '',
+            round_trip: prefill?.roundTrip || false,
+          },
+          is_cash: prefill?.isCash || false,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -137,6 +148,17 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
         {state === 'form' && (
           <>
             <div className="drawer-title">Book {driver.displayName}</div>
+
+            {prefill?.destination && (
+              <div style={{
+                background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.15)',
+                borderRadius: 12, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#bbb',
+              }}>
+                <div style={{ fontSize: 11, color: '#00E676', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4, fontFamily: "var(--font-mono, monospace)" }}>From chat</div>
+                <div>{prefill.destination}{prefill.time ? ` · ${prefill.time}` : ''}{prefill.stops ? ` · +${prefill.stops}` : ''}</div>
+                <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>You can adjust the price below before sending</div>
+              </div>
+            )}
 
             <div className="drawer-label">Your price ($)</div>
             <input

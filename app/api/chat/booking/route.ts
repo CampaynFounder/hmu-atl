@@ -416,7 +416,8 @@ OUTPUT: Confirm all details and call confirm_details.`;
     case 'confirm':
       return `GOAL: Summarize the trip and call confirm_details to save it.
 DO: Call confirm_details with destination, time, stops, price, roundTrip, isCash.
-DO: Say something like "Here's your trip: [pickup] to [dropoff], [time], $[price]. Ready to lock this in?"
+DO: Summarize like: "Here's your trip: [pickup] to [dropoff], [time], ~$[price]. You can adjust the price before confirming. Ready to lock this in?"
+DO: Always mention they can adjust the price in the booking form.
 ADVANCE TO NEXT STEP WHEN: confirm_details is called successfully.
 OUTPUT: The app will show sign-up/booking buttons — your job is done.`;
 
