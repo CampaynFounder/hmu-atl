@@ -47,7 +47,8 @@ export default function AuthCallbackPage() {
       if (hasProfile) {
         // If rider came from a driver share link, send them back there
         if (returnTo && returnTo.startsWith('/d/')) {
-          router.replace(`${returnTo}?bookingOpen=1`);
+          const url = returnTo.includes('bookingOpen') ? returnTo : `${returnTo}?bookingOpen=1`;
+          router.replace(url);
           return;
         }
         if (data.profileType === 'driver') {

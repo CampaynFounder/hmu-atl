@@ -120,7 +120,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
   if (!open) return null;
 
   const signUpUrl = `/sign-up?type=rider&returnTo=${encodeURIComponent(`/d/${driver.handle}?bookingOpen=1`)}`;
-  const signInUrl = `/sign-in?returnTo=${encodeURIComponent(`/d/${driver.handle}?bookingOpen=1`)}`;
+  const signInUrl = `/sign-in?type=rider&returnTo=${encodeURIComponent(`/d/${driver.handle}?bookingOpen=1`)}`;
 
   const hasDetails = Object.keys(extractedSoFar).length > 0 && !!(extractedSoFar.destination || extractedSoFar.suggestedPrice);
 

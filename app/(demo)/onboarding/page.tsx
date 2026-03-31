@@ -32,7 +32,8 @@ function OnboardingInner() {
     const returnTo = searchParams.get('returnTo');
     if (returnTo && returnTo.startsWith('/d/')) {
       // Rider signed up from a driver's HMU link — send them back with booking open
-      window.location.href = `${returnTo}?bookingOpen=1`;
+      const url = returnTo.includes('bookingOpen') ? returnTo : `${returnTo}?bookingOpen=1`;
+      window.location.href = url;
     } else {
       window.location.href = activeType === 'driver' ? '/driver/home' : '/rider/home';
     }
