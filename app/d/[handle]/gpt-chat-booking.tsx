@@ -225,7 +225,29 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
           @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
           .cl-card { border: none !important; box-shadow: none !important; background: transparent !important; }
           .cl-rootBox { width: 100% !important; }
-          .cl-formButtonPrimary { background: #00E676 !important; color: #080808 !important; }
+          .cl-formButtonPrimary { background: #00E676 !important; color: #080808 !important; font-weight: 700 !important; }
+          .cl-formButtonReset { color: #00E676 !important; }
+          .cl-button { color: #fff !important; }
+          .cl-formResendCodeLink { color: #00E676 !important; }
+          .cl-otpCodeFieldInput { background: #1a1a1a !important; border-color: #333 !important; color: #fff !important; }
+          .cl-formFieldInput { background: #1a1a1a !important; border-color: #333 !important; color: #fff !important; }
+          .cl-headerTitle, .cl-headerSubtitle { color: #fff !important; }
+          .cl-internal-b1zuoh { background: #00E676 !important; color: #080808 !important; }
+          .cl-formFieldAction { color: #00E676 !important; }
+          .cl-footerActionText { color: #888 !important; }
+          .cl-footerActionLink { color: #00E676 !important; }
+          .cl-alert { background: rgba(255,145,0,0.1) !important; border-color: rgba(255,145,0,0.3) !important; color: #FFB300 !important; }
+          .cl-socialButtonsBlockButton { background: #1a1a1a !important; border-color: #333 !important; color: #fff !important; }
+          .cl-dividerLine { background: #333 !important; }
+          .cl-dividerText { color: #666 !important; }
+          .cl-formFieldLabel { color: #aaa !important; }
+          .cl-identityPreview { background: #1a1a1a !important; border-color: #333 !important; }
+          .cl-identityPreviewText { color: #fff !important; }
+          .cl-identityPreviewEditButton { color: #00E676 !important; }
+          .cl-phoneInputBox { background: #1a1a1a !important; border-color: #333 !important; }
+          .cl-selectButton { background: #1a1a1a !important; border-color: #333 !important; color: #fff !important; }
+          .cl-selectOption { background: #141414 !important; color: #fff !important; }
+          .cl-selectOption:hover { background: #1a1a1a !important; }
         `}</style>
 
         {/* Header */}
