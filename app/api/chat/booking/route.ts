@@ -97,6 +97,24 @@ const TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'compare_pricing',
+      description: 'Compare HMU pricing vs Uber estimate for a route. Call this when the rider asks about pricing, mentions Uber, or you want to show savings. If the rider provides an Uber quote, pass it as uberQuote. Otherwise the system will estimate.',
+      parameters: {
+        type: 'object',
+        properties: {
+          distanceMiles: { type: 'number', description: 'Route distance in miles (from calculate_route)' },
+          durationMinutes: { type: 'number', description: 'Route duration in minutes (from calculate_route)' },
+          driverMinimum: { type: 'number', description: 'Driver minimum price' },
+          uberQuote: { type: 'number', description: 'Uber price quoted by the rider (if they provided one)' },
+          timeOfDay: { type: 'string', enum: ['morning_rush', 'daytime', 'evening_rush', 'night', 'weekend'], description: 'Time of day for surge estimation' },
+        },
+        required: ['distanceMiles', 'durationMinutes', 'driverMinimum'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'analyze_sentiment',
       description: 'Analyze rider message for safety concerns, hostility, or spam. Call on any message that seems concerning.',
       parameters: {
@@ -220,6 +238,11 @@ export async function POST(req: NextRequest) {
             } catch (e) {
               result = { error: 'Could not calculate route', detail: e instanceof Error ? e.message : 'unknown' };
             }
+            break;
+          }
+
+          case 'compare_pricing': {
+            result = calculateUberComparison(args);
             break;
           }
 
@@ -347,10 +370,19 @@ TONE:
 - Use "bet", "cool", "for sure" naturally but don't overdo it
 - Never say "I'm an AI" — you're ${name}'s booking assistant
 
+PRICING STRATEGY:
+- ALWAYS call calculate_route first to get real distance
+- THEN call compare_pricing with the route data to get Uber vs HMU comparison
+- Present the comparison naturally: "Uber would charge about $X for this. With ${name}, expect around $Y — that's $Z less."
+- If rider says "Uber quoted me $X", pass that as uberQuote to compare_pricing
+- The HMU suggested price is halfway between driver minimum and Uber price
+- Always present a RANGE, not a fixed price: "expect $X-$Y"
+- Make it clear the driver sets the final price
+
 RULES:
 - ALWAYS call calculate_route for distance — NEVER guess or estimate distance yourself
+- ALWAYS call compare_pricing after getting route data — show the Uber comparison
 - When sharing distance, include both miles and estimated drive time
-- Use the route distance to suggest price: roughly $2-4/mile depending on time of day
 - NEVER make up availability — always call check_availability
 - NEVER confirm a booking without the rider explicitly saying yes
 - If price is below minimum (${minPrice}), explain the minimum
@@ -386,6 +418,92 @@ function parseTimeToISO(timeStr: string): string {
 
   // Fallback to now
   return now.toISOString();
+}
+
+/**
+ * Calculate Uber price estimate and HMU comparison.
+ * Uses Atlanta UberX rates (publicly available).
+ */
+function calculateUberComparison(args: {
+  distanceMiles: number;
+  durationMinutes: number;
+  driverMinimum: number;
+  uberQuote?: number;
+  timeOfDay?: string;
+}): Record<string, unknown> {
+  const { distanceMiles, durationMinutes, driverMinimum, uberQuote, timeOfDay } = args;
+
+  // Atlanta UberX base rates (public)
+  const UBER = {
+    baseFare: 1.20,
+    perMile: 0.90,
+    perMinute: 0.18,
+    bookingFee: 2.75,
+    serviceFeeRate: 0.20, // ~20%
+    minimumFare: 7.93,
+  };
+
+  // Surge multipliers by time of day (estimates)
+  const surgeMultipliers: Record<string, number> = {
+    morning_rush: 1.4,  // 7-9am
+    daytime: 1.0,       // 9am-4pm
+    evening_rush: 1.6,  // 4-7pm
+    night: 1.8,         // 10pm-2am
+    weekend: 1.3,       // Sat/Sun
+  };
+
+  const surge = surgeMultipliers[timeOfDay || 'daytime'] || 1.0;
+
+  // Calculate Uber estimate
+  const uberBase = UBER.baseFare + (distanceMiles * UBER.perMile) + (durationMinutes * UBER.perMinute);
+  const uberWithSurge = uberBase * surge;
+  const uberServiceFee = uberWithSurge * UBER.serviceFeeRate;
+  const uberTotal = Math.max(UBER.minimumFare, uberWithSurge + uberServiceFee + UBER.bookingFee);
+  const uberEstimate = Math.round(uberTotal * 100) / 100;
+
+  // If rider provided an Uber quote, use it; otherwise use our estimate
+  const uberPrice = uberQuote || uberEstimate;
+
+  // HMU suggested price: halfway between driver minimum and Uber price
+  const hmuSuggested = Math.max(driverMinimum, Math.round((driverMinimum + uberPrice) / 2));
+  const hmuLow = Math.max(driverMinimum, hmuSuggested - 3);
+  const hmuHigh = hmuSuggested + 3;
+
+  const savings = Math.round(uberPrice - hmuSuggested);
+  const savingsPercent = Math.round((savings / uberPrice) * 100);
+
+  return {
+    uber: {
+      estimate: uberEstimate,
+      quote: uberQuote || null,
+      priceUsed: uberPrice,
+      breakdown: {
+        baseFare: UBER.baseFare,
+        distance: Math.round(distanceMiles * UBER.perMile * 100) / 100,
+        time: Math.round(durationMinutes * UBER.perMinute * 100) / 100,
+        bookingFee: UBER.bookingFee,
+        serviceFee: Math.round(uberServiceFee * 100) / 100,
+        surge: surge > 1 ? `${surge}x` : 'none',
+      },
+    },
+    hmu: {
+      suggested: hmuSuggested,
+      range: { low: hmuLow, high: hmuHigh },
+      driverMinimum: driverMinimum,
+      note: 'Driver sets final price — this is the expected range',
+    },
+    savings: {
+      amount: savings,
+      percent: savingsPercent,
+      message: savings > 0
+        ? `Save ~$${savings} (${savingsPercent}%) vs Uber`
+        : 'Comparable to Uber — but you support a local driver',
+    },
+    perMile: {
+      uber: Math.round((uberPrice / distanceMiles) * 100) / 100,
+      hmu: Math.round((hmuSuggested / distanceMiles) * 100) / 100,
+    },
+  };
 }
 
 /**
