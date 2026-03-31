@@ -169,6 +169,8 @@ export default function ActiveRideClient({
   const [pendingStop, setPendingStop] = useState<{ address: string; latitude?: number; longitude?: number } | null>(null);
   const [endRideConfirm, setEndRideConfirm] = useState<{ show: boolean; reason: string; notes: string }>({ show: false, reason: '', notes: '' });
   const [addingMidRideStop, setAddingMidRideStop] = useState(false);
+  const [priceEditorOpen, setPriceEditorOpen] = useState(false);
+  const [priceEditorValue, setPriceEditorValue] = useState('');
   const [notification, setNotification] = useState<{
     message: string;
     emoji: string;
@@ -1382,27 +1384,12 @@ export default function ActiveRideClient({
               <StatusMessage text="Rider is ready!" />
               <TappableAddresses ride={ride} />
               {/* Update price option for driver */}
-              {!ride.proposedPrice && (
+              {!ride.proposedPrice && !priceEditorOpen && (
                 <div style={{ marginBottom: 8 }}>
                   <button
                     onClick={() => {
-                      const input = prompt(`Current price: $${Number(ride.agreedPrice || 0).toFixed(0)}\n\nEnter new price (stops may justify a higher price):`, String(Math.ceil(Number(ride.agreedPrice || 0))));
-                      if (!input) return;
-                      const newPrice = parseFloat(input);
-                      if (isNaN(newPrice) || newPrice < 1) { setError('Enter a valid price'); return; }
-                      if (newPrice === Number(ride.agreedPrice)) return;
-                      fetch(`/api/rides/${rideId}/update-price`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ newPrice, reason: 'Price adjusted for stops' }),
-                      }).then(r => r.json()).then(data => {
-                        if (data.status === 'proposed') {
-                          setRide(prev => ({ ...prev, proposedPrice: newPrice }));
-                          showNotification('Price update sent to rider', '💰', COLORS.orange);
-                        } else {
-                          setError(data.error || 'Failed to update price');
-                        }
-                      }).catch(() => setError('Network error'));
+                      setPriceEditorValue(String(Math.ceil(Number(ride.agreedPrice || 0))));
+                      setPriceEditorOpen(true);
                     }}
                     style={{
                       width: '100%', padding: '10px', borderRadius: 100,
@@ -1413,6 +1400,61 @@ export default function ActiveRideClient({
                   >
                     Update Price
                   </button>
+                </div>
+              )}
+              {/* Inline price editor */}
+              {priceEditorOpen && (
+                <div style={{
+                  background: COLORS.card, border: '1px solid rgba(255,145,0,0.2)',
+                  borderRadius: 14, padding: '14px 16px', marginBottom: 8,
+                }}>
+                  <div style={{ fontSize: 12, color: COLORS.orange, fontWeight: 600, marginBottom: 8 }}>
+                    Current: ${Number(ride.agreedPrice || 0).toFixed(0)} — enter new price
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: COLORS.green, fontSize: 18, fontWeight: 700 }}>$</span>
+                      <input
+                        type="number"
+                        value={priceEditorValue}
+                        onChange={e => setPriceEditorValue(e.target.value)}
+                        autoFocus
+                        style={{
+                          width: '100%', padding: '12px 14px 12px 30px', borderRadius: 10,
+                          background: '#1a1a1a', border: '1px solid rgba(255,145,0,0.3)',
+                          color: COLORS.white, fontSize: 20, fontWeight: 700, outline: 'none',
+                          fontFamily: FONTS.mono,
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <button onClick={() => setPriceEditorOpen(false)}
+                      style={{ flex: 1, padding: 10, borderRadius: 100, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: COLORS.gray, fontSize: 13, cursor: 'pointer', fontFamily: FONTS.body }}>
+                      Cancel
+                    </button>
+                    <button onClick={() => {
+                      const newPrice = parseFloat(priceEditorValue);
+                      if (isNaN(newPrice) || newPrice < 1) { setError('Enter a valid price'); return; }
+                      if (newPrice === Number(ride.agreedPrice)) { setPriceEditorOpen(false); return; }
+                      fetch(`/api/rides/${rideId}/update-price`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ newPrice, reason: 'Price adjusted' }),
+                      }).then(r => r.json()).then(data => {
+                        if (data.status === 'proposed') {
+                          setRide(prev => ({ ...prev, proposedPrice: newPrice }));
+                          showNotification('Price update sent to rider', '💰', COLORS.orange);
+                        } else {
+                          setError(data.error || 'Failed');
+                        }
+                      }).catch(() => setError('Network error'));
+                      setPriceEditorOpen(false);
+                    }}
+                      style={{ flex: 1, padding: 10, borderRadius: 100, border: 'none', background: COLORS.orange, color: COLORS.black, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONTS.body }}>
+                      Send to Rider
+                    </button>
+                  </div>
                 </div>
               )}
               {ride.proposedPrice && (
@@ -1438,27 +1480,12 @@ export default function ActiveRideClient({
                 : `Waiting for rider to verify $${Number(ride.agreedPrice || 0).toFixed(0)} payment...`
               } />
               {/* Update price — available even before Pull Up */}
-              {!ride.proposedPrice && (
+              {!ride.proposedPrice && !priceEditorOpen && (
                 <div style={{ marginTop: 8 }}>
                   <button
                     onClick={() => {
-                      const input = prompt(`Current price: $${Number(ride.agreedPrice || 0).toFixed(0)}\n\nEnter new price:`, String(Math.ceil(Number(ride.agreedPrice || 0))));
-                      if (!input) return;
-                      const newPrice = parseFloat(input);
-                      if (isNaN(newPrice) || newPrice < 1) { setError('Enter a valid price'); return; }
-                      if (newPrice === Number(ride.agreedPrice)) return;
-                      fetch(`/api/rides/${rideId}/update-price`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ newPrice, reason: 'Price adjusted' }),
-                      }).then(r => r.json()).then(data => {
-                        if (data.status === 'proposed') {
-                          setRide(prev => ({ ...prev, proposedPrice: newPrice }));
-                          showNotification('Price update sent to rider', '💰', COLORS.orange);
-                        } else {
-                          setError(data.error || 'Failed to update price');
-                        }
-                      }).catch(() => setError('Network error'));
+                      setPriceEditorValue(String(Math.ceil(Number(ride.agreedPrice || 0))));
+                      setPriceEditorOpen(true);
                     }}
                     style={{
                       width: '100%', padding: '10px', borderRadius: 100,
@@ -1469,6 +1496,38 @@ export default function ActiveRideClient({
                   >
                     Update Price
                   </button>
+                </div>
+              )}
+              {/* Inline price editor (pre-COO) */}
+              {priceEditorOpen && (
+                <div style={{
+                  background: COLORS.card, border: '1px solid rgba(255,145,0,0.2)',
+                  borderRadius: 14, padding: '14px 16px', marginTop: 8,
+                }}>
+                  <div style={{ fontSize: 12, color: COLORS.orange, fontWeight: 600, marginBottom: 8 }}>
+                    Current: ${Number(ride.agreedPrice || 0).toFixed(0)} — enter new price
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: COLORS.green, fontSize: 18, fontWeight: 700 }}>$</span>
+                    <input type="number" value={priceEditorValue} onChange={e => setPriceEditorValue(e.target.value)} autoFocus
+                      style={{ width: '100%', padding: '12px 14px 12px 30px', borderRadius: 10, background: '#1a1a1a', border: '1px solid rgba(255,145,0,0.3)', color: COLORS.white, fontSize: 20, fontWeight: 700, outline: 'none', fontFamily: FONTS.mono }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <button onClick={() => setPriceEditorOpen(false)}
+                      style={{ flex: 1, padding: 10, borderRadius: 100, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: COLORS.gray, fontSize: 13, cursor: 'pointer', fontFamily: FONTS.body }}>Cancel</button>
+                    <button onClick={() => {
+                      const newPrice = parseFloat(priceEditorValue);
+                      if (isNaN(newPrice) || newPrice < 1) { setError('Enter a valid price'); return; }
+                      if (newPrice === Number(ride.agreedPrice)) { setPriceEditorOpen(false); return; }
+                      fetch(`/api/rides/${rideId}/update-price`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newPrice, reason: 'Price adjusted' }) })
+                        .then(r => r.json()).then(data => {
+                          if (data.status === 'proposed') { setRide(prev => ({ ...prev, proposedPrice: newPrice })); showNotification('Price update sent', '💰', COLORS.orange); }
+                          else setError(data.error || 'Failed');
+                        }).catch(() => setError('Network error'));
+                      setPriceEditorOpen(false);
+                    }}
+                      style={{ flex: 1, padding: 10, borderRadius: 100, border: 'none', background: COLORS.orange, color: COLORS.black, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONTS.body }}>Send to Rider</button>
+                  </div>
                 </div>
               )}
               {ride.proposedPrice && (
