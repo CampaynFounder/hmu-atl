@@ -158,9 +158,10 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
         setBookingData(data.booking);
         handleReadyToBook(data.booking);
       }
-    } catch {
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : 'unknown';
       setMessages(prev => [...prev, {
-        id: `e-${Date.now()}`, from: 'system', text: 'Network error — try again',
+        id: `e-${Date.now()}`, from: 'system', text: `Network error — try again (${detail})`,
       }]);
     }
     setSending(false);

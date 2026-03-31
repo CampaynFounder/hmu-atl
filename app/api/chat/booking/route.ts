@@ -278,13 +278,20 @@ export async function POST(req: NextRequest) {
       }
 
       // Regular tool call — get GPT's follow-up response
-      const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: 'gpt-4o-mini', messages: toolMessages, tools: TOOLS, tool_choice: 'auto', temperature: 0.7, max_tokens: 300 }),
-      });
-      const followUpData = await followUpRes.json();
-      const followUpMessage = followUpData.choices?.[0]?.message;
+      let followUpMessage: { content?: string } | null = null;
+      try {
+        const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: 'gpt-4o-mini', messages: toolMessages, temperature: 0.7, max_tokens: 300 }),
+        });
+        if (followUpRes.ok) {
+          const followUpData = await followUpRes.json();
+          followUpMessage = followUpData.choices?.[0]?.message;
+        }
+      } catch (e) {
+        console.error('GPT follow-up failed:', e);
+      }
 
       // Check for sentiment flags and extracted data
       const sentimentFlag = toolResults.find(tr => tr.name === 'analyze_sentiment');
@@ -303,7 +310,8 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error('Chat booking error:', error);
-    return NextResponse.json({ error: 'Failed' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: 'Failed', detail: msg }, { status: 500 });
   }
 }
 
