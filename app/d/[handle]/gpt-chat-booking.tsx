@@ -1,7 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useUser } from '@clerk/nextjs';
+import dynamic from 'next/dynamic';
+
+const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
 interface DriverData {
   handle: string;
@@ -24,10 +27,12 @@ interface ChatMsg {
   text: string;
   action?: string;
   booking?: Record<string, unknown>;
-  sentiment?: string;
 }
 
+type FlowStep = 'chat' | 'signup' | 'payment' | 'booking' | 'done';
+
 const COLORS = { green: '#00E676', black: '#080808', card: '#141414', white: '#fff', gray: '#888', red: '#FF5252', orange: '#FF9100' };
+const STORAGE_KEY = 'hmu_booking_intent';
 
 export default function GptChatBooking({ driver, open, onClose }: Props) {
   const { isSignedIn, isLoaded } = useUser();
@@ -36,32 +41,85 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
   const [sending, setSending] = useState(false);
   const [bookingData, setBookingData] = useState<Record<string, unknown> | null>(null);
   const [extractedSoFar, setExtractedSoFar] = useState<Record<string, unknown>>({});
-  const [flowStep, setFlowStep] = useState<'chat' | 'signup' | 'booking' | 'done'>('chat');
+  const [flowStep, setFlowStep] = useState<FlowStep>('chat');
   const [submittingBooking, setSubmittingBooking] = useState(false);
-  const [bookingResult, setBookingResult] = useState<{ postId?: string; expiresAt?: string; error?: string } | null>(null);
+  const [bookingResult, setBookingResult] = useState<{ postId?: string; error?: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const initRef = useRef(false);
+  const resumeChecked = useRef(false);
 
-  // Initial greeting
+  const isCashRide = !!(bookingData?.isCash || driver.cashOnly);
+
+  // ── Initial greeting ──
   useEffect(() => {
     if (!open || initRef.current) return;
     initRef.current = true;
     const minPrice = driver.pricing.minimum ? `$${driver.pricing.minimum} minimum` : '';
-    const cashNote = driver.cashOnly ? ' Cash rides only.' : driver.acceptsCash ? '' : '';
+    const cashNote = driver.cashOnly ? ' Cash rides only.' : '';
     setMessages([{
-      id: '0',
-      from: 'assistant',
+      id: '0', from: 'assistant',
       text: `What's good! I'm helping book rides for ${driver.displayName}. Where you headed?${minPrice ? ` (${minPrice})` : ''}${cashNote}`,
     }]);
     setTimeout(() => inputRef.current?.focus(), 300);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-scroll on new messages
+  // ── Resume after sign-up redirect ──
+  useEffect(() => {
+    if (resumeChecked.current || !isLoaded) return;
+    resumeChecked.current = true;
+
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved && isSignedIn) {
+      try {
+        const intent = JSON.parse(saved);
+        if (intent.driverHandle === driver.handle && intent.booking) {
+          localStorage.removeItem(STORAGE_KEY);
+          setBookingData(intent.booking);
+          setMessages([
+            { id: '0', from: 'assistant', text: `Welcome back! Let me finish booking your ride with ${driver.displayName}.` },
+          ]);
+
+          // Check if payment needed
+          if (intent.booking.isCash || driver.cashOnly) {
+            submitBooking(intent.booking);
+          } else {
+            setFlowStep('payment');
+            checkPaymentAndBook(intent.booking);
+          }
+        }
+      } catch { localStorage.removeItem(STORAGE_KEY); }
+    }
+  }, [isLoaded, isSignedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-scroll ──
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
 
+  // ── Check payment method, then book ──
+  const checkPaymentAndBook = useCallback(async (booking: Record<string, unknown>) => {
+    try {
+      const pmRes = await fetch('/api/rider/payment-methods');
+      const pmData = await pmRes.json();
+      const hasPm = pmData.methods && pmData.methods.length > 0;
+
+      if (hasPm) {
+        submitBooking(booking);
+      } else {
+        setFlowStep('payment');
+        setMessages(prev => [...prev, {
+          id: `s-${Date.now()}`, from: 'system',
+          text: 'Link a payment method to confirm your ride. Your card won\'t be charged until the driver accepts.',
+        }]);
+      }
+    } catch {
+      // Can't check — try booking anyway, API will block if needed
+      submitBooking(booking);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Send chat message ──
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || sending) return;
@@ -72,7 +130,6 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
     setSending(true);
 
     try {
-      // Build conversation history for GPT (exclude system messages)
       const history = [...messages.filter(m => m.from !== 'system'), userMsg].map(m => ({
         role: m.from === 'rider' ? 'user' as const : 'assistant' as const,
         content: m.text,
@@ -87,16 +144,11 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
 
       if (data.reply) {
         setMessages(prev => [...prev, {
-          id: `a-${Date.now()}`,
-          from: 'assistant',
-          text: data.reply,
-          action: data.action,
-          booking: data.booking,
-          sentiment: data.sentiment,
+          id: `a-${Date.now()}`, from: 'assistant', text: data.reply,
+          action: data.action, booking: data.booking,
         }]);
       }
 
-      // Update extracted data from GPT's tool calls
       if (data.extracted) {
         setExtractedSoFar(prev => ({ ...prev, ...data.extracted }));
       }
@@ -104,12 +156,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
       // GPT said rider is ready to book
       if (data.action === 'ready_to_book' && data.booking) {
         setBookingData(data.booking);
-        if (!isSignedIn) {
-          setFlowStep('signup');
-        } else {
-          setFlowStep('booking');
-          submitBooking(data.booking);
-        }
+        handleReadyToBook(data.booking);
       }
     } catch {
       setMessages(prev => [...prev, {
@@ -119,8 +166,30 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
     setSending(false);
   };
 
-  // Submit the actual booking
+  // ── Handle booking readiness ──
+  const handleReadyToBook = (booking: Record<string, unknown>) => {
+    if (!isSignedIn) {
+      // Save intent to localStorage so we can resume after sign-up
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        driverHandle: driver.handle,
+        booking,
+        timestamp: Date.now(),
+      }));
+      setFlowStep('signup');
+      return;
+    }
+
+    // Signed in — check payment for digital rides
+    if (booking.isCash || driver.cashOnly) {
+      submitBooking(booking);
+    } else {
+      checkPaymentAndBook(booking);
+    }
+  };
+
+  // ── Submit booking ──
   const submitBooking = async (booking: Record<string, unknown>) => {
+    setFlowStep('booking');
     setSubmittingBooking(true);
     try {
       const res = await fetch(`/api/drivers/${driver.handle}/book`, {
@@ -140,11 +209,12 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
       });
       const data = await res.json();
       if (res.ok) {
-        setBookingResult({ postId: data.postId, expiresAt: data.expiresAt });
+        localStorage.removeItem(STORAGE_KEY);
+        setBookingResult({ postId: data.postId });
         setFlowStep('done');
         setMessages(prev => [...prev, {
           id: `s-${Date.now()}`, from: 'system',
-          text: `Booking sent to ${driver.displayName}! They have 15 minutes to respond. Finish setting up your profile so they can see you.`,
+          text: `Booking sent to ${driver.displayName}! They have 15 minutes to respond.`,
         }]);
       } else {
         setBookingResult({ error: data.error });
@@ -154,19 +224,10 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
         setFlowStep('chat');
       }
     } catch {
-      setBookingResult({ error: 'Network error' });
       setFlowStep('chat');
     }
     setSubmittingBooking(false);
   };
-
-  // After sign-up completes, retry booking
-  useEffect(() => {
-    if (flowStep === 'signup' && isLoaded && isSignedIn && bookingData) {
-      setFlowStep('booking');
-      submitBooking(bookingData);
-    }
-  }, [flowStep, isLoaded, isSignedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null;
 
@@ -174,17 +235,16 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
 
   return (
     <>
-      {/* Backdrop */}
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 100 }} />
 
-      {/* Chat sheet */}
       <div style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 101,
         background: COLORS.card, borderRadius: '24px 24px 0 0',
         maxHeight: '85svh', display: 'flex', flexDirection: 'column',
         animation: 'slideUp 0.25s ease-out',
       }}>
-        <style>{`@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+        <style>{`@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+          @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
 
         {/* Header */}
         <div style={{
@@ -192,9 +252,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
         }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.white }}>
-              Book {driver.displayName}
-            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.white }}>Book {driver.displayName}</div>
             <div style={{ fontSize: 11, color: COLORS.gray }}>
               {driver.cashOnly ? 'Cash rides' : driver.acceptsCash ? 'Cash or digital' : 'Digital payments'} · {driver.areas[0] || 'ATL'}
             </div>
@@ -216,12 +274,8 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
               <div style={{
                 maxWidth: '80%', padding: '10px 14px', borderRadius: 16,
                 fontSize: 14, lineHeight: 1.5,
-                background: msg.from === 'rider' ? COLORS.green
-                  : msg.from === 'system' ? 'rgba(255,145,0,0.12)'
-                  : '#1f1f1f',
-                color: msg.from === 'rider' ? COLORS.black
-                  : msg.from === 'system' ? COLORS.orange
-                  : COLORS.white,
+                background: msg.from === 'rider' ? COLORS.green : msg.from === 'system' ? 'rgba(255,145,0,0.12)' : '#1f1f1f',
+                color: msg.from === 'rider' ? COLORS.black : msg.from === 'system' ? COLORS.orange : COLORS.white,
                 borderBottomRightRadius: msg.from === 'rider' ? 4 : 16,
                 borderBottomLeftRadius: msg.from === 'rider' ? 16 : 4,
               }}>
@@ -232,10 +286,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
 
           {sending && (
             <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 10 }}>
-              <div style={{
-                padding: '10px 18px', borderRadius: 16, background: '#1f1f1f',
-                fontSize: 14, color: COLORS.gray, borderBottomLeftRadius: 4,
-              }}>
+              <div style={{ padding: '10px 18px', borderRadius: 16, background: '#1f1f1f', fontSize: 14, color: COLORS.gray, borderBottomLeftRadius: 4 }}>
                 <span style={{ animation: 'pulse 1s ease-in-out infinite' }}>...</span>
               </div>
             </div>
@@ -247,21 +298,48 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
               background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.2)',
               borderRadius: 16, padding: '16px', textAlign: 'center', marginBottom: 10,
             }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.green, marginBottom: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.green, marginBottom: 4 }}>
                 Quick sign up to confirm your booking
               </div>
-              <a
-                href={signUpUrl}
-                style={{
-                  display: 'block', padding: '14px', borderRadius: 100, background: COLORS.green,
-                  color: COLORS.black, fontSize: 15, fontWeight: 700, textDecoration: 'none', textAlign: 'center',
-                }}
-              >
+              <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 12 }}>
+                Takes 30 seconds — your ride details are saved
+              </div>
+              <a href={signUpUrl} style={{
+                display: 'block', padding: '14px', borderRadius: 100, background: COLORS.green,
+                color: COLORS.black, fontSize: 15, fontWeight: 700, textDecoration: 'none', textAlign: 'center',
+              }}>
                 Create Account
               </a>
-              <div style={{ fontSize: 11, color: COLORS.gray, marginTop: 8 }}>
-                Takes 30 seconds — then your booking goes through
+            </div>
+          )}
+
+          {/* Payment method prompt */}
+          {flowStep === 'payment' && (
+            <div style={{
+              background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.2)',
+              borderRadius: 16, padding: '16px', marginBottom: 10,
+            }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.green, marginBottom: 4, textAlign: 'center' }}>
+                Link a payment method
               </div>
+              <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 12, textAlign: 'center' }}>
+                Your card won&apos;t be charged until {driver.displayName} accepts
+              </div>
+              <InlinePaymentForm
+                onSuccess={() => {
+                  setMessages(prev => [...prev, {
+                    id: `s-${Date.now()}`, from: 'system', text: 'Payment linked! Sending your booking now...',
+                  }]);
+                  if (bookingData) submitBooking(bookingData);
+                }}
+                onCancel={() => {
+                  setFlowStep('chat');
+                  setMessages(prev => [...prev, {
+                    id: `s-${Date.now()}`, from: 'system', text: 'No worries — you can add a payment method later or switch to a cash ride.',
+                  }]);
+                }}
+                compact
+              />
             </div>
           )}
 
@@ -272,27 +350,22 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
             </div>
           )}
 
-          {/* Done — booking sent */}
+          {/* Done */}
           {flowStep === 'done' && bookingResult?.postId && (
             <div style={{
               background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.2)',
               borderRadius: 16, padding: '16px', textAlign: 'center', marginBottom: 10,
             }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>🎉</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.green, marginBottom: 4 }}>
-                Booking Sent!
-              </div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.green, marginBottom: 4 }}>Booking Sent!</div>
               <div style={{ fontSize: 13, color: COLORS.gray, marginBottom: 12 }}>
                 {driver.displayName} has 15 min to respond. We'll text you when they do.
               </div>
-              <a
-                href="/rider/profile"
-                style={{
-                  display: 'block', padding: '12px', borderRadius: 100,
-                  border: '1px solid rgba(0,230,118,0.3)', background: 'transparent',
-                  color: COLORS.green, fontSize: 13, fontWeight: 600, textDecoration: 'none',
-                }}
-              >
+              <a href="/rider/profile" style={{
+                display: 'block', padding: '12px', borderRadius: 100,
+                border: '1px solid rgba(0,230,118,0.3)', background: 'transparent',
+                color: COLORS.green, fontSize: 13, fontWeight: 600, textDecoration: 'none',
+              }}>
                 Complete Your Profile
               </a>
             </div>
@@ -303,32 +376,25 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
         {flowStep === 'chat' && messages.length <= 2 && (
           <div style={{ padding: '0 16px 8px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {['Need a ride now', 'Schedule for later', 'How much to the airport?'].map(q => (
-              <button
-                key={q}
-                onClick={() => { setInput(q); setTimeout(() => sendMessage(), 50); }}
+              <button key={q}
+                onClick={() => { setInput(q); }}
                 style={{
                   padding: '6px 12px', borderRadius: 100, fontSize: 12, fontWeight: 500,
                   background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                  color: COLORS.gray, cursor: 'pointer',
-                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                  color: COLORS.gray, cursor: 'pointer', fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
                 }}
-              >
-                {q}
-              </button>
+              >{q}</button>
             ))}
           </div>
         )}
 
         {/* Input */}
-        {flowStep === 'chat' && (
+        {(flowStep === 'chat') && (
           <div style={{
             padding: '12px 16px 24px', borderTop: '1px solid rgba(255,255,255,0.06)',
             display: 'flex', gap: 8, flexShrink: 0,
           }}>
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
+            <input ref={inputRef} type="text" value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') sendMessage(); }}
               placeholder="Where you headed?"
@@ -339,20 +405,15 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
                 fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
               }}
             />
-            <button
-              onClick={sendMessage}
-              disabled={!input.trim() || sending}
+            <button onClick={sendMessage} disabled={!input.trim() || sending}
               style={{
                 width: 44, height: 44, borderRadius: '50%', border: 'none',
                 background: input.trim() ? COLORS.green : 'rgba(255,255,255,0.06)',
                 color: input.trim() ? COLORS.black : COLORS.gray,
                 fontSize: 18, cursor: input.trim() ? 'pointer' : 'default',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'background 0.2s',
               }}
-            >
-              ↑
-            </button>
+            >↑</button>
           </div>
         )}
       </div>
