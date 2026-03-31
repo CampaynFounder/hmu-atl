@@ -381,46 +381,35 @@ function parseTimeToISO(timeStr: string): string {
 }
 
 /**
- * Geocode an address to coordinates using Mapbox Search API.
+ * Geocode an address to coordinates using Mapbox Geocoding v5 API.
  */
 async function geocode(address: string): Promise<{ lat: number; lng: number; name: string } | null> {
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-  if (!token) return null;
+  if (!token) {
+    console.error('MAPBOX TOKEN missing');
+    return null;
+  }
 
-  // Add "Atlanta, GA" context if not already specific
+  // Add "Atlanta GA" context if not already specific
   const query = address.toLowerCase().includes('atlanta') || address.toLowerCase().includes(', ga')
     ? address
     : `${address}, Atlanta, GA`;
 
-  const params = new URLSearchParams({
-    q: query,
-    access_token: token,
-    country: 'us',
-    bbox: '-84.8,33.5,-84.1,34.1', // Atlanta metro
-    limit: '1',
-    types: 'address,poi,place,neighborhood,locality',
-    language: 'en',
-  });
+  const encoded = encodeURIComponent(query);
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${token}&country=us&bbox=-84.8,33.5,-84.1,34.1&limit=1&types=address,poi,place,neighborhood,locality`;
 
-  const suggestRes = await fetch(`https://api.mapbox.com/search/searchbox/v1/suggest?${params}`);
-  if (!suggestRes.ok) return null;
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error('Mapbox geocode failed:', res.status, await res.text());
+    return null;
+  }
 
-  const suggestData = await suggestRes.json();
-  const suggestion = suggestData.suggestions?.[0];
-  if (!suggestion?.mapbox_id) return null;
-
-  // Retrieve full details with coordinates
-  const retrieveRes = await fetch(
-    `https://api.mapbox.com/search/searchbox/v1/retrieve/${suggestion.mapbox_id}?access_token=${token}`
-  );
-  if (!retrieveRes.ok) return null;
-
-  const retrieveData = await retrieveRes.json();
-  const feature = retrieveData.features?.[0];
+  const data = await res.json();
+  const feature = data.features?.[0];
   if (!feature?.geometry?.coordinates) return null;
 
   const [lng, lat] = feature.geometry.coordinates;
-  return { lat, lng, name: suggestion.full_address || suggestion.name || address };
+  return { lat, lng, name: feature.place_name || feature.text || address };
 }
 
 /**
