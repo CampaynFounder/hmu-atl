@@ -79,6 +79,27 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // SMS cost stats
+  const costRows = await sql`
+    SELECT
+      (SELECT COUNT(*) FROM sms_log WHERE status = 'sent') as outbound_sms,
+      (SELECT COUNT(*) FROM sms_inbound) as inbound_sms,
+      (SELECT COUNT(*) FROM sms_log WHERE status = 'failed') as failed_sms
+  `;
+  const stats = costRows[0] as Record<string, unknown>;
+  const outboundCount = Number(stats.outbound_sms || 0);
+  const inboundCount = Number(stats.inbound_sms || 0);
+  const failedCount = Number(stats.failed_sms || 0);
+  const totalMessages = outboundCount + inboundCount;
+  const smsCost = (outboundCount + inboundCount) * 0.0075;
+
+  // Per event type breakdown
+  const eventBreakdown = await sql`
+    SELECT event_type, COUNT(*) as count
+    FROM sms_log WHERE status = 'sent'
+    GROUP BY event_type ORDER BY count DESC
+  `;
+
   // Thread list — grouped by phone number with latest message and unread count
   const threads = await sql`
     WITH all_messages AS (
@@ -116,6 +137,19 @@ export async function GET(req: NextRequest) {
       lastMessageAt: t.last_message_at,
       unreadCount: Number(t.unread_count ?? 0),
     })),
+    smsStats: {
+      outbound: outboundCount,
+      inbound: inboundCount,
+      failed: failedCount,
+      total: totalMessages,
+      cost: Math.round(smsCost * 100) / 100,
+      costPerSms: 0.0075,
+      costPerMms: 0.02,
+      byEventType: eventBreakdown.map((e: Record<string, unknown>) => ({
+        type: e.event_type,
+        count: Number(e.count),
+      })),
+    },
   });
 }
 

@@ -29,8 +29,18 @@ interface ConversationData {
   messages: Message[];
 }
 
+interface SmsStats {
+  outbound: number;
+  inbound: number;
+  failed: number;
+  total: number;
+  cost: number;
+  byEventType: { type: string; count: number }[];
+}
+
 export function MessageHistory() {
   const [threads, setThreads] = useState<Thread[]>([]);
+  const [smsStats, setSmsStats] = useState<SmsStats | null>(null);
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [conversation, setConversation] = useState<ConversationData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,6 +54,7 @@ export function MessageHistory() {
       if (res.ok) {
         const data = await res.json();
         setThreads(data.threads ?? []);
+        if (data.smsStats) setSmsStats(data.smsStats);
       }
     } catch {}
     setLoading(false);
@@ -194,7 +205,51 @@ export function MessageHistory() {
   // Thread list
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">Messages</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold">Messages</h1>
+      </div>
+
+      {/* SMS Cost Stats */}
+      {smsStats && (
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+            <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>Outbound</div>
+            <div className="text-xl font-bold text-white">{smsStats.outbound}</div>
+          </div>
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+            <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>Inbound</div>
+            <div className="text-xl font-bold text-white">{smsStats.inbound}</div>
+          </div>
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+            <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>Failed</div>
+            <div className="text-xl font-bold" style={{ color: smsStats.failed > 0 ? '#FF5252' : '#fff' }}>{smsStats.failed}</div>
+          </div>
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+            <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>Total</div>
+            <div className="text-xl font-bold text-white">{smsStats.total}</div>
+          </div>
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+            <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>SMS Spend</div>
+            <div className="text-xl font-bold" style={{ color: '#00E676', fontFamily: "'Space Mono', monospace" }}>${smsStats.cost.toFixed(2)}</div>
+            <div className="text-[10px] text-neutral-600 mt-0.5">${smsStats.total > 0 ? (smsStats.cost / smsStats.total * 100).toFixed(2) : '0.75'}¢/msg</div>
+          </div>
+        </div>
+      )}
+
+      {/* Event type breakdown */}
+      {smsStats && smsStats.byEventType.length > 0 && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+          <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase mb-3" style={{ fontFamily: "'Space Mono', monospace" }}>By Type</div>
+          <div className="flex flex-wrap gap-2">
+            {smsStats.byEventType.map(e => (
+              <div key={e.type} className="flex items-center gap-2 bg-white/[0.03] rounded-lg px-3 py-1.5">
+                <span className="text-xs text-neutral-400">{e.type || 'other'}</span>
+                <span className="text-xs font-bold text-white" style={{ fontFamily: "'Space Mono', monospace" }}>{e.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
         {loading ? (
