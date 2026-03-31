@@ -6,6 +6,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { posthog } from '@/components/analytics/posthog-provider';
 import GptChatBooking from './gpt-chat-booking';
+import BookingDrawer from './booking-drawer';
 import type { EligibilityResult } from '@/lib/db/direct-bookings';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
@@ -45,6 +46,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
   const [eligibility, setEligibility] = useState<EligibilityResult | null>(null);
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [bookingFormOpen, setBookingFormOpen] = useState(false);
   const [videoMuted, setVideoMuted] = useState(true);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
 
@@ -80,12 +82,22 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
       .finally(() => setEligibilityLoading(false));
   }, [isLoaded, isSignedIn, driver.handle]);
 
-  // Auto-open drawer if rider just completed signup+onboarding
+  // Auto-open booking form if rider just completed signup+onboarding (returned with bookingOpen=1)
   useEffect(() => {
     if (autoOpenBooking && isLoaded && isSignedIn) {
-      setDrawerOpen(true);
+      setBookingFormOpen(true);
     }
   }, [autoOpenBooking, isLoaded, isSignedIn]);
+
+  // Listen for chat-to-booking handoff (signed-in user confirmed via GPT chat)
+  useEffect(() => {
+    const handler = () => {
+      setDrawerOpen(false); // close chat
+      setBookingFormOpen(true); // open booking form
+    };
+    window.addEventListener('hmu-open-booking', handler);
+    return () => window.removeEventListener('hmu-open-booking', handler);
+  }, []);
 
   const signUpUrl = `/sign-up?type=rider&returnTo=/d/${driver.handle}`;
 
@@ -436,12 +448,21 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
         <div className="cta-sticky">{renderCtaButton()}</div>
       </div>
 
-      {/* GPT-powered booking — works for all visitors (logged in or not) */}
+      {/* GPT discovery chat — for all visitors */}
       <GptChatBooking
         driver={driver}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
       />
+
+      {/* Booking form — for signed-in users (after chat handoff or return from sign-up) */}
+      {isSignedIn && (
+        <BookingDrawer
+          driver={driver}
+          open={bookingFormOpen}
+          onClose={() => setBookingFormOpen(false)}
+        />
+      )}
     </>
   );
 }
