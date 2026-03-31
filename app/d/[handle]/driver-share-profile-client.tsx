@@ -47,7 +47,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [bookingFormOpen, setBookingFormOpen] = useState(false);
-  const [prefillData, setPrefillData] = useState<{ price?: string; destination?: string; time?: string; stops?: string; roundTrip?: boolean; isCash?: boolean } | null>(null);
+  const [prefillData, setPrefillData] = useState<{ price?: string; pickup?: string; dropoff?: string; time?: string; stops?: string; roundTrip?: boolean; isCash?: boolean } | null>(null);
   const [videoMuted, setVideoMuted] = useState(true);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
 
@@ -93,7 +93,8 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
           const data = JSON.parse(saved);
           setPrefillData({
             price: data.price ? String(data.price) : data.suggestedPrice ? String(data.suggestedPrice) : undefined,
-            destination: (data.destination as string) || undefined,
+            pickup: (data.pickup as string) || (data.destination as string)?.split(/\s*(?:to|>|→)\s*/i)[0] || undefined,
+            dropoff: (data.dropoff as string) || (data.destination as string)?.split(/\s*(?:to|>|→)\s*/i)[1] || undefined,
             time: (data.time as string) || undefined,
             stops: (data.stops as string) || undefined,
             roundTrip: (data.roundTrip as boolean) || false,
@@ -113,7 +114,8 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
       if (detail) {
         setPrefillData({
           price: detail.price ? String(detail.price) : detail.suggestedPrice ? String(detail.suggestedPrice) : undefined,
-          destination: (detail.destination as string) || undefined,
+          pickup: (detail.pickup as string) || (detail.destination as string)?.split(/\s*(?:to|>|→)\s*/i)[0] || undefined,
+          dropoff: (detail.dropoff as string) || (detail.destination as string)?.split(/\s*(?:to|>|→)\s*/i)[1] || undefined,
           time: (detail.time as string) || undefined,
           stops: (detail.stops as string) || undefined,
           roundTrip: (detail.roundTrip as boolean) || false,

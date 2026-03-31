@@ -30,7 +30,8 @@ const TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          destination: { type: 'string', description: 'Where the rider wants to go (e.g. "Buckhead to Airport")' },
+          pickup: { type: 'string', description: 'Where the rider is coming from (e.g. "Buckhead")' },
+          dropoff: { type: 'string', description: 'Where the rider wants to go (e.g. "Airport")' },
           time: { type: 'string', description: 'When they want the ride (e.g. "tomorrow 2pm", "now", "Friday evening")' },
           stops: { type: 'string', description: 'Any intermediate stops (e.g. "stop at Kroger on the way")' },
           roundTrip: { type: 'boolean', description: 'Whether this is a round trip' },
@@ -59,18 +60,19 @@ const TOOLS = [
     type: 'function' as const,
     function: {
       name: 'confirm_details',
-      description: 'Call this when you have collected enough ride details (destination, time, price) to summarize for the rider. This saves the details for the booking form. After calling this, ask the rider if they want to proceed.',
+      description: 'Call this when you have collected enough ride details to summarize for the rider. This saves the details for the booking form. After calling this, ask the rider if they want to proceed.',
       parameters: {
         type: 'object',
         properties: {
-          destination: { type: 'string' },
+          pickup: { type: 'string', description: 'Pickup location as rider described it' },
+          dropoff: { type: 'string', description: 'Dropoff location as rider described it' },
           time: { type: 'string' },
           stops: { type: 'string' },
           roundTrip: { type: 'boolean' },
           suggestedPrice: { type: 'number' },
           isCash: { type: 'boolean' },
         },
-        required: ['destination', 'suggestedPrice'],
+        required: ['pickup', 'dropoff', 'suggestedPrice'],
       },
     },
   },
@@ -415,8 +417,8 @@ OUTPUT: Confirm all details and call confirm_details.`;
 
     case 'confirm':
       return `GOAL: Summarize the trip and call confirm_details to save it.
-DO: Call confirm_details with destination, time, stops, price, roundTrip, isCash.
-DO: Summarize like: "Here's your trip: [pickup] to [dropoff], [time], ~$[price]. You can adjust the price before confirming. Ready to lock this in?"
+DO: Call confirm_details with SEPARATE pickup and dropoff (not combined), time, stops, price, roundTrip, isCash.
+DO: Summarize like: "Here's your trip: [pickup] → [dropoff], [time], ~$[price]. You can adjust the price before confirming. Ready?"
 DO: Always mention they can adjust the price in the booking form.
 ADVANCE TO NEXT STEP WHEN: confirm_details is called successfully.
 OUTPUT: The app will show sign-up/booking buttons — your job is done.`;

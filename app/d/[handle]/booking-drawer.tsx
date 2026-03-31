@@ -13,7 +13,7 @@ interface Props {
   driver: DriverData;
   open: boolean;
   onClose: () => void;
-  prefill?: { price?: string; destination?: string; time?: string; stops?: string; roundTrip?: boolean; isCash?: boolean } | null;
+  prefill?: { price?: string; pickup?: string; dropoff?: string; time?: string; stops?: string; roundTrip?: boolean; isCash?: boolean } | null;
 }
 
 type DrawerState = 'form' | 'pending' | 'accepted' | 'expired' | 'error';
@@ -26,17 +26,17 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
     prefill?.price || String(driver.pricing.minimum ?? driver.pricing.base_rate ?? '')
   );
   const [areas, setAreas] = useState<string[]>(driver.areas.slice(0, 1));
-  const [timeWindow, setTimeWindow] = useState(
-    prefill ? [prefill.destination, prefill.time].filter(Boolean).join(' — ') : ''
-  );
+  const [pickup, setPickup] = useState(prefill?.pickup || '');
+  const [dropoff, setDropoff] = useState(prefill?.dropoff || '');
+  const [timeWindow, setTimeWindow] = useState(prefill?.time || '');
 
   // Update fields when prefill data arrives
   useEffect(() => {
     if (prefill) {
       if (prefill.price) setPrice(prefill.price);
-      if (prefill.destination || prefill.time) {
-        setTimeWindow([prefill.destination, prefill.time].filter(Boolean).join(' — '));
-      }
+      if (prefill.pickup) setPickup(prefill.pickup);
+      if (prefill.dropoff) setDropoff(prefill.dropoff);
+      if (prefill.time) setTimeWindow(prefill.time);
     }
   }, [prefill]);
   const [submitting, setSubmitting] = useState(false);
@@ -68,8 +68,8 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
   };
 
   const handleSubmit = async () => {
-    if (!price || areas.length === 0) {
-      setError('Set a price and at least one area.');
+    if (!price || !dropoff) {
+      setError('Set a price and drop-off location.');
       return;
     }
     setSubmitting(true);
@@ -82,9 +82,10 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
           price: Number(price),
           areas,
           timeWindow: {
-            destination: prefill?.destination || timeWindow,
-            time: prefill?.time || '',
-            note: timeWindow,
+            destination: [pickup, dropoff].filter(Boolean).join(' > '),
+            pickup: pickup || '',
+            dropoff: dropoff || '',
+            time: timeWindow || '',
             stops: prefill?.stops || '',
             round_trip: prefill?.roundTrip || false,
           },
@@ -149,16 +150,23 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
           <>
             <div className="drawer-title">Book {driver.displayName}</div>
 
-            {prefill?.destination && (
-              <div style={{
-                background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.15)',
-                borderRadius: 12, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#bbb',
-              }}>
-                <div style={{ fontSize: 11, color: '#00E676', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4, fontFamily: "var(--font-mono, monospace)" }}>From chat</div>
-                <div>{prefill.destination}{prefill.time ? ` · ${prefill.time}` : ''}{prefill.stops ? ` · +${prefill.stops}` : ''}</div>
-                <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>You can adjust the price below before sending</div>
-              </div>
-            )}
+            <div className="drawer-label">Pickup</div>
+            <input
+              type="text"
+              className="drawer-input"
+              value={pickup}
+              onChange={(e) => setPickup(e.target.value)}
+              placeholder="Where are you coming from?"
+            />
+
+            <div className="drawer-label">Drop-off</div>
+            <input
+              type="text"
+              className="drawer-input"
+              value={dropoff}
+              onChange={(e) => setDropoff(e.target.value)}
+              placeholder="Where you headed?"
+            />
 
             <div className="drawer-label">Your price ($)</div>
             <input

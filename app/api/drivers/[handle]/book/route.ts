@@ -119,7 +119,9 @@ export async function POST(
 
     if (driverPhone) {
       const tw = (timeWindow || {}) as Record<string, unknown>;
-      const dest = (tw.destination as string) || '';
+      const pickup = (tw.pickup as string) || '';
+      const dropoff = (tw.dropoff as string) || '';
+      const dest = pickup && dropoff ? `${pickup} > ${dropoff}` : (tw.destination as string) || '';
       const when = (tw.time as string) || '';
 
       // Build cash ride suffix if applicable
