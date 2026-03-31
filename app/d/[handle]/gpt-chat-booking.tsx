@@ -35,6 +35,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [bookingData, setBookingData] = useState<Record<string, unknown> | null>(null);
+  const [extractedSoFar, setExtractedSoFar] = useState<Record<string, unknown>>({});
   const [flowStep, setFlowStep] = useState<'chat' | 'signup' | 'booking' | 'done'>('chat');
   const [submittingBooking, setSubmittingBooking] = useState(false);
   const [bookingResult, setBookingResult] = useState<{ postId?: string; expiresAt?: string; error?: string } | null>(null);
@@ -80,7 +81,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
       const res = await fetch('/api/chat/booking', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history, driverHandle: driver.handle }),
+        body: JSON.stringify({ messages: history, driverHandle: driver.handle, extractedSoFar }),
       });
       const data = await res.json();
 
@@ -93,6 +94,11 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
           booking: data.booking,
           sentiment: data.sentiment,
         }]);
+      }
+
+      // Update extracted data from GPT's tool calls
+      if (data.extracted) {
+        setExtractedSoFar(prev => ({ ...prev, ...data.extracted }));
       }
 
       // GPT said rider is ready to book

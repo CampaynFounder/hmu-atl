@@ -93,9 +93,10 @@ const TOOLS = [
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, driverHandle } = await req.json() as {
+    const { messages, driverHandle, extractedSoFar } = await req.json() as {
       messages: { role: 'user' | 'assistant'; content: string }[];
       driverHandle: string;
+      extractedSoFar?: { destination?: string; time?: string; stops?: string; roundTrip?: boolean; price?: number; isCash?: boolean };
     };
 
     if (!messages?.length || !driverHandle) {
@@ -126,12 +127,13 @@ export async function POST(req: NextRequest) {
     const pricing = (driver.pricing || {}) as Record<string, unknown>;
     const areas = Array.isArray(driver.areas) ? driver.areas : [];
 
-    // Build system prompt with driver context
+    // Build system prompt with driver context + conversation state
     const systemPrompt = buildSystemPrompt(driver, pricing, areas);
+    const contextNote = extractedSoFar ? `\n\nCONVERSATION STATE (already discussed — DO NOT ask again):\n${JSON.stringify(extractedSoFar, null, 2)}\nIf the rider confirms, call ready_to_book with these details.` : '';
 
     // Build full message array
     const fullMessages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: systemPrompt + contextNote },
       ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     ];
 
@@ -254,12 +256,14 @@ export async function POST(req: NextRequest) {
       const followUpData = await followUpRes.json();
       const followUpMessage = followUpData.choices?.[0]?.message;
 
-      // Check for sentiment flags
+      // Check for sentiment flags and extracted data
       const sentimentFlag = toolResults.find(tr => tr.name === 'analyze_sentiment');
+      const extractedResult = toolResults.find(tr => tr.name === 'extract_booking');
 
       return NextResponse.json({
-        reply: followUpMessage?.content || "I'm here — tell me where you need to go",
+        reply: followUpMessage?.content || 'Got it! Anything else or should I book this?',
         sentiment: sentimentFlag ? (sentimentFlag.result as Record<string, unknown>).concern : null,
+        extracted: extractedResult ? (extractedResult.result as Record<string, unknown>) : null,
       });
     }
 
