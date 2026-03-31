@@ -231,7 +231,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
 
   if (!open) return null;
 
-  const signUpUrl = `/sign-up?type=rider&returnTo=/d/${driver.handle}?book=1`;
+  const signUpUrl = `/sign-up?type=rider&returnTo=${encodeURIComponent(`/d/${driver.handle}?book=1`)}`;
 
   return (
     <>
