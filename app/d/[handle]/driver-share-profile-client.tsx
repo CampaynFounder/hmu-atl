@@ -520,8 +520,8 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
         <div className="cta-sticky">{renderCtaButton()}</div>
       </div>
 
-      {/* Chat booking flow */}
-      {isSignedIn && eligibility?.eligible && (
+      {/* Chat booking flow — show for eligible riders OR cash-eligible riders without payment */}
+      {isSignedIn && (eligibility?.eligible || (eligibility?.code === 'no_payment_method' && (driver.acceptsCash || driver.cashOnly))) && (
         <ChatBooking
           driver={driver}
           open={drawerOpen}

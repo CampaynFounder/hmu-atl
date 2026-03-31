@@ -7,6 +7,8 @@ interface DriverData {
   displayName: string;
   areas: string[];
   pricing: Record<string, unknown>;
+  acceptsCash?: boolean;
+  cashOnly?: boolean;
 }
 
 interface Props {
@@ -309,6 +311,7 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
             round_trip: d.roundTrip,
           },
           addOns: d.addOns,
+          is_cash: driver.cashOnly || false,
         }),
       });
       const data = await res.json();
