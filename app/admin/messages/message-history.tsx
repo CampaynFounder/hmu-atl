@@ -231,7 +231,7 @@ export function MessageHistory() {
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
             <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>SMS Spend</div>
             <div className="text-xl font-bold" style={{ color: '#00E676', fontFamily: "'Space Mono', monospace" }}>${smsStats.cost.toFixed(2)}</div>
-            <div className="text-[10px] text-neutral-600 mt-0.5">${smsStats.total > 0 ? (smsStats.cost / smsStats.total * 100).toFixed(2) : '0.75'}¢/msg</div>
+            <div className="text-[10px] text-neutral-600 mt-0.5">$0.0075/msg</div>
           </div>
         </div>
       )}
