@@ -5,7 +5,7 @@ import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { posthog } from '@/components/analytics/posthog-provider';
-import ChatBooking from './chat-booking';
+import GptChatBooking from './gpt-chat-booking';
 import type { EligibilityResult } from '@/lib/db/direct-bookings';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
@@ -90,97 +90,13 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
   const signUpUrl = `/sign-up?type=rider&returnTo=/d/${driver.handle}`;
 
   const renderCtaButton = () => {
-    if (!isLoaded || eligibilityLoading) {
-      return (
-        <button className="cta-btn cta-btn--loading" disabled>
-          <span className="cta-btn__pulse" />
-          Checking...
-        </button>
-      );
-    }
-
-    if (!isSignedIn) {
-      return (
-        <Link href={signUpUrl} className="cta-btn cta-btn--primary" onClick={() => {
-          posthog.capture('signup_from_driver_link', { driverHandle: driver.handle, driverName: driver.displayName });
-        }}>
-          Request Ride with {driver.displayName}
-        </Link>
-      );
-    }
-
-    if (eligibility && !eligibility.eligible) {
-      // Payment method missing — but if driver accepts cash, let them through
-      if (eligibility.code === 'no_payment_method' && (driver.acceptsCash || driver.cashOnly)) {
-        return (
-          <button className="cta-btn cta-btn--primary" onClick={() => {
-            posthog.capture('hmu_button_clicked', { driverHandle: driver.handle, isCash: true });
-            setDrawerOpen(true);
-          }}>
-            HMU {driver.displayName} (Cash)
-          </button>
-        );
-      }
-      if (eligibility.code === 'no_payment_method') {
-        return showPaymentForm ? (
-          <InlinePaymentForm
-            onSuccess={() => {
-              setShowPaymentForm(false);
-              setEligibility(null);
-              setEligibilityLoading(true);
-              fetch(`/api/drivers/${driver.handle}/eligibility`)
-                .then(r => r.json())
-                .then(data => setEligibility(data))
-                .finally(() => setEligibilityLoading(false));
-            }}
-            onCancel={() => setShowPaymentForm(false)}
-            compact
-          />
-        ) : (
-          <div className="ineligible-block">
-            <p className="ineligible-reason">{eligibility.reason}</p>
-            <button
-              className="cta-btn cta-btn--primary"
-              onClick={() => setShowPaymentForm(true)}
-            >
-              Link Payment Method
-            </button>
-          </div>
-        );
-      }
-
-      return (
-        <div className="ineligible-block">
-          <button className="cta-btn cta-btn--disabled" disabled>
-            Can&apos;t book right now
-          </button>
-          <p className="ineligible-reason">{eligibility.reason}</p>
-          {eligibility.code === 'og_required' && (
-            <p className="ineligible-sub">
-              Complete 10 rides with no disputes to become OG.
-            </p>
-          )}
-          {eligibility.code === 'chill_score_low' && (
-            <p className="ineligible-sub">
-              Your Chill Score: {eligibility.riderChillScore.toFixed(0)}%
-              &nbsp;— need {driver.minRiderChillScore}%
-            </p>
-          )}
-          {eligibility.code === 'daily_limit_hit' && (
-            <p className="ineligible-sub">
-              {3 - eligibility.dailyBookingsUsed} of 3 requests used today.
-            </p>
-          )}
-        </div>
-      );
-    }
-
+    // Always show the HMU button — GPT chat handles sign-up, payment, and booking
     return (
       <button className="cta-btn cta-btn--primary" onClick={() => {
-        posthog.capture('hmu_button_clicked', { driverHandle: driver.handle, driverName: driver.displayName });
+        posthog.capture('hmu_button_clicked', { driverHandle: driver.handle, driverName: driver.displayName, isSignedIn });
         setDrawerOpen(true);
       }}>
-        HMU {driver.displayName}
+        HMU {driver.displayName}{driver.cashOnly ? ' (Cash)' : ''}
       </button>
     );
   };
@@ -520,14 +436,12 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
         <div className="cta-sticky">{renderCtaButton()}</div>
       </div>
 
-      {/* Chat booking flow — show for eligible riders OR cash-eligible riders without payment */}
-      {isSignedIn && (eligibility?.eligible || (eligibility?.code === 'no_payment_method' && (driver.acceptsCash || driver.cashOnly))) && (
-        <ChatBooking
-          driver={driver}
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-        />
-      )}
+      {/* GPT-powered booking — works for all visitors (logged in or not) */}
+      <GptChatBooking
+        driver={driver}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+      />
     </>
   );
 }
