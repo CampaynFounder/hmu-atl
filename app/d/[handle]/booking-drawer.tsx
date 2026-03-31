@@ -118,7 +118,7 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
         .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; }
         .drawer { position: fixed; bottom: 0; left: 0; right: 0; z-index: 101; background: #141414; border-top: 1px solid rgba(255,255,255,0.1); border-radius: 24px 24px 0 0; padding: 24px 20px 48px; max-height: 90svh; overflow-y: auto; }
         .drawer-handle { width: 40px; height: 4px; background: rgba(255,255,255,0.15); border-radius: 100px; margin: 0 auto 20px; }
-        .drawer-title { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 32px; margin-bottom: 20px; }
+        .drawer-title { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 32px; margin-bottom: 20px; color: #fff; }
         .drawer-label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 2px; font-family: var(--font-mono, monospace); margin-bottom: 8px; margin-top: 18px; }
         .drawer-input { background: #1f1f1f; border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 14px 16px; color: #fff; font-size: 16px; width: 100%; outline: none; font-family: var(--font-body, 'DM Sans', sans-serif); transition: border-color 0.2s; }
         .drawer-input:focus { border-color: #00E676; }
@@ -129,17 +129,17 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
         .drawer-submit:hover { transform: scale(1.02); }
         .drawer-submit:disabled { background: rgba(0,230,118,0.3); cursor: not-allowed; }
         .drawer-error { font-size: 13px; color: #FF4444; margin-top: 10px; }
-        .pending-state { text-align: center; padding: 20px 0; }
+        .pending-state { text-align: center; padding: 20px 0; color: #fff; }
         .pending-timer { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 64px; color: #00E676; line-height: 1; }
-        .pending-label { font-size: 14px; color: #888; margin-top: 8px; }
-        .pending-sub { font-size: 13px; color: #bbb; margin-top: 16px; line-height: 1.6; }
+        .pending-label { font-size: 14px; color: #bbb; margin-top: 8px; }
+        .pending-sub { font-size: 13px; color: #ddd; margin-top: 16px; line-height: 1.6; }
         .timer-bar-track { height: 4px; background: #1f1f1f; border-radius: 100px; margin: 16px 0; overflow: hidden; }
         .timer-bar-fill { height: 100%; background: #00E676; border-radius: 100px; transition: width 1s linear; }
-        .expired-state { text-align: center; padding: 20px 0; }
+        .expired-state { text-align: center; padding: 20px 0; color: #fff; }
         .expired-emoji { font-size: 40px; margin-bottom: 12px; }
-        .expired-title { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 32px; margin-bottom: 8px; }
-        .expired-sub { font-size: 14px; color: #888; }
-        .close-btn { width: 100%; margin-top: 16px; padding: 14px; background: transparent; border: 1px solid rgba(255,255,255,0.12); border-radius: 100px; color: #bbb; font-size: 15px; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .expired-title { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 32px; margin-bottom: 8px; color: #fff; }
+        .expired-sub { font-size: 14px; color: #bbb; }
+        .close-btn { width: 100%; margin-top: 16px; padding: 14px; background: transparent; border: 1px solid rgba(255,255,255,0.12); border-radius: 100px; color: #ddd; font-size: 15px; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); }
       `}</style>
 
       <div className="drawer-overlay" onClick={onClose} />
