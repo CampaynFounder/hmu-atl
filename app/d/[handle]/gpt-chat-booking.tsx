@@ -258,7 +258,16 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
               </div>
             </div>
 
-            <div style={{ maxWidth: 400, margin: '0 auto' }}>
+            <div style={{ maxWidth: 400, margin: '0 auto' }}
+              onClick={(e) => {
+                const target = e.target as HTMLElement;
+                const link = target.closest('a');
+                if (link && (link.href.includes('#signin') || link.href.includes('#signup') || link.textContent?.toLowerCase().includes('sign in') || link.textContent?.toLowerCase().includes('sign up'))) {
+                  e.preventDefault();
+                  setAuthMode(authMode === 'signup' ? 'signin' : 'signup');
+                }
+              }}
+            >
               {authMode === 'signup' ? (
                 <SignUp
                   routing="hash"
