@@ -248,6 +248,18 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
           .cl-selectButton { background: #1a1a1a !important; border-color: #333 !important; color: #fff !important; }
           .cl-selectOption { background: #141414 !important; color: #fff !important; }
           .cl-selectOption:hover { background: #1a1a1a !important; }
+          .cl-alternativeMethods { color: #fff !important; }
+          .cl-alternativeMethodsBlockButton { background: #1a1a1a !important; border-color: #333 !important; color: #fff !important; }
+          .cl-backLink { color: #00E676 !important; }
+          .cl-footerAction__signUp { color: #888 !important; }
+          .cl-footer { color: #888 !important; }
+          .cl-footer a, .cl-footer button { color: #00E676 !important; }
+          [data-localization-key] { color: #fff !important; }
+          .cl-main button:not(.cl-formButtonPrimary) { color: #fff !important; }
+          .cl-card a { color: #00E676 !important; }
+          .cl-card p, .cl-card span, .cl-card div { color: inherit; }
+          .cl-verificationLinkStatusBox { background: #1a1a1a !important; color: #fff !important; }
+          .cl-link { color: #00E676 !important; }
         `}</style>
 
         {/* Header */}
