@@ -9,6 +9,21 @@ import {
 import { notifyUser } from '@/lib/ably/server';
 import { notifyDriverNewBooking } from '@/lib/sms/textbee';
 
+/** Strip city, state, zip, directional prefixes from address for shorter SMS */
+function stripAddress(addr: string): string {
+  if (!addr) return '';
+  return addr
+    .replace(/,?\s*(Atlanta|ATL|GA|Georgia)\b/gi, '')
+    .replace(/,?\s*\d{5}(-\d{4})?/g, '')               // zip
+    .replace(/\b(Southwest|Southeast|Northwest|Northeast|NW|NE|SW|SE)\b/gi, '') // directionals
+    .replace(/,?\s*(United States|US|USA)\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/,\s*,/g, ',')
+    .replace(/,\s*$/, '')
+    .replace(/^\s*,\s*/, '')
+    .trim();
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ handle: string }> }
@@ -119,9 +134,11 @@ export async function POST(
 
     if (driverPhone) {
       const tw = (timeWindow || {}) as Record<string, unknown>;
-      const pickup = (tw.pickup as string) || '';
-      const dropoff = (tw.dropoff as string) || '';
-      const dest = pickup && dropoff ? `${pickup} > ${dropoff}` : (tw.destination as string) || '';
+      const pickupRaw = (tw.pickup as string) || '';
+      const dropoffRaw = (tw.dropoff as string) || '';
+      const dest = pickupRaw && dropoffRaw
+        ? `${stripAddress(pickupRaw)} > ${stripAddress(dropoffRaw)}`
+        : stripAddress((tw.destination as string) || '');
       const when = (tw.time as string) || '';
 
       // Build cash ride suffix if applicable
