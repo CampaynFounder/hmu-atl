@@ -98,19 +98,23 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
 
       // GPT says rider is ready to book
       if (data.action === 'ready_to_book') {
+        const bookingDetails = { ...extractedSoFar, ...(data.booking || {}) };
+
+        // Save booking details for pre-fill after auth or handoff
+        localStorage.setItem('hmu_chat_booking', JSON.stringify(bookingDetails));
+
         if (isSignedIn) {
-          // Already logged in — close chat, the driver profile page booking form handles it
+          // Already logged in — close chat, pass data to booking form
           setMessages(prev => [...prev, {
             id: `a-${Date.now()}`, from: 'assistant',
             text: data.reply || "You're all set — opening the booking form now!",
           }]);
           setTimeout(() => {
             onClose();
-            // Trigger the booking form on the driver profile page
-            window.dispatchEvent(new CustomEvent('hmu-open-booking'));
+            window.dispatchEvent(new CustomEvent('hmu-open-booking', { detail: bookingDetails }));
           }, 1500);
         } else {
-          // Not logged in — show sign-up prompt, then redirect
+          // Not logged in — show sign-up prompt
           setMessages(prev => [...prev, {
             id: `a-${Date.now()}`, from: 'assistant',
             text: data.reply || "Let's lock this in! Create a quick account and you'll be right back here to book.",

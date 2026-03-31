@@ -47,6 +47,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [bookingFormOpen, setBookingFormOpen] = useState(false);
+  const [prefillData, setPrefillData] = useState<{ price?: string; destination?: string; time?: string } | null>(null);
   const [videoMuted, setVideoMuted] = useState(true);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
 
@@ -85,15 +86,36 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
   // Auto-open booking form if rider just completed signup+onboarding (returned with bookingOpen=1)
   useEffect(() => {
     if (autoOpenBooking && isLoaded && isSignedIn) {
+      // Restore chat booking data from localStorage
+      try {
+        const saved = localStorage.getItem('hmu_chat_booking');
+        if (saved) {
+          const data = JSON.parse(saved);
+          setPrefillData({
+            price: data.price ? String(data.price) : data.suggestedPrice ? String(data.suggestedPrice) : undefined,
+            destination: data.destination || undefined,
+            time: data.time || undefined,
+          });
+          localStorage.removeItem('hmu_chat_booking');
+        }
+      } catch { /* ignore */ }
       setBookingFormOpen(true);
     }
   }, [autoOpenBooking, isLoaded, isSignedIn]);
 
   // Listen for chat-to-booking handoff (signed-in user confirmed via GPT chat)
   useEffect(() => {
-    const handler = () => {
-      setDrawerOpen(false); // close chat
-      setBookingFormOpen(true); // open booking form
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as Record<string, unknown> | undefined;
+      if (detail) {
+        setPrefillData({
+          price: detail.price ? String(detail.price) : detail.suggestedPrice ? String(detail.suggestedPrice) : undefined,
+          destination: (detail.destination as string) || undefined,
+          time: (detail.time as string) || undefined,
+        });
+      }
+      setDrawerOpen(false);
+      setBookingFormOpen(true);
     };
     window.addEventListener('hmu-open-booking', handler);
     return () => window.removeEventListener('hmu-open-booking', handler);
@@ -460,7 +482,8 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
         <BookingDrawer
           driver={driver}
           open={bookingFormOpen}
-          onClose={() => setBookingFormOpen(false)}
+          onClose={() => { setBookingFormOpen(false); setPrefillData(null); }}
+          prefill={prefillData}
         />
       )}
     </>

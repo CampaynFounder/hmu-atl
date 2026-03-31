@@ -13,19 +13,32 @@ interface Props {
   driver: DriverData;
   open: boolean;
   onClose: () => void;
+  prefill?: { price?: string; destination?: string; time?: string } | null;
 }
 
 type DrawerState = 'form' | 'pending' | 'accepted' | 'expired' | 'error';
 
 const EXPIRY_MINUTES = 15;
 
-export default function BookingDrawer({ driver, open, onClose }: Props) {
+export default function BookingDrawer({ driver, open, onClose, prefill }: Props) {
   const [state, setState] = useState<DrawerState>('form');
   const [price, setPrice] = useState(
-    String(driver.pricing.minimum ?? driver.pricing.base_rate ?? '')
+    prefill?.price || String(driver.pricing.minimum ?? driver.pricing.base_rate ?? '')
   );
   const [areas, setAreas] = useState<string[]>(driver.areas.slice(0, 1));
-  const [timeWindow, setTimeWindow] = useState('');
+  const [timeWindow, setTimeWindow] = useState(
+    prefill ? [prefill.destination, prefill.time].filter(Boolean).join(' — ') : ''
+  );
+
+  // Update fields when prefill data arrives
+  useEffect(() => {
+    if (prefill) {
+      if (prefill.price) setPrice(prefill.price);
+      if (prefill.destination || prefill.time) {
+        setTimeWindow([prefill.destination, prefill.time].filter(Boolean).join(' — '));
+      }
+    }
+  }, [prefill]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
