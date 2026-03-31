@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: 'OpenAI not configured' }, { status: 500 });
+      return NextResponse.json({ error: 'OpenAI not configured', keyPresent: false }, { status: 500 });
     }
 
     // Fetch driver info for context
@@ -154,8 +154,8 @@ export async function POST(req: NextRequest) {
 
     if (!gptRes.ok) {
       const err = await gptRes.text();
-      console.error('OpenAI error:', err);
-      return NextResponse.json({ error: 'AI unavailable' }, { status: 502 });
+      console.error('OpenAI error:', gptRes.status, err);
+      return NextResponse.json({ error: 'AI unavailable', detail: err, status: gptRes.status }, { status: 502 });
     }
 
     const gptData = await gptRes.json();
