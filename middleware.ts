@@ -14,6 +14,7 @@ const isPublicRoute = createRouteMatcher([
   '/d/(.*)',
   '/api/drivers/:handle',
   '/api/chat/booking',
+  '/api/chat/support',
   '/api/og/(.*)',
   '/driver',
   '/rider',

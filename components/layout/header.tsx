@@ -121,6 +121,7 @@ export function Header() {
                       <NavItem href="/driver/schedule" label="Schedule" icon="📅" active={pathname.startsWith('/driver/schedule')} onClick={close} />
                       <NavItem href="/driver/profile" label="Profile" icon="👤" active={pathname.startsWith('/driver/profile')} onClick={close} />
                       <NavItem href="/driver/settings" label="Settings" icon="⚙️" active={pathname.startsWith('/driver/settings')} onClick={close} />
+                      <NavItem href="/driver/support" label="Support" icon="💬" active={pathname.startsWith('/driver/support')} onClick={close} />
                     </>
                   )}
 
@@ -131,6 +132,7 @@ export function Header() {
                       <NavItem href="/rider/browse" label="Browse Drivers" active={pathname.startsWith('/rider/browse') || pathname.startsWith('/d/')} onClick={close} />
                       <NavItem href="/rider/profile" label="HMU Profile" active={pathname.startsWith('/rider/profile')} onClick={close} />
                       <NavItem href="/rider/settings" label="HMU Settings" active={pathname.startsWith('/rider/settings')} onClick={close} />
+                      <NavItem href="/rider/support" label="Support" icon="💬" active={pathname.startsWith('/rider/support')} onClick={close} />
                     </>
                   )}
 
