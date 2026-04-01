@@ -33,7 +33,8 @@ const COLORS = { green: '#00E676', black: '#080808', card: '#141414', white: '#f
  * Already signed in: closes chat and opens the booking form directly.
  */
 export default function GptChatBooking({ driver, open, onClose }: Props) {
-  const { isSignedIn } = useUser();
+  const { isSignedIn, user } = useUser();
+  const isDriver = (user?.publicMetadata?.profileType as string) === 'driver';
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -204,6 +205,19 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
           </div>
         )}
 
+        {/* Signed in as driver → can't book */}
+        {isSignedIn && isDriver && hasDetails && (
+          <div style={{ padding: '0 16px 8px' }}>
+            <div style={{
+              padding: '12px 16px', borderRadius: 14, textAlign: 'center',
+              background: 'rgba(255,145,0,0.1)', border: '1px solid rgba(255,145,0,0.2)',
+              fontSize: 13, color: '#FFB300', lineHeight: 1.5,
+            }}>
+              You&apos;re signed in as a driver. To book a ride, create a separate rider account with a different email or phone.
+            </div>
+          </div>
+        )}
+
         {/* Not signed in + has details → sign up to book */}
         {!isSignedIn && hasDetails && (
           <div style={{ padding: '0 16px 8px', display: 'flex', gap: 8 }}>
@@ -225,8 +239,8 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
           </div>
         )}
 
-        {/* Signed in + has details → book now */}
-        {isSignedIn && hasDetails && (
+        {/* Signed in as rider + has details → book now */}
+        {isSignedIn && !isDriver && hasDetails && (
           <div style={{ padding: '0 16px 8px' }}>
             <button onClick={() => {
               onClose();
