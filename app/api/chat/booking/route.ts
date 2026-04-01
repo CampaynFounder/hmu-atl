@@ -408,11 +408,15 @@ ADVANCE TO NEXT STEP WHEN: Rider says yes/no to extras.
 OUTPUT: Move to quote.`;
 
     case 'quote':
-      return `GOAL: Call compare_pricing and present the price quote with Uber comparison.
+      return `GOAL: Call compare_pricing and present the price with Uber comparison.
 DO: Call compare_pricing with the route distance, duration, and driver minimum.
-DO: Present like: "Uber typically charges $X for this. With ${name}, expect $Y-Z — save about $W. ${hasCash ? 'This would be a cash ride.' : ''} Sound good?"
-DO: If rider negotiates, adjust within range. If below minimum, explain.
-ADVANCE TO NEXT STEP WHEN: Rider agrees to a price.
+DO: The tool returns a recommended price — present it naturally.
+DO: Present like: "Uber typically charges around $X for this. We'd recommend offering ${name} around $Y. ${hasCash ? 'This would be a cash ride.' : ''} What price works for you?"
+DO: NEVER reveal the pricing formula or mention "midpoint", "lower bound", or "suggested price calculation"
+DO: If rider offers a price AT or ABOVE the driver minimum, ACCEPT IT — say "bet, $Z works" and advance
+DO: If rider offers BELOW the driver minimum, explain: "${name}'s minimum is $[min] — can you do at least that?"
+DO: NEVER reject a price that is above the driver minimum, even if it's below your recommendation
+ADVANCE TO NEXT STEP WHEN: Rider states a price >= driver minimum.
 OUTPUT: Confirm all details and call confirm_details.`;
 
     case 'confirm':
@@ -512,36 +516,12 @@ function calculateUberComparison(args: {
   const savingsPercent = Math.round((savings / uberPrice) * 100);
 
   return {
-    uber: {
-      estimate: uberEstimate,
-      quote: uberQuote || null,
-      priceUsed: uberPrice,
-      breakdown: {
-        baseFare: UBER.baseFare,
-        distance: Math.round(distanceMiles * UBER.perMile * 100) / 100,
-        time: Math.round(durationMinutes * UBER.perMinute * 100) / 100,
-        bookingFee: UBER.bookingFee,
-        serviceFee: Math.round(uberServiceFee * 100) / 100,
-        surge: surge > 1 ? `${surge}x` : 'none',
-      },
-    },
-    hmu: {
-      suggested: hmuSuggested,
-      range: { low: hmuLow, high: hmuHigh },
-      driverMinimum: driverMinimum,
-      note: 'Driver sets final price — this is the expected range',
-    },
-    savings: {
-      amount: savings,
-      percent: savingsPercent,
-      message: savings > 0
-        ? `Save ~$${savings} (${savingsPercent}%) vs Uber`
-        : 'Comparable to Uber — but you support a local driver',
-    },
-    perMile: {
-      uber: Math.round((uberPrice / distanceMiles) * 100) / 100,
-      hmu: Math.round((hmuSuggested / distanceMiles) * 100) / 100,
-    },
+    uberEstimate: uberPrice,
+    recommendedPrice: hmuSuggested,
+    driverMinimum: driverMinimum,
+    acceptableRange: `Any price from $${driverMinimum} and up is valid`,
+    savings: savings > 0 ? `Save ~$${savings} vs Uber` : 'Comparable to Uber',
+    note: 'Rider can offer any price at or above driver minimum. Do not reject valid offers.',
   };
 }
 
