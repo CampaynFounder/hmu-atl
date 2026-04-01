@@ -13,12 +13,15 @@ function OnboardingInner() {
   const searchParams = useSearchParams();
 
   // Resolve profile type with explicit priority order:
-  // 1. Clerk publicMetadata (set on return logins after first onboard)
-  // 2. URL ?type= param (set from sign-up entry point)
-  // 3. null → show selector
+  // 1. URL ?type= param when returnTo is a driver link (booking as rider — override Clerk)
+  // 2. Clerk publicMetadata (set on return logins after first onboard)
+  // 3. URL ?type= param (set from sign-up entry point)
+  // 4. null → show selector
   const clerkProfileType = user?.publicMetadata?.profileType as string | undefined;
   const urlType = searchParams.get('type');
-  const resolvedType = clerkProfileType || urlType || null;
+  const returnTo = searchParams.get('returnTo');
+  const isBookingAsRider = returnTo?.startsWith('/d/') && urlType === 'rider';
+  const resolvedType = isBookingAsRider ? 'rider' : (clerkProfileType || urlType || null);
 
   // Local state used only when resolvedType is null (ambiguous entry)
   const [selectedType, setSelectedType] = useState<'rider' | 'driver' | null>(null);

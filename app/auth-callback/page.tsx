@@ -45,8 +45,16 @@ export default function AuthCallbackPage() {
       // Route if onboarded (active or pending_activation with a profile created)
       const hasProfile = data.hasDriverProfile || data.hasRiderProfile;
       if (hasProfile) {
-        // If rider came from a driver share link, send them back there
+        // If user came from a driver share link (booking as rider)
         if (returnTo && returnTo.startsWith('/d/')) {
+          // If they're a driver without a rider profile, send to rider onboarding first
+          if (data.hasDriverProfile && !data.hasRiderProfile) {
+            const onboardingParams = new URLSearchParams();
+            onboardingParams.set('type', 'rider');
+            onboardingParams.set('returnTo', returnTo);
+            router.replace(`/onboarding?${onboardingParams}`);
+            return;
+          }
           const url = returnTo.includes('bookingOpen') ? returnTo : `${returnTo}?bookingOpen=1`;
           router.replace(url);
           return;
