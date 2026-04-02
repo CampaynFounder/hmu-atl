@@ -30,12 +30,10 @@ export interface GenerateRequest {
 }
 
 export interface GenerateResponse {
+  fullText: string;
   geminiPrompt: string;
   timingSheet: string;
   hookText: string;
-  caption: string;
-  commentSeeder: string;
-  dmReply: string;
 }
 
 function buildSystemPrompt(): string {
@@ -261,66 +259,68 @@ export async function generateContent(input: GenerateRequest): Promise<GenerateR
     .map((c) => c.text)
     .join('\n');
 
-  return parseResponse(fullText, input.type);
-}
+  // Split into sections by common heading patterns, but always keep fullText
+  const sections = splitSections(fullText);
 
-function parseResponse(
-  text: string,
-  type: 'prompt' | 'trend-hijack' | 'hook-only'
-): GenerateResponse {
-  if (type === 'hook-only') {
-    return {
-      geminiPrompt: '',
-      timingSheet: '',
-      hookText: text,
-      caption: extractSection(text, 'caption') || '',
-      commentSeeder: extractSection(text, 'comment seeder') || '',
-      dmReply: extractSection(text, 'dm reply') || extractSection(text, 'reply template') || '',
-    };
-  }
-
-  if (type === 'trend-hijack') {
-    return {
-      geminiPrompt: extractSection(text, 'gemini video prompt') || text,
-      timingSheet: extractSection(text, 'trend analysis') || '',
-      hookText: extractSection(text, 'hijack strategy') || '',
-      caption: extractSection(text, 'caption') || '',
-      commentSeeder: extractSection(text, 'comment') || '',
-      dmReply: extractSection(text, 'seeding') || '',
-    };
-  }
-
-  // Full prompt
   return {
-    geminiPrompt: extractSection(text, 'gemini video prompt') || '',
-    timingSheet: extractSection(text, 'timing sheet') || extractSection(text, 'beat-locked') || '',
-    hookText: extractSection(text, 'hook') || '',
-    caption: extractSection(text, 'caption') || '',
-    commentSeeder: extractSection(text, 'comment seeder') || '',
-    dmReply: extractSection(text, 'dm reply') || extractSection(text, 'reply template') || '',
+    fullText,
+    geminiPrompt: sections.gemini || '',
+    timingSheet: sections.timing || '',
+    hookText: sections.hook || '',
   };
 }
 
-function extractSection(text: string, sectionName: string): string | null {
-  // Try to find section by heading patterns like **SECTION NAME** or ## SECTION NAME
-  const patterns = [
-    new RegExp(
-      `\\*\\*${sectionName}[^*]*\\*\\*[\\s\\S]*?(?=\\*\\*[A-Z]|$)`,
-      'i'
-    ),
-    new RegExp(
-      `##\\s*${sectionName}[^\\n]*\\n[\\s\\S]*?(?=##\\s|$)`,
-      'i'
-    ),
-    new RegExp(
-      `${sectionName}[:\\s]*\\n[-=]*\\n([\\s\\S]*?)(?=\\n[-=]*\\n|$)`,
-      'i'
-    ),
+function splitSections(text: string): { gemini: string; timing: string; hook: string } {
+  // Try splitting by markdown ## headings or **bold** headings
+  // Look for section boundaries
+  const sectionBreaks = [
+    /^#{1,3}\s+/m,
+    /^\*\*\d\./m,
+    /^---+$/m,
   ];
 
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) return match[0].trim();
+  // Try to find the 3 expected sections by keyword
+  const geminiStart = findSectionStart(text, ['gemini', 'video prompt', 'scene map']);
+  const timingStart = findSectionStart(text, ['timing sheet', 'beat-locked', 'timestamp']);
+  const hookStart = findSectionStart(text, ['hook', 'caption', 'hashtag']);
+
+  // Sort by position
+  const markers = [
+    { key: 'gemini' as const, pos: geminiStart },
+    { key: 'timing' as const, pos: timingStart },
+    { key: 'hook' as const, pos: hookStart },
+  ].filter(m => m.pos >= 0).sort((a, b) => a.pos - b.pos);
+
+  const result = { gemini: '', timing: '', hook: '' };
+
+  for (let i = 0; i < markers.length; i++) {
+    const start = markers[i].pos;
+    const end = i + 1 < markers.length ? markers[i + 1].pos : text.length;
+    result[markers[i].key] = text.slice(start, end).trim();
   }
-  return null;
+
+  // If we couldn't split, put everything in gemini
+  if (!result.gemini && !result.timing && !result.hook) {
+    result.gemini = text;
+  }
+
+  return result;
+}
+
+function findSectionStart(text: string, keywords: string[]): number {
+  // Look for a heading line containing one of the keywords
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].toLowerCase();
+    const isHeading = line.startsWith('#') || line.startsWith('**') || line.startsWith('===');
+    if (isHeading) {
+      for (const kw of keywords) {
+        if (line.includes(kw.toLowerCase())) {
+          // Return the character offset
+          return lines.slice(0, i).join('\n').length + (i > 0 ? 1 : 0);
+        }
+      }
+    }
+  }
+  return -1;
 }

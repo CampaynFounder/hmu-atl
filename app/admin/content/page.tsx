@@ -31,6 +31,7 @@ function ContentGenerator() {
   const [platforms, setPlatforms] = useState<string[]>(['TikTok']);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
+    fullText: string;
     geminiPrompt: string;
     timingSheet: string;
     hookText: string;
@@ -322,27 +323,13 @@ function ContentGenerator() {
           )}
 
           {result && (
-            <CopyAllButton result={result} />
+            <CopyAllButton text={result.fullText} />
           )}
 
-          {result?.geminiPrompt && (
+          {result?.fullText && (
             <OutputBlock
-              title="Gemini Video Prompt"
-              content={result.geminiPrompt}
-            />
-          )}
-
-          {result?.timingSheet && (
-            <OutputBlock
-              title="Beat-Locked Timing Sheet"
-              content={result.timingSheet}
-            />
-          )}
-
-          {result?.hookText && (
-            <OutputBlock
-              title="Hook + Caption"
-              content={result.hookText}
+              title="Full Output"
+              content={result.fullText}
             />
           )}
         </div>
@@ -351,17 +338,11 @@ function ContentGenerator() {
   );
 }
 
-function CopyAllButton({ result }: { result: { geminiPrompt: string; timingSheet: string; hookText: string } }) {
+function CopyAllButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
 
   function handleCopyAll() {
-    const parts = [
-      result.geminiPrompt && `=== GEMINI VIDEO PROMPT ===\n\n${result.geminiPrompt}`,
-      result.timingSheet && `=== BEAT-LOCKED TIMING SHEET ===\n\n${result.timingSheet}`,
-      result.hookText && `=== HOOK + CAPTION ===\n\n${result.hookText}`,
-    ].filter(Boolean);
-
-    navigator.clipboard.writeText(parts.join('\n\n\n'));
+    navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }

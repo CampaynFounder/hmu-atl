@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
         ${admin.clerk_id},
         ${body.type},
         ${JSON.stringify(body)},
-        ${result.geminiPrompt || null},
+        ${result.fullText || null},
         ${result.timingSheet || null},
         ${result.hookText || null},
         ${body.trendDescription || null},
