@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -12,6 +12,14 @@ import {
 } from '@/lib/content/framework';
 
 export default function ContentGeneratorPage() {
+  return (
+    <Suspense fallback={<div className="text-neutral-500 p-8 text-center text-sm">Loading...</div>}>
+      <ContentGenerator />
+    </Suspense>
+  );
+}
+
+function ContentGenerator() {
   const searchParams = useSearchParams();
   const [segment, setSegment] = useState(searchParams.get('segment') || 'frustrated');
   const [hook, setHook] = useState(searchParams.get('hook') || 'receipt');
