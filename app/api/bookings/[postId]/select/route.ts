@@ -153,8 +153,14 @@ export async function POST(
       }
     } catch { /* non-blocking */ }
 
-    // Create calendar booking
-    createRideBooking(driverUserId, riderId, rideId, new Date().toISOString(), post.market_id as string || null).catch(() => {});
+    // Create calendar booking with actual ride time
+    const rideTime = (() => {
+      const t = (timeWindow.time as string) || '';
+      if (!t || t.toLowerCase() === 'asap' || t.toLowerCase() === 'now') return new Date().toISOString();
+      const parsed = new Date(t);
+      return !isNaN(parsed.getTime()) ? parsed.toISOString() : new Date().toISOString();
+    })();
+    createRideBooking(driverUserId, riderId, rideId, rideTime, post.market_id as string || null).catch(e => console.error('Calendar booking failed:', e));
 
     return NextResponse.json({ status: 'matched', rideId });
   } catch (error) {

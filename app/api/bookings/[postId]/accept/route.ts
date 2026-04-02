@@ -5,6 +5,26 @@ import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/ser
 import { notifyRiderBookingAccepted } from '@/lib/sms/textbee';
 import { checkDriverAvailability, createRideBooking } from '@/lib/schedule/conflicts';
 
+function parseRideTime(timeStr: string): string {
+  if (!timeStr || timeStr.toLowerCase() === 'asap' || timeStr.toLowerCase() === 'now') return new Date().toISOString();
+  const parsed = new Date(timeStr);
+  if (!isNaN(parsed.getTime()) && parsed.getTime() > Date.now() - 86400000) return parsed.toISOString();
+  // Try natural language like "tomorrow 2pm"
+  const now = new Date();
+  if (timeStr.toLowerCase().includes('tomorrow')) {
+    const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+    const hourMatch = timeStr.match(/(\d{1,2})\s*(am|pm|a|p)/i);
+    if (hourMatch) {
+      let hr = parseInt(hourMatch[1]);
+      if (hourMatch[2].toLowerCase().startsWith('p') && hr < 12) hr += 12;
+      if (hourMatch[2].toLowerCase().startsWith('a') && hr === 12) hr = 0;
+      tomorrow.setHours(hr, 0, 0, 0);
+    }
+    return tomorrow.toISOString();
+  }
+  return now.toISOString();
+}
+
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ postId: string }> }
@@ -228,8 +248,9 @@ export async function POST(
       }
     } catch { /* non-blocking */ }
 
-    // Create calendar booking for this ride
-    createRideBooking(driverUserId, riderId, rideId, new Date().toISOString(), post.market_id as string || null).catch(() => {});
+    // Create calendar booking — use requested ride time if available, fallback to now
+    const rideTime = parseRideTime((timeWindow.time as string) || '');
+    createRideBooking(driverUserId, riderId, rideId, rideTime, post.market_id as string || null).catch(e => console.error('Calendar booking failed:', e));
 
     return NextResponse.json({ status: 'matched', rideId });
   } catch (error) {
