@@ -25,6 +25,7 @@ function ContentGenerator() {
   const [hook, setHook] = useState(searchParams.get('hook') || 'receipt');
   const [tempo, setTempo] = useState(Number(searchParams.get('tempo')) || 128);
   const [song, setSong] = useState('');
+  const [characterNotes, setCharacterNotes] = useState('');
   const [painPoint, setPainPoint] = useState('');
   const [proofPoint, setProofPoint] = useState('');
   const [formats, setFormats] = useState<string[]>(['AI-generated (Gemini)']);
@@ -57,6 +58,7 @@ function ContentGenerator() {
           hook,
           tempo,
           song,
+          characterNotes,
           painPoint: painPoint || selectedSegment?.painDefault || '',
           proofPoint: proofPoint || selectedSegment?.proofDefault || '',
           format: formats,
@@ -203,6 +205,21 @@ function ContentGenerator() {
                 onChange={(e) => setSong(e.target.value)}
                 placeholder="e.g. 'Money Trees' by Kendrick Lamar"
                 className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600"
+              />
+            </div>
+
+            {/* Character Notes */}
+            <div>
+              <label className="block text-xs text-neutral-400 mb-1">
+                Character / Vibe Notes{' '}
+                <span className="text-neutral-600">(describe the people, energy, look & feel)</span>
+              </label>
+              <textarea
+                value={characterNotes}
+                onChange={(e) => setCharacterNotes(e.target.value)}
+                placeholder="e.g. Young Black woman, natural hair, driving a Honda Civic in East Atlanta. Confident energy, not corporate. Talking like she's telling her homegirl about it."
+                rows={3}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 resize-y"
               />
             </div>
 

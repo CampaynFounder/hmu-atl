@@ -20,6 +20,7 @@ export interface GenerateRequest {
   song: string;
   painPoint: string;
   proofPoint: string;
+  characterNotes?: string;
   format: string[];
   platform: string[];
   // Trend hijack fields
@@ -98,6 +99,35 @@ ${psych}
 
 === CTA BANK ===
 ${ctas}
+
+=== LANGUAGE RULES (CRITICAL — READ BEFORE GENERATING) ===
+All output text — VO lines, text overlays, captions, CTAs — MUST use customer-facing street language.
+These are real Atlanta drivers and riders scrolling Facebook and TikTok. They do NOT understand tech/finance jargon.
+
+BANNED WORDS → USE INSTEAD:
+- "escrow" → "your money's locked in before you drive" or "payment's held safe"
+- "PaymentIntent" → never mention, just say "payment"
+- "dispute resolution" → "if something goes wrong, we handle it"
+- "verification" → "we check riders before they ride with you"
+- "platform" → "app" or "HMU"
+- "progressive fees" → "the more you drive, the less we take"
+- "application fee" → "our cut" or "HMU's cut"
+- "capture" → "you get paid"
+- "onboarding" → "getting started" or "signing up"
+- "friction" → never use this word
+- "conversion" → never use this word
+- "algorithm" → "the app" or "Uber's system"
+- "UGC" → never use, just describe the look naturally
+- "parasocial" → never use
+- "cognitive dissonance" → never use
+
+TONE: Talk like you're telling your homeboy/homegirl about it. Confident, real, not salesy.
+- YES: "You keep 90%. That's it. That's the whole thing."
+- NO: "Our progressive fee structure ensures optimal driver retention of 90% on initial earnings."
+- YES: "Your money's held safe before you even start driving."
+- NO: "Escrow-based payment processing with manual capture."
+
+This applies to ALL generated text — hooks, VO, captions, timing sheet text overlays, CTAs, DM templates. Every word should pass the test: "Would a driver in an Atlanta Facebook group understand this instantly?"
 
 === PRODUCTION RULES ===
 - Format: 9:16 portrait, 1080x1920, 30 seconds
@@ -182,6 +212,7 @@ SOLUTION: ${pain.solution}
 PROOF STAT: ${pain.stat}
 TARGET SEGMENT: ${segment?.label || 'All segments'}
 PLATFORMS: ${input.platform.join(', ') || 'TikTok, FB Reels'}
+${input.characterNotes ? `\nCHARACTER / VIBE NOTES: ${input.characterNotes}` : ''}
 
 Generate the full trend hijack output with all 4 sections.`;
   }
@@ -194,6 +225,7 @@ HOOK ARCHETYPE: ${hook?.number || '01'} — ${hook?.name || 'The Receipt Reveal'
 PAIN POINT: ${input.painPoint || segment?.painDefault || 'Uber takes 40-50% of what the rider pays.'}
 PROOF POINT: ${input.proofPoint || segment?.proofDefault || 'Keep 90% on HMU.'}
 PLATFORMS: ${input.platform.join(', ') || 'TikTok'}
+${input.characterNotes ? `\nCHARACTER / VIBE NOTES: ${input.characterNotes}` : ''}
 
 Generate:
 1. Video hook (first 3 seconds — visual, VO, text overlay)
@@ -215,6 +247,7 @@ PROOF POINT: ${input.proofPoint || segment?.proofDefault || 'Keep 90% on HMU.'}
 CONTENT FORMAT: ${input.format.join(', ') || 'AI-generated (Gemini)'}
 PLATFORMS: ${input.platform.join(', ') || 'TikTok'}
 ENVIRONMENT: ${segment?.environment || 'car interior, phone screens, Atlanta streets'}
+${input.characterNotes ? `\nCHARACTER / VIBE NOTES: ${input.characterNotes}\nUse these character details to guide the visual descriptions, casting, wardrobe, setting, and energy of the people in the video.` : ''}
 
 Hook instruction: ${hook?.promptInstruction || ''}
 

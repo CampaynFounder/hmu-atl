@@ -211,7 +211,7 @@ export const AUDIENCE_SEGMENTS: AudienceSegment[] = [
     badge: 'Segment B',
     avatar: 'Independent driver already doing cash rides via Facebook groups and word-of-mouth',
     painDefault: 'Doing cash rides with no payment protection, no rider verification, no dispute system.',
-    proofDefault: 'Escrow holds payment before you drive. Video-verified riders. Full dispute resolution.',
+    proofDefault: 'Your money is held safe before you drive. Riders are checked before they ride with you. If something goes wrong, we handle it.',
     environment: 'car interior, phone with FB Messenger open, cash transactions, Atlanta neighborhoods',
   },
   {
@@ -276,8 +276,8 @@ export const PAIN_MATRIX: PainPoint[] = [
     name: 'Safety Without Support',
     badge: 'P5',
     description: '"I had a dangerous rider and Uber\'s response was a form email." No real-time support, no payment protection, no community backup.',
-    solution: 'HMU: Escrow payment before you move. Video-verified riders. Block anyone.',
-    stat: 'Payment held in escrow BEFORE the driver moves',
+    solution: 'HMU: Your money is held safe before you move. Riders are checked before they get in. Block anyone, anytime.',
+    stat: 'Your money is locked in BEFORE you even start driving',
   },
   {
     id: 'p6',
@@ -351,7 +351,7 @@ export const TEMPO_MAPS: TempoMap[] = [
 
 0:09-0:18 — DEMO: 3-4 bars, steady rhythm
             App walkthrough or feature demo. Authoritative tone.
-            Show the HMU flow: Post -> Match -> Escrow -> Drive -> Paid.
+            Show the HMU flow: Post -> Match -> Money's held safe -> Drive -> Get paid.
             Cuts on downbeats. Let each shot breathe.
 
 0:18-0:24 — PROOF: Sync to chorus
@@ -553,7 +553,7 @@ export const CONTENT_CALENDAR: CalendarDay[] = [
     segment: 'All segments',
     hook: '#04 Group Callout',
     tempo: 'Mid-tempo (100 BPM)',
-    content: '30s walkthrough: Post HMU -> Get matched -> Rider pays escrow -> Drive -> Get paid 90%',
+    content: '30s walkthrough: Post HMU -> Get matched -> Money is held safe -> Drive -> Get paid 90%',
     cta: '"Your car. Your riders. Your money. Link in bio."',
     goal: 'Educate -> Sign up',
   },
