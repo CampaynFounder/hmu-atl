@@ -313,11 +313,14 @@ export default function ContentGeneratorPage() {
             </div>
           )}
 
+          {result && (
+            <CopyAllButton result={result} />
+          )}
+
           {result?.geminiPrompt && (
             <OutputBlock
               title="Gemini Video Prompt"
               content={result.geminiPrompt}
-              onCopy={() => copyToClipboard(result.geminiPrompt)}
             />
           )}
 
@@ -325,7 +328,6 @@ export default function ContentGeneratorPage() {
             <OutputBlock
               title="Beat-Locked Timing Sheet"
               content={result.timingSheet}
-              onCopy={() => copyToClipboard(result.timingSheet)}
             />
           )}
 
@@ -333,7 +335,6 @@ export default function ContentGeneratorPage() {
             <OutputBlock
               title="Hook + Caption"
               content={result.hookText}
-              onCopy={() => copyToClipboard(result.hookText)}
             />
           )}
         </div>
@@ -342,26 +343,53 @@ export default function ContentGeneratorPage() {
   );
 }
 
+function CopyAllButton({ result }: { result: { geminiPrompt: string; timingSheet: string; hookText: string } }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopyAll() {
+    const parts = [
+      result.geminiPrompt && `=== GEMINI VIDEO PROMPT ===\n\n${result.geminiPrompt}`,
+      result.timingSheet && `=== BEAT-LOCKED TIMING SHEET ===\n\n${result.timingSheet}`,
+      result.hookText && `=== HOOK + CAPTION ===\n\n${result.hookText}`,
+    ].filter(Boolean);
+
+    navigator.clipboard.writeText(parts.join('\n\n\n'));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <button
+      onClick={handleCopyAll}
+      className={`w-full py-2.5 rounded-lg font-semibold text-sm transition-colors ${
+        copied
+          ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+          : 'bg-white/10 text-white border border-neutral-700 hover:bg-white/15'
+      }`}
+    >
+      {copied ? 'All Copied!' : 'Copy All Prompts'}
+    </button>
+  );
+}
+
 function OutputBlock({
   title,
   content,
-  onCopy,
 }: {
   title: string;
   content: string;
-  onCopy: () => void;
 }) {
   const [copied, setCopied] = useState(false);
 
   function handleCopy() {
-    onCopy();
+    navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
 
   return (
     <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800">
+      <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-2 border-b border-neutral-800 bg-neutral-900">
         <h3 className="text-xs font-semibold text-neutral-300">{title}</h3>
         <button
           onClick={handleCopy}
@@ -370,9 +398,11 @@ function OutputBlock({
           {copied ? 'Copied!' : 'Copy'}
         </button>
       </div>
-      <pre className="p-4 text-xs text-neutral-300 font-mono whitespace-pre-wrap max-h-[500px] overflow-y-auto leading-relaxed">
-        {content}
-      </pre>
+      <div className="overflow-y-auto overscroll-contain" style={{ maxHeight: '70vh', WebkitOverflowScrolling: 'touch' }}>
+        <pre className="p-4 text-xs text-neutral-300 font-mono whitespace-pre-wrap leading-relaxed">
+          {content}
+        </pre>
+      </div>
     </div>
   );
 }
