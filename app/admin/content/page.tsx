@@ -26,6 +26,7 @@ function ContentGenerator() {
   const [tempo, setTempo] = useState(Number(searchParams.get('tempo')) || 128);
   const [song, setSong] = useState('');
   const [characterNotes, setCharacterNotes] = useState('');
+  const [viralMoment, setViralMoment] = useState('');
   const [painPoint, setPainPoint] = useState('');
   const [proofPoint, setProofPoint] = useState('');
   const [formats, setFormats] = useState<string[]>(['AI-generated (Gemini)']);
@@ -59,6 +60,7 @@ function ContentGenerator() {
           tempo,
           song,
           characterNotes,
+          viralMoment,
           painPoint: painPoint || selectedSegment?.painDefault || '',
           proofPoint: proofPoint || selectedSegment?.proofDefault || '',
           format: formats,
@@ -219,6 +221,21 @@ function ContentGenerator() {
                 onChange={(e) => setCharacterNotes(e.target.value)}
                 placeholder="e.g. Young Black woman, natural hair, driving a Honda Civic in East Atlanta. Confident energy, not corporate. Talking like she's telling her homegirl about it."
                 rows={3}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 resize-y"
+              />
+            </div>
+
+            {/* Viral Moment */}
+            <div>
+              <label className="block text-xs text-neutral-400 mb-1">
+                Viral Moment / Reference{' '}
+                <span className="text-neutral-600">(optional — describe or paste a link to a trending video)</span>
+              </label>
+              <textarea
+                value={viralMoment}
+                onChange={(e) => setViralMoment(e.target.value)}
+                placeholder="e.g. TikTok where a driver shows their Uber earnings vs what they actually kept — uses the 'oh no' sound, split screen format, got 2M views this week. Or paste a URL."
+                rows={2}
                 className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 resize-y"
               />
             </div>

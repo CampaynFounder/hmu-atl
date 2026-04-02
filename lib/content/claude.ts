@@ -10,6 +10,7 @@ import {
   TREND_TYPES,
   CTA_BANK,
   ENERGY_LEVELS,
+  BRAND_RULES,
 } from './framework';
 
 export interface GenerateRequest {
@@ -21,6 +22,7 @@ export interface GenerateRequest {
   painPoint: string;
   proofPoint: string;
   characterNotes?: string;
+  viralMoment?: string;
   format: string[];
   platform: string[];
   // Trend hijack fields
@@ -129,10 +131,18 @@ TONE: Talk like you're telling your homeboy/homegirl about it. Confident, real, 
 
 This applies to ALL generated text — hooks, VO, captions, timing sheet text overlays, CTAs, DM templates. Every word should pass the test: "Would a driver in an Atlanta Facebook group understand this instantly?"
 
+=== TEXT ON SCREEN (CRITICAL) ===
+${BRAND_RULES.textOnScreen}
+
+=== PHONE SCREEN UI SPECS ===
+${BRAND_RULES.phoneScreens}
+
+=== CASTING & PEOPLE ===
+${BRAND_RULES.casting}
+
 === PRODUCTION RULES ===
 - Format: 9:16 portrait, 1080x1920, 30 seconds
 - No cuts mid-phrase. All cuts on musical beats only.
-- Captions: high contrast, 40pt minimum, 15% safe zone from edges.
 - First 3 seconds: NO logo, NO brand name — hook only.
 - Aesthetic: UGC-authentic, not corporate. Car interiors, real streets, phone screens.
 - Atlanta-specific: show recognizable landmarks, neighborhoods, or cultural cues.
@@ -141,11 +151,11 @@ This applies to ALL generated text — hooks, VO, captions, timing sheet text ov
 
 When generating content, output these sections clearly separated:
 
-1. **GEMINI VIDEO PROMPT** — A complete, copy-paste-ready prompt for Google Gemini to generate the video visual. Include format specs, music anchor, scene map with timestamps, and production notes.
+1. **GEMINI VIDEO PROMPT** — A complete, copy-paste-ready prompt for Google Gemini to generate the video visual. Include format specs, music anchor, scene map with timestamps, and production notes. This prompt is for VISUAL VIDEO GENERATION ONLY — do NOT instruct Gemini to render any text, words, or captions in the video. All text overlays will be added manually in TikTok/CapCut.
 
-2. **BEAT-LOCKED TIMING SHEET** — A table with timestamps, elements, durations, and notes for assembling in TikTok/CapCut. Include text overlay copy.
+2. **BEAT-LOCKED TIMING SHEET** — A table with timestamps, elements, durations, and notes for assembling in TikTok/CapCut. Include recommended text overlay copy here (for manual addition), VO lines, and scene descriptions.
 
-3. **HOOK + CAPTION** — The hook text, full social media caption with hashtags, comment seeder, and DM reply template.
+3. **HOOK + CAPTION** — The hook text, full social media caption with hashtags, comment seeder, and DM reply template. This text is for copy-pasting into social media, NOT for rendering in the video.
 
 Use the framework data above as your creative constraint. The user provides the variables — you generate the content using the framework.`;
 }
@@ -213,6 +223,7 @@ PROOF STAT: ${pain.stat}
 TARGET SEGMENT: ${segment?.label || 'All segments'}
 PLATFORMS: ${input.platform.join(', ') || 'TikTok, FB Reels'}
 ${input.characterNotes ? `\nCHARACTER / VIBE NOTES: ${input.characterNotes}` : ''}
+${input.viralMoment ? `\nVIRAL MOMENT / REFERENCE: ${input.viralMoment}\nResearch and strictly adhere to this viral moment. Match the format, energy, and structure of this reference. The generated content should feel native to this specific trend.` : ''}
 
 Generate the full trend hijack output with all 4 sections.`;
   }
@@ -226,6 +237,7 @@ PAIN POINT: ${input.painPoint || segment?.painDefault || 'Uber takes 40-50% of w
 PROOF POINT: ${input.proofPoint || segment?.proofDefault || 'Keep 90% on HMU.'}
 PLATFORMS: ${input.platform.join(', ') || 'TikTok'}
 ${input.characterNotes ? `\nCHARACTER / VIBE NOTES: ${input.characterNotes}` : ''}
+${input.viralMoment ? `\nVIRAL MOMENT / REFERENCE: ${input.viralMoment}\nResearch and strictly adhere to this viral moment.` : ''}
 
 Generate:
 1. Video hook (first 3 seconds — visual, VO, text overlay)
@@ -248,6 +260,7 @@ CONTENT FORMAT: ${input.format.join(', ') || 'AI-generated (Gemini)'}
 PLATFORMS: ${input.platform.join(', ') || 'TikTok'}
 ENVIRONMENT: ${segment?.environment || 'car interior, phone screens, Atlanta streets'}
 ${input.characterNotes ? `\nCHARACTER / VIBE NOTES: ${input.characterNotes}\nUse these character details to guide the visual descriptions, casting, wardrobe, setting, and energy of the people in the video.` : ''}
+${input.viralMoment ? `\nVIRAL MOMENT / REFERENCE: ${input.viralMoment}\nResearch and strictly adhere to this viral moment. Match the format, energy, pacing, and visual structure of this reference. The generated Gemini prompt should recreate the feel of this specific viral content with HMU CashRide as the subject.` : ''}
 
 Hook instruction: ${hook?.promptInstruction || ''}
 

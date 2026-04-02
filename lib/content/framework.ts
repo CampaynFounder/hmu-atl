@@ -680,3 +680,45 @@ export const CONTENT_FORMATS = [
 ];
 
 export const PLATFORMS = ['TikTok', 'FB Reels', 'IG Reels', 'YouTube Shorts'];
+
+// ============================================================
+// BRAND VISUAL RULES (static — baked into every system prompt)
+// ============================================================
+
+export const BRAND_RULES = {
+  textOnScreen: `DO NOT render any text, words, letters, numbers, or captions directly in the generated video visuals.
+All text will be added manually in TikTok/CapCut post-production.
+This avoids AI misspellings and gives full control over typography.
+The only exception: if a phone screen is shown, the UI text on the phone must match HMU brand specs below.
+Generate ONLY videographic/visual content — motion, people, environments, lighting, camera angles.
+In the timing sheet and caption sections, still include the recommended text overlays and VO lines — those are for manual assembly, not for the AI video.`,
+
+  phoneScreens: `When showing any phone screen or app UI in the video:
+- Background: near-black (#0d0d0f) with dark card surfaces (#18181b)
+- Accent color: green (#22c55e) for primary actions, buttons, and highlights
+- Text: white (#e4e4e7) primary, gray (#a1a1aa) secondary
+- Typography: clean sans-serif (Inter or system font), bold headings, no serif
+- Layout: mobile-first, rounded corners, generous spacing
+- Cards: dark neutral with subtle borders (#2e2e35)
+- Status badges: green for active, gold for pending, red for alerts
+- The app name shown on phone should read "HMU" not "HMU CashRide" or "HMU ATL"
+- Show realistic mobile UI — not wireframes, not mockups. It should look like a real app screenshot.`,
+
+  casting: `DRIVER CASTING:
+- Drivers are primarily Black/melanated people — this is the core audience in Metro Atlanta
+- Age range: 22-45
+- Look: real, not model-polished. Natural hair, everyday clothes, authentic
+- Setting: always in or near their car. Real car interiors, not studios
+- Energy: confident, independent, knows their worth. Not desperate, not corporate
+
+RIDER CASTING:
+- Riders have more flexibility in appearance — diverse, reflects Atlanta
+- Riders should ALWAYS be shown in the BACK SEAT of the car, never the front
+- This is a safety and brand signal — riders ride in the back, period
+- If a rider is shown getting in/out, they get in/out of the rear door
+
+GENERAL:
+- No stock photo energy. Everyone looks like someone you'd see at a gas station on Moreland Ave
+- Wardrobe: casual Atlanta — no suits, no uniforms. Hoodies, sneakers, braids, durags, bonnets are all fine
+- Lighting: natural. Golden hour, streetlights, phone glow in car at night. Not studio lit.`,
+};
