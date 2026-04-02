@@ -154,22 +154,32 @@ export default function ContentGeneratorPage() {
 
             {/* Tempo */}
             <div>
-              <label className="block text-xs text-neutral-400 mb-1">Tempo</label>
-              <div className="grid grid-cols-3 gap-2">
-                {TEMPO_MAPS.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => setTempo(t.bpm)}
-                    className={`p-3 rounded-lg border text-left transition-colors ${
-                      tempo === t.bpm
-                        ? 'border-green-500 bg-green-500/10 text-white'
-                        : 'border-neutral-800 bg-neutral-950 text-neutral-400 hover:border-neutral-700'
-                    }`}
-                  >
-                    <div className="text-lg font-bold">{t.bpm}</div>
-                    <div className="text-[10px] mt-0.5">{t.name}</div>
-                  </button>
-                ))}
+              <label className="block text-xs text-neutral-400 mb-1">Tempo (BPM)</label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="number"
+                  value={tempo}
+                  onChange={(e) => setTempo(Number(e.target.value) || 128)}
+                  placeholder="128"
+                  min={40}
+                  max={200}
+                  className="w-24 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-white"
+                />
+                <div className="flex gap-1.5">
+                  {TEMPO_MAPS.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => setTempo(t.bpm)}
+                      className={`px-3 py-2 rounded-lg border text-xs transition-colors ${
+                        tempo === t.bpm
+                          ? 'border-green-500 bg-green-500/10 text-white'
+                          : 'border-neutral-800 bg-neutral-950 text-neutral-400 hover:border-neutral-700'
+                      }`}
+                    >
+                      {t.bpm} {t.name}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
