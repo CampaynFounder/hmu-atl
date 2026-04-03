@@ -10,7 +10,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as GenerateRequest;
 
-    // Validate required fields
     if (!body.type || !['prompt', 'trend-hijack', 'hook-only'].includes(body.type)) {
       return NextResponse.json(
         { error: 'Invalid type. Must be prompt, trend-hijack, or hook-only.' },
@@ -20,24 +19,24 @@ export async function POST(req: NextRequest) {
 
     const result = await generateContent(body);
 
-    // Save to database
-    await sql`
+    // Save to database — gemini_prompt stores fullText, hook_text stores narration
+    const rows = await sql`
       INSERT INTO content_prompts (
-        created_by, type, inputs, gemini_prompt, timing_sheet, hook_text,
+        created_by, type, inputs, gemini_prompt, hook_text,
         trend_context, status
       ) VALUES (
         ${admin.clerk_id},
         ${body.type},
         ${JSON.stringify(body)},
         ${result.fullText || null},
-        ${result.timingSheet || null},
-        ${result.hookText || null},
+        ${result.narration || null},
         ${body.trendDescription || null},
         'generated'
       )
+      RETURNING id
     `;
 
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, id: rows[0]?.id });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Generation failed';
     console.error('Content generation error:', message);

@@ -34,6 +34,7 @@ export interface GenerateRequest {
 
 export interface GenerateResponse {
   fullText: string;
+  narration: string;
   geminiPrompt: string;
   timingSheet: string;
   hookText: string;
@@ -153,9 +154,11 @@ When generating content, output these sections clearly separated:
 
 1. **GEMINI VIDEO PROMPT** — A complete, copy-paste-ready prompt for Google Gemini to generate the video visual. Include format specs, music anchor, scene map with timestamps, and production notes. This prompt is for VISUAL VIDEO GENERATION ONLY — do NOT instruct Gemini to render any text, words, or captions in the video. All text overlays will be added manually in TikTok/CapCut.
 
-2. **BEAT-LOCKED TIMING SHEET** — A table with timestamps, elements, durations, and notes for assembling in TikTok/CapCut. Include recommended text overlay copy here (for manual addition), VO lines, and scene descriptions.
+2. **NARRATION SCRIPT** — A clean, standalone voiceover script. Just the words to be spoken, line by line, with timing markers (e.g. "0:00-0:03:"). No stage directions, no formatting instructions — just the script that gets read aloud or recorded. This should be easy to hand to someone to read, or to paste into a TTS tool. Write it in natural spoken Atlanta English.
 
-3. **HOOK + CAPTION** — The hook text, full social media caption with hashtags, comment seeder, and DM reply template. This text is for copy-pasting into social media, NOT for rendering in the video.
+3. **BEAT-LOCKED TIMING SHEET** — A table with timestamps, elements, durations, and notes for assembling in TikTok/CapCut. Include recommended text overlay copy here (for manual addition), VO lines, and scene descriptions.
+
+4. **HOOK + CAPTION** — The hook text, full social media caption with hashtags, comment seeder, and DM reply template. This text is for copy-pasting into social media, NOT for rendering in the video.
 
 Use the framework data above as your creative constraint. The user provides the variables — you generate the content using the framework.`;
 }
@@ -305,68 +308,34 @@ export async function generateContent(input: GenerateRequest): Promise<GenerateR
     .map((c) => c.text)
     .join('\n');
 
-  // Split into sections by common heading patterns, but always keep fullText
-  const sections = splitSections(fullText);
+  const narration = extractNarration(fullText);
 
   return {
     fullText,
-    geminiPrompt: sections.gemini || '',
-    timingSheet: sections.timing || '',
-    hookText: sections.hook || '',
+    narration,
+    geminiPrompt: '',
+    timingSheet: '',
+    hookText: '',
   };
 }
 
-function splitSections(text: string): { gemini: string; timing: string; hook: string } {
-  // Try splitting by markdown ## headings or **bold** headings
-  // Look for section boundaries
-  const sectionBreaks = [
-    /^#{1,3}\s+/m,
-    /^\*\*\d\./m,
-    /^---+$/m,
-  ];
-
-  // Try to find the 3 expected sections by keyword
-  const geminiStart = findSectionStart(text, ['gemini', 'video prompt', 'scene map']);
-  const timingStart = findSectionStart(text, ['timing sheet', 'beat-locked', 'timestamp']);
-  const hookStart = findSectionStart(text, ['hook', 'caption', 'hashtag']);
-
-  // Sort by position
-  const markers = [
-    { key: 'gemini' as const, pos: geminiStart },
-    { key: 'timing' as const, pos: timingStart },
-    { key: 'hook' as const, pos: hookStart },
-  ].filter(m => m.pos >= 0).sort((a, b) => a.pos - b.pos);
-
-  const result = { gemini: '', timing: '', hook: '' };
-
-  for (let i = 0; i < markers.length; i++) {
-    const start = markers[i].pos;
-    const end = i + 1 < markers.length ? markers[i + 1].pos : text.length;
-    result[markers[i].key] = text.slice(start, end).trim();
-  }
-
-  // If we couldn't split, put everything in gemini
-  if (!result.gemini && !result.timing && !result.hook) {
-    result.gemini = text;
-  }
-
-  return result;
-}
-
-function findSectionStart(text: string, keywords: string[]): number {
-  // Look for a heading line containing one of the keywords
+function extractNarration(text: string): string {
+  // Find the narration script section
   const lines = text.split('\n');
+  let start = -1;
+  let end = lines.length;
+
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].toLowerCase();
-    const isHeading = line.startsWith('#') || line.startsWith('**') || line.startsWith('===');
-    if (isHeading) {
-      for (const kw of keywords) {
-        if (line.includes(kw.toLowerCase())) {
-          // Return the character offset
-          return lines.slice(0, i).join('\n').length + (i > 0 ? 1 : 0);
-        }
-      }
+    const lower = lines[i].toLowerCase();
+    const isHeading = lower.startsWith('#') || lower.startsWith('**') || lower.startsWith('===');
+    if (isHeading && (lower.includes('narration') || lower.includes('voiceover script') || lower.includes('vo script'))) {
+      start = i + 1;
+    } else if (start >= 0 && isHeading && !lower.includes('narration')) {
+      end = i;
+      break;
     }
   }
-  return -1;
+
+  if (start < 0) return '';
+  return lines.slice(start, end).join('\n').trim();
 }
