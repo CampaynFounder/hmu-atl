@@ -337,5 +337,12 @@ function extractNarration(text: string): string {
   }
 
   if (start < 0) return '';
-  return lines.slice(start, end).join('\n').trim();
+
+  // Strip timestamps like "0:00-0:03:" or "[0:00]" from narration lines
+  const raw = lines.slice(start, end).join('\n').trim();
+  return raw
+    .split('\n')
+    .map((line) => line.replace(/^\s*\[?\d+:\d+[\s\-–—]*(\d+:\d+)?\]?:?\s*/g, '').trim())
+    .filter((line) => line.length > 0)
+    .join('\n');
 }
