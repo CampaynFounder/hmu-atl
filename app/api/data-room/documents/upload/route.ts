@@ -14,9 +14,9 @@ export async function POST(request: NextRequest) {
     }
 
     const adminUser = await sql`
-      SELECT id, profile_type FROM users WHERE clerk_id = ${clerkId}
+      SELECT id, is_admin FROM users WHERE clerk_id = ${clerkId}
     `;
-    if (adminUser.length === 0 || adminUser[0].profile_type !== 'admin') {
+    if (adminUser.length === 0 || !adminUser[0].is_admin) {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 

@@ -37,15 +37,26 @@ export async function GET(
     }
 
     const doc = docs[0];
+    const mode = request.nextUrl.searchParams.get('mode') || 'download';
 
-    // Log download
+    // Log access
     const ip = request.headers.get('x-forwarded-for') || request.headers.get('cf-connecting-ip') || 'unknown';
     await sql`
       INSERT INTO data_room_access_logs (consent_id, document_id, action, ip_address)
-      VALUES (${consentId}, ${id}, 'download', ${ip})
+      VALUES (${consentId}, ${id}, ${mode === 'view' ? 'view' : 'download'}, ${ip})
     `;
 
-    // Try R2 direct fetch, fall back to public URL
+    // View mode: return the public URL for iframe/Office viewer
+    if (mode === 'view') {
+      const publicUrl = `${R2_PUBLIC_URL}/${doc.file_key}`;
+      return NextResponse.json({
+        url: publicUrl,
+        fileType: doc.file_type,
+        fileName: doc.file_name,
+      });
+    }
+
+    // Download mode: serve file with attachment header
     try {
       const { env } = await getCloudflareContext();
       const bucket = (env as any).MEDIA_BUCKET;

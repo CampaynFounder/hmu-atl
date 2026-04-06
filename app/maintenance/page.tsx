@@ -5,7 +5,7 @@ import { Construction } from 'lucide-react';
 export default function MaintenancePage() {
   return (
     <div
-      className="min-h-screen bg-[#080808] text-white flex items-center justify-center px-6"
+      className="min-h-screen bg-[#080808] text-white flex items-center justify-center px-6 pt-16"
       style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}
     >
       <div className="text-center max-w-md">

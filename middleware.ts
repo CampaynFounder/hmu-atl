@@ -36,6 +36,11 @@ const isMaintenanceExempt = createRouteMatcher([
   '/api/webhooks(.*)',
   '/api/meta-verify',
   '/maintenance',
+  '/admin(.*)',
+  '/api/admin(.*)',
+  '/sign-in(.*)',
+  '/sign-up(.*)',
+  '/auth-callback(.*)',
 ]);
 
 // Define public routes (accessible without authentication)

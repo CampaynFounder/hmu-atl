@@ -20,9 +20,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid email address' }, { status: 400 });
     }
 
-    const phoneRegex = /^\+?[\d\s\-().]{7,20}$/;
-    if (!phoneRegex.test(phone.replace(/\s/g, ''))) {
-      return NextResponse.json({ error: 'Invalid phone number' }, { status: 400 });
+    const phoneDigits = phone.replace(/\D/g, '');
+    if (!(phoneDigits.length === 10 || (phoneDigits.length === 11 && phoneDigits.startsWith('1')))) {
+      return NextResponse.json({ error: 'Please enter a valid 10-digit US phone number' }, { status: 400 });
     }
 
     const ip = request.headers.get('x-forwarded-for') || request.headers.get('cf-connecting-ip') || 'unknown';

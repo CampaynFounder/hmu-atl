@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Lock, FileText, Download, ChevronRight, Shield, Eye } from 'lucide-react';
+import { Lock, FileText, Download, ChevronRight, Shield, Eye, X } from 'lucide-react';
 
 const NDA_VERSION = '1.0';
 
@@ -104,6 +104,10 @@ export default function DataRoomPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [docsError, setDocsError] = useState('');
 
+  // Viewer
+  const [viewerDoc, setViewerDoc] = useState<Document | null>(null);
+  const [viewerUrl, setViewerUrl] = useState('');
+
   const handleVerifyCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setCodeError('');
@@ -130,7 +134,10 @@ export default function DataRoomPage() {
   };
 
   const validateEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-  const validatePhone = (v: string) => /^\+?[\d\s\-().]{7,20}$/.test(v.replace(/\s/g, ''));
+  const validatePhone = (v: string) => {
+    const digits = v.replace(/\D/g, '');
+    return digits.length === 10 || (digits.length === 11 && digits.startsWith('1'));
+  };
 
   const handleNdaConsent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -152,7 +159,7 @@ export default function DataRoomPage() {
     }
 
     if (!validatePhone(phone)) {
-      setNdaError('Please enter a valid phone number.');
+      setNdaError('Please enter a valid 10-digit US phone number.');
       return;
     }
 
@@ -210,6 +217,36 @@ export default function DataRoomPage() {
     }
   };
 
+  const handleView = async (doc: Document) => {
+    try {
+      const res = await fetch(
+        `/api/data-room/documents/${doc.id}/download?consent=${consentId}&mode=view`
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+
+      const isPdf = data.fileType === 'application/pdf' || data.fileName.endsWith('.pdf');
+      const isOffice = /\.(docx?|xlsx?|pptx?)$/i.test(data.fileName);
+
+      if (isPdf) {
+        setViewerUrl(data.url);
+      } else if (isOffice) {
+        setViewerUrl(
+          `https://docs.google.com/gview?url=${encodeURIComponent(data.url)}&embedded=true`
+        );
+      } else {
+        // Unsupported for inline view — just open in new tab
+        window.open(data.url, '_blank');
+        return;
+      }
+
+      setViewerDoc(doc);
+    } catch {
+      // Fallback to download
+      handleDownload(doc);
+    }
+  };
+
   const handleDownload = (doc: Document) => {
     window.open(
       `/api/data-room/documents/${doc.id}/download?consent=${consentId}`,
@@ -225,7 +262,7 @@ export default function DataRoomPage() {
 
   return (
     <div
-      className="min-h-screen bg-[#080808] text-white"
+      className="min-h-screen bg-[#080808] text-white pt-16"
       style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}
     >
       {/* Header */}
@@ -347,21 +384,32 @@ export default function DataRoomPage() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
-                      className="w-full bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl px-4 py-3 text-white placeholder-[#555] focus:outline-none focus:border-[#00e676] transition-colors"
+                      pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
+                      title="Enter a valid email address"
+                      placeholder="name@company.com"
+                      className={`w-full bg-[#0f0f0f] border rounded-xl px-4 py-3 text-white placeholder-[#555] focus:outline-none transition-colors ${email && !validateEmail(email) ? 'border-[#ff4444] focus:border-[#ff4444]' : 'border-[#1a1a1a] focus:border-[#00e676]'}`}
                     />
+                    {email && !validateEmail(email) && (
+                      <p className="text-[#ff4444] text-xs mt-1">Enter a valid email address</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-[#888] text-xs mb-1 uppercase tracking-wider" style={{ fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
-                      Phone *
+                      Phone * <span className="normal-case tracking-normal text-[#555]">(10-digit US number)</span>
                     </label>
                     <input
                       type="tel"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       required
-                      placeholder="+1 (555) 555-5555"
-                      className="w-full bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl px-4 py-3 text-white placeholder-[#555] focus:outline-none focus:border-[#00e676] transition-colors"
+                      pattern="[\d\s\-().+]{10,16}"
+                      title="Enter a 10-digit US phone number"
+                      placeholder="(555) 555-5555"
+                      className={`w-full bg-[#0f0f0f] border rounded-xl px-4 py-3 text-white placeholder-[#555] focus:outline-none transition-colors ${phone && !validatePhone(phone) ? 'border-[#ff4444] focus:border-[#ff4444]' : 'border-[#1a1a1a] focus:border-[#00e676]'}`}
                     />
+                    {phone && !validatePhone(phone) && (
+                      <p className="text-[#ff4444] text-xs mt-1">Enter a valid 10-digit US phone number</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-[#888] text-xs mb-1 uppercase tracking-wider" style={{ fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
@@ -476,13 +524,22 @@ export default function DataRoomPage() {
                         <p className="text-[#666] text-xs mt-1 truncate">{doc.description}</p>
                       )}
                     </div>
-                    <button
-                      onClick={() => handleDownload(doc)}
-                      className="flex items-center gap-2 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl px-4 py-2.5 text-sm text-[#bbb] hover:text-[#00e676] hover:border-[#00e676] transition-colors shrink-0"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span className="hidden sm:inline">Download</span>
-                    </button>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        onClick={() => handleView(doc)}
+                        className="flex items-center gap-2 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl px-4 py-2.5 text-sm text-[#bbb] hover:text-[#00e676] hover:border-[#00e676] transition-colors"
+                      >
+                        <Eye className="w-4 h-4" />
+                        <span className="hidden sm:inline">View</span>
+                      </button>
+                      <button
+                        onClick={() => handleDownload(doc)}
+                        className="flex items-center gap-2 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl px-4 py-2.5 text-sm text-[#bbb] hover:text-[#00e676] hover:border-[#00e676] transition-colors"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span className="hidden sm:inline">Download</span>
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -496,6 +553,47 @@ export default function DataRoomPage() {
           </div>
         )}
       </div>
+
+      {/* Document Viewer Modal */}
+      {viewerDoc && viewerUrl && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex flex-col">
+          {/* Viewer header */}
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-[#0a0a0a] border-b border-[#1a1a1a]">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-xl">{CATEGORY_ICONS[viewerDoc.category] || '📁'}</span>
+              <div className="min-w-0">
+                <h3 className="text-white font-medium text-sm truncate">{viewerDoc.name}</h3>
+                <p className="text-[#666] text-xs">{viewerDoc.file_name}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => handleDownload(viewerDoc)}
+                className="flex items-center gap-2 bg-[#141414] border border-[#1a1a1a] rounded-lg px-3 py-2 text-xs text-[#bbb] hover:text-[#00e676] hover:border-[#00e676] transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download
+              </button>
+              <button
+                onClick={() => { setViewerDoc(null); setViewerUrl(''); }}
+                className="w-9 h-9 flex items-center justify-center rounded-lg bg-[#141414] border border-[#1a1a1a] text-[#888] hover:text-white hover:border-[#333] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Viewer iframe */}
+          <div className="flex-1 bg-[#1a1a1a]">
+            <iframe
+              src={viewerUrl}
+              className="w-full h-full border-0"
+              title={viewerDoc.name}
+              allow="fullscreen"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
