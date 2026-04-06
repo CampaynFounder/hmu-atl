@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="64" fill="#080808"/>
+  <!-- U-turn: down left side (shorter), curve at bottom, up right side (taller) with arrow -->
+  <path d="M 155 140 L 155 310 A 120 120 0 0 0 355 310 L 355 160"
+        fill="none" stroke="#00E676" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Arrow head pointing up on right side, higher up -->
+  <polygon points="355,55 275,175 435,175" fill="#00E676"/>
+</svg>

@@ -21,6 +21,7 @@ const footerLinks = {
       { label: 'Careers', href: '/careers' },
       { label: 'Press', href: '/press' },
       { label: 'Blog', href: '/blog' },
+      { label: 'Investors', href: '/data-room' },
     ],
   },
   resources: {

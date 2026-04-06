@@ -1,0 +1,30 @@
+{
+  "name": "hmu-atl-videos",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HMU ATL feature documentation videos built with Remotion",
+  "scripts": {
+    "dev": "npx remotion studio",
+    "build": "npx remotion render",
+    "render:all": "node scripts/render-all.mjs",
+    "render:driver-onboarding": "npx remotion render src/index.ts DriverOnboarding out/driver-onboarding.mp4",
+    "render:passenger-booking": "npx remotion render src/index.ts PassengerBooking out/passenger-booking.mp4",
+    "render:ride-experience": "npx remotion render src/index.ts RideExperience out/ride-experience.mp4",
+    "render:add-ons": "npx remotion render src/index.ts InRideAddOns out/in-ride-add-ons.mp4",
+    "render:chat-booking": "npx remotion render src/index.ts ChatBooking out/chat-booking.mp4",
+    "render:driver-earnings": "npx remotion render src/index.ts DriverEarnings out/driver-earnings.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "@remotion/player": "^4.0.0",
+    "@remotion/tailwind": "^4.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0"
+  }
+}

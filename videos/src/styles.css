@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+/* HMU ATL Design Tokens */
+:root {
+  /* Backgrounds */
+  --black: #080808;
+  --off-black: #0f0f0f;
+  --card: #141414;
+  --card-2: #1a1a1a;
+  --card-3: #1f1f1f;
+
+  /* Brand */
+  --green: #00e676;
+  --green-dim: rgba(0, 230, 118, 0.12);
+  --green-glow: rgba(0, 230, 118, 0.25);
+  --amber: #ffb300;
+  --amber-dim: rgba(255, 179, 0, 0.08);
+  --red: #ff4444;
+
+  /* Text */
+  --white: #ffffff;
+  --gray: #888888;
+  --gray-light: #bbbbbb;
+
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-bright: rgba(255, 255, 255, 0.15);
+
+  /* Semantic */
+  --bg: var(--black);
+  --bg-alt: var(--off-black);
+  --text: var(--white);
+  --text-dim: var(--gray-light);
+  --text-muted: var(--gray);
+  --card-bg: var(--card);
+}
+
+/* Font faces — loaded from Google Fonts in compositions */
+.font-display {
+  font-family: "Bebas Neue", sans-serif;
+}
+
+.font-body {
+  font-family: "DM Sans", sans-serif;
+}
+
+.font-mono {
+  font-family: "Space Mono", monospace;
+}

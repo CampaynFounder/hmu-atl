@@ -2,6 +2,41 @@
 // Handles Clerk authentication and route-based authorization
 
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { NextResponse } from 'next/server';
+
+// ============================================================
+// MAINTENANCE MODE — set to true to redirect auth routes
+// ============================================================
+const MAINTENANCE_MODE = true;
+// ============================================================
+
+// Routes that stay up during maintenance (marketing, legal, data room)
+const isMaintenanceExempt = createRouteMatcher([
+  '/',
+  '/driver',
+  '/rider',
+  '/privacy',
+  '/terms',
+  '/about',
+  '/team',
+  '/careers',
+  '/press',
+  '/blog',
+  '/safety',
+  '/pricing',
+  '/help',
+  '/guidelines',
+  '/cookies',
+  '/contact',
+  '/guide/(.*)',
+  '/data-room(.*)',
+  '/api/data-room(.*)',
+  '/d/(.*)',
+  '/api/og/(.*)',
+  '/api/webhooks(.*)',
+  '/api/meta-verify',
+  '/maintenance',
+]);
 
 // Define public routes (accessible without authentication)
 const isPublicRoute = createRouteMatcher([
@@ -33,8 +68,11 @@ const isPublicRoute = createRouteMatcher([
   '/cookies',
   '/contact',
   '/guide/(.*)',
+  '/data-room(.*)',
+  '/api/data-room(.*)',
   '/admin(.*)',
   '/api/admin(.*)',
+  '/maintenance',
 ]);
 
 // Define pending-only routes (only for pending_activation users)
@@ -58,6 +96,11 @@ const isProtectedRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
+  // MAINTENANCE MODE: redirect non-exempt routes to maintenance page
+  if (MAINTENANCE_MODE && !isMaintenanceExempt(req)) {
+    return NextResponse.redirect(new URL('/maintenance', req.url));
+  }
+
   // Allow public routes without authentication
   if (isPublicRoute(req)) {
     return;
