@@ -261,7 +261,7 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
     `,
     // P1/P2: Driver profile
     sql`
-      SELECT payout_setup_complete, video_url, pricing, handle, completed_rides,
+      SELECT payout_setup_complete, video_url, pricing, handle, completed_rides, phone,
         (SELECT COUNT(*) FROM rides WHERE driver_id = ${userId} AND status = 'completed')::int as total_rides
       FROM driver_profiles WHERE user_id = ${userId} LIMIT 1
     `,
@@ -338,6 +338,21 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
 
   if (driverProfile.length) {
     const dp = driverProfile[0] as Record<string, unknown>;
+
+    // P1: Missing phone number — can't receive booking SMS
+    if (!dp.phone) {
+      actions.push({
+        id: 'add_phone',
+        priority: 1,
+        type: 'add_phone',
+        title: 'Add your phone number',
+        subtitle: 'You won\'t get notified when riders book you without it',
+        cta: 'Add Phone',
+        href: '/driver/profile',
+        color: '#FF5252',
+        emoji: '\u{1F4F1}',
+      });
+    }
 
     // P1: Payout setup
     if (!dp.payout_setup_complete) {

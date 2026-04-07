@@ -23,6 +23,7 @@ export async function PATCH(req: NextRequest) {
     show_video_on_link?: boolean;
     profile_visible?: boolean;
     fwu?: boolean;
+    phone?: string;
     license_plate?: string;
     plate_state?: string;
     accepts_cash?: boolean;
@@ -35,6 +36,14 @@ export async function PATCH(req: NextRequest) {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  // Save phone number
+  if (body.phone !== undefined) {
+    await sql`
+      UPDATE driver_profiles SET phone = ${body.phone}, updated_at = NOW()
+      WHERE user_id = ${userId}
+    `;
   }
 
   // Update via direct SQL for fields not in updateDriverProfile
@@ -86,7 +95,7 @@ export async function PATCH(req: NextRequest) {
   const current = await sql`
     SELECT accept_direct_bookings, min_rider_chill_score, require_og_status,
            show_video_on_link, profile_visible, fwu, accepts_cash, cash_only,
-           allow_in_route_stops, wait_minutes, advance_notice_hours
+           allow_in_route_stops, wait_minutes, advance_notice_hours, phone
     FROM driver_profiles WHERE user_id = ${userId} LIMIT 1
   `;
   const row = (current[0] || updated) as Record<string, unknown>;
@@ -103,5 +112,6 @@ export async function PATCH(req: NextRequest) {
     allowInRouteStops: row.allow_in_route_stops,
     waitMinutes: row.wait_minutes,
     advanceNoticeHours: row.advance_notice_hours,
+    phone: row.phone,
   });
 }

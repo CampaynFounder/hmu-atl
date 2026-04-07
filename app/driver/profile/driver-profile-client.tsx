@@ -14,6 +14,7 @@ interface ProfileData {
   displayName: string;
   firstName: string;
   lastName: string;
+  phone: string;
   gender: string;
   pronouns: string;
   lgbtqFriendly: boolean;
@@ -825,6 +826,58 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             onChange={handlePhotoUpload}
             style={{ display: 'none' }}
           />
+        </div>
+
+        {/* Phone Number — required for booking notifications */}
+        <div className="dp-section">
+          <div className="dp-section-title">Phone Number</div>
+          {!data.phone && (
+            <div style={{
+              background: 'rgba(255,82,82,0.1)', border: '1px solid rgba(255,82,82,0.25)',
+              borderRadius: 12, padding: '10px 14px', marginBottom: 10,
+              display: 'flex', gap: 8, alignItems: 'center',
+            }}>
+              <span style={{ fontSize: 16 }}>&#9888;&#65039;</span>
+              <span style={{ fontSize: 12, color: '#FF8A80', lineHeight: 1.4 }}>
+                <strong style={{ color: '#fff' }}>No phone number.</strong> You won&apos;t receive SMS when riders book you.
+              </span>
+            </div>
+          )}
+          <div style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
+            We text you when a rider books, your ride status changes, or anything urgent. Never shared with riders.
+          </div>
+          <input
+            type="tel"
+            value={data.phone}
+            onChange={(e) => setData(d => ({ ...d, phone: e.target.value }))}
+            onBlur={() => {
+              const cleaned = data.phone.replace(/[^\d+]/g, '');
+              if (cleaned && cleaned !== profile.phone) {
+                // Normalize: ensure +1 prefix for US numbers
+                const normalized = cleaned.startsWith('+') ? cleaned : cleaned.length === 10 ? `+1${cleaned}` : `+${cleaned}`;
+                setData(d => ({ ...d, phone: normalized }));
+                fetch('/api/drivers/booking-settings', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ phone: normalized }),
+                });
+                setSaved('Phone saved');
+                setTimeout(() => setSaved(''), 2000);
+              }
+            }}
+            placeholder="(404) 555-1234"
+            style={{
+              width: '100%', background: '#1a1a1a', border: `1px solid ${data.phone ? 'rgba(255,255,255,0.1)' : 'rgba(255,82,82,0.3)'}`,
+              borderRadius: 12, padding: '12px 14px', color: '#fff', fontSize: 16,
+              fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+              letterSpacing: 1, outline: 'none',
+            }}
+          />
+          {data.phone && (
+            <div style={{ fontSize: 11, color: '#00E676', marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span>&#10003;</span> Booking notifications will be sent here
+            </div>
+          )}
         </div>
 
         {/* License Plate */}

@@ -33,6 +33,7 @@ export default async function DriverProfilePage() {
         displayName: (p.display_name as string) || (p.first_name as string) || '',
         firstName: (p.first_name as string) || '',
         lastName: (p.last_name as string) || '',
+        phone: (p.phone as string) || '',
         gender: (p.gender as string) || '',
         pronouns: (p.pronouns as string) || '',
         lgbtqFriendly: (p.lgbtq_friendly as boolean) || false,
