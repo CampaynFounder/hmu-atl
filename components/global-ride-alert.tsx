@@ -59,7 +59,16 @@ export function GlobalRideAlert() {
     if (msg.name === 'ride_update' || msg.name === 'status_change') {
       const status = data.status as string;
       const rideId = data.rideId as string;
-      if (rideId && ['otw', 'here'].includes(status)) {
+      if (rideId && status === 'cancelled') {
+        setAlert({
+          type: 'ride_cancelled',
+          rideId,
+          driverName: (data.driverName as string) || undefined,
+          message: (data.message as string) || 'Ride was cancelled',
+        });
+        if (dismissTimer.current) clearTimeout(dismissTimer.current);
+        dismissTimer.current = setTimeout(() => setAlert(null), 15000);
+      } else if (rideId && ['otw', 'here'].includes(status)) {
         setAlert({
           type: 'ride_status',
           rideId,
@@ -69,6 +78,17 @@ export function GlobalRideAlert() {
         if (dismissTimer.current) clearTimeout(dismissTimer.current);
         dismissTimer.current = setTimeout(() => setAlert(null), 20000);
       }
+    }
+
+    // Booking cancelled by rider (driver side)
+    if (msg.name === 'booking_cancelled') {
+      setAlert({
+        type: 'booking_cancelled',
+        rideId: '',
+        message: 'Booking request was cancelled by the rider',
+      });
+      if (dismissTimer.current) clearTimeout(dismissTimer.current);
+      dismissTimer.current = setTimeout(() => setAlert(null), 10000);
     }
   }, []);
 
@@ -80,6 +100,7 @@ export function GlobalRideAlert() {
   if (!alert) return null;
 
   const isAccepted = alert.type === 'booking_accepted';
+  const isCancelled = alert.type === 'ride_cancelled' || alert.type === 'booking_cancelled';
 
   return (
     <div style={{
@@ -98,12 +119,12 @@ export function GlobalRideAlert() {
       {/* Icon */}
       <div style={{
         width: 80, height: 80, borderRadius: '50%',
-        background: isAccepted ? 'rgba(0,230,118,0.15)' : 'rgba(255,145,0,0.15)',
+        background: isCancelled ? 'rgba(255,82,82,0.15)' : isAccepted ? 'rgba(0,230,118,0.15)' : 'rgba(255,145,0,0.15)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        marginBottom: 24, animation: 'alertPulse 2s ease-in-out infinite',
+        marginBottom: 24, animation: isCancelled ? 'none' : 'alertPulse 2s ease-in-out infinite',
       }}>
         <span style={{ fontSize: 40 }}>
-          {isAccepted ? '\u{1F91D}' : alert.message?.includes('here') ? '\u{1F4CD}' : '\u{1F697}'}
+          {isCancelled ? '\u274C' : isAccepted ? '\u{1F91D}' : alert.message?.includes('here') ? '\u{1F4CD}' : '\u{1F697}'}
         </span>
       </div>
 
@@ -113,7 +134,7 @@ export function GlobalRideAlert() {
         fontSize: 36, color: '#fff', textAlign: 'center',
         lineHeight: 1, marginBottom: 8,
       }}>
-        {isAccepted ? 'RIDE ACCEPTED!' : alert.message?.toUpperCase() || 'RIDE UPDATE'}
+        {isCancelled ? 'RIDE CANCELLED' : isAccepted ? 'RIDE ACCEPTED!' : alert.message?.toUpperCase() || 'RIDE UPDATE'}
       </h1>
 
       {/* Subtitle */}
@@ -121,28 +142,48 @@ export function GlobalRideAlert() {
         fontSize: 15, color: '#bbb', textAlign: 'center',
         lineHeight: 1.5, marginBottom: 8, maxWidth: 300,
       }}>
-        {isAccepted
+        {isCancelled
+          ? alert.message || 'This ride has been cancelled. No charge was made.'
+          : isAccepted
           ? `${alert.driverName || 'Your driver'} accepted your ride${alert.price ? ` — $${alert.price}` : ''}. Tap below to confirm your pickup.`
           : alert.message || 'Check your ride for updates.'}
       </p>
 
       {/* CTA */}
-      <button
-        onClick={() => {
-          setAlert(null);
-          if (dismissTimer.current) clearTimeout(dismissTimer.current);
-          router.push(`/ride/${alert.rideId}`);
-        }}
-        style={{
-          width: '100%', maxWidth: 320, padding: 18, borderRadius: 100,
-          border: 'none', background: '#00E676', color: '#080808',
-          fontSize: 17, fontWeight: 800, cursor: 'pointer',
-          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-          marginTop: 16, animation: 'alertBounce 2s ease-in-out infinite',
-        }}
-      >
-        {isAccepted ? 'Go to Ride' : 'Open Ride'}
-      </button>
+      {isCancelled ? (
+        <button
+          onClick={() => {
+            setAlert(null);
+            if (dismissTimer.current) clearTimeout(dismissTimer.current);
+          }}
+          style={{
+            width: '100%', maxWidth: 320, padding: 18, borderRadius: 100,
+            border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
+            color: '#fff', fontSize: 17, fontWeight: 700, cursor: 'pointer',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            marginTop: 16,
+          }}
+        >
+          Got it
+        </button>
+      ) : (
+        <button
+          onClick={() => {
+            setAlert(null);
+            if (dismissTimer.current) clearTimeout(dismissTimer.current);
+            router.push(`/ride/${alert.rideId}`);
+          }}
+          style={{
+            width: '100%', maxWidth: 320, padding: 18, borderRadius: 100,
+            border: 'none', background: '#00E676', color: '#080808',
+            fontSize: 17, fontWeight: 800, cursor: 'pointer',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            marginTop: 16, animation: 'alertBounce 2s ease-in-out infinite',
+          }}
+        >
+          {isAccepted ? 'Go to Ride' : 'Open Ride'}
+        </button>
+      )}
 
       {/* Dismiss */}
       <button

@@ -167,6 +167,7 @@ export default function ActiveRideClient({
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [menuSheetOpen, setMenuSheetOpen] = useState(false);
   const [pendingStop, setPendingStop] = useState<{ address: string; latitude?: number; longitude?: number } | null>(null);
+  const [cancelRequest, setCancelRequest] = useState<{ message: string; reason: string } | null>(null);
   const [endRideConfirm, setEndRideConfirm] = useState<{ show: boolean; reason: string; notes: string }>({ show: false, reason: '', notes: '' });
   const [addingMidRideStop, setAddingMidRideStop] = useState(false);
   const [priceEditorOpen, setPriceEditorOpen] = useState(false);
@@ -268,6 +269,10 @@ export default function ActiveRideClient({
             ...(newStatus === 'ended' ? { endedAt: now } : {}),
           }));
           showStatusNotification(newStatus);
+          // Vibrate + haptic on cancel for immediate attention
+          if (newStatus === 'cancelled' && navigator.vibrate) {
+            navigator.vibrate([200, 100, 200, 100, 200]);
+          }
         }
         break;
       }
@@ -302,14 +307,11 @@ export default function ActiveRideClient({
       }
       case 'cancel_request': {
         if (isDriver) {
-          const agreed = confirm(`${data.message || 'Rider wants to cancel.'}\n\nAgree to cancel this ride?`);
-          if (agreed) {
-            fetch(`/api/rides/${rideId}/cancel`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ agreeToCancel: true }),
-            }).then(() => setRide(prev => ({ ...prev, status: 'cancelled' })));
-          }
+          setCancelRequest({
+            message: (data.message as string) || 'Rider wants to cancel',
+            reason: (data.reason as string) || '',
+          });
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
         }
         break;
       }
@@ -1538,6 +1540,54 @@ export default function ActiveRideClient({
                     : "Your driver's ETA is live — keep HMU open to track"
               }
             </span>
+          </div>
+        )}
+
+        {/* Cancel request banner (driver sees this when rider requests cancel) */}
+        {cancelRequest && isDriver && (
+          <div style={{
+            background: 'rgba(255,82,82,0.12)', border: '1px solid rgba(255,82,82,0.3)',
+            borderRadius: 16, padding: '16px', marginBottom: 10,
+            animation: 'actionPulse 2s ease-in-out infinite',
+          }}>
+            <style>{`@keyframes actionPulse { 0%,100%{box-shadow:none} 50%{box-shadow:0 0 16px rgba(255,82,82,0.2)} }`}</style>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', marginBottom: 4 }}>
+              Rider wants to cancel
+            </div>
+            <div style={{ fontSize: 13, color: '#bbb', marginBottom: 12, lineHeight: 1.4 }}>
+              {cancelRequest.message}{cancelRequest.reason ? ` — "${cancelRequest.reason}"` : ''}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={async () => {
+                  await fetch(`/api/rides/${rideId}/cancel`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agreeToCancel: true }),
+                  });
+                  setCancelRequest(null);
+                  setRide(prev => ({ ...prev, status: 'cancelled' }));
+                }}
+                style={{
+                  flex: 1, padding: 12, borderRadius: 100, border: 'none',
+                  background: '#FF5252', color: '#fff', fontSize: 14, fontWeight: 700,
+                  cursor: 'pointer', fontFamily: 'var(--font-body)',
+                }}
+              >
+                Agree — Cancel Ride
+              </button>
+              <button
+                onClick={() => setCancelRequest(null)}
+                style={{
+                  flex: 1, padding: 12, borderRadius: 100,
+                  border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
+                  color: '#bbb', fontSize: 14, fontWeight: 600,
+                  cursor: 'pointer', fontFamily: 'var(--font-body)',
+                }}
+              >
+                Keep Riding
+              </button>
+            </div>
           </div>
         )}
 
