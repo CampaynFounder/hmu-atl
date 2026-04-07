@@ -34,7 +34,7 @@ interface Props {
   driver: DriverData;
   open: boolean;
   onClose: () => void;
-  prefill?: { price?: string; pickup?: string; dropoff?: string; time?: string; stops?: string; roundTrip?: boolean; isCash?: boolean } | null;
+  prefill?: { price?: string; pickup?: string; dropoff?: string; time?: string; resolvedTime?: string; timeDisplay?: string; stops?: string; roundTrip?: boolean; isCash?: boolean; driverMinimum?: number } | null;
 }
 
 type DrawerState = 'form' | 'pending' | 'accepted' | 'expired' | 'error';
@@ -88,9 +88,15 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
     );
   };
 
+  const driverMinimum = prefill?.driverMinimum || Number(driver.pricing.minimum) || 0;
+
   const handleSubmit = async () => {
     if (!price || !dropoff) {
       setError('Set a price and drop-off location.');
+      return;
+    }
+    if (driverMinimum > 0 && Number(price) < driverMinimum) {
+      setError(`${driver.displayName}'s minimum is $${driverMinimum} — bump it up to book.`);
       return;
     }
     setSubmitting(true);
@@ -107,6 +113,8 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
             pickup: pickup || '',
             dropoff: dropoff || '',
             time: timeWindow || '',
+            resolvedTime: (prefill as Record<string, unknown>)?.resolvedTime || null,
+            timeDisplay: (prefill as Record<string, unknown>)?.timeDisplay || null,
             stops: prefill?.stops || '',
             round_trip: prefill?.roundTrip || false,
           },
@@ -120,6 +128,13 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
       }
       setExpiresAt(new Date(data.expiresAt));
       setState('pending');
+
+      // Booking submitted successfully — NOW clear localStorage and server draft
+      try {
+        localStorage.removeItem(`hmu_chat_booking_${driver.handle}`);
+        localStorage.removeItem('hmu_chat_booking');
+        fetch(`/api/rider/draft-booking?driverHandle=${driver.handle}`, { method: 'DELETE' }).catch(() => {});
+      } catch { /* ignore */ }
     } catch {
       setError('Network error — try again.');
     } finally {
@@ -194,10 +209,17 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
               type="number"
               className="drawer-input"
               value={price}
-              min={1}
+              min={driverMinimum || 1}
               onChange={(e) => setPrice(e.target.value)}
-              placeholder="Enter amount"
+              placeholder={driverMinimum ? `$${driverMinimum} minimum` : 'Enter amount'}
             />
+            {driverMinimum > 0 && (
+              <div style={{ fontSize: 12, color: Number(price) < driverMinimum ? '#FF4444' : '#888', marginTop: 6 }}>
+                {Number(price) < driverMinimum
+                  ? `Minimum is $${driverMinimum} — ${driver.displayName} won't see offers below this`
+                  : `$${driverMinimum} minimum · you can offer more`}
+              </div>
+            )}
 
             <div className="drawer-label">Area</div>
             <div className="area-chips-select">

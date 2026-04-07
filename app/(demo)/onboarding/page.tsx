@@ -5,6 +5,7 @@ import { useUser } from '@clerk/nextjs';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { RiderOnboarding } from '@/components/onboarding/rider-onboarding';
 import { DriverOnboarding } from '@/components/onboarding/driver-onboarding';
+import { ExpressRiderOnboarding } from '@/components/onboarding/express-rider-onboarding';
 import { ProfileTypeSelector } from '@/components/onboarding/profile-type-selector';
 
 function OnboardingInner() {
@@ -25,6 +26,11 @@ function OnboardingInner() {
 
   const activeType = (resolvedType || selectedType) as 'rider' | 'driver' | null;
   const tier = (user?.publicMetadata?.tier as string | undefined) ?? 'free';
+
+  // Detect chat booking flow: returnTo starts with /d/ (coming from driver share page)
+  const returnTo = searchParams.get('returnTo');
+  const isFromChatBooking = !!(returnTo && returnTo.startsWith('/d/'));
+  const isCashRide = searchParams.get('cash') === '1';
 
   const handleComplete = () => {
     // Full page reload to force Clerk to re-fetch user metadata
@@ -58,6 +64,11 @@ function OnboardingInner() {
         <DriverOnboarding onComplete={handleComplete} tier={tier} />
       </div>
     );
+  }
+
+  // Express onboarding for riders coming from chat booking — minimal fields
+  if (isFromChatBooking && activeType === 'rider') {
+    return <ExpressRiderOnboarding onComplete={handleComplete} isCash={isCashRide} />;
   }
 
   return (

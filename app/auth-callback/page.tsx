@@ -34,10 +34,12 @@ export default function AuthCallbackPage() {
       // Read type from URL params first, fall back to localStorage (OAuth loses URL params)
       const type = params.get('type') || localStorage.getItem('hmu_signup_type');
       const returnTo = params.get('returnTo') || localStorage.getItem('hmu_signup_returnTo');
+      const isCash = params.get('cash') || localStorage.getItem('hmu_signup_cash');
 
       // Clean up localStorage after reading — one-time use
       localStorage.removeItem('hmu_signup_type');
       localStorage.removeItem('hmu_signup_returnTo');
+      localStorage.removeItem('hmu_signup_cash');
 
       const res = await fetch('/api/users/onboarding');
       const data = await res.json();
@@ -69,6 +71,7 @@ export default function AuthCallbackPage() {
         const onboardingParams = new URLSearchParams();
         if (type) onboardingParams.set('type', type);
         if (returnTo) onboardingParams.set('returnTo', returnTo);
+        if (isCash === '1') onboardingParams.set('cash', '1');
         const onboardingUrl = `/onboarding${onboardingParams.size ? `?${onboardingParams}` : ''}`;
         router.replace(onboardingUrl);
       }

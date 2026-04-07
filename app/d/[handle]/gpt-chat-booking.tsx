@@ -26,6 +26,39 @@ interface ChatMsg {
 
 const COLORS = { green: '#00E676', black: '#080808', card: '#141414', white: '#fff', gray: '#888', orange: '#FF9100' };
 
+/** Per-driver localStorage key so chatting with one driver doesn't overwrite another */
+function chatStorageKey(handle: string) {
+  return `hmu_chat_booking_${handle}`;
+}
+
+/** Save incremental chat progress so navigation away doesn't lose everything */
+function saveChatProgress(handle: string, messages: ChatMsg[], extracted: Record<string, unknown>, step: string) {
+  try {
+    localStorage.setItem(chatStorageKey(handle), JSON.stringify({
+      messages: messages.filter(m => m.from !== 'system').slice(-20), // keep last 20 non-system msgs
+      extracted,
+      step,
+      savedAt: Date.now(),
+    }));
+  } catch { /* quota exceeded — ignore */ }
+}
+
+function loadChatProgress(handle: string): { messages: ChatMsg[]; extracted: Record<string, unknown>; step: string } | null {
+  try {
+    const raw = localStorage.getItem(chatStorageKey(handle));
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    // Expire after 24 hours
+    if (Date.now() - (data.savedAt || 0) > 24 * 60 * 60 * 1000) {
+      localStorage.removeItem(chatStorageKey(handle));
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * GPT-powered discovery chat for HMU link visitors.
  * Handles: distance, pricing, availability, driver Q&A.
@@ -44,16 +77,28 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const initRef = useRef(false);
 
-  // ── Initial greeting ──
+  // ── Initial greeting + restore saved progress ──
   useEffect(() => {
     if (!open || initRef.current) return;
     initRef.current = true;
-    const minPrice = driver.pricing.minimum ? `$${driver.pricing.minimum} minimum` : '';
-    const cashNote = driver.cashOnly ? ' Cash rides only.' : '';
-    setMessages([{
-      id: '0', from: 'assistant',
-      text: `What's good! Ask me anything about riding with ${driver.displayName} — pricing, distance, availability.${minPrice ? ` (${minPrice})` : ''}${cashNote} When you're ready, I'll get you booked.`,
-    }]);
+
+    // Try to restore previous chat progress for this driver
+    const saved = loadChatProgress(driver.handle);
+    if (saved && saved.messages?.length > 0) {
+      setMessages([
+        { id: 'restored-notice', from: 'system', text: 'Continuing your previous conversation.' },
+        ...saved.messages,
+      ]);
+      if (saved.extracted) setExtractedSoFar(saved.extracted);
+      if (saved.step) setCurrentStep(saved.step);
+    } else {
+      const minPrice = driver.pricing.minimum ? `$${driver.pricing.minimum} minimum` : '';
+      const cashNote = driver.cashOnly ? ' Cash rides only.' : '';
+      setMessages([{
+        id: '0', from: 'assistant',
+        text: `What's good! Ask me anything about riding with ${driver.displayName} — pricing, distance, availability.${minPrice ? ` (${minPrice})` : ''}${cashNote} When you're ready, I'll get you booked.`,
+      }]);
+    }
     setTimeout(() => inputRef.current?.focus(), 300);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -96,21 +141,31 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
       }
 
       const data = await res.json();
-      if (data.extracted) setExtractedSoFar(prev => ({ ...prev, ...data.extracted }));
-      if (data.nextStep) setCurrentStep(data.nextStep);
+      const newExtracted = data.extracted ? { ...extractedSoFar, ...data.extracted } : extractedSoFar;
+      if (data.extracted) setExtractedSoFar(newExtracted);
+      const nextStep = data.nextStep || currentStep;
+      if (data.nextStep) setCurrentStep(nextStep);
 
       // GPT confirmed ride details — save for booking form pre-fill
       if (data.action === 'details_confirmed' && data.booking) {
-        const bookingDetails = { ...extractedSoFar, ...(data.booking || {}) };
+        const bookingDetails = { ...newExtracted, ...(data.booking || {}) };
+        localStorage.setItem(chatStorageKey(driver.handle), JSON.stringify(bookingDetails));
+        // Also save under legacy key for sign-up return flow
         localStorage.setItem('hmu_chat_booking', JSON.stringify(bookingDetails));
         setExtractedSoFar(bookingDetails);
       }
 
+      let updatedMessages = messages;
       if (data.reply) {
-        setMessages(prev => [...prev, {
-          id: `a-${Date.now()}`, from: 'assistant', text: data.reply,
-        }]);
+        const replyMsg: ChatMsg = { id: `a-${Date.now()}`, from: 'assistant', text: data.reply };
+        setMessages(prev => {
+          updatedMessages = [...prev, replyMsg];
+          return updatedMessages;
+        });
       }
+
+      // Save progress after every exchange so navigation away doesn't lose chat
+      saveChatProgress(driver.handle, [...messages, userMsg, ...(data.reply ? [{ id: `a-${Date.now()}`, from: 'assistant' as const, text: data.reply }] : [])], newExtracted, nextStep);
     } catch (err) {
       setMessages(prev => [...prev, {
         id: `e-${Date.now()}`, from: 'system',
@@ -122,8 +177,10 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
 
   if (!open) return null;
 
-  const signUpUrl = `/sign-up?type=rider&returnTo=${encodeURIComponent(`/d/${driver.handle}?bookingOpen=1`)}`;
-  const signInUrl = `/sign-in?type=rider&returnTo=${encodeURIComponent(`/d/${driver.handle}?bookingOpen=1`)}`;
+  const isCashRide = !!(extractedSoFar.isCash || driver.cashOnly);
+  const returnPath = `/d/${driver.handle}?bookingOpen=1${isCashRide ? '&cash=1' : ''}`;
+  const signUpUrl = `/sign-up?type=rider&returnTo=${encodeURIComponent(returnPath)}${isCashRide ? '&cash=1' : ''}`;
+  const signInUrl = `/sign-in?type=rider&returnTo=${encodeURIComponent(returnPath)}${isCashRide ? '&cash=1' : ''}`;
 
   const hasDetails = Object.keys(extractedSoFar).length > 0 && !!(extractedSoFar.destination || extractedSoFar.suggestedPrice);
 

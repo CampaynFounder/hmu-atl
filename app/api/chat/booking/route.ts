@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
 import { checkDriverAvailability } from '@/lib/schedule/conflicts';
+import { parseNaturalTime } from '@/lib/schedule/parse-time';
 
 /**
  * POST /api/chat/booking
@@ -32,10 +33,13 @@ const TOOLS = [
         properties: {
           pickup: { type: 'string', description: 'Where the rider is coming from (e.g. "Buckhead")' },
           dropoff: { type: 'string', description: 'Where the rider wants to go (e.g. "Airport")' },
-          time: { type: 'string', description: 'When they want the ride (e.g. "tomorrow 2pm", "now", "Friday evening")' },
+          time: { type: 'string', description: 'When they want the ride — rider\'s original words (e.g. "next Friday 3pm", "tomorrow evening")' },
+          resolvedTime: { type: 'string', description: 'The resolved date/time as an ISO 8601 string. You MUST resolve relative dates: "next Friday" → "2026-04-11T15:00:00", "this Sunday" → "2026-04-12T12:00:00". Use today\'s date as reference. If "now" or "asap", use current timestamp.' },
           stops: { type: 'string', description: 'Any intermediate stops (e.g. "stop at Kroger on the way")' },
           roundTrip: { type: 'boolean', description: 'Whether this is a round trip' },
-          suggestedPrice: { type: 'number', description: 'Suggested price based on driver pricing and distance' },
+          riderPrice: { type: 'number', description: 'The price the rider stated or agreed to (must be >= driver minimum)' },
+          suggestedPrice: { type: 'number', description: 'Your recommended price based on distance/comparison (for reference)' },
+          driverMinimum: { type: 'number', description: 'The driver\'s minimum ride price' },
           isCash: { type: 'boolean', description: 'Whether this should be a cash ride' },
         },
         required: ['destination'],
@@ -50,7 +54,7 @@ const TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          proposedTime: { type: 'string', description: 'ISO timestamp or natural language time to check' },
+          proposedTime: { type: 'string', description: 'ISO 8601 timestamp to check. Resolve relative dates yourself: "next Friday 3pm" → "2026-04-11T15:00:00". Use today\'s date as reference.' },
         },
         required: ['proposedTime'],
       },
@@ -66,13 +70,16 @@ const TOOLS = [
         properties: {
           pickup: { type: 'string', description: 'Pickup location as rider described it' },
           dropoff: { type: 'string', description: 'Dropoff location as rider described it' },
-          time: { type: 'string' },
+          time: { type: 'string', description: 'Rider\'s original time words (e.g. "next Friday 3pm")' },
+          resolvedTime: { type: 'string', description: 'ISO 8601 timestamp you resolved from the rider\'s words. MUST be an actual date, not relative. e.g. "2026-04-11T15:00:00"' },
           stops: { type: 'string' },
           roundTrip: { type: 'boolean' },
-          suggestedPrice: { type: 'number' },
+          riderPrice: { type: 'number', description: 'The price the rider explicitly agreed to or offered. Must be >= driver minimum. Use the rider\'s stated amount, NOT your recommendation.' },
+          suggestedPrice: { type: 'number', description: 'Your recommended price (for reference only). The booking form will default to riderPrice, not this.' },
+          driverMinimum: { type: 'number', description: 'The driver\'s minimum ride price' },
           isCash: { type: 'boolean' },
         },
-        required: ['pickup', 'dropoff', 'suggestedPrice'],
+        required: ['pickup', 'dropoff', 'riderPrice'],
       },
     },
   },
@@ -254,12 +261,21 @@ ${getStepInstructions(step, driver)}`;
             break;
           }
 
-          case 'confirm_details':
+          case 'confirm_details': {
+            // Resolve the time to a concrete ISO timestamp + display string
+            const timeInput = args.resolvedTime || args.time || '';
+            const parsed = parseNaturalTime(timeInput);
+            args.resolvedTime = parsed.iso;
+            args.timeDisplay = parsed.display;
+            args.isNow = parsed.isNow;
+
             result = {
               action: 'details_confirmed',
               booking: args,
+              resolvedTimeDisplay: parsed.display,
             };
             break;
+          }
 
           case 'analyze_sentiment':
             result = { flagged: true, ...args };
@@ -291,7 +307,17 @@ ${getStepInstructions(step, driver)}`;
       // Check if confirm_details was called — return extracted data to client
       const confirmAction = toolResults.find(tr => tr.name === 'confirm_details');
       if (confirmAction) {
-        const booking = (confirmAction.result as Record<string, unknown>).booking;
+        const booking = (confirmAction.result as Record<string, unknown>).booking as Record<string, unknown>;
+        // Ensure riderPrice takes priority — fall back to suggestedPrice for backwards compat
+        if (booking.riderPrice) {
+          booking.price = booking.riderPrice;
+        } else if (booking.suggestedPrice && !booking.price) {
+          booking.price = booking.suggestedPrice;
+        }
+        // Always pass driverMinimum so the booking form can validate
+        if (!booking.driverMinimum && pricing.minimum) {
+          booking.driverMinimum = Number(pricing.minimum);
+        }
         // Get GPT's follow-up question
         const finalRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
@@ -366,8 +392,11 @@ function buildSystemPrompt(driver: Record<string, unknown>, pricing: Record<stri
   const minPrice = pricing.minimum ? `$${pricing.minimum}` : 'no minimum';
   const cashStatus = driver.cash_only ? 'CASH ONLY' : driver.accepts_cash ? 'cash + digital' : 'digital only';
 
+  const todayStr = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
   return `You are ${name}'s booking assistant on HMU ATL — peer-to-peer rides in Metro Atlanta.
 
+TODAY: ${todayStr}
 DRIVER: ${name} | Areas: ${areas.join(', ') || 'ATL'} | Min: ${minPrice} | Payment: ${cashStatus} | Chill: ${Number(driver.chill_score || 0).toFixed(0)}%
 
 STRICT RULES:
@@ -377,7 +406,9 @@ STRICT RULES:
 4. Keep responses to 2-3 sentences max
 5. Casual Atlanta voice — not corporate
 6. You collect trip details — the APP handles booking
-7. Follow the CURRENT STEP exactly — do not skip or repeat steps`;
+7. Follow the CURRENT STEP exactly — do not skip or repeat steps
+8. PRICE RULE: The driver minimum (${minPrice}) is the FLOOR. Any price at or above it is VALID. Never push back on a valid price. When calling confirm_details, set riderPrice to the rider's stated amount — never override it with your recommendation.
+9. DATE RULE: When a rider says a relative date ("next Friday", "this Sunday", "Saturday 3pm"), you MUST resolve it to the actual calendar date using TODAY as reference. Always set resolvedTime as an ISO timestamp (e.g. "2026-04-11T15:00:00"). Always confirm the resolved date back: "So that's Friday April 11th at 3pm — that right?" NEVER leave time as "next Friday" in resolvedTime.`;
 }
 
 function getStepInstructions(step: string, driver: Record<string, unknown>): string {
@@ -389,8 +420,10 @@ function getStepInstructions(step: string, driver: Record<string, unknown>): str
       return `GOAL: Get pickup location, dropoff location, and when they need the ride.
 DO: Ask "Where you headed?" if no destination. Ask "When do you need the ride?" if no time.
 DO: If they give both in one message, call calculate_route immediately.
-DO: Accept natural language like "buckhead to airport tomorrow 2pm"
-ADVANCE TO NEXT STEP WHEN: You have pickup, dropoff, and time.
+DO: Accept natural language like "buckhead to airport tomorrow 2pm", "next Friday evening", "this Sunday 3pm"
+DO: When the rider gives a relative date like "next Friday" or "this Sunday", IMMEDIATELY resolve it to the actual date using TODAY (${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}) as reference. Confirm it back: "So that's Friday April 11th — what time works?"
+DO: If the rider only gives a day with no time, ask what time. If they say "afternoon" or "evening", resolve to 2pm or 6pm respectively.
+ADVANCE TO NEXT STEP WHEN: You have pickup, dropoff, and a SPECIFIC date + time (not just "next Friday" — must be resolved).
 OUTPUT: After calling calculate_route, share the distance and drive time, then ask about stops.`;
 
     case 'stops':
@@ -416,13 +449,15 @@ DO: NEVER reveal the pricing formula or mention "midpoint", "lower bound", or "s
 DO: If rider offers a price AT or ABOVE the driver minimum, ACCEPT IT IMMEDIATELY — say "bet, $Z works" and advance. Do NOT try to upsell or suggest a higher price.
 DO: If rider offers BELOW the driver minimum, explain: "${name}'s minimum is $[min] — can you do at least that?" This is the ONLY reason to push back on a price.
 DO: NEVER reject or negotiate a price that is at or above the driver minimum, even if it's below your recommendation. The driver decides if the price works — your job is just to enforce the minimum floor.
+CRITICAL: When calling confirm_details, set riderPrice to the EXACT amount the rider stated or agreed to. Do NOT substitute your recommendation. If the rider said "$15" and the minimum is $10, riderPrice must be 15 — not your suggested $22 or whatever. The booking form uses riderPrice as the default.
 ADVANCE TO NEXT STEP WHEN: Rider states a price >= driver minimum.
 OUTPUT: Confirm all details and call confirm_details.`;
 
     case 'confirm':
       return `GOAL: Summarize the trip and call confirm_details to save it.
-DO: Call confirm_details with SEPARATE pickup and dropoff (not combined), time, stops, price, roundTrip, isCash.
-DO: Summarize like: "Here's your trip: [pickup] → [dropoff], [time], ~$[price]. You can adjust the price before confirming. Ready?"
+DO: Call confirm_details with SEPARATE pickup and dropoff (not combined), time (rider's words), resolvedTime (ISO timestamp), stops, riderPrice, roundTrip, isCash.
+DO: Summarize with the RESOLVED date: "Here's your trip: [pickup] → [dropoff], [resolved date like 'Friday April 11th at 3pm'], ~$[price]. You can adjust the price and time before confirming. Ready?"
+DO: NEVER show an ISO timestamp to the rider — always use a friendly format like "Friday April 11th at 3:00 PM"
 DO: Always mention they can adjust the price in the booking form.
 ADVANCE TO NEXT STEP WHEN: confirm_details is called successfully.
 OUTPUT: The app will show sign-up/booking buttons — your job is done.`;
@@ -432,34 +467,9 @@ OUTPUT: The app will show sign-up/booking buttons — your job is done.`;
   }
 }
 
+/** Parse natural language time to ISO — delegates to shared parser */
 function parseTimeToISO(timeStr: string): string {
-  const now = new Date();
-  const lower = timeStr.toLowerCase();
-
-  if (lower === 'now' || lower === 'asap') return now.toISOString();
-
-  // Try to parse relative dates
-  if (lower.includes('tomorrow')) {
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const hourMatch = lower.match(/(\d{1,2})\s*(am|pm|a|p)/i);
-    if (hourMatch) {
-      let hour = parseInt(hourMatch[1]);
-      if (hourMatch[2].toLowerCase().startsWith('p') && hour < 12) hour += 12;
-      if (hourMatch[2].toLowerCase().startsWith('a') && hour === 12) hour = 0;
-      tomorrow.setHours(hour, 0, 0, 0);
-    } else {
-      tomorrow.setHours(12, 0, 0, 0);
-    }
-    return tomorrow.toISOString();
-  }
-
-  // Try direct parse
-  const parsed = new Date(timeStr);
-  if (!isNaN(parsed.getTime())) return parsed.toISOString();
-
-  // Fallback to now
-  return now.toISOString();
+  return parseNaturalTime(timeStr).iso;
 }
 
 /**
@@ -519,9 +529,9 @@ function calculateUberComparison(args: {
     uberEstimate: uberPrice,
     recommendedPrice: hmuSuggested,
     driverMinimum: driverMinimum,
-    acceptableRange: `Any price from $${driverMinimum} and up is valid`,
+    acceptableRange: `Any price from $${driverMinimum} and up is valid — the rider can book at exactly $${driverMinimum} if they want`,
     savings: savings > 0 ? `Save ~$${savings} vs Uber` : 'Comparable to Uber',
-    note: 'Rider can offer any price at or above driver minimum. Do not reject valid offers.',
+    note: `IMPORTANT: If the rider offers $${driverMinimum} or more, ACCEPT IT. Do not push for the recommended $${hmuSuggested}. The minimum IS a valid price.`,
   };
 }
 

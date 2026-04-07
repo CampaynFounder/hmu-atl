@@ -27,6 +27,7 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
     firstName: string;
     lastName: string;
     displayName: string;
+    phone: string;
     gender: string;
     pronouns: string;
     lgbtqFriendly: boolean;
@@ -34,6 +35,7 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
     firstName: '',
     lastName: '',
     displayName: '',
+    phone: '',
     gender: '',
     pronouns: '',
     lgbtqFriendly: false,
@@ -410,6 +412,7 @@ async function saveRiderOnboarding(data: {
   firstName: string;
   lastName: string;
   displayName: string;
+  phone: string;
   gender: string;
   pronouns: string;
   lgbtqFriendly: boolean;
@@ -423,6 +426,7 @@ async function saveRiderOnboarding(data: {
         first_name: data.firstName,
         last_name: data.lastName,
         display_name: data.displayName || `${data.firstName} ${data.lastName.charAt(0)}.`,
+        phone: data.phone || null,
         gender: data.gender,
         pronouns: data.pronouns,
         lgbtq_friendly: data.lgbtqFriendly,

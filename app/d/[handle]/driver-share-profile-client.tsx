@@ -47,7 +47,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [bookingFormOpen, setBookingFormOpen] = useState(false);
-  const [prefillData, setPrefillData] = useState<{ price?: string; pickup?: string; dropoff?: string; time?: string; stops?: string; roundTrip?: boolean; isCash?: boolean } | null>(null);
+  const [prefillData, setPrefillData] = useState<{ price?: string; pickup?: string; dropoff?: string; time?: string; resolvedTime?: string; timeDisplay?: string; stops?: string; roundTrip?: boolean; isCash?: boolean; driverMinimum?: number } | null>(null);
   const [videoMuted, setVideoMuted] = useState(true);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
 
@@ -83,29 +83,78 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
       .finally(() => setEligibilityLoading(false));
   }, [isLoaded, isSignedIn, driver.handle]);
 
+  // Helper to parse booking data into prefill format
+  const parsePrefillData = (data: Record<string, unknown>) => ({
+    price: data.riderPrice ? String(data.riderPrice) : data.price ? String(data.price) : data.suggestedPrice ? String(data.suggestedPrice) : undefined,
+    pickup: (data.pickup as string) || (data.destination as string)?.split(/\s*(?:to|>|→)\s*/i)[0] || undefined,
+    dropoff: (data.dropoff as string) || (data.destination as string)?.split(/\s*(?:to|>|→)\s*/i)[1] || undefined,
+    time: (data.timeDisplay as string) || (data.time as string) || undefined,
+    resolvedTime: (data.resolvedTime as string) || undefined,
+    timeDisplay: (data.timeDisplay as string) || undefined,
+    stops: (data.stops as string) || undefined,
+    roundTrip: (data.roundTrip as boolean) || false,
+    isCash: (data.isCash as boolean) || false,
+    driverMinimum: data.driverMinimum ? Number(data.driverMinimum) : undefined,
+  });
+
   // Auto-open booking form if rider just completed signup+onboarding (returned with bookingOpen=1)
   useEffect(() => {
-    if (autoOpenBooking && isLoaded && isSignedIn) {
-      // Restore chat booking data from localStorage
+    if (!autoOpenBooking || !isLoaded || !isSignedIn) return;
+
+    // 1. Try localStorage first (same device)
+    const driverKey = `hmu_chat_booking_${driver.handle}`;
+    const saved = localStorage.getItem(driverKey) || localStorage.getItem('hmu_chat_booking');
+    if (saved) {
       try {
-        const saved = localStorage.getItem('hmu_chat_booking');
-        if (saved) {
-          const data = JSON.parse(saved);
-          setPrefillData({
-            price: data.price ? String(data.price) : data.suggestedPrice ? String(data.suggestedPrice) : undefined,
-            pickup: (data.pickup as string) || (data.destination as string)?.split(/\s*(?:to|>|→)\s*/i)[0] || undefined,
-            dropoff: (data.dropoff as string) || (data.destination as string)?.split(/\s*(?:to|>|→)\s*/i)[1] || undefined,
-            time: (data.time as string) || undefined,
-            stops: (data.stops as string) || undefined,
-            roundTrip: (data.roundTrip as boolean) || false,
-            isCash: (data.isCash as boolean) || false,
-          });
-          localStorage.removeItem('hmu_chat_booking');
-        }
+        const raw = JSON.parse(saved);
+        const data = raw.extracted || raw;
+        setPrefillData(parsePrefillData(data));
       } catch { /* ignore */ }
       setBookingFormOpen(true);
+      return;
     }
-  }, [autoOpenBooking, isLoaded, isSignedIn]);
+
+    // 2. No localStorage — try server-side draft (different device / cleared cache)
+    fetch(`/api/rider/draft-booking?driverHandle=${driver.handle}`)
+      .then(r => r.json())
+      .then(res => {
+        if (res.draft) {
+          const data = (res.draft as Record<string, unknown>).extracted || res.draft;
+          setPrefillData(parsePrefillData(data as Record<string, unknown>));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setBookingFormOpen(true));
+  }, [autoOpenBooking, isLoaded, isSignedIn, driver.handle]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Check for saved chat progress and show recovery prompt (no bookingOpen param needed)
+  const [hasSavedChat, setHasSavedChat] = useState(false);
+  useEffect(() => {
+    if (autoOpenBooking) return; // handled by the auto-open flow above
+    try {
+      const driverKey = `hmu_chat_booking_${driver.handle}`;
+      const saved = localStorage.getItem(driverKey);
+      if (saved) {
+        const data = JSON.parse(saved);
+        // Only show recovery if less than 24 hours old
+        if (data.savedAt && Date.now() - data.savedAt < 24 * 60 * 60 * 1000) {
+          setHasSavedChat(true);
+        } else {
+          localStorage.removeItem(driverKey);
+        }
+      }
+    } catch { /* ignore */ }
+  }, [driver.handle, autoOpenBooking]);
+
+  const resumeSavedChat = () => {
+    setHasSavedChat(false);
+    setDrawerOpen(true);
+  };
+
+  const dismissSavedChat = () => {
+    setHasSavedChat(false);
+    localStorage.removeItem(`hmu_chat_booking_${driver.handle}`);
+  };
 
   // Listen for chat-to-booking handoff (signed-in user confirmed via GPT chat)
   useEffect(() => {
@@ -113,13 +162,16 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
       const detail = (e as CustomEvent).detail as Record<string, unknown> | undefined;
       if (detail) {
         setPrefillData({
-          price: detail.price ? String(detail.price) : detail.suggestedPrice ? String(detail.suggestedPrice) : undefined,
+          price: detail.riderPrice ? String(detail.riderPrice) : detail.price ? String(detail.price) : detail.suggestedPrice ? String(detail.suggestedPrice) : undefined,
           pickup: (detail.pickup as string) || (detail.destination as string)?.split(/\s*(?:to|>|→)\s*/i)[0] || undefined,
           dropoff: (detail.dropoff as string) || (detail.destination as string)?.split(/\s*(?:to|>|→)\s*/i)[1] || undefined,
-          time: (detail.time as string) || undefined,
+          time: (detail.timeDisplay as string) || (detail.time as string) || undefined,
+          resolvedTime: (detail.resolvedTime as string) || undefined,
+          timeDisplay: (detail.timeDisplay as string) || undefined,
           stops: (detail.stops as string) || undefined,
           roundTrip: (detail.roundTrip as boolean) || false,
           isCash: (detail.isCash as boolean) || false,
+          driverMinimum: detail.driverMinimum ? Number(detail.driverMinimum) : undefined,
         });
       }
       setDrawerOpen(false);
@@ -209,6 +261,30 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
       `}</style>
 
       <div className="profile-page">
+        {/* Recovery banner for saved chat progress */}
+        {hasSavedChat && (
+          <div style={{
+            margin: '12px 20px', padding: '14px 16px', borderRadius: 14,
+            background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+          }}>
+            <div style={{ fontSize: 13, color: '#ccc', lineHeight: 1.4 }}>
+              <strong style={{ color: '#fff' }}>Continue your booking?</strong><br />
+              You had a conversation in progress.
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              <button onClick={dismissSavedChat} style={{
+                padding: '8px 14px', borderRadius: 100, border: '1px solid rgba(255,255,255,0.1)',
+                background: 'transparent', color: '#888', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}>Dismiss</button>
+              <button onClick={resumeSavedChat} style={{
+                padding: '8px 14px', borderRadius: 100, border: 'none',
+                background: '#00E676', color: '#080808', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+              }}>Continue</button>
+            </div>
+          </div>
+        )}
+
         {/* Back to browse — logged-in riders */}
         {isLoggedIn && (
           <Link

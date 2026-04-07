@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAbly } from '@/hooks/use-ably';
 import CashoutCard from '@/components/driver/cashout-card';
 import DealCard from '@/components/driver/deal-card';
+import { PendingActionBanner } from '@/components/pending-action-banner';
 
 interface BookingRequest {
   id: string;
@@ -197,6 +198,11 @@ export default function DriverHomeClient({
       `}</style>
 
       <div className="driver-home">
+        {/* Pending actions */}
+        <div style={{ paddingTop: 8 }}>
+          <PendingActionBanner maxActions={3} />
+        </div>
+
         <h1 className="greeting">
           {displayName}
           {isHmuFirst

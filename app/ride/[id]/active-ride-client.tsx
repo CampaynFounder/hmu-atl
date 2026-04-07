@@ -633,29 +633,12 @@ export default function ActiveRideClient({
     }
   }, [ride.riderLat, ride.riderLng, driverLocation]);
 
-  // ── Route line between pickup and dropoff ──
+  // ── Pickup + Dropoff markers (static — placed once) ──
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || routeDrawnRef.current) return;
-    if (!ride.pickupLat || !ride.pickupLng || !ride.dropoffLat || !ride.dropoffLng) return;
-    if (typeof mapboxgl === 'undefined') return;
+    if (!map || typeof mapboxgl === 'undefined') return;
 
-    const pickupCoords: [number, number] = [ride.pickupLng, ride.pickupLat];
-    const dropoffCoords: [number, number] = [ride.dropoffLng, ride.dropoffLat];
-
-    // Build waypoints string (pickup ; stops ; dropoff)
-    let coords = `${pickupCoords[0]},${pickupCoords[1]}`;
-    if (Array.isArray(ride.stops)) {
-      for (const s of ride.stops as Array<Record<string, unknown>>) {
-        if (s.longitude && s.latitude) {
-          coords += `;${s.longitude},${s.latitude}`;
-        }
-      }
-    }
-    coords += `;${dropoffCoords[0]},${dropoffCoords[1]}`;
-
-    // Add pickup marker (green ring)
-    if (!pickupMarkerRef.current) {
+    if (ride.pickupLat && ride.pickupLng && !pickupMarkerRef.current) {
       const pEl = document.createElement('div');
       pEl.style.width = '14px';
       pEl.style.height = '14px';
@@ -664,12 +647,11 @@ export default function ActiveRideClient({
       pEl.style.backgroundColor = 'transparent';
       pEl.style.boxShadow = `0 0 8px ${COLORS.green}`;
       pickupMarkerRef.current = new mapboxgl.Marker({ element: pEl })
-        .setLngLat(pickupCoords)
+        .setLngLat([ride.pickupLng, ride.pickupLat])
         .addTo(map);
     }
 
-    // Add dropoff marker (solid green square)
-    if (!dropoffMarkerRef.current) {
+    if (ride.dropoffLat && ride.dropoffLng && !dropoffMarkerRef.current) {
       const dEl = document.createElement('div');
       dEl.style.width = '14px';
       dEl.style.height = '14px';
@@ -678,17 +660,85 @@ export default function ActiveRideClient({
       dEl.style.border = `2px solid ${COLORS.white}`;
       dEl.style.boxShadow = `0 0 8px ${COLORS.green}`;
       dropoffMarkerRef.current = new mapboxgl.Marker({ element: dEl })
-        .setLngLat(dropoffCoords)
+        .setLngLat([ride.dropoffLng, ride.dropoffLat])
         .addTo(map);
     }
+  }, [ride.pickupLat, ride.pickupLng, ride.dropoffLat, ride.dropoffLng]);
 
-    // Fetch route geometry from Directions API
+  // ── Live route line from driver's current location to destination ──
+  // Redraws on every GPS update so the route always reflects current position.
+  // OTW/HERE: driver → pickup (via stops if any)
+  // ACTIVE: driver → next unreached stop → dropoff
+  const routeFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRouteFetch = useRef(0);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || typeof mapboxgl === 'undefined') return;
+    if (!driverLocation) return;
+    if (!['otw', 'here', 'confirming', 'active'].includes(ride.status)) return;
+
+    // Throttle route fetches to max once per 15 seconds
+    const now = Date.now();
+    if (now - lastRouteFetch.current < 15_000) {
+      // Schedule a deferred update if one isn't already pending
+      if (!routeFetchTimer.current) {
+        routeFetchTimer.current = setTimeout(() => {
+          routeFetchTimer.current = null;
+          // Re-trigger by updating a harmless ref — the effect will re-run
+          lastRouteFetch.current = 0;
+          setLastLocationUpdate(Date.now());
+        }, 15_000 - (now - lastRouteFetch.current));
+      }
+      return;
+    }
+    lastRouteFetch.current = now;
+
+    // Determine destination based on ride phase
+    let destLat: number | null | undefined;
+    let destLng: number | null | undefined;
+    const waypoints: string[] = [];
+
+    if (ride.status === 'active') {
+      // Active ride: driver → unreached stops → dropoff
+      destLat = ride.dropoffLat;
+      destLng = ride.dropoffLng;
+      if (Array.isArray(ride.stops)) {
+        for (const s of ride.stops as Array<Record<string, unknown>>) {
+          if (s.longitude && s.latitude && !s.reached) {
+            waypoints.push(`${s.longitude},${s.latitude}`);
+          }
+        }
+      }
+    } else {
+      // OTW/HERE: driver → stops → pickup
+      destLat = ride.pickupLat || ride.riderLat;
+      destLng = ride.pickupLng || ride.riderLng;
+      if (Array.isArray(ride.stops)) {
+        for (const s of ride.stops as Array<Record<string, unknown>>) {
+          if (s.longitude && s.latitude && !s.reached) {
+            waypoints.push(`${s.longitude},${s.latitude}`);
+          }
+        }
+      }
+    }
+
+    if (!destLat || !destLng) return;
+
+    // Build coordinates string: driver → waypoints → destination
+    let coords = `${driverLocation.lng},${driverLocation.lat}`;
+    for (const wp of waypoints) {
+      coords += `;${wp}`;
+    }
+    coords += `;${destLng},${destLat}`;
+
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?access_token=${mapboxToken}&overview=full&geometries=geojson`;
 
     fetch(url)
       .then(res => res.json())
       .then(data => {
         if (!data.routes?.[0]?.geometry || !mapRef.current) return;
+        const m = mapRef.current;
 
         const geojson = {
           type: 'Feature' as const,
@@ -696,78 +746,76 @@ export default function ActiveRideClient({
           geometry: data.routes[0].geometry,
         };
 
-        const addRoute = () => {
-          const m = mapRef.current;
-          if (!m || routeDrawnRef.current) return;
+        const applyRoute = () => {
+          if (!m) return;
 
-          // Route glow (wider, translucent)
-          if (!m.getSource('route-glow')) {
+          // Update existing source or create new one
+          const existingGlow = m.getSource('route-glow') as { setData?: (d: unknown) => void } | undefined;
+          const existingRoute = m.getSource('route') as { setData?: (d: unknown) => void } | undefined;
+
+          if (existingGlow?.setData) {
+            existingGlow.setData(geojson);
+          } else {
             m.addSource('route-glow', { type: 'geojson', data: geojson });
             m.addLayer({
               id: 'route-glow',
               type: 'line',
               source: 'route-glow',
               layout: { 'line-join': 'round', 'line-cap': 'round' },
-              paint: {
-                'line-color': COLORS.green,
-                'line-width': 8,
-                'line-opacity': 0.2,
-              },
+              paint: { 'line-color': COLORS.green, 'line-width': 8, 'line-opacity': 0.2 },
             });
           }
 
-          // Route line (sharp)
-          if (!m.getSource('route')) {
+          if (existingRoute?.setData) {
+            existingRoute.setData(geojson);
+          } else {
             m.addSource('route', { type: 'geojson', data: geojson });
             m.addLayer({
               id: 'route-line',
               type: 'line',
               source: 'route',
               layout: { 'line-join': 'round', 'line-cap': 'round' },
-              paint: {
-                'line-color': COLORS.green,
-                'line-width': 3,
-                'line-opacity': 0.85,
-              },
+              paint: { 'line-color': COLORS.green, 'line-width': 3, 'line-opacity': 0.85 },
             });
           }
 
-          // Fit bounds to show full route
-          const routeBounds = new mapboxgl.LngLatBounds();
-          routeBounds.extend(pickupCoords);
-          routeBounds.extend(dropoffCoords);
-          for (const coord of data.routes[0].geometry.coordinates) {
-            routeBounds.extend(coord);
+          // Fit bounds on first draw only (don't keep jerking the view)
+          if (!routeDrawnRef.current) {
+            const routeBounds = new mapboxgl.LngLatBounds();
+            routeBounds.extend([driverLocation.lng, driverLocation.lat]);
+            routeBounds.extend([destLng!, destLat!]);
+            for (const coord of data.routes[0].geometry.coordinates) {
+              routeBounds.extend(coord);
+            }
+            m.fitBounds(routeBounds, { padding: 60, maxZoom: 15, duration: 1000 });
           }
-          m.fitBounds(routeBounds, { padding: 60, maxZoom: 15, duration: 1000 });
 
           routeDrawnRef.current = true;
         };
 
-        // Map might still be loading style
-        if (mapRef.current.isStyleLoaded()) {
-          addRoute();
-        } else {
-          mapRef.current.on('style.load', addRoute);
-        }
+        if (m.isStyleLoaded()) applyRoute();
+        else m.on('style.load', applyRoute);
       })
       .catch(() => {
-        // Directions API failed — fall back to straight line
-        if (!mapRef.current || routeDrawnRef.current) return;
+        // Directions API failed — draw straight line from driver to destination
+        const m = mapRef.current;
+        if (!m) return;
 
         const straightLine = {
           type: 'Feature' as const,
           properties: {},
           geometry: {
             type: 'LineString' as const,
-            coordinates: [pickupCoords, dropoffCoords],
+            coordinates: [[driverLocation.lng, driverLocation.lat], [destLng!, destLat!]],
           },
         };
 
-        const addStraight = () => {
-          const m = mapRef.current;
-          if (!m || routeDrawnRef.current) return;
-          if (!m.getSource('route')) {
+        const applyFallback = () => {
+          if (!m) return;
+          const existing = m.getSource('route') as { setData?: (d: unknown) => void } | undefined;
+          if (existing?.setData) {
+            existing.setData(straightLine);
+          } else {
             m.addSource('route', { type: 'geojson', data: straightLine });
             m.addLayer({
               id: 'route-line',
@@ -780,10 +828,17 @@ export default function ActiveRideClient({
           routeDrawnRef.current = true;
         };
 
-        if (mapRef.current.isStyleLoaded()) addStraight();
-        else mapRef.current.on('style.load', addStraight);
+        if (m.isStyleLoaded()) applyFallback();
+        else m.on('style.load', applyFallback);
       });
-  }, [ride.pickupLat, ride.pickupLng, ride.dropoffLat, ride.dropoffLng, ride.stops, mapboxToken]);
+
+    return () => {
+      if (routeFetchTimer.current) {
+        clearTimeout(routeFetchTimer.current);
+        routeFetchTimer.current = null;
+      }
+    };
+  }, [driverLocation, ride.status, ride.pickupLat, ride.pickupLng, ride.dropoffLat, ride.dropoffLng, ride.riderLat, ride.riderLng, ride.stops, mapboxToken]);
 
   // ── Dispute window countdown ──
   useEffect(() => {
@@ -920,20 +975,33 @@ export default function ActiveRideClient({
   }, [ride.status]);
 
   // ── ETA calculation ──
+  // OTW/HERE: distance from driver to rider (pickup)
+  // ACTIVE: distance from driver to dropoff
   useEffect(() => {
-    if (!driverLocation || !['otw', 'here'].includes(ride.status)) {
+    if (!driverLocation || !['otw', 'here', 'confirming', 'active'].includes(ride.status)) {
       setEta(null);
       return;
     }
-    // Use rider's COO location for ETA
-    const rLat = ride.riderLat;
-    const rLng = ride.riderLng;
-    if (!rLat || !rLng) { setEta(null); return; }
 
-    const miles = haversineDistance(driverLocation.lat, driverLocation.lng, rLat, rLng);
+    let targetLat: number | null | undefined;
+    let targetLng: number | null | undefined;
+
+    if (ride.status === 'active') {
+      // During active ride, ETA is to the dropoff
+      targetLat = ride.dropoffLat;
+      targetLng = ride.dropoffLng;
+    } else {
+      // During OTW/HERE/CONFIRMING, ETA is to the rider (pickup)
+      targetLat = ride.riderLat;
+      targetLng = ride.riderLng;
+    }
+
+    if (!targetLat || !targetLng) { setEta(null); return; }
+
+    const miles = haversineDistance(driverLocation.lat, driverLocation.lng, targetLat, targetLng);
     const minutes = Math.max(1, Math.round((miles / 25) * 60)); // 25mph avg
     setEta({ minutes, miles });
-  }, [driverLocation, ride.status, ride.riderLat, ride.riderLng]);
+  }, [driverLocation, ride.status, ride.riderLat, ride.riderLng, ride.dropoffLat, ride.dropoffLng]);
 
   // ── Load chat history on status change (Ably handles real-time messages) ──
   useEffect(() => {
@@ -1392,7 +1460,7 @@ export default function ActiveRideClient({
         )}
 
         {/* ETA tracking banner */}
-        {['otw', 'here', 'confirming'].includes(ride.status) && (
+        {['otw', 'here', 'confirming', 'active'].includes(ride.status) && (
           <div style={{
             padding: '8px 14px', borderRadius: 12, marginBottom: 8,
             background: etaStale ? 'rgba(255,145,0,0.1)' : 'rgba(0,230,118,0.06)',
@@ -1406,10 +1474,14 @@ export default function ActiveRideClient({
             }} />
             <span style={{ fontSize: 11, color: etaStale ? COLORS.orange : COLORS.grayLight }}>
               {isDriver
-                ? `Keep HMU open so ${ride.riderName} can see your ETA`
+                ? ride.status === 'active'
+                  ? 'Keep HMU open for live ETA to dropoff'
+                  : `Keep HMU open so ${ride.riderName} can see your ETA`
                 : etaStale
                   ? "Driver's ETA unavailable — we sent them a reminder"
-                  : "Your driver's ETA is live — keep HMU open to track"
+                  : ride.status === 'active'
+                    ? 'Live ETA to your destination'
+                    : "Your driver's ETA is live — keep HMU open to track"
               }
             </span>
           </div>
@@ -1749,6 +1821,15 @@ export default function ActiveRideClient({
           const emergencyIsNoShow = extensionsGranted > 0;
           return (
             <>
+              {/* ETA to dropoff preview */}
+              {eta && ride.dropoffLat && ride.dropoffLng && (
+                <div style={{
+                  textAlign: 'center', padding: '6px 0', fontSize: 12,
+                  color: COLORS.grayLight, fontFamily: FONTS.mono, marginBottom: 4,
+                }}>
+                  {haversineDistance(driverLocation?.lat || 0, driverLocation?.lng || 0, ride.dropoffLat, ride.dropoffLng).toFixed(1)} mi to dropoff
+                </div>
+              )}
               {/* 1. Timer */}
               {waitSecs !== null && waitSecs > 0 && (
                 <div style={{
@@ -1971,6 +2052,15 @@ export default function ActiveRideClient({
         case 'active':
           return (
             <>
+            {/* ETA to dropoff */}
+            {eta && (
+              <div style={{
+                textAlign: 'center', padding: '8px 0', fontSize: 13,
+                color: COLORS.green, fontFamily: FONTS.mono,
+              }}>
+                {eta.minutes} min to dropoff ({eta.miles.toFixed(1)} mi)
+              </div>
+            )}
             {/* Pending stop request from rider */}
             {pendingStop && (
               <div style={{
@@ -2220,7 +2310,30 @@ export default function ActiveRideClient({
           </>
         ) : (
           <>
-            <CooButton rideId={rideId} isCash={ride.isCash} onCooSent={(lat, lng, text, pickup, dropoff, stops) => {
+            {/* Ride details accuracy notice */}
+            <div style={{
+              background: 'rgba(255,179,0,0.08)', border: '1px solid rgba(255,179,0,0.2)',
+              borderRadius: 14, padding: '12px 16px', marginBottom: 10,
+              display: 'flex', gap: 10, alignItems: 'flex-start',
+            }}>
+              <span style={{ fontSize: 18, lineHeight: 1, flexShrink: 0 }}>&#9888;&#65039;</span>
+              <div style={{ fontSize: 13, color: COLORS.grayLight, lineHeight: 1.5 }}>
+                <strong style={{ color: COLORS.white }}>Make sure your ride details are accurate.</strong>{' '}
+                Your driver is heading to these addresses — wrong info means a missed pickup. Double-check before tapping Pull Up.
+              </div>
+            </div>
+            <CooButton
+              rideId={rideId}
+              isCash={ride.isCash}
+              initialPickup={
+                (ride.agreementSummary?.pickup as string) ||
+                (ride.agreementSummary?.destination as string)?.split(/\s*(?:>|→|to)\s*/i)[0] || null
+              }
+              initialDropoff={
+                (ride.agreementSummary?.dropoff as string) ||
+                (ride.agreementSummary?.destination as string)?.split(/\s*(?:>|→|to)\s*/i)[1] || null
+              }
+              onCooSent={(lat, lng, text, pickup, dropoff, stops) => {
               setRide(prev => ({
                 ...prev,
                 cooAt: new Date().toISOString(),
@@ -2492,6 +2605,20 @@ export default function ActiveRideClient({
       case 'active':
         return (
           <>
+            {/* ETA to dropoff */}
+            {eta && (
+              <div style={{
+                textAlign: 'center', padding: '8px 0', fontSize: 14,
+                color: COLORS.green, fontWeight: 600,
+              }}>
+                <span style={{ fontFamily: FONTS.display, fontSize: 28, letterSpacing: 1 }}>
+                  {eta.minutes}
+                </span>
+                <span style={{ fontSize: 12, color: COLORS.grayLight, marginLeft: 4 }}>
+                  min to dropoff ({eta.miles.toFixed(1)} mi)
+                </span>
+              </div>
+            )}
             <StatusMessage text="Ride in progress" />
             {ride.addOns.length > 0 && renderAddOnSummary()}
             {renderAddServicesButton()}
@@ -3160,10 +3287,12 @@ function getStatusNotificationData(
 }
 
 // ── COO Button component ──
-function CooButton({ rideId, isCash, onCooSent }: {
+function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }: {
   rideId: string;
   isCash: boolean;
   onCooSent: (lat: number | null, lng: number | null, text: string | null, pickup?: ValidatedAddress, dropoff?: ValidatedAddress, stops?: ValidatedStop[]) => void;
+  initialPickup?: string | null;
+  initialDropoff?: string | null;
 }) {
   const [locationText, setLocationText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -3182,6 +3311,47 @@ function CooButton({ rideId, isCash, onCooSent }: {
   const [stopAddrs, setStopAddrs] = useState<(ValidatedAddress & { _key?: string })[]>([]);
   const [showStops, setShowStops] = useState(false);
   const stopKeyCounter = useRef(0);
+  const prefillAttempted = useRef(false);
+
+  // Prefill addresses from booking data via Mapbox geocoding
+  useEffect(() => {
+    if (prefillAttempted.current) return;
+    prefillAttempted.current = true;
+
+    async function geocodeAddress(query: string): Promise<ValidatedAddress | null> {
+      const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+      if (!token || !query.trim()) return null;
+      const searchQuery = query.toLowerCase().includes('atlanta') || query.toLowerCase().includes(', ga')
+        ? query : `${query}, Atlanta, GA`;
+      try {
+        const res = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQuery)}.json?access_token=${token}&country=us&bbox=-84.8,33.5,-84.1,34.1&limit=1&types=address,poi,place,neighborhood,locality`
+        );
+        if (!res.ok) return null;
+        const data = await res.json();
+        const feature = data.features?.[0];
+        if (!feature?.geometry?.coordinates) return null;
+        const [lng, lat] = feature.geometry.coordinates;
+        return {
+          address: feature.place_name || feature.text || query,
+          name: feature.text || feature.place_name || query,
+          latitude: lat,
+          longitude: lng,
+          mapbox_id: feature.id || '',
+        };
+      } catch { return null; }
+    }
+
+    // Geocode both addresses in parallel
+    const tasks: Promise<void>[] = [];
+    if (initialPickup && initialPickup.trim()) {
+      tasks.push(geocodeAddress(initialPickup).then(addr => { if (addr) setPickupAddr(addr); }));
+    }
+    if (initialDropoff && initialDropoff.trim()) {
+      tasks.push(geocodeAddress(initialDropoff).then(addr => { if (addr) setDropoffAddr(addr); }));
+    }
+    Promise.all(tasks).catch(() => {});
+  }, [initialPickup, initialDropoff]);
 
   function getMyLocation() {
     if (!navigator.geolocation) {
@@ -3330,7 +3500,9 @@ function CooButton({ rideId, isCash, onCooSent }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <div style={{ fontSize: '14px', color: COLORS.grayLight, marginBottom: '4px' }}>
-        Where are you and where are you going?
+        {pickupAddr || dropoffAddr
+          ? 'Confirm your addresses — tap to edit if needed'
+          : 'Where are you and where are you going?'}
       </div>
 
       {/* Pickup address autocomplete */}

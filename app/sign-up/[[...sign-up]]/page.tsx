@@ -4,11 +4,11 @@ import { SignUpTypeStore } from './type-store';
 import { InAppBrowserGate } from '@/components/auth/in-app-browser-gate';
 
 interface Props {
-  searchParams: Promise<{ type?: string; returnTo?: string }>;
+  searchParams: Promise<{ type?: string; returnTo?: string; cash?: string }>;
 }
 
 export default async function SignUpPage({ searchParams }: Props) {
-  const { type, returnTo } = await searchParams;
+  const { type, returnTo, cash } = await searchParams;
 
   const callbackParams = new URLSearchParams();
   if (type) callbackParams.set('type', type);
@@ -29,7 +29,7 @@ export default async function SignUpPage({ searchParams }: Props) {
       background: '#080808',
       padding: '60px 20px 20px',
     }}>
-      <SignUpTypeStore type={type} returnTo={returnTo} />
+      <SignUpTypeStore type={type} returnTo={returnTo} cash={cash} />
 
       {/* Type-aware header */}
       <div style={{ textAlign: 'center', marginBottom: '24px', maxWidth: '340px' }}>

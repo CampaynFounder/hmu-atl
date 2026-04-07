@@ -8,7 +8,7 @@ import { fbEvent } from '@/components/analytics/meta-pixel';
  * redirect. OAuth does a full page unload → provider → callback, which loses
  * URL params. auth-callback reads these back as a fallback.
  */
-export function SignUpTypeStore({ type, returnTo }: { type?: string; returnTo?: string }) {
+export function SignUpTypeStore({ type, returnTo, cash }: { type?: string; returnTo?: string; cash?: string }) {
   useEffect(() => {
     if (type) {
       localStorage.setItem('hmu_signup_type', type);
@@ -16,9 +16,12 @@ export function SignUpTypeStore({ type, returnTo }: { type?: string; returnTo?: 
     if (returnTo) {
       localStorage.setItem('hmu_signup_returnTo', returnTo);
     }
+    if (cash === '1') {
+      localStorage.setItem('hmu_signup_cash', '1');
+    }
     // Fire Lead event — user reached sign-up page
     fbEvent('Lead', { content_name: type || 'direct', content_category: type === 'driver' ? 'driver_funnel' : 'rider_funnel' });
-  }, [type, returnTo]);
+  }, [type, returnTo, cash]);
 
   return null;
 }

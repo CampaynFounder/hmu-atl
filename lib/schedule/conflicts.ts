@@ -16,12 +16,15 @@ export async function checkDriverAvailability(
   proposedStart: string,
   proposedEnd: string
 ): Promise<ConflictResult> {
-  // 1. Check for booking conflicts
+  // 0. Expire stale tentative holds first
+  await expireStaleTentativeHolds(driverId);
+
+  // 1. Check for booking conflicts (confirmed AND tentative holds)
   const conflicts = await sql`
-    SELECT id, booking_type, start_at, end_at, title
+    SELECT id, booking_type, start_at, end_at, title, status
     FROM driver_bookings
     WHERE driver_id = ${driverId}
-      AND status = 'confirmed'
+      AND status IN ('confirmed', 'tentative')
       AND start_at < ${proposedEnd}
       AND end_at > ${proposedStart}
     ORDER BY start_at
@@ -106,12 +109,97 @@ export async function createRideBooking(
 }
 
 /**
+ * Create a tentative calendar hold when a booking request is submitted.
+ * This blocks the time slot during the 15-min acceptance window so no
+ * other rider can book the same time. Expires automatically if not confirmed.
+ */
+export async function createTentativeBooking(
+  driverId: string,
+  riderId: string,
+  postId: string,
+  startAt: string,
+  marketId: string | null,
+  estimatedMinutes: number = 45,
+  holdMinutes: number = 15
+): Promise<string> {
+  const endAt = new Date(new Date(startAt).getTime() + estimatedMinutes * 60000).toISOString();
+  const expiresAt = new Date(Date.now() + holdMinutes * 60000).toISOString();
+
+  const rows = await sql`
+    INSERT INTO driver_bookings (driver_id, rider_id, booking_type, start_at, end_at, status, market_id, title, details)
+    VALUES (${driverId}, ${riderId}, 'hold', ${startAt}, ${endAt}, 'tentative', ${marketId}, 'Pending booking request',
+      ${JSON.stringify({ postId, expiresAt })}::jsonb)
+    RETURNING id
+  `;
+
+  return (rows[0] as { id: string }).id;
+}
+
+/**
+ * Promote a tentative hold to a confirmed ride booking.
+ * Called when the driver accepts the booking request.
+ */
+export async function confirmTentativeBooking(
+  driverId: string,
+  riderId: string,
+  rideId: string,
+  postId: string,
+  startAt: string,
+  marketId: string | null,
+  estimatedMinutes: number = 45
+): Promise<string> {
+  // Try to update existing tentative hold first
+  const updated = await sql`
+    UPDATE driver_bookings
+    SET status = 'confirmed', booking_type = 'ride', ride_id = ${rideId},
+        title = NULL, updated_at = NOW()
+    WHERE driver_id = ${driverId} AND status = 'tentative'
+      AND details->>'postId' = ${postId}
+    RETURNING id
+  `;
+
+  if (updated.length) {
+    await sql`
+      INSERT INTO schedule_events (driver_id, rider_id, event_type, market_id, details)
+      VALUES (${driverId}, ${riderId}, 'booking_confirmed', ${marketId}, ${JSON.stringify({ rideId, postId, startAt })}::jsonb)
+    `;
+    return (updated[0] as { id: string }).id;
+  }
+
+  // No tentative hold found — create fresh confirmed booking
+  return createRideBooking(driverId, riderId, rideId, startAt, marketId, estimatedMinutes);
+}
+
+/**
+ * Expire stale tentative holds that are past their acceptance window.
+ * Called reactively before availability checks.
+ */
+export async function expireStaleTentativeHolds(driverId: string): Promise<void> {
+  await sql`
+    UPDATE driver_bookings SET status = 'cancelled', updated_at = NOW()
+    WHERE driver_id = ${driverId}
+      AND status = 'tentative'
+      AND (details->>'expiresAt')::timestamptz < NOW()
+  `;
+}
+
+/**
  * Cancel a booking when a ride is cancelled.
  */
 export async function cancelRideBooking(rideId: string): Promise<void> {
   await sql`
     UPDATE driver_bookings SET status = 'cancelled', updated_at = NOW()
-    WHERE ride_id = ${rideId} AND status = 'confirmed'
+    WHERE ride_id = ${rideId} AND status IN ('confirmed', 'tentative')
+  `;
+}
+
+/**
+ * Cancel a tentative hold when a booking request expires or is cancelled.
+ */
+export async function cancelTentativeBooking(postId: string): Promise<void> {
+  await sql`
+    UPDATE driver_bookings SET status = 'cancelled', updated_at = NOW()
+    WHERE status = 'tentative' AND details->>'postId' = ${postId}
   `;
 }
 
@@ -143,7 +231,7 @@ export async function findAvailableDrivers(
       ${excludeDriverId ? sql`AND ds.driver_id != ${excludeDriverId}` : sql``}
       AND ds.driver_id NOT IN (
         SELECT driver_id FROM driver_bookings
-        WHERE status = 'confirmed'
+        WHERE status IN ('confirmed', 'tentative')
           AND start_at < ${proposedEnd}
           AND end_at > ${proposedStart}
       )

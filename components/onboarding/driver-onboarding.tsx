@@ -403,6 +403,7 @@ async function saveDriverOnboarding(data: {
         avoid_riders_with_disputes: data.riderPreferences.avoidRidersWithDisputes,
         stripe_connect_id: data.stripeConnectId || null,
         video_url: data.videoIntroUrl || null,
+        thumbnail_url: data.videoThumbnailUrl || null,
         ad_photo_url: data.adPhotoUrl || null,
         license_plate: data.licensePlate || null,
         plate_state: data.plateState || null,

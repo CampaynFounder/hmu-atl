@@ -8,6 +8,8 @@ import {
 } from '@/lib/db/direct-bookings';
 import { notifyUser } from '@/lib/ably/server';
 import { notifyDriverNewBooking } from '@/lib/sms/textbee';
+import { checkDriverAvailability, createTentativeBooking, cancelTentativeBooking } from '@/lib/schedule/conflicts';
+import { parseNaturalTime } from '@/lib/schedule/parse-time';
 
 /** Strip city, state, zip, directional prefixes from address for shorter SMS */
 function stripAddress(addr: string): string {
@@ -101,6 +103,21 @@ export async function POST(
     return NextResponse.json({ error: eligibility.reason, code: eligibility.code }, { status: 403 });
   }
 
+  // Check driver availability for the requested time (future bookings)
+  const tw = (timeWindow || {}) as Record<string, unknown>;
+  const rideTimeStr = (tw.resolvedTime as string) || (tw.time as string) || '';
+  const parsed = parseNaturalTime(rideTimeStr);
+  if (!parsed.isNow) {
+    const proposedEnd = new Date(new Date(parsed.iso).getTime() + 45 * 60000).toISOString();
+    const avail = await checkDriverAvailability(driverUserId, parsed.iso, proposedEnd);
+    if (!avail.available && avail.conflict) {
+      return NextResponse.json(
+        { error: `${driverProfile.areas?.[0] ? '' : ''}This driver already has a booking at that time. Try a different time.`, code: 'schedule_conflict' },
+        { status: 409 }
+      );
+    }
+  }
+
   const post = await createDirectBookingPost({
     riderId: rider.id,
     driverUserId,
@@ -109,6 +126,15 @@ export async function POST(
     timeWindow: timeWindow || {},
     isCash: is_cash,
   });
+
+  // Create tentative calendar hold for future bookings (blocks the time slot during acceptance window)
+  if (!parsed.isNow) {
+    try {
+      await createTentativeBooking(driverUserId, rider.id, post.id, parsed.iso, null);
+    } catch (e) {
+      console.error('Tentative booking failed:', e);
+    }
+  }
 
   // Fire Ably notification to driver
   try {
@@ -224,6 +250,10 @@ export async function DELETE(
   if (!result.length) {
     return NextResponse.json({ error: 'No active booking to cancel' }, { status: 404 });
   }
+
+  // Release the tentative calendar hold
+  const cancelledPostId = (result[0] as { id: string }).id;
+  cancelTentativeBooking(cancelledPostId).catch(() => {});
 
   return NextResponse.json({ status: 'cancelled', postId: (result[0] as { id: string }).id });
 }

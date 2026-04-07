@@ -27,6 +27,7 @@ export async function PATCH(req: NextRequest) {
     plate_state?: string;
     accepts_cash?: boolean;
     cash_only?: boolean;
+    allow_in_route_stops?: boolean;
     wait_minutes?: number;
     advance_notice_hours?: number;
   };
@@ -50,12 +51,13 @@ export async function PATCH(req: NextRequest) {
     `;
   }
 
-  // Cash mode + wait time settings
-  if (body.accepts_cash !== undefined || body.cash_only !== undefined || body.wait_minutes !== undefined || body.advance_notice_hours !== undefined) {
+  // Cash mode + wait time + in-route stops settings
+  if (body.accepts_cash !== undefined || body.cash_only !== undefined || body.wait_minutes !== undefined || body.advance_notice_hours !== undefined || body.allow_in_route_stops !== undefined) {
     await sql`
       UPDATE driver_profiles SET
         accepts_cash = COALESCE(${body.accepts_cash ?? null}, accepts_cash),
         cash_only = COALESCE(${body.cash_only ?? null}, cash_only),
+        allow_in_route_stops = COALESCE(${body.allow_in_route_stops ?? null}, allow_in_route_stops),
         wait_minutes = COALESCE(${body.wait_minutes ?? null}, wait_minutes),
         advance_notice_hours = COALESCE(${body.advance_notice_hours ?? null}, advance_notice_hours),
         updated_at = NOW()
@@ -80,9 +82,26 @@ export async function PATCH(req: NextRequest) {
     require_og_status: body.require_og_status,
   });
 
+  // Fetch current state so response reflects all saved fields
+  const current = await sql`
+    SELECT accept_direct_bookings, min_rider_chill_score, require_og_status,
+           show_video_on_link, profile_visible, fwu, accepts_cash, cash_only,
+           allow_in_route_stops, wait_minutes, advance_notice_hours
+    FROM driver_profiles WHERE user_id = ${userId} LIMIT 1
+  `;
+  const row = (current[0] || updated) as Record<string, unknown>;
+
   return NextResponse.json({
-    acceptDirectBookings: updated.accept_direct_bookings,
-    minRiderChillScore: updated.min_rider_chill_score,
-    requireOgStatus: updated.require_og_status,
+    acceptDirectBookings: row.accept_direct_bookings,
+    minRiderChillScore: row.min_rider_chill_score,
+    requireOgStatus: row.require_og_status,
+    showVideoOnLink: row.show_video_on_link,
+    profileVisible: row.profile_visible,
+    fwu: row.fwu,
+    acceptsCash: row.accepts_cash,
+    cashOnly: row.cash_only,
+    allowInRouteStops: row.allow_in_route_stops,
+    waitMinutes: row.wait_minutes,
+    advanceNoticeHours: row.advance_notice_hours,
   });
 }

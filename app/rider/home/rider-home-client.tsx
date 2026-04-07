@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useUser } from '@clerk/nextjs';
 import { posthog } from '@/components/analytics/posthog-provider';
+import { PendingActionBanner } from '@/components/pending-action-banner';
 
 const COMPARE_RIDES = [
   { label: 'Work commute (10 mi)', uber: 18, hmu: 10 },
@@ -110,6 +111,13 @@ export default function RiderHomeClient() {
       `}</style>
 
       <div className="rider-home">
+        {/* Pending actions */}
+        {isSignedIn && (
+          <div style={{ padding: '12px 0 0' }}>
+            <PendingActionBanner maxActions={2} />
+          </div>
+        )}
+
         {/* Hero */}
         <div className="hero">
           <h1 className="hero-title">

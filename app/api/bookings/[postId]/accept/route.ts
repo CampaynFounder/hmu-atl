@@ -3,26 +3,11 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyRiderBookingAccepted } from '@/lib/sms/textbee';
-import { checkDriverAvailability, createRideBooking } from '@/lib/schedule/conflicts';
+import { checkDriverAvailability, createRideBooking, confirmTentativeBooking } from '@/lib/schedule/conflicts';
+import { parseNaturalTime } from '@/lib/schedule/parse-time';
 
 function parseRideTime(timeStr: string): string {
-  if (!timeStr || timeStr.toLowerCase() === 'asap' || timeStr.toLowerCase() === 'now') return new Date().toISOString();
-  const parsed = new Date(timeStr);
-  if (!isNaN(parsed.getTime()) && parsed.getTime() > Date.now() - 86400000) return parsed.toISOString();
-  // Try natural language like "tomorrow 2pm"
-  const now = new Date();
-  if (timeStr.toLowerCase().includes('tomorrow')) {
-    const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
-    const hourMatch = timeStr.match(/(\d{1,2})\s*(am|pm|a|p)/i);
-    if (hourMatch) {
-      let hr = parseInt(hourMatch[1]);
-      if (hourMatch[2].toLowerCase().startsWith('p') && hr < 12) hr += 12;
-      if (hourMatch[2].toLowerCase().startsWith('a') && hr === 12) hr = 0;
-      tomorrow.setHours(hr, 0, 0, 0);
-    }
-    return tomorrow.toISOString();
-  }
-  return now.toISOString();
+  return parseNaturalTime(timeStr).iso;
 }
 
 export async function POST(
@@ -125,18 +110,23 @@ export async function POST(
         return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });
       }
 
-      // Check schedule conflicts (non-blocking — driver may not have schedule set)
+      // Check schedule conflicts using resolved time
       const tw = (timeWindow || {}) as Record<string, unknown>;
-      const proposedTime = tw.time as string;
-      if (proposedTime && proposedTime !== 'ASAP' && proposedTime !== 'now') {
-        const proposedStart = new Date().toISOString(); // fallback to now if can't parse
-        const proposedEnd = new Date(Date.now() + 45 * 60000).toISOString();
-        const availability = await checkDriverAvailability(driverUserId, proposedStart, proposedEnd);
+      const resolvedTimeStr = (tw.resolvedTime as string) || (tw.time as string) || '';
+      const parsedTime = parseNaturalTime(resolvedTimeStr);
+      if (!parsedTime.isNow) {
+        const proposedEnd = new Date(new Date(parsedTime.iso).getTime() + 45 * 60000).toISOString();
+        const availability = await checkDriverAvailability(driverUserId, parsedTime.iso, proposedEnd);
+        // Allow if the only conflict is the tentative hold for THIS booking
         if (!availability.available && availability.conflict) {
-          return NextResponse.json({
-            error: 'You have a booking conflict at this time',
-            code: 'schedule_conflict',
-          }, { status: 409 });
+          const conflictDetails = availability.conflict as Record<string, unknown>;
+          const isSelfHold = conflictDetails.bookingType === 'hold';
+          if (!isSelfHold) {
+            return NextResponse.json({
+              error: 'You have a booking conflict at this time',
+              code: 'schedule_conflict',
+            }, { status: 409 });
+          }
         }
       }
 
@@ -207,7 +197,11 @@ export async function POST(
         'proposed', NOW(),
         ${postId}, ${JSON.stringify({
           destination: timeWindow.destination || timeWindow.note || '',
+          pickup: timeWindow.pickup || '',
+          dropoff: timeWindow.dropoff || '',
           time: timeWindow.time || 'ASAP',
+          resolvedTime: timeWindow.resolvedTime || parseRideTime(String(timeWindow.time || '')),
+          timeDisplay: timeWindow.timeDisplay || parseNaturalTime(String(timeWindow.time || '')).display,
           stops: timeWindow.stops || 'none',
           roundTrip: timeWindow.round_trip === true,
           areas,
@@ -248,9 +242,11 @@ export async function POST(
       }
     } catch { /* non-blocking */ }
 
-    // Create calendar booking — use requested ride time if available, fallback to now
-    const rideTime = parseRideTime((timeWindow.time as string) || '');
-    createRideBooking(driverUserId, riderId, rideId, rideTime, post.market_id as string || null).catch(e => console.error('Calendar booking failed:', e));
+    // Create calendar booking — use resolvedTime first, then parse time, fallback to now
+    const rideTime = (timeWindow.resolvedTime as string) || parseRideTime((timeWindow.time as string) || '');
+    // Promote tentative hold to confirmed, or create fresh booking
+    confirmTentativeBooking(driverUserId, riderId, rideId, postId, rideTime, post.market_id as string || null)
+      .catch(e => console.error('Calendar booking failed:', e));
 
     return NextResponse.json({ status: 'matched', rideId });
   } catch (error) {
