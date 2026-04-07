@@ -401,6 +401,13 @@ export async function DELETE(request: NextRequest) {
       WHERE id = ${rideId}
     `;
 
+    // Cascade: cancel calendar booking + linked post
+    const { cancelRideBooking } = await import('@/lib/schedule/conflicts');
+    cancelRideBooking(rideId).catch(() => {});
+    const postRows = await sql`SELECT hmu_post_id FROM rides WHERE id = ${rideId} LIMIT 1`;
+    const postId = (postRows[0] as Record<string, unknown>)?.hmu_post_id as string;
+    if (postId) await sql`UPDATE hmu_posts SET status = 'cancelled' WHERE id = ${postId}`.catch(() => {});
+
     return NextResponse.json({
       success: true,
       message: 'Ride cancelled successfully',

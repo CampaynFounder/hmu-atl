@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { notifyUser, publishToChannel } from '@/lib/ably/server';
 import { notifyRiderBookingDeclined } from '@/lib/sms/textbee';
+import { cancelTentativeBooking } from '@/lib/schedule/conflicts';
 
 export async function POST(
   _req: NextRequest,
@@ -45,6 +46,9 @@ export async function POST(
       updated_at = NOW()
     WHERE id = ${postId}
   `;
+
+  // Release tentative calendar hold for this booking
+  cancelTentativeBooking(postId).catch(() => {});
 
   // Get driver name for notification
   const driverNameRows = await sql`SELECT handle FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1`;

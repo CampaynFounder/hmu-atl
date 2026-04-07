@@ -139,6 +139,10 @@ export async function DELETE(req: NextRequest) {
       WHERE id = ${postId} AND user_id = ${userId} AND status = 'active'
     `;
 
+    // Release any tentative calendar hold for this booking
+    const { cancelTentativeBooking } = await import('@/lib/schedule/conflicts');
+    cancelTentativeBooking(postId).catch(() => {});
+
     // Notify driver that rider cancelled
     if (postRows.length) {
       const driverId = (postRows[0] as Record<string, unknown>).target_driver_id as string;

@@ -113,7 +113,9 @@ export async function POST(
       message: riderMessage,
     }).catch(() => {});
 
-    // Mark linked post as cancelled
+    // Cancel calendar booking + linked post
+    const { cancelRideBooking } = await import('@/lib/schedule/conflicts');
+    cancelRideBooking(rideId).catch(() => {});
     if (ride.hmu_post_id) {
       await sql`UPDATE hmu_posts SET status = 'cancelled' WHERE id = ${ride.hmu_post_id}`.catch(() => {});
     }
