@@ -154,7 +154,7 @@ export async function confirmTentativeBooking(
     SET status = 'confirmed', booking_type = 'ride', ride_id = ${rideId},
         title = NULL, updated_at = NOW()
     WHERE driver_id = ${driverId} AND status = 'tentative'
-      AND details->>'postId' = ${postId}
+      AND details IS NOT NULL AND details->>'postId' = ${postId}
     RETURNING id
   `;
 
@@ -179,7 +179,10 @@ export async function expireStaleTentativeHolds(driverId: string): Promise<void>
     UPDATE driver_bookings SET status = 'cancelled', updated_at = NOW()
     WHERE driver_id = ${driverId}
       AND status = 'tentative'
-      AND (details->>'expiresAt')::timestamptz < NOW()
+      AND (
+        (details IS NOT NULL AND details->>'expiresAt' IS NOT NULL AND (details->>'expiresAt')::timestamptz < NOW())
+        OR created_at < NOW() - INTERVAL '20 minutes'
+      )
   `;
 }
 
@@ -199,7 +202,7 @@ export async function cancelRideBooking(rideId: string): Promise<void> {
 export async function cancelTentativeBooking(postId: string): Promise<void> {
   await sql`
     UPDATE driver_bookings SET status = 'cancelled', updated_at = NOW()
-    WHERE status = 'tentative' AND details->>'postId' = ${postId}
+    WHERE status = 'tentative' AND details IS NOT NULL AND details->>'postId' = ${postId}
   `;
 }
 
