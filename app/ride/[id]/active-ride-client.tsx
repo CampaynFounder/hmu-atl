@@ -694,13 +694,17 @@ export default function ActiveRideClient({
     }
     lastRouteFetch.current = now;
 
-    // Determine destination based on ride phase
+    // ── Build route based on role + ride phase ──
+    // Driver: always from their location to the next destination
+    // Rider OTW/HERE: driver → rider (green) + rider trip preview pickup → stops → dropoff (blue)
+    // Rider ACTIVE: driver (=rider) → stops → dropoff (green, same car)
+    // Active ride: both see driver → unreached stops → dropoff
+
     let destLat: number | null | undefined;
     let destLng: number | null | undefined;
     const waypoints: string[] = [];
 
     if (ride.status === 'active') {
-      // Active ride: driver → unreached stops → dropoff
       destLat = ride.dropoffLat;
       destLng = ride.dropoffLng;
       if (Array.isArray(ride.stops)) {
@@ -710,17 +714,14 @@ export default function ActiveRideClient({
           }
         }
       }
-    } else {
-      // OTW/HERE: driver → stops → pickup
+    } else if (isDriver) {
+      // Driver OTW/HERE: driver → pickup
       destLat = ride.pickupLat || ride.riderLat;
       destLng = ride.pickupLng || ride.riderLng;
-      if (Array.isArray(ride.stops)) {
-        for (const s of ride.stops as Array<Record<string, unknown>>) {
-          if (s.longitude && s.latitude && !s.reached) {
-            waypoints.push(`${s.longitude},${s.latitude}`);
-          }
-        }
-      }
+    } else {
+      // Rider OTW/HERE: show driver → rider (where is my driver?)
+      destLat = ride.riderLat || ride.pickupLat;
+      destLng = ride.riderLng || ride.pickupLng;
     }
 
     if (!destLat || !destLng) return;
@@ -731,6 +732,59 @@ export default function ActiveRideClient({
       coords += `;${wp}`;
     }
     coords += `;${destLng},${destLat}`;
+
+    // ── Rider trip preview line (OTW/HERE only): pickup → stops → dropoff ──
+    // Shows rider their full upcoming route in blue while waiting for driver
+    if (!isDriver && ['otw', 'here', 'confirming'].includes(ride.status) && ride.pickupLat && ride.pickupLng && ride.dropoffLat && ride.dropoffLng) {
+      let tripCoords = `${ride.pickupLng},${ride.pickupLat}`;
+      if (Array.isArray(ride.stops)) {
+        for (const s of ride.stops as Array<Record<string, unknown>>) {
+          if (s.longitude && s.latitude) tripCoords += `;${s.longitude},${s.latitude}`;
+        }
+      }
+      tripCoords += `;${ride.dropoffLng},${ride.dropoffLat}`;
+
+      const tripUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${tripCoords}?access_token=${mapboxToken}&overview=full&geometries=geojson`;
+      fetch(tripUrl)
+        .then(r => r.json())
+        .then(tripData => {
+          if (!tripData.routes?.[0]?.geometry || !mapRef.current) return;
+          const m = mapRef.current;
+          const tripGeojson = { type: 'Feature' as const, properties: {}, geometry: tripData.routes[0].geometry };
+          const applyTrip = () => {
+            if (!m) return;
+            const existing = m.getSource('trip-preview') as { setData?: (d: unknown) => void } | undefined;
+            if (existing?.setData) {
+              existing.setData(tripGeojson);
+            } else {
+              m.addSource('trip-preview', { type: 'geojson', data: tripGeojson });
+              m.addLayer({
+                id: 'trip-preview-glow', type: 'line', source: 'trip-preview',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#448AFF', 'line-width': 6, 'line-opacity': 0.15 },
+              });
+              m.addLayer({
+                id: 'trip-preview-line', type: 'line', source: 'trip-preview',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#448AFF', 'line-width': 2.5, 'line-opacity': 0.6, 'line-dasharray': [4, 3] },
+              });
+            }
+          };
+          if (m.isStyleLoaded()) applyTrip();
+          else m.on('style.load', applyTrip);
+        })
+        .catch(() => {});
+    }
+
+    // Remove trip preview when ride becomes active (rider is in the car)
+    if (ride.status === 'active' && mapRef.current) {
+      const m = mapRef.current;
+      try {
+        if (m.getLayer('trip-preview-line')) m.removeLayer('trip-preview-line');
+        if (m.getLayer('trip-preview-glow')) m.removeLayer('trip-preview-glow');
+        if (m.getSource('trip-preview')) m.removeSource('trip-preview');
+      } catch { /* already removed */ }
+    }
 
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?access_token=${mapboxToken}&overview=full&geometries=geojson`;
 
