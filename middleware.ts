@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server';
 // ============================================================
 // MAINTENANCE MODE — set to true to redirect auth routes
 // ============================================================
-const MAINTENANCE_MODE = true;
+const MAINTENANCE_MODE = false;
 // ============================================================
 
 // Routes that stay up during maintenance (marketing, legal, data room)

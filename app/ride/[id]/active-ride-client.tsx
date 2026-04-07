@@ -182,6 +182,9 @@ export default function ActiveRideClient({
   const mapRef = useRef<any | null>(null);
   const driverMarkerRef = useRef<any | null>(null);
   const riderMarkerRef = useRef<any | null>(null);
+  const routeDrawnRef = useRef(false);
+  const pickupMarkerRef = useRef<any | null>(null);
+  const dropoffMarkerRef = useRef<any | null>(null);
 
   // GPS tracking for driver during active ride phases
   const shouldTrackGps = isDriver && ['otw', 'here', 'confirming', 'active'].includes(ride.status);
@@ -629,6 +632,158 @@ export default function ActiveRideClient({
       mapRef.current.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 1000 });
     }
   }, [ride.riderLat, ride.riderLng, driverLocation]);
+
+  // ── Route line between pickup and dropoff ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || routeDrawnRef.current) return;
+    if (!ride.pickupLat || !ride.pickupLng || !ride.dropoffLat || !ride.dropoffLng) return;
+    if (typeof mapboxgl === 'undefined') return;
+
+    const pickupCoords: [number, number] = [ride.pickupLng, ride.pickupLat];
+    const dropoffCoords: [number, number] = [ride.dropoffLng, ride.dropoffLat];
+
+    // Build waypoints string (pickup ; stops ; dropoff)
+    let coords = `${pickupCoords[0]},${pickupCoords[1]}`;
+    if (Array.isArray(ride.stops)) {
+      for (const s of ride.stops as Array<Record<string, unknown>>) {
+        if (s.longitude && s.latitude) {
+          coords += `;${s.longitude},${s.latitude}`;
+        }
+      }
+    }
+    coords += `;${dropoffCoords[0]},${dropoffCoords[1]}`;
+
+    // Add pickup marker (green ring)
+    if (!pickupMarkerRef.current) {
+      const pEl = document.createElement('div');
+      pEl.style.width = '14px';
+      pEl.style.height = '14px';
+      pEl.style.borderRadius = '50%';
+      pEl.style.border = `3px solid ${COLORS.green}`;
+      pEl.style.backgroundColor = 'transparent';
+      pEl.style.boxShadow = `0 0 8px ${COLORS.green}`;
+      pickupMarkerRef.current = new mapboxgl.Marker({ element: pEl })
+        .setLngLat(pickupCoords)
+        .addTo(map);
+    }
+
+    // Add dropoff marker (solid green square)
+    if (!dropoffMarkerRef.current) {
+      const dEl = document.createElement('div');
+      dEl.style.width = '14px';
+      dEl.style.height = '14px';
+      dEl.style.borderRadius = '3px';
+      dEl.style.backgroundColor = COLORS.green;
+      dEl.style.border = `2px solid ${COLORS.white}`;
+      dEl.style.boxShadow = `0 0 8px ${COLORS.green}`;
+      dropoffMarkerRef.current = new mapboxgl.Marker({ element: dEl })
+        .setLngLat(dropoffCoords)
+        .addTo(map);
+    }
+
+    // Fetch route geometry from Directions API
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?access_token=${mapboxToken}&overview=full&geometries=geojson`;
+
+    fetch(url)
+      .then(res => res.json())
+      .then(data => {
+        if (!data.routes?.[0]?.geometry || !mapRef.current) return;
+
+        const geojson = {
+          type: 'Feature' as const,
+          properties: {},
+          geometry: data.routes[0].geometry,
+        };
+
+        const addRoute = () => {
+          const m = mapRef.current;
+          if (!m || routeDrawnRef.current) return;
+
+          // Route glow (wider, translucent)
+          if (!m.getSource('route-glow')) {
+            m.addSource('route-glow', { type: 'geojson', data: geojson });
+            m.addLayer({
+              id: 'route-glow',
+              type: 'line',
+              source: 'route-glow',
+              layout: { 'line-join': 'round', 'line-cap': 'round' },
+              paint: {
+                'line-color': COLORS.green,
+                'line-width': 8,
+                'line-opacity': 0.2,
+              },
+            });
+          }
+
+          // Route line (sharp)
+          if (!m.getSource('route')) {
+            m.addSource('route', { type: 'geojson', data: geojson });
+            m.addLayer({
+              id: 'route-line',
+              type: 'line',
+              source: 'route',
+              layout: { 'line-join': 'round', 'line-cap': 'round' },
+              paint: {
+                'line-color': COLORS.green,
+                'line-width': 3,
+                'line-opacity': 0.85,
+              },
+            });
+          }
+
+          // Fit bounds to show full route
+          const routeBounds = new mapboxgl.LngLatBounds();
+          routeBounds.extend(pickupCoords);
+          routeBounds.extend(dropoffCoords);
+          for (const coord of data.routes[0].geometry.coordinates) {
+            routeBounds.extend(coord);
+          }
+          m.fitBounds(routeBounds, { padding: 60, maxZoom: 15, duration: 1000 });
+
+          routeDrawnRef.current = true;
+        };
+
+        // Map might still be loading style
+        if (mapRef.current.isStyleLoaded()) {
+          addRoute();
+        } else {
+          mapRef.current.on('style.load', addRoute);
+        }
+      })
+      .catch(() => {
+        // Directions API failed — fall back to straight line
+        if (!mapRef.current || routeDrawnRef.current) return;
+
+        const straightLine = {
+          type: 'Feature' as const,
+          properties: {},
+          geometry: {
+            type: 'LineString' as const,
+            coordinates: [pickupCoords, dropoffCoords],
+          },
+        };
+
+        const addStraight = () => {
+          const m = mapRef.current;
+          if (!m || routeDrawnRef.current) return;
+          if (!m.getSource('route')) {
+            m.addSource('route', { type: 'geojson', data: straightLine });
+            m.addLayer({
+              id: 'route-line',
+              type: 'line',
+              source: 'route',
+              layout: { 'line-join': 'round', 'line-cap': 'round' },
+              paint: { 'line-color': COLORS.green, 'line-width': 2, 'line-opacity': 0.5, 'line-dasharray': [2, 4] },
+            });
+          }
+          routeDrawnRef.current = true;
+        };
+
+        if (mapRef.current.isStyleLoaded()) addStraight();
+        else mapRef.current.on('style.load', addStraight);
+      });
+  }, [ride.pickupLat, ride.pickupLng, ride.dropoffLat, ride.dropoffLng, ride.stops, mapboxToken]);
 
   // ── Dispute window countdown ──
   useEffect(() => {

@@ -410,12 +410,12 @@ OUTPUT: Move to quote.`;
     case 'quote':
       return `GOAL: Call compare_pricing and present the price with Uber comparison.
 DO: Call compare_pricing with the route distance, duration, and driver minimum.
-DO: The tool returns a recommended price — present it naturally.
-DO: Present like: "Uber typically charges around $X for this. We'd recommend offering ${name} around $Y. ${hasCash ? 'This would be a cash ride.' : ''} What price works for you?"
+DO: The tool returns a recommended price AND the driver minimum — present BOTH.
+DO: Present like: "Uber would charge around $X for this trip. ${name}'s minimum is $[min] — we'd suggest around $Y but anything at or above $[min] works. ${hasCash ? 'This would be a cash ride.' : ''} What price works for you?"
 DO: NEVER reveal the pricing formula or mention "midpoint", "lower bound", or "suggested price calculation"
-DO: If rider offers a price AT or ABOVE the driver minimum, ACCEPT IT — say "bet, $Z works" and advance
-DO: If rider offers BELOW the driver minimum, explain: "${name}'s minimum is $[min] — can you do at least that?"
-DO: NEVER reject a price that is above the driver minimum, even if it's below your recommendation
+DO: If rider offers a price AT or ABOVE the driver minimum, ACCEPT IT IMMEDIATELY — say "bet, $Z works" and advance. Do NOT try to upsell or suggest a higher price.
+DO: If rider offers BELOW the driver minimum, explain: "${name}'s minimum is $[min] — can you do at least that?" This is the ONLY reason to push back on a price.
+DO: NEVER reject or negotiate a price that is at or above the driver minimum, even if it's below your recommendation. The driver decides if the price works — your job is just to enforce the minimum floor.
 ADVANCE TO NEXT STEP WHEN: Rider states a price >= driver minimum.
 OUTPUT: Confirm all details and call confirm_details.`;
 
