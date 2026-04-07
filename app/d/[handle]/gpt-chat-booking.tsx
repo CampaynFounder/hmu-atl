@@ -182,7 +182,9 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
   const signUpUrl = `/sign-up?type=rider&returnTo=${encodeURIComponent(returnPath)}${isCashRide ? '&cash=1' : ''}`;
   const signInUrl = `/sign-in?type=rider&returnTo=${encodeURIComponent(returnPath)}${isCashRide ? '&cash=1' : ''}`;
 
-  const hasDetails = Object.keys(extractedSoFar).length > 0 && !!(extractedSoFar.destination || extractedSoFar.suggestedPrice);
+  // Show sign-up/book buttons only when a price has been agreed (details_confirmed was called)
+  const agreedPrice = Number(extractedSoFar.riderPrice || extractedSoFar.price || extractedSoFar.suggestedPrice || 0);
+  const hasAgreedBooking = agreedPrice > 0 && !!(extractedSoFar.pickup || extractedSoFar.dropoff || extractedSoFar.destination);
 
   return (
     <>
@@ -263,7 +265,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
         )}
 
         {/* Signed in as driver → can't book */}
-        {isSignedIn && isDriver && hasDetails && (
+        {isSignedIn && isDriver && hasAgreedBooking && (
           <div style={{ padding: '0 16px 8px' }}>
             <div style={{
               padding: '12px 16px', borderRadius: 14, textAlign: 'center',
@@ -276,14 +278,14 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
         )}
 
         {/* Not signed in + has details → sign up to book */}
-        {!isSignedIn && hasDetails && (
+        {!isSignedIn && hasAgreedBooking && (
           <div style={{ padding: '0 16px 8px', display: 'flex', gap: 8 }}>
             <a href={signUpUrl} style={{
               flex: 1, padding: 12, borderRadius: 100, border: 'none',
               background: COLORS.green, color: COLORS.black, fontSize: 14, fontWeight: 700,
               textDecoration: 'none', textAlign: 'center',
             }}>
-              Sign Up to Book
+              Sign Up to Book — ${agreedPrice.toFixed(0)}
             </a>
             <a href={signInUrl} style={{
               flex: 1, padding: 12, borderRadius: 100,
@@ -297,7 +299,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
         )}
 
         {/* Signed in as rider + has details → book now */}
-        {isSignedIn && !isDriver && hasDetails && (
+        {isSignedIn && !isDriver && hasAgreedBooking && (
           <div style={{ padding: '0 16px 8px' }}>
             <button onClick={() => {
               onClose();
@@ -307,7 +309,7 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
               background: COLORS.green, color: COLORS.black, fontSize: 15, fontWeight: 700,
               cursor: 'pointer',
             }}>
-              {`Book Now — $${Number(extractedSoFar.suggestedPrice || extractedSoFar.price || 0).toFixed(0)}`}
+              {`Book Now — $${agreedPrice.toFixed(0)}`}
             </button>
           </div>
         )}
