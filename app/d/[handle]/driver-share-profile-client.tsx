@@ -434,14 +434,14 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
             </div>
           )}
 
-          {/* Stats */}
-          <div className="stats-row">
-            <div className="stat-pill">
-              Chill <span className="value">{driver.chillScore.toFixed(0)}%</span>
+          {/* Vibe Tier + Rides */}
+          <div style={{ marginBottom: 20 }}>
+            <div className="stats-row" style={{ marginBottom: 10 }}>
+              <div className="stat-pill">
+                <span className="value">{driver.completedRides}</span> rides
+              </div>
             </div>
-            <div className="stat-pill">
-              <span className="value">{driver.completedRides}</span> rides
-            </div>
+            <VibeRatingBar score={driver.chillScore} />
           </div>
 
           {/* Pricing */}
@@ -543,7 +543,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
               <ul className="requirements-list">
                 {driver.requireOgStatus && <li>OG Rider status (10+ rides, 0 disputes)</li>}
                 {driver.minRiderChillScore > 0 && (
-                  <li>Chill Score of {driver.minRiderChillScore}% or higher</li>
+                  <li>{driver.minRiderChillScore >= 90 ? 'Cool AF' : driver.minRiderChillScore >= 75 ? 'CHILL' : 'Aight'} vibe or higher</li>
                 )}
               </ul>
             </div>
@@ -583,6 +583,52 @@ const DRIVER_PAIN_POINTS = [
   'Surge Pricing',
   'No-Shows',
 ];
+
+/** Shows all 4 vibe tiers with the driver's current tier highlighted */
+function VibeRatingBar({ score }: { score: number }) {
+  const tiers = [
+    { key: 'cool_af', label: 'Cool AF', emoji: '\uD83D\uDE0E', min: 90, color: '#00E676' },
+    { key: 'chill', label: 'CHILL', emoji: '\u2705', min: 75, color: '#00E676' },
+    { key: 'aight', label: 'Aight', emoji: '\uD83E\uDD37', min: 50, color: '#FFD600' },
+    { key: 'sketchy', label: 'Sketchy', emoji: '\uD83D\uDC40', min: 25, color: '#FF9100' },
+  ];
+
+  const currentTier = score >= 90 ? 'cool_af' : score >= 75 ? 'chill' : score >= 50 ? 'aight' : score >= 25 ? 'sketchy' : 'weirdo';
+
+  return (
+    <div style={{ display: 'flex', gap: 6 }}>
+      {tiers.map(t => {
+        const isActive = t.key === currentTier;
+        return (
+          <div key={t.key} style={{
+            flex: isActive ? 1.4 : 1,
+            padding: isActive ? '10px 6px' : '8px 6px',
+            borderRadius: 12,
+            background: isActive ? t.color + '18' : '#141414',
+            border: isActive ? `2px solid ${t.color}50` : '1px solid rgba(255,255,255,0.06)',
+            textAlign: 'center',
+            transition: 'all 0.3s ease',
+            boxShadow: isActive ? `0 0 12px ${t.color}20` : 'none',
+          }}>
+            <div style={{ fontSize: isActive ? 20 : 14, lineHeight: 1, marginBottom: 4 }}>
+              {t.emoji}
+            </div>
+            <div style={{
+              fontSize: isActive ? 11 : 9,
+              fontWeight: isActive ? 800 : 600,
+              color: isActive ? t.color : '#666',
+              letterSpacing: isActive ? 0.5 : 0,
+              lineHeight: 1.2,
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            }}>
+              {t.label}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function DriverSignUpCta({ isPromo }: { isPromo?: boolean }) {
   const [currentPain, setCurrentPain] = useState(0);
