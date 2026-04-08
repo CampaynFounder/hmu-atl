@@ -28,7 +28,9 @@ const RIDER_FEATURES: Feature[] = [
   { label: 'Payment Methods', description: 'Add, remove, or change your card or Apple Pay', breadcrumb: 'Me > Payment', href: '/rider/settings?tab=payment', keywords: ['card', 'pay', 'payment', 'apple pay', 'add card', 'remove', 'change', 'visa', 'mastercard', 'debit', 'credit'], icon: '💳' },
   { label: 'Edit Profile', description: 'Update your photo, name, and rider preferences', breadcrumb: 'Me > Profile', href: '/rider/profile', keywords: ['profile', 'photo', 'name', 'edit', 'avatar', 'picture', 'preferences'], icon: '👤' },
   { label: 'Record Vibe Video', description: 'Record a short intro video for drivers to see', breadcrumb: 'Me > Profile > Video', href: '/rider/profile', keywords: ['video', 'vibe', 'record', 'intro', 'clip', 'film'], icon: '🎬' },
-  { label: 'Security & Passkeys', description: 'Manage Face ID, Touch ID, and sign-in security', breadcrumb: 'Me > Security', href: '/rider/settings?tab=security', keywords: ['security', 'passkey', 'face id', 'touch id', 'password', 'login', 'sign in', 'biometric'], icon: '🔐' },
+  { label: 'Security & Passkeys', description: 'Manage Face ID, Touch ID, and sign-in security', breadcrumb: 'Me > Security', href: '/rider/settings?tab=security', keywords: ['security', 'passkey', 'face id', 'touch id', 'login', 'sign in', 'biometric'], icon: '🔐' },
+  { label: 'Change Password', description: 'Set, change, or remove your account password', breadcrumb: 'Me > Security > Password', href: '/rider/settings?tab=security', keywords: ['change password', 'reset password', 'update password', 'set password', 'remove password', 'forgot password', 'new password'], icon: '🔑' },
+  { label: 'Change Phone Number', description: 'Update your phone number for sign-in and notifications', breadcrumb: 'Me > Security > Phone', href: '/rider/settings?tab=security', keywords: ['change phone', 'update phone', 'new phone', 'phone number', 'add phone', 'verify phone', 'sms', 'text'], icon: '📱' },
 
   // HELP
   { label: 'How Booking Works', description: 'Step-by-step guide to booking your first ride', breadcrumb: 'Help > Guide', href: '/guide/rider', keywords: ['how', 'guide', 'help', 'tutorial', 'booking', 'first', 'learn', 'steps', 'new'], icon: '📖' },
@@ -46,7 +48,9 @@ const DRIVER_FEATURES: Feature[] = [
 
   // ME
   { label: 'Profile', description: 'Edit your driver profile, photo, and bio', breadcrumb: 'Me > Profile', href: '/driver/profile', keywords: ['profile', 'edit', 'photo', 'bio', 'name', 'handle', 'video', 'intro', 'about'], icon: '👤' },
-  { label: 'Settings', description: 'Account settings, notifications, and preferences', breadcrumb: 'Me > Settings', href: '/driver/settings', keywords: ['settings', 'account', 'notifications', 'preferences', 'password', 'email', 'phone', 'delete'], icon: '⚙️' },
+  { label: 'Settings', description: 'Account settings, notifications, and preferences', breadcrumb: 'Me > Settings', href: '/driver/settings', keywords: ['settings', 'account', 'notifications', 'preferences', 'email', 'delete'], icon: '⚙️' },
+  { label: 'Change Password', description: 'Set, change, or remove your account password', breadcrumb: 'Me > Security > Password', href: '/driver/settings?tab=security', keywords: ['change password', 'reset password', 'update password', 'set password', 'remove password', 'forgot password', 'new password'], icon: '🔑' },
+  { label: 'Change Phone Number', description: 'Update your phone number for sign-in and notifications', breadcrumb: 'Me > Security > Phone', href: '/driver/settings?tab=security', keywords: ['change phone', 'update phone', 'new phone', 'phone number', 'add phone', 'verify phone', 'sms', 'text'], icon: '📱' },
 
   // MONEY
   { label: 'Payout Setup', description: 'Link your bank account or debit card for payouts', breadcrumb: 'Me > Payout Setup', href: '/driver/payout-setup', keywords: ['payout', 'setup', 'bank', 'debit', 'card', 'stripe', 'connect', 'link', 'account'], icon: '🏦' },
