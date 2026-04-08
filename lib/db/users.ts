@@ -23,11 +23,13 @@ export async function createUser(params: CreateUserParams): Promise<User> {
     INSERT INTO users (
       clerk_id,
       profile_type,
-      account_status
+      account_status,
+      chill_score
     ) VALUES (
       ${params.clerk_id},
       ${params.profile_type},
-      'pending_activation'
+      'pending_activation',
+      100
     )
     RETURNING *
   `;

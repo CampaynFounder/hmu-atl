@@ -78,7 +78,7 @@ export async function checkRiderEligibility(
   const hourlyCount = Number((hourlyCountRows[0] as { count: string }).count);
   const hasPaymentMethod = paymentRows.length > 0;
 
-  const riderChillScore = rider?.chill_score ?? 0;
+  const riderChillScore = rider?.chill_score ?? 100;
   const riderOgStatus = rider?.og_status ?? false;
 
   // 1. Payment method check — skip for cash rides

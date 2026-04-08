@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
           'pending_activation',
           'free',
           false,
-          0
+          100
         )
         RETURNING id
       `;

@@ -66,7 +66,7 @@ export async function GET(
       avatarUrl: r.avatar_url || null,
       videoUrl: r.video_url || null,
       lgbtqFriendly: r.lgbtq_friendly || false,
-      chillScore: Number(r.chill_score ?? 0),
+      chillScore: Number(r.chill_score ?? 100),
       completedRides: Number(r.completed_rides ?? 0),
       ogStatus: r.og_status || false,
       disputeCount: Number((disputeRows[0] as Record<string, unknown>)?.count ?? 0),
