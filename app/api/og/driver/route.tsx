@@ -145,25 +145,8 @@ export async function GET(req: NextRequest) {
           {areas}
         </div>
 
-        {/* Stats row */}
-        <div style={{ display: 'flex', gap: '24px', marginBottom: '40px' }}>
-          <div
-            style={{
-              background: '#141414',
-              border: '1px solid rgba(255,255,255,0.1)',
-              borderRadius: '14px',
-              padding: '14px 24px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}
-          >
-            <span style={{ color: '#00E676', fontSize: '24px', fontWeight: 800 }}>
-              {chillScore.toFixed(0)}%
-            </span>
-            <span style={{ color: '#888', fontSize: '14px' }}>Chill</span>
-          </div>
-        </div>
+        {/* Vibe meter */}
+        <OgVibeMeter score={chillScore} />
 
         {/* CTA */}
         <div
@@ -185,6 +168,95 @@ export async function GET(req: NextRequest) {
       </div>
     </div>,
     { width: 1200, height: 630 }
+  );
+}
+
+/**
+ * Static version of VibeRatingBar for OG image rendering (Satori).
+ * No animations, no state — just flexbox and inline styles.
+ */
+function OgVibeMeter({ score }: { score: number }) {
+  const TOTAL_BARS = 20;
+  const pct = Math.min(100, Math.max(0, score));
+  const litCount = Math.round((pct / 100) * TOTAL_BARS);
+
+  const tier = pct >= 90 ? 'Cool AF' : pct >= 75 ? 'CHILL' : pct >= 50 ? 'Aight' : pct >= 25 ? 'Sketchy' : 'WEIRDO';
+  const tierEmoji = pct >= 90 ? '😎' : pct >= 75 ? '✅' : pct >= 50 ? '🤷' : pct >= 25 ? '👀' : '🚩';
+  const tierColor = pct >= 75 ? '#00E676' : pct >= 50 ? '#FFD600' : pct >= 25 ? '#FF9100' : '#FF5252';
+
+  function barColor(i: number): string {
+    const p = i / (TOTAL_BARS - 1);
+    if (p < 0.25) return '#FF5252';
+    if (p < 0.40) return '#FF7043';
+    if (p < 0.55) return '#FF9100';
+    if (p < 0.65) return '#FFC107';
+    if (p < 0.75) return '#FFD600';
+    if (p < 0.85) return '#8BC34A';
+    return '#00E676';
+  }
+
+  const tiers = [
+    { label: 'WEIRDO', color: '#FF5252' },
+    { label: 'Sketchy', color: '#FF9100' },
+    { label: 'Aight', color: '#FFD600' },
+    { label: 'CHILL', color: '#8BC34A' },
+    { label: 'Cool AF', color: '#00E676' },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', marginBottom: '36px', width: '100%' }}>
+      {/* Header: "Vibe" label + tier */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+        <span style={{ fontSize: '12px', color: '#888', letterSpacing: '3px', textTransform: 'uppercase' as const }}>
+          Vibe
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: '16px' }}>{tierEmoji}</span>
+          <span style={{ fontSize: '16px', fontWeight: 800, color: tierColor }}>{tier}</span>
+        </div>
+      </div>
+
+      {/* Bar meter */}
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '40px' }}>
+        {Array.from({ length: TOTAL_BARS }).map((_, i) => {
+          const lit = i < litCount;
+          const color = barColor(i);
+          const h = 10 + Math.round((i / (TOTAL_BARS - 1)) * 26); // 10px → 36px
+          return (
+            <div key={i} style={{
+              display: 'flex', flexDirection: 'column', gap: '3px',
+              flex: 1, alignItems: 'stretch', height: `${h}px`,
+            }}>
+              <div style={{
+                flex: '45%',
+                borderRadius: '2px',
+                background: lit ? color : '#1a1a1a',
+                opacity: lit ? 1 : 0.3,
+              }} />
+              <div style={{
+                flex: '55%',
+                borderRadius: '2px',
+                background: lit ? color : '#1a1a1a',
+                opacity: lit ? 1 : 0.3,
+              }} />
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Tier labels */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
+        {tiers.map(t => (
+          <span key={t.label} style={{
+            fontSize: t.label === tier ? '12px' : '10px',
+            fontWeight: t.label === tier ? 800 : 500,
+            color: t.label === tier ? t.color : '#444',
+          }}>
+            {t.label}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -20,7 +20,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   const areas = Array.isArray(profile.areas) ? profile.areas.join(', ') : '';
   const p = profile as unknown as Record<string, unknown>;
 
-  const ogImage = `https://atl.hmucashride.com/api/og/driver?handle=${handle}&v=2${promo ? `&promo=${promo}` : ''}`;
+  const ogImage = `https://atl.hmucashride.com/api/og/driver?handle=${handle}&v=3${promo ? `&promo=${promo}` : ''}`;
 
   const displayName = (p.display_name as string) || name || handle;
 
