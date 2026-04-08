@@ -221,8 +221,23 @@ async function collectRiderActions(userId: string, user: Record<string, unknown>
     }
   }
 
-  // P3: OG status progress
+  // P3: Learn about ratings (before first ride)
   const completedRides = Number(user.completed_rides || 0);
+  if (completedRides === 0) {
+    actions.push({
+      id: 'learn_ratings',
+      priority: 3,
+      type: 'learn_ratings',
+      title: 'See how ratings work',
+      subtitle: 'Know what CHILL, Cool AF, and WEIRDO mean before your first ride',
+      cta: 'Learn',
+      href: '/guide/rider#ratings',
+      color: '#448AFF',
+      emoji: '\u{2B50}',
+    });
+  }
+
+  // P3: OG status progress
   const disputes = Number(user.dispute_count || 0);
   if (!user.og_status && completedRides >= 5 && completedRides < 10 && disputes === 0) {
     actions.push({
@@ -413,6 +428,22 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
         href: '/driver/profile',
         color: '#00E676',
         emoji: '\u{1F4B2}',
+      });
+    }
+
+    // P3: Learn about ratings (before first ride)
+    const driverTotalRides = Number(dp.total_rides || dp.completed_rides || 0);
+    if (driverTotalRides === 0) {
+      actions.push({
+        id: 'learn_ratings',
+        priority: 3,
+        type: 'learn_ratings',
+        title: 'See how ratings work',
+        subtitle: 'Understand CHILL, Cool AF, and WEIRDO before your first ride',
+        cta: 'Learn',
+        href: '/guide/driver#ratings',
+        color: '#448AFF',
+        emoji: '\u{2B50}',
       });
     }
 

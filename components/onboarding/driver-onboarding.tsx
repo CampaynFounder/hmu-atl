@@ -173,13 +173,6 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
       required: false,
     },
     {
-      id: 'ratings',
-      title: 'How Ratings Work',
-      description: 'Both drivers and riders rate each other after every ride',
-      component: <RatingsInfo />,
-      required: false,
-    },
-    {
       id: 'location',
       title: 'Enable Location 📍',
       description: 'Riders need to see you on the map when you\'re OTW',
@@ -212,7 +205,7 @@ export function DriverOnboarding({ onComplete, tier = 'free' }: DriverOnboarding
   }
 
   return (
-    <div className="flex min-h-screen flex-col" style={{ paddingTop: 56, background: '#0a0a0a' }}>
+    <div className="flex min-h-screen flex-col" style={{ paddingTop: 56, paddingBottom: 'max(24px, env(safe-area-inset-bottom))', background: '#0a0a0a' }}>
       {/* Progress Bar */}
       <div className="sticky z-10 bg-zinc-900/80 backdrop-blur-sm border-b border-zinc-800" style={{ top: 56 }}>
         <div className="mx-auto max-w-2xl px-4 py-4">
@@ -787,7 +780,7 @@ function ConfirmationScreen({ name, onContinue }: { name: string; onContinue: ()
           marginBottom: '32px',
           animation: 'fadeUp 0.5s ease-out 0.5s both',
         }}>
-          Your driver profile is set up. Share your link and start getting ride requests.
+          Your profile is live. Share your link, get ride requests, and start earning today.
         </p>
 
         <button
@@ -809,8 +802,21 @@ function ConfirmationScreen({ name, onContinue }: { name: string; onContinue: ()
               <div style={{ width: 18, height: 18, border: '2px solid #080808', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
               Loading...
             </>
-          ) : 'See My HMU Link'}
+          ) : 'Start Earning Now'}
         </button>
+
+        {/* Optional ratings link */}
+        <a
+          href="/guide/driver#ratings"
+          style={{
+            display: 'block', marginTop: '16px', textAlign: 'center',
+            fontSize: '13px', color: '#666', textDecoration: 'none',
+            animation: 'fadeUp 0.5s ease-out 0.9s both',
+            fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+          }}
+        >
+          See how ratings work &rarr;
+        </a>
       </div>
     </div>
   );

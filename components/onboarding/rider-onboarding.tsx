@@ -70,13 +70,6 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
       required: true,
     },
     {
-      id: 'ratings',
-      title: 'How Ratings Work 📊',
-      description: 'The system that keeps every ride safe',
-      component: <RatingIntro userType="rider" />,
-      required: false,
-    },
-    {
       id: 'location',
       title: 'Enable Location 📍',
       description: 'Share your pickup spot so your driver can find you',
@@ -117,7 +110,7 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
   }
 
   return (
-    <div className="flex min-h-screen flex-col" style={{ paddingTop: 56, background: '#0a0a0a' }}>
+    <div className="flex min-h-screen flex-col" style={{ paddingTop: 56, paddingBottom: 'max(24px, env(safe-area-inset-bottom))', background: '#0a0a0a' }}>
       {/* Progress Bar */}
       <div className="sticky z-10 bg-zinc-900/80 backdrop-blur-sm border-b border-zinc-800" style={{ top: 56 }}>
         <div className="mx-auto max-w-2xl px-4 py-4">
@@ -397,6 +390,19 @@ function RiderConfirmation({ name, onContinue }: { name: string; onContinue: () 
         >
           Find a Ride
         </button>
+
+        {/* Optional ratings link */}
+        <a
+          href="/guide/rider#ratings"
+          style={{
+            display: 'block', marginTop: '16px', textAlign: 'center',
+            fontSize: '13px', color: '#666', textDecoration: 'none',
+            animation: 'rfadeUp 0.5s ease-out 0.9s both',
+            fontFamily: 'var(--font-body, DM Sans, sans-serif)',
+          }}
+        >
+          See how ratings work &rarr;
+        </a>
       </div>
     </div>
   );
