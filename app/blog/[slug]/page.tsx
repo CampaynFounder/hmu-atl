@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { getPostBySlug, getAllPosts } from '@/lib/blog/posts';
+import { BlogTracker } from '@/components/blog/blog-tracker';
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -71,6 +72,7 @@ export default async function BlogPostPage({ params }: Props) {
     }}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }} />
       {faqSchema && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />}
+      <BlogTracker slug={post.slug} title={post.title} category={post.category} readTime={post.readTime} tags={post.tags} />
 
       <article style={{ maxWidth: 680, margin: '0 auto', padding: '32px 20px' }}>
         {/* Breadcrumb */}

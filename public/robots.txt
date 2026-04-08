@@ -4,6 +4,8 @@ Allow: /driver
 Allow: /rider
 Allow: /privacy
 Allow: /terms
+Allow: /blog
+Allow: /blog/
 Allow: /guide/
 Allow: /d/
 Allow: /sign-in
