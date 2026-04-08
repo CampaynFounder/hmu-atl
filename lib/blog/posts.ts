@@ -65,7 +65,7 @@ const posts: BlogPost[] = [
 <li style="padding:6px 0;color:#ccc">&#x2705; Valid driver's license</li>
 <li style="padding:6px 0;color:#ccc">&#x2705; Your own vehicle (any year, any condition that's safe)</li>
 <li style="padding:6px 0;color:#ccc">&#x2705; Smartphone with GPS</li>
-<li style="padding:6px 0;color:#ccc">&#x2705; 30-second video intro (so riders know who's pulling up)</li>
+<li style="padding:6px 0;color:#ccc">&#x2705; 5-second video intro (so riders know who's pulling up)</li>
 <li style="padding:6px 0;color:#ccc">&#x274C; No commercial license needed</li>
 <li style="padding:6px 0;color:#ccc">&#x274C; No vehicle inspection required</li>
 <li style="padding:6px 0;color:#ccc">&#x274C; No minimum rides per week</li>
@@ -125,7 +125,7 @@ const posts: BlogPost[] = [
             content: `<p>Go to <a href="/sign-up?type=driver" style="color:#00E676">atl.hmucashride.com/sign-up</a> and create your driver account. You'll need your name, phone number, and vehicle details.</p>`,
           },
           {
-            heading: 'Step 2: Record Your Video Intro (30 seconds)',
+            heading: 'Step 2: Record Your Video Intro (5 seconds)',
             content: '<p>Riders want to know who\'s pulling up. Record a quick video intro — just say your name, what you drive, and what areas you cover. This builds trust and gets you more bookings.</p>',
           },
           {
@@ -152,7 +152,7 @@ const posts: BlogPost[] = [
     faqs: [
       {
         question: 'How can I start a side hustle driving for cash rideshare services?',
-        answer: 'Sign up on HMU ATL (free, takes 2 minutes), set your prices, record a 30-second video intro, and share your personal HMU link on social media. Riders book directly with you. You can start getting ride requests the same day.',
+        answer: 'Sign up on HMU ATL (free, takes 2 minutes), set your prices, record a 5-second video intro, and share your personal HMU link on social media. Riders book directly with you. You can start getting ride requests the same day.',
       },
       {
         question: 'How do I sign up to drive and get paid in cash for rides?',
@@ -285,7 +285,7 @@ const posts: BlogPost[] = [
       },
       {
         question: 'What requirements do I need to drive for cash-based ride services?',
-        answer: 'For HMU ATL, you need a valid driver\'s license, your own car, a smartphone, and a 30-second video intro. No commercial license, vehicle inspection, or minimum ride requirements. You can start driving the same day you sign up.',
+        answer: 'For HMU ATL, you need a valid driver\'s license, your own car, a smartphone, and a 5-second video intro. No commercial license, vehicle inspection, or minimum ride requirements. You can start driving the same day you sign up.',
       },
       {
         question: 'What are the top-rated ride services that pay drivers in cash?',

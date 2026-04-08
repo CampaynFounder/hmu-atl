@@ -20,7 +20,7 @@ const steps = [
     title: 'Upload Your Video',
     sub: 'Show riders who you are',
     body: 'Record a short intro — who you are, what areas you cover, your vibe. This builds trust before riders even book. No script needed, just be you.',
-    tip: 'Keep it under 30 seconds. Show your car. Mention your areas.',
+    tip: 'Keep it 5-10 seconds. Show your face. Mention your areas.',
     icon: '🎬',
     color: '#448AFF',
   },
