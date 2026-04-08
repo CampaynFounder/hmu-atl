@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { useUser, useClerk } from '@clerk/nextjs';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { ChevronLeft, Shield, CreditCard, Clock, MessageCircle } from 'lucide-react';
+import { ChevronLeft, Shield, CreditCard, Clock, MessageCircle, LogOut } from 'lucide-react';
+import AuthManagement from '@/components/shared/auth-management';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
@@ -109,65 +110,29 @@ export default function RiderSettingsClient() {
 function SecurityTab() {
   const { user } = useUser();
   const { signOut } = useClerk();
-  const phone = user?.primaryPhoneNumber?.phoneNumber;
   const email = user?.primaryEmailAddress?.emailAddress;
 
-  const cardStyle = {
-    background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: '16px', padding: '20px', marginBottom: '12px' as const,
-  };
-  const titleStyle = { fontSize: '15px', fontWeight: 700, marginBottom: '4px' } as const;
-  const subStyle = { fontSize: '13px', color: '#888', lineHeight: 1.4 } as const;
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-      {/* Phone */}
-      <div style={cardStyle}>
-        <div style={titleStyle}>Phone Number</div>
-        <div style={subStyle}>{phone || 'Not set'}</div>
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+      <AuthManagement />
 
-      {/* Email */}
+      {/* Email (read-only — managed by Clerk) */}
       {email && (
-        <div style={cardStyle}>
-          <div style={titleStyle}>Email</div>
-          <div style={subStyle}>{email}</div>
+        <div style={{
+          background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '16px', padding: '20px', marginBottom: '12px',
+        }}>
+          <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '4px' }}>Email</div>
+          <div style={{ fontSize: '13px', color: '#888', lineHeight: 1.4 }}>{email}</div>
         </div>
       )}
-
-      {/* Passkeys */}
-      <div style={cardStyle}>
-        <div style={titleStyle}>Passkeys</div>
-        {user?.passkeys && user.passkeys.length > 0 ? (
-          <div style={subStyle}>{user.passkeys.length} passkey{user.passkeys.length > 1 ? 's' : ''} configured</div>
-        ) : (
-          <div style={subStyle}>Sign in faster with Face ID, Touch ID, or your device</div>
-        )}
-        <button
-          onClick={async () => {
-            try {
-              await user?.createPasskey();
-            } catch (err: unknown) {
-              const msg = err instanceof Error ? err.message : 'Could not create passkey';
-              if (!msg.includes('canceled') && !msg.includes('abort')) alert(msg);
-            }
-          }}
-          style={{
-            marginTop: 10, padding: '10px 20px', borderRadius: 100,
-            border: '1px solid rgba(0,230,118,0.3)', background: 'rgba(0,230,118,0.08)',
-            color: '#00E676', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-          }}
-        >
-          {user?.passkeys && user.passkeys.length > 0 ? 'Add Another Passkey' : 'Add Passkey'}
-        </button>
-      </div>
 
       {/* Sign out */}
       <button
         onClick={() => signOut({ redirectUrl: '/rider/home' })}
         style={{
-          display: 'block', width: '100%', padding: '14px 20px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          width: '100%', padding: '14px 20px',
           borderRadius: '100px', border: '1px solid rgba(255,82,82,0.2)',
           background: 'transparent', color: '#FF5252', fontSize: '14px',
           fontWeight: 600, cursor: 'pointer', textAlign: 'center',
@@ -175,6 +140,7 @@ function SecurityTab() {
           marginTop: '8px',
         }}
       >
+        <LogOut style={{ width: 16, height: 16 }} />
         Sign Out
       </button>
     </div>
