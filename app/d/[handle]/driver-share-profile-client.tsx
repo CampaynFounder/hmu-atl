@@ -380,6 +380,12 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
             {/* Driver sign up CTA — only for logged out visitors */}
             {!isLoggedIn && <DriverSignUpCta isPromo={isPromo} />}
           </div>
+
+          {/* Vibe Meter — prominent, right below name */}
+          <div style={{ marginBottom: 14 }}>
+            <VibeRatingBar score={driver.chillScore} delayMs={600} />
+          </div>
+
           {/* Availability Status */}
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -434,14 +440,11 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
             </div>
           )}
 
-          {/* Vibe Tier + Rides */}
-          <div style={{ marginBottom: 20 }}>
-            <div className="stats-row" style={{ marginBottom: 10 }}>
-              <div className="stat-pill">
-                <span className="value">{driver.completedRides}</span> rides
-              </div>
+          {/* Ride count */}
+          <div className="stats-row" style={{ marginBottom: 20 }}>
+            <div className="stat-pill">
+              <span className="value">{driver.completedRides}</span> rides
             </div>
-            <VibeRatingBar score={driver.chillScore} />
           </div>
 
           {/* Pricing */}
@@ -588,7 +591,7 @@ const DRIVER_PAIN_POINTS = [
  * 90s-style signal meter — stacked block pairs that light up left→right,
  * red→orange→yellow→green, with cascade animation on load.
  */
-function VibeRatingBar({ score }: { score: number }) {
+function VibeRatingBar({ score, delayMs = 0 }: { score: number; delayMs?: number }) {
   const [litCount, setLitCount] = useState(0);
 
   const TOTAL_BARS = 20;
@@ -596,15 +599,18 @@ function VibeRatingBar({ score }: { score: number }) {
   const targetLit = Math.round((scorePercent / 100) * TOTAL_BARS);
 
   useEffect(() => {
-    // Cascade animation — light up bars one by one
-    let i = 0;
-    const interval = setInterval(() => {
-      i++;
-      setLitCount(i);
-      if (i >= targetLit) clearInterval(interval);
-    }, 60);
-    return () => clearInterval(interval);
-  }, [targetLit]);
+    let interval: ReturnType<typeof setInterval>;
+    // Wait for page load then cascade animation
+    const timeout = setTimeout(() => {
+      let i = 0;
+      interval = setInterval(() => {
+        i++;
+        setLitCount(i);
+        if (i >= targetLit) clearInterval(interval);
+      }, 60);
+    }, delayMs);
+    return () => { clearTimeout(timeout); clearInterval(interval); };
+  }, [targetLit, delayMs]);
 
   // Color for each bar position (left=red, right=green)
   function barColor(index: number): string {
