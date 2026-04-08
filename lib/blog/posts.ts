@@ -298,6 +298,328 @@ const posts: BlogPost[] = [
       subtext: 'Free sign-up. Accept cash rides today.',
     },
   },
+  // ── POST 5: RIDER ACQUISITION — "car broken down what to do" cluster ──
+  {
+    slug: 'car-broken-down-atlanta-cheap-ride-home',
+    title: 'Car Broken Down in Atlanta? How to Get a Cheap Ride Home (2026)',
+    description: 'Car broke down in Atlanta? Skip the $80 Uber surge. Get an affordable ride home — name your price, pay later with Klarna, or pay cash.',
+    headline: 'CAR BROKEN DOWN IN ATLANTA? HERE\'S HOW TO GET A CHEAP RIDE HOME',
+    author: 'HMU ATL',
+    publishedAt: '2026-04-08T14:00:00Z',
+    category: 'car-trouble',
+    tags: ['car broken down', 'atlanta rides', 'cheap rides', 'name your price', 'klarna', 'car trouble', 'stranded'],
+    readTime: 6,
+    featured: true,
+    sections: [
+      {
+        heading: 'Your Car Just Broke Down — Now What?',
+        content: `<p>It's 11pm. Your check engine light's been on for a week. Now your car just died on the side of I-285 and you're Googling "car broken down what to do" while the hazards flash behind you.</p>
+<p>Here's the real priority list when your car breaks down in Atlanta:</p>
+<ol style="padding-left:20px;color:#ccc;line-height:2">
+<li><strong>Get safe.</strong> Pull over, turn on hazards, get out of the road.</li>
+<li><strong>Call a tow</strong> if you have roadside assistance (AAA, insurance, etc).</li>
+<li><strong>Get yourself home.</strong> This is where most people get stuck — and overpay.</li>
+</ol>
+<p>Uber and Lyft know you're stranded. That's why they surge to $60-$80+ for a ride that normally costs $15. They call it "dynamic pricing." We call it taking advantage of you when your car just died.</p>`,
+      },
+      {
+        heading: 'Why Uber Costs So Much When Your Car Breaks Down',
+        content: `<p>It's not a conspiracy — it's the algorithm. Uber and Lyft use surge pricing that spikes when demand is high. And guess what? Breakdowns cluster at the same times and places: late night on highways, rush hour on surface streets, rainy days everywhere.</p>
+<p>When your car breaks down at night in Atlanta, you're competing with every other rider requesting in that area. The app sees high demand, low supply, and jacks the price. You're stuck paying 2x-4x the normal fare because the algorithm knows you have no choice.</p>
+<p>That's why more Atlanta riders are switching to peer-to-peer ride apps where <strong>you name the price</strong> — not an algorithm.</p>`,
+      },
+      {
+        heading: 'How HMU ATL Gives You a Ride Without Destroying Your Wallet',
+        content: `<p>HMU ATL is a peer-to-peer ride platform built for Metro Atlanta. No surge pricing. No corporate algorithms. Just local drivers earning fair money and riders paying fair prices.</p>`,
+        subheadings: [
+          {
+            heading: 'You Name Your Price',
+            content: `<p>On HMU ATL, riders can <strong>propose their own price</strong> for a ride. Post what you're willing to pay — like "$15 from I-285 to Decatur" — and local drivers decide if they want to take it.</p>
+<p>No surge multiplier. No "estimated fare" that doubles when you confirm. You set the price. Drivers accept or pass. That's it.</p>
+<p>Most Atlanta riders save 40-60% compared to Uber surge pricing just by naming a fair price.</p>`,
+          },
+          {
+            heading: 'Pay Later with Klarna — Buy Now, Pay Later for Rides',
+            content: `<p>When your car breaks down, the last thing you need is another $50+ charge hitting your card right now. That's why HMU ATL supports <strong>Klarna Buy Now, Pay Later</strong> at checkout.</p>
+<p>Split your ride into 4 interest-free payments. A $40 ride becomes $10 now and $10 every two weeks. No credit check for most users. No interest if you pay on time.</p>
+<p>It's the same Klarna you use for online shopping — but for getting home when your car won't start.</p>`,
+          },
+          {
+            heading: 'Pay Cash — No Card, No Problem',
+            content: `<p>Don't have your card? Phone about to die? HMU ATL drivers accept <strong>cash payments</strong>. Agree on the price, get your ride, pay cash when you arrive. The ride is still GPS-tracked for safety.</p>
+<p>No other major ride platform in Atlanta lets you pay cash. Period.</p>`,
+          },
+        ],
+      },
+      {
+        heading: 'What to Do When Your Car Breaks Down at Night in Atlanta',
+        content: `<p>Breaking down at night adds a safety layer to an already stressful situation. Here's the ATL-specific playbook:</p>
+<ul style="list-style:none;padding:0">
+<li style="padding:8px 0;color:#ccc"><strong style="color:#00E676">1. Stay visible.</strong> Hazards on. If you have them, put out triangles or flares. In Atlanta traffic, visibility saves lives.</li>
+<li style="padding:8px 0;color:#ccc"><strong style="color:#00E676">2. Lock your doors.</strong> Stay in the car if you're on a highway shoulder. Don't walk on I-75/I-85/I-285 at night.</li>
+<li style="padding:8px 0;color:#ccc"><strong style="color:#00E676">3. Call a tow first, then a ride.</strong> Get the car handled, then worry about getting yourself home.</li>
+<li style="padding:8px 0;color:#ccc"><strong style="color:#00E676">4. Open HMU ATL.</strong> Post "Need a ride from [your location] to [home]. Name your price." Local drivers in your area see it immediately.</li>
+<li style="padding:8px 0;color:#ccc"><strong style="color:#00E676">5. Check driver video intros.</strong> Every HMU driver has a video profile so you know exactly who's pulling up. Especially important at night.</li>
+</ul>
+<p>Pro tip: Save a driver you trust as a favorite. Next time your car acts up, you can HMU them directly instead of hoping the algorithm assigns someone decent.</p>`,
+      },
+      {
+        heading: 'Car Broken Down on the Highway vs. Side Streets',
+        content: `<p>Where your car breaks down changes your options:</p>
+<p><strong>Highway breakdown (I-75, I-85, I-285, GA-400):</strong> Georgia's HERO units patrol major highways and can help with basic issues (flat tire, jump start, fuel). Call <strong>511</strong> or <strong>*GSP (*477)</strong>. For a ride home, post on HMU ATL from a safe location — gas station, exit ramp, or wherever the tow driver drops you.</p>
+<p><strong>Side street / parking lot breakdown:</strong> More options here. You can wait with your car, and an HMU driver can pick you up right where you are. No need to coordinate a meeting at a random intersection — share your exact location in the app.</p>
+<p><strong>At home breakdown:</strong> Car won't start in your driveway? You still need to get to work, school, or the mechanic. Post on HMU with your price and where you need to go. It's cheaper than Uber for short neighborhood rides especially.</p>`,
+      },
+    ],
+    faqs: [
+      {
+        question: 'What should I do when my car breaks down in Atlanta?',
+        answer: 'Get safe first — pull over, hazards on. Call a tow if needed. Then get yourself a ride home. Skip Uber surge pricing and use HMU ATL where you name your own price. Rides typically cost 40-60% less than Uber during surge hours. You can pay cash, card, or use Klarna Buy Now Pay Later.',
+      },
+      {
+        question: 'How can I get a cheap ride when my car is broken down?',
+        answer: 'Use HMU ATL and name your own price. Post what you can pay — like "$12 from College Park to East Atlanta" — and local drivers accept or pass. No surge pricing, no algorithms. You can also pay later with Klarna (4 interest-free payments) or pay cash to the driver directly.',
+      },
+      {
+        question: 'Who should I call when my car breaks down on the highway in Atlanta?',
+        answer: 'Call 511 for Georgia HERO roadside assistance on major highways (free). For a ride home, use HMU ATL instead of surge-priced Uber or Lyft. You name your price and local drivers pick you up. Rides are GPS-tracked and drivers have video profiles so you know who\'s coming.',
+      },
+      {
+        question: 'Can I pay for a ride later if my car breaks down and I don\'t have money?',
+        answer: 'Yes. HMU ATL supports Klarna Buy Now, Pay Later — split any ride into 4 interest-free payments. A $40 ride becomes $10 every two weeks. You can also pay cash directly to the driver if you don\'t have a card.',
+      },
+      {
+        question: 'Is it safe to get a ride from a stranger when my car breaks down at night?',
+        answer: 'On HMU ATL, every driver has a video intro so you see who\'s pulling up before they arrive. All rides are GPS-tracked in real-time, even cash rides. Drivers and riders rate each other, and 3 safety flags from different people triggers an account review. It\'s peer-to-peer, but tracked and accountable.',
+      },
+      {
+        question: 'What is the cheapest ride app in Atlanta?',
+        answer: 'HMU ATL is the most affordable ride option in Metro Atlanta. Riders name their own price — no surge pricing, no algorithm markups. You can also use Klarna to split payments into 4 interest-free installments. Average ride costs are 40-60% less than Uber during peak hours.',
+      },
+    ],
+    cta: {
+      text: 'Get a Ride Now',
+      href: '/sign-up?type=rider',
+      subtext: 'Name your price. Pay cash, card, or split it with Klarna. No surge pricing, ever.',
+    },
+  },
+
+  // ── POST 6: RIDER ACQUISITION — "check engine light" + car trouble cluster ──
+  {
+    slug: 'check-engine-light-on-need-ride-atlanta',
+    title: 'Check Engine Light On? Get an Affordable Ride to the Mechanic in Atlanta',
+    description: 'Check engine light on and can\'t drive? Get an affordable ride to the mechanic or work in Atlanta. Name your price — no Uber surge.',
+    headline: 'CHECK ENGINE LIGHT ON? DON\'T OVERPAY FOR A RIDE TO THE SHOP',
+    author: 'HMU ATL',
+    publishedAt: '2026-04-08T15:00:00Z',
+    category: 'car-trouble',
+    tags: ['check engine light', 'car trouble', 'mechanic ride', 'affordable rides', 'atlanta', 'name your price', 'klarna'],
+    readTime: 5,
+    sections: [
+      {
+        heading: 'Your Check Engine Light Is On — Here\'s What Most People Get Wrong',
+        content: `<p>The check engine light comes on and your brain goes straight to worst case. Is the engine about to blow? Is it safe to drive? How much is this going to cost?</p>
+<p>Here's the truth: <strong>most check engine lights are not emergencies</strong>. Common causes include a loose gas cap, an O2 sensor, a catalytic converter issue, or an emissions problem. But some are — and if your car is misfiring, overheating, or losing power, you should not be driving it.</p>
+<p>Which means you need a ride. To the mechanic. To work. To pick up the kids. And Uber wants $35 for a 10-minute trip because it's rush hour.</p>`,
+      },
+      {
+        heading: 'When You Shouldn\'t Drive with the Check Engine Light On',
+        content: `<p>Quick guide — these symptoms mean <strong>stop driving and get a ride instead</strong>:</p>
+<ul style="list-style:none;padding:0">
+<li style="padding:8px 0;color:#ccc"><strong style="color:#FF5252">Flashing check engine light</strong> — This means active misfire. Driving can destroy your catalytic converter ($1,000+ repair). Get a ride.</li>
+<li style="padding:8px 0;color:#ccc"><strong style="color:#FF5252">Temperature gauge in the red</strong> — Engine is overheating. Pull over immediately. Driving even 1 mile can crack the engine block.</li>
+<li style="padding:8px 0;color:#ccc"><strong style="color:#FF5252">Loss of power or jerking</strong> — Transmission or fuel system issue. Not safe to drive, especially on Atlanta highways.</li>
+<li style="padding:8px 0;color:#ccc"><strong style="color:#FF5252">Smoke from under the hood</strong> — Pull over, turn off the engine, get away from the car. Call a tow and then a ride.</li>
+<li style="padding:8px 0;color:#ccc"><strong style="color:#00E676">Steady check engine light, car drives fine</strong> — Usually OK to drive to the mechanic. But don't ignore it for weeks.</li>
+</ul>
+<p>If you can't drive, you need a ride — and you shouldn't have to pay surge prices because your car broke at the wrong time.</p>`,
+      },
+      {
+        heading: 'The Smart Way to Get a Ride When Your Car Is in the Shop',
+        content: `<p>Your car's at the mechanic for 2-3 days. You still need to get to work, school, the store. Here's how Atlanta riders handle it without going broke:</p>`,
+        subheadings: [
+          {
+            heading: 'Name Your Price on HMU ATL',
+            content: `<p>Post your ride on HMU ATL and set the price you want to pay. "$10 from Decatur to Downtown" or "$15 round trip to the mechanic on Moreland." Local drivers see your post and decide if they want the ride.</p>
+<p>No algorithm. No surge. You're negotiating directly with a real person. Most riders find a driver within minutes, especially in Metro Atlanta.</p>`,
+          },
+          {
+            heading: 'Split the Cost with Klarna',
+            content: `<p>When your car's in the shop and you're already facing a repair bill, the last thing you need is ride costs stacking up. HMU ATL supports <strong>Klarna Buy Now, Pay Later</strong>:</p>
+<ul style="padding-left:20px;color:#ccc;line-height:2">
+<li>Split any ride into <strong>4 interest-free payments</strong></li>
+<li>Pay the first installment now, rest every 2 weeks</li>
+<li>No hard credit check for most users</li>
+<li>Works with any digital ride on HMU ATL</li>
+</ul>
+<p>A week of rides to work while your car's in the shop? Spread it out instead of dropping $100+ all at once.</p>`,
+          },
+          {
+            heading: 'Build a Relationship with a Regular Driver',
+            content: `<p>Here's something Uber can't do: on HMU ATL, you can save drivers and book them directly. Find a driver who covers your route, save them as a favorite, and hit them up whenever you need a ride.</p>
+<p>Regulars get better prices because drivers trust repeat riders. Some drivers even offer weekly commuter deals — "$50/week for daily rides to MARTA" type arrangements.</p>`,
+          },
+        ],
+      },
+      {
+        heading: 'How Much Rides Actually Cost on HMU ATL vs Uber',
+        content: `<p>Real price comparison for common Atlanta "car trouble" rides:</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0">
+<tr style="border-bottom:1px solid rgba(255,255,255,0.1)"><th style="text-align:left;padding:10px;color:#888;font-size:12px">Route</th><th style="text-align:right;padding:10px;color:#888;font-size:12px">Uber (peak)</th><th style="text-align:right;padding:10px;color:#888;font-size:12px">HMU ATL</th><th style="text-align:right;padding:10px;color:#888;font-size:12px">You Save</th></tr>
+<tr style="border-bottom:1px solid rgba(255,255,255,0.06)"><td style="padding:10px;color:#bbb">Decatur → Downtown (mechanic)</td><td style="text-align:right;padding:10px;color:#FF5252">$28-$42</td><td style="text-align:right;padding:10px;color:#00E676;font-weight:700">$10-$15</td><td style="text-align:right;padding:10px;color:#00E676">50-65%</td></tr>
+<tr style="border-bottom:1px solid rgba(255,255,255,0.06)"><td style="padding:10px;color:#bbb">College Park → Midtown (work)</td><td style="text-align:right;padding:10px;color:#FF5252">$35-$55</td><td style="text-align:right;padding:10px;color:#00E676;font-weight:700">$12-$20</td><td style="text-align:right;padding:10px;color:#00E676">55-65%</td></tr>
+<tr style="border-bottom:1px solid rgba(255,255,255,0.06)"><td style="padding:10px;color:#bbb">East ATL → Airport pickup</td><td style="text-align:right;padding:10px;color:#FF5252">$30-$50</td><td style="text-align:right;padding:10px;color:#00E676;font-weight:700">$15-$22</td><td style="text-align:right;padding:10px;color:#00E676">50-60%</td></tr>
+<tr><td style="padding:10px;color:#bbb">Buckhead → Sandy Springs (school)</td><td style="text-align:right;padding:10px;color:#FF5252">$22-$35</td><td style="text-align:right;padding:10px;color:#00E676;font-weight:700">$8-$12</td><td style="text-align:right;padding:10px;color:#00E676">55-65%</td></tr>
+</table>
+<p>These aren't promotional rates. They're what riders actually pay because there's no surge algorithm and drivers keep 88-90% — so they don't need to charge more to make it worth their time.</p>`,
+      },
+    ],
+    faqs: [
+      {
+        question: 'Can I drive with my check engine light on?',
+        answer: 'If the light is steady and the car drives normally, you can usually drive to the mechanic. If it\'s flashing, the engine is overheating, or you\'re losing power — stop driving. Get a tow for the car and use HMU ATL for an affordable ride to the mechanic, work, or home.',
+      },
+      {
+        question: 'How do I get to work when my car is in the shop?',
+        answer: 'Use HMU ATL and name your own price for daily rides. You can save a regular driver as a favorite and book them directly. Many drivers offer weekly commuter deals. You can also split ride costs with Klarna Buy Now, Pay Later — 4 interest-free payments.',
+      },
+      {
+        question: 'What is the cheapest way to get a ride to the mechanic in Atlanta?',
+        answer: 'HMU ATL lets you name your price for a ride. Post where you need to go and what you\'ll pay — local drivers accept or pass. No surge pricing. Average savings of 40-60% compared to Uber. You can also pay cash or use Klarna to split the payment.',
+      },
+      {
+        question: 'Can I pay for a ride in installments?',
+        answer: 'Yes. HMU ATL supports Klarna Buy Now, Pay Later. Split any ride into 4 interest-free payments. A $40 ride becomes $10 every two weeks. No hard credit check for most users. Great for when your car is in the shop and you\'re already facing repair costs.',
+      },
+    ],
+    cta: {
+      text: 'Get a Ride to the Shop',
+      href: '/sign-up?type=rider',
+      subtext: 'Name your price. No surge, ever. Pay now or split it with Klarna.',
+    },
+  },
+
+  // ── POST 7: RIDER ACQUISITION — "affordable rides atlanta" + name your price explainer ──
+  {
+    slug: 'name-your-price-rides-atlanta-no-surge',
+    title: 'Name Your Price for Rides in Atlanta — No Surge Pricing, Ever',
+    description: 'Tired of Uber surge pricing? HMU ATL lets riders name their own price. Pay cash, card, or split it with Klarna. Atlanta\'s cheapest rides.',
+    headline: 'NAME YOUR PRICE FOR RIDES IN ATLANTA — NO SURGE, EVER',
+    author: 'HMU ATL',
+    publishedAt: '2026-04-08T16:00:00Z',
+    category: 'riders',
+    tags: ['name your price', 'no surge pricing', 'cheap rides atlanta', 'uber alternative', 'klarna rides', 'buy now pay later'],
+    readTime: 6,
+    featured: false,
+    sections: [
+      {
+        heading: 'You Shouldn\'t Need a Finance Degree to Afford a Ride',
+        content: `<p>Open Uber at 5pm on a Friday in Atlanta. That $15 ride to your friend's house? It's $38 now. "Surge pricing" they call it. You call it getting played.</p>
+<p>The problem isn't that rides cost money. The problem is that <strong>you have zero control over what you pay</strong>. An algorithm decides. And that algorithm is designed to extract the maximum amount from you, not give you a fair price.</p>
+<p>HMU ATL flips this entire model. On HMU, <strong>the rider names the price</strong>. You post what you're willing to pay, local drivers decide if they'll take it. No surge, no algorithm, no surprises.</p>`,
+      },
+      {
+        heading: 'How "Name Your Price" Actually Works',
+        content: `<p>It's simple — here's the step by step:</p>`,
+        subheadings: [
+          {
+            heading: 'Step 1: Post Your Ride',
+            content: `<p>Open HMU ATL and post where you need to go and when. Include your pickup area and destination — like "Decatur to Midtown, need a ride at 8am."</p>`,
+          },
+          {
+            heading: 'Step 2: Set Your Price',
+            content: `<p>Name what you're willing to pay. The app shows you a suggested fair price based on distance, but you can go above or below. Drivers in your area see your post with your price attached.</p>
+<p>Realistic tip: don't lowball. A $5 offer for a 30-minute drive won't get picked up. But a fair price — even $5-$10 below Uber — gets accepted fast because HMU drivers keep 88-90% of the fare.</p>`,
+          },
+          {
+            heading: 'Step 3: A Driver Accepts',
+            content: `<p>Local drivers browse rider requests and accept the ones that work for them. You'll see their profile, video intro, vibe rating, and car photo before confirming.</p>
+<p>No random assignment. No "your driver is 12 minutes away" from someone with a 3.2 rating. You choose who you ride with.</p>`,
+          },
+          {
+            heading: 'Step 4: Ride and Pay',
+            content: `<p>The driver picks you up, you ride, you pay. Three payment options:</p>
+<ul style="list-style:none;padding:0">
+<li style="padding:6px 0;color:#ccc"><strong style="color:#00E676">Cash</strong> — Pay the driver directly in person. Ride is still GPS-tracked.</li>
+<li style="padding:6px 0;color:#ccc"><strong style="color:#00E676">Card / Apple Pay / Google Pay</strong> — Pay through the app. Secure, instant.</li>
+<li style="padding:6px 0;color:#ccc"><strong style="color:#00E676">Klarna (Buy Now, Pay Later)</strong> — Split into 4 interest-free payments. $40 ride = $10 every 2 weeks.</li>
+</ul>`,
+          },
+        ],
+      },
+      {
+        heading: 'Why Drivers Accept "Name Your Price" Rides',
+        content: `<p>You might think: "If I name a low price, no one will pick me up." But here's why drivers on HMU ATL accept lower fares than Uber and still make more money:</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0">
+<tr style="border-bottom:1px solid rgba(255,255,255,0.1)"><th style="text-align:left;padding:10px;color:#888;font-size:12px">Factor</th><th style="text-align:left;padding:10px;color:#888;font-size:12px">Uber</th><th style="text-align:left;padding:10px;color:#888;font-size:12px">HMU ATL</th></tr>
+<tr style="border-bottom:1px solid rgba(255,255,255,0.06)"><td style="padding:10px;color:#bbb">Platform take rate</td><td style="padding:10px;color:#FF5252">25-40%+</td><td style="padding:10px;color:#00E676">10-12%</td></tr>
+<tr style="border-bottom:1px solid rgba(255,255,255,0.06)"><td style="padding:10px;color:#bbb">Driver keeps on $20 fare</td><td style="padding:10px;color:#FF5252">$12-$15</td><td style="padding:10px;color:#00E676">$17.60-$18</td></tr>
+<tr style="border-bottom:1px solid rgba(255,255,255,0.06)"><td style="padding:10px;color:#bbb">Surge pricing benefit</td><td style="padding:10px;color:#FF5252">Mostly goes to Uber</td><td style="padding:10px;color:#00E676">No surge — price is the price</td></tr>
+<tr><td style="padding:10px;color:#bbb">Fee caps</td><td style="padding:10px;color:#FF5252">None</td><td style="padding:10px;color:#00E676">$40/day, $150/week max fee</td></tr>
+</table>
+<p>A $15 ride on HMU ATL puts $13.50 in the driver's pocket. A $25 Uber ride puts $15-$18 in the driver's pocket. <strong>The rider pays less AND the driver earns more.</strong> That's what happens when you remove the corporate middleman.</p>`,
+      },
+      {
+        heading: 'Klarna Buy Now, Pay Later for Rides — How It Works',
+        content: `<p>This is a game-changer for riders who need consistent transportation but don't have $200+ per week to drop on rides.</p>
+<p><strong>How Klarna works on HMU ATL:</strong></p>
+<ul style="list-style:none;padding:0">
+<li style="padding:8px 0;color:#ccc"><strong style="color:#00E676">At checkout</strong> — Select Klarna as your payment method</li>
+<li style="padding:8px 0;color:#ccc"><strong style="color:#00E676">Pay 25% now</strong> — First installment charged immediately</li>
+<li style="padding:8px 0;color:#ccc"><strong style="color:#00E676">3 more payments</strong> — Every 2 weeks, automatically</li>
+<li style="padding:8px 0;color:#ccc"><strong style="color:#00E676">No interest</strong> — Pay on time and it costs nothing extra</li>
+<li style="padding:8px 0;color:#ccc"><strong style="color:#00E676">No hard credit check</strong> — Soft check only for most users</li>
+</ul>
+<p><strong>When Klarna makes sense for riders:</strong></p>
+<ul style="padding-left:20px;color:#ccc;line-height:2">
+<li>Your car's in the shop for a week and you need daily rides to work</li>
+<li>You're between paychecks but need to get somewhere now</li>
+<li>You're a student without a car who needs rides to class</li>
+<li>You got hit with an unexpected expense and rides can wait for payment</li>
+</ul>
+<p>It's not about being broke — it's about <strong>cash flow</strong>. Klarna lets you get the ride now and spread the cost over time.</p>`,
+      },
+      {
+        heading: 'Who\'s Using HMU ATL Instead of Uber?',
+        content: `<p>HMU ATL isn't trying to replace Uber for tourists visiting Atlanta. It's built for people who <strong>live here</strong> and need rides regularly:</p>
+<ul style="list-style:none;padding:0">
+<li style="padding:8px 0;color:#ccc"><strong>Students</strong> — GSU, Spelman, Morehouse, Clark Atlanta, Georgia Tech students who don't have cars or can't afford campus parking</li>
+<li style="padding:8px 0;color:#ccc"><strong>Young professionals</strong> — Working in Midtown/Buckhead but living further out where MARTA doesn't reach</li>
+<li style="padding:8px 0;color:#ccc"><strong>Car-in-the-shop riders</strong> — Need rides for a few days while their car is being fixed</li>
+<li style="padding:8px 0;color:#ccc"><strong>Night-out riders</strong> — Going to the West End, East Atlanta Village, or Old Fourth Ward and don't want to drive</li>
+<li style="padding:8px 0;color:#ccc"><strong>No-car households</strong> — Families that can't afford a second car but need daily transportation</li>
+</ul>
+<p>If you live in Metro Atlanta and you're tired of paying Uber prices, HMU is built for you.</p>`,
+      },
+    ],
+    faqs: [
+      {
+        question: 'How does naming your price for a ride work?',
+        answer: 'On HMU ATL, you post where you need to go and set the price you want to pay. Local drivers see your post and accept if the price works for them. No algorithm sets the price — you do. Most riders save 40-60% compared to Uber by naming a fair price.',
+      },
+      {
+        question: 'Can I use Klarna to pay for rides in Atlanta?',
+        answer: 'Yes. HMU ATL supports Klarna Buy Now, Pay Later for digital rides. Split any ride into 4 interest-free payments over 6 weeks. No hard credit check for most users. Great for daily commuters or when your car is in the shop.',
+      },
+      {
+        question: 'Is HMU ATL cheaper than Uber in Atlanta?',
+        answer: 'Yes. HMU ATL has no surge pricing and riders name their own price. On average, riders save 40-60% compared to Uber, especially during peak hours. Drivers still earn more because HMU only takes 10-12% (vs Uber\'s 25-40%). Both sides win.',
+      },
+      {
+        question: 'Can I pay cash for a ride in Atlanta?',
+        answer: 'Yes. HMU ATL is the only major ride platform in Atlanta that accepts cash payments. Agree on the price with the driver, ride, and pay cash when you arrive. The ride is still GPS-tracked for safety.',
+      },
+      {
+        question: 'What is the best Uber alternative in Atlanta?',
+        answer: 'HMU ATL is the top Uber alternative in Metro Atlanta. Riders name their own price, pay with cash/card/Klarna, and choose their driver. No surge pricing, ever. Drivers have video profiles so you know who\'s picking you up.',
+      },
+    ],
+    cta: {
+      text: 'Name Your Price Now',
+      href: '/sign-up?type=rider',
+      subtext: 'No surge. Pay cash, card, or split it with Klarna. Atlanta riders save 40-60%.',
+    },
+  },
 ];
 
 export function getAllPosts(): BlogPost[] {

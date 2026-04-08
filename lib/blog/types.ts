@@ -6,7 +6,7 @@ export interface BlogPost {
   author: string;
   publishedAt: string; // ISO date
   updatedAt?: string;
-  category: 'drivers' | 'riders' | 'atlanta' | 'money' | 'safety' | 'guides';
+  category: 'drivers' | 'riders' | 'atlanta' | 'money' | 'safety' | 'guides' | 'car-trouble';
   tags: string[];
   readTime: number; // minutes
   featured?: boolean;

@@ -3,11 +3,11 @@ import type { Metadata } from 'next';
 import { getAllPosts } from '@/lib/blog/posts';
 
 export const metadata: Metadata = {
-  title: 'HMU ATL Blog — Cash Rides, Driver Earnings, Atlanta Rideshare Tips',
-  description: 'Tips for earning cash driving in Atlanta. How HMU ATL drivers get paid same-day, earn more than Uber, and ride on their own terms.',
+  title: 'HMU ATL Blog — Cheap Rides, Driver Earnings, Atlanta Rideshare Tips',
+  description: 'Affordable rides in Atlanta — name your price, pay with Klarna, or pay cash. Tips for riders and drivers on Metro Atlanta\'s peer-to-peer ride platform.',
   openGraph: {
     title: 'HMU ATL Blog',
-    description: 'Cash rides, driver earnings, and rideshare tips for Metro Atlanta.',
+    description: 'Affordable rides and driver earnings tips for Metro Atlanta. No surge pricing.',
     url: 'https://atl.hmucashride.com/blog',
     siteName: 'HMU ATL',
     type: 'website',
