@@ -750,8 +750,11 @@ function DriverSignUpCta({ isPromo }: { isPromo?: boolean }) {
       style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',
         textDecoration: 'none', flexShrink: 0,
-        gap: 8,
+        gap: 6, opacity: 0.45,
+        transition: 'opacity 0.2s',
       }}
+      onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.45'; }}
     >
       <style>{`
         @keyframes fadeSwap {
@@ -772,11 +775,10 @@ function DriverSignUpCta({ isPromo }: { isPromo?: boolean }) {
 
       {/* Prohibited circle with pain point */}
       <div style={{
-        position: 'relative', width: 68, height: 68,
+        position: 'relative', width: 52, height: 52,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         borderRadius: '50%',
-        border: '3px solid #FF5252',
-        animation: 'prohibitGlow 2.2s ease-in-out infinite',
+        border: '2px solid #FF5252',
         overflow: 'hidden',
       }}>
         {/* Diagonal strike — connects edge to edge */}
@@ -788,7 +790,7 @@ function DriverSignUpCta({ isPromo }: { isPromo?: boolean }) {
         }} />
         {/* Pain point text */}
         <div style={{
-          fontSize: 10, fontWeight: 800, color: '#FF5252',
+          fontSize: 8, fontWeight: 800, color: '#FF5252',
           textAlign: 'center', lineHeight: 1.15,
           padding: '0 8px',
           textTransform: 'uppercase', letterSpacing: 0.3,
@@ -801,18 +803,16 @@ function DriverSignUpCta({ isPromo }: { isPromo?: boolean }) {
 
       {/* CTA button */}
       <div style={{
-        background: isPromo ? '#00E676' : '#080808',
-        color: isPromo ? '#080808' : '#00E676',
-        fontSize: isPromo ? 11 : 10, fontWeight: 800, letterSpacing: 0.5,
-        padding: isPromo ? '8px 16px' : '6px 14px', borderRadius: 100,
+        background: isPromo ? '#00E676' : 'transparent',
+        color: isPromo ? '#080808' : '#888',
+        fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
+        padding: '5px 12px', borderRadius: 100,
         textAlign: 'center', lineHeight: 1.2,
         textTransform: 'uppercase',
         whiteSpace: 'nowrap',
-        border: isPromo ? 'none' : '1.5px solid #00E676',
-        boxShadow: '0 0 8px rgba(0,230,118,0.3)',
-        animation: isPromo ? 'promoPulse 2s ease-in-out infinite' : 'none',
+        border: isPromo ? 'none' : '1px solid rgba(255,255,255,0.12)',
       }}>
-        {isPromo ? 'Create FREE Profile \u2192' : 'Drive with HMU \u2192'}
+        {isPromo ? 'Create FREE Profile \u2192' : 'Drive with HMU'}
       </div>
     </Link>
   );
