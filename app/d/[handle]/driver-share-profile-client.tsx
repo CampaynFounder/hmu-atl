@@ -584,48 +584,96 @@ const DRIVER_PAIN_POINTS = [
   'No-Shows',
 ];
 
-/** Shows all 4 vibe tiers with the driver's current tier highlighted */
+/** Horizontal audio-meter style vibe bar — red→yellow→green gradient with animated fill */
 function VibeRatingBar({ score }: { score: number }) {
+  const [animatedWidth, setAnimatedWidth] = useState(0);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    // Trigger the rise animation after mount
+    const t1 = setTimeout(() => setMounted(true), 100);
+    const t2 = setTimeout(() => setAnimatedWidth(Math.min(100, Math.max(0, score))), 300);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [score]);
+
   const tiers = [
-    { key: 'cool_af', label: 'Cool AF', emoji: '\uD83D\uDE0E', min: 90, color: '#00E676' },
-    { key: 'chill', label: 'CHILL', emoji: '\u2705', min: 75, color: '#00E676' },
-    { key: 'aight', label: 'Aight', emoji: '\uD83E\uDD37', min: 50, color: '#FFD600' },
-    { key: 'sketchy', label: 'Sketchy', emoji: '\uD83D\uDC40', min: 25, color: '#FF9100' },
+    { label: 'WEIRDO', emoji: '\uD83D\uDEA9', pos: 0 },
+    { label: 'Sketchy', emoji: '\uD83D\uDC40', pos: 25 },
+    { label: 'Aight', emoji: '\uD83E\uDD37', pos: 50 },
+    { label: 'CHILL', emoji: '\u2705', pos: 75 },
+    { label: 'Cool AF', emoji: '\uD83D\uDE0E', pos: 92 },
   ];
 
-  const currentTier = score >= 90 ? 'cool_af' : score >= 75 ? 'chill' : score >= 50 ? 'aight' : score >= 25 ? 'sketchy' : 'weirdo';
+  const currentTier = score >= 90 ? 'Cool AF' : score >= 75 ? 'CHILL' : score >= 50 ? 'Aight' : score >= 25 ? 'Sketchy' : 'WEIRDO';
+  const tierColor = score >= 75 ? '#00E676' : score >= 50 ? '#FFD600' : score >= 25 ? '#FF9100' : '#FF5252';
 
   return (
-    <div style={{ display: 'flex', gap: 6 }}>
-      {tiers.map(t => {
-        const isActive = t.key === currentTier;
-        return (
-          <div key={t.key} style={{
-            flex: isActive ? 1.4 : 1,
-            padding: isActive ? '10px 6px' : '8px 6px',
-            borderRadius: 12,
-            background: isActive ? t.color + '18' : '#141414',
-            border: isActive ? `2px solid ${t.color}50` : '1px solid rgba(255,255,255,0.06)',
-            textAlign: 'center',
-            transition: 'all 0.3s ease',
-            boxShadow: isActive ? `0 0 12px ${t.color}20` : 'none',
-          }}>
-            <div style={{ fontSize: isActive ? 20 : 14, lineHeight: 1, marginBottom: 4 }}>
-              {t.emoji}
-            </div>
-            <div style={{
-              fontSize: isActive ? 11 : 9,
-              fontWeight: isActive ? 800 : 600,
-              color: isActive ? t.color : '#666',
-              letterSpacing: isActive ? 0.5 : 0,
-              lineHeight: 1.2,
-              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+    <div style={{ padding: '2px 0' }}>
+      <style>{`
+        @keyframes meterGlow { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
+        @keyframes meterShimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+      `}</style>
+
+      {/* Meter track */}
+      <div style={{
+        position: 'relative', height: 14, borderRadius: 100,
+        background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.06)',
+        overflow: 'hidden',
+      }}>
+        {/* Gradient fill — animates from 0 to score width */}
+        <div style={{
+          position: 'absolute', top: 0, left: 0, bottom: 0,
+          width: `${animatedWidth}%`,
+          borderRadius: 100,
+          background: 'linear-gradient(90deg, #FF5252 0%, #FF9100 25%, #FFD600 50%, #8BC34A 75%, #00E676 100%)',
+          transition: mounted ? 'width 1.2s cubic-bezier(0.34, 1.56, 0.64, 1)' : 'none',
+          boxShadow: `0 0 12px ${tierColor}40`,
+          animation: mounted && animatedWidth > 0 ? 'meterGlow 2s ease-in-out infinite' : 'none',
+        }}>
+          {/* Shimmer overlay */}
+          <div style={{
+            position: 'absolute', inset: 0, borderRadius: 100,
+            background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%)',
+            backgroundSize: '200% 100%',
+            animation: mounted ? 'meterShimmer 3s ease-in-out infinite' : 'none',
+          }} />
+        </div>
+
+        {/* Tick marks at tier boundaries */}
+        {[25, 50, 75, 90].map(pos => (
+          <div key={pos} style={{
+            position: 'absolute', top: 0, bottom: 0, left: `${pos}%`,
+            width: 1, background: 'rgba(255,255,255,0.1)',
+          }} />
+        ))}
+      </div>
+
+      {/* Tier labels underneath */}
+      <div style={{ position: 'relative', height: 28, marginTop: 6 }}>
+        {tiers.map(t => {
+          const isActive = t.label === currentTier;
+          return (
+            <div key={t.label} style={{
+              position: 'absolute',
+              left: `${t.pos}%`,
+              transform: t.pos > 80 ? 'translateX(-80%)' : t.pos === 0 ? 'none' : 'translateX(-40%)',
+              textAlign: 'center',
+              transition: 'all 0.5s ease',
             }}>
-              {t.label}
+              <div style={{
+                fontSize: isActive ? 12 : 9,
+                fontWeight: isActive ? 800 : 500,
+                color: isActive ? tierColor : '#555',
+                whiteSpace: 'nowrap',
+                lineHeight: 1,
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}>
+                {isActive ? `${t.emoji} ${t.label}` : t.label}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
