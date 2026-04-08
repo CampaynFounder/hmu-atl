@@ -234,23 +234,53 @@ export default function CashoutCard() {
             )}
           </div>
         )}
-        {cashableAmount > 0 && balance.available <= 0 && (
-          <div style={{
-            background: 'rgba(255,179,0,0.06)',
-            border: '1px solid rgba(255,179,0,0.15)',
-            borderRadius: '12px',
-            padding: '10px 14px',
-            marginBottom: '16px',
-            marginTop: '4px',
-          }}>
-            <div style={{ fontSize: '12px', color: '#FFB300', fontWeight: 600, marginBottom: '4px' }}>
-              Stripe is verifying your account
-            </div>
-            <div style={{ fontSize: '11px', color: '#999', lineHeight: 1.5 }}>
-              New accounts have a 1-2 day hold on first payouts while Stripe confirms your identity. Your ${cashableAmount.toFixed(2)} is safe — you&apos;ll be able to cash out soon.
-            </div>
-          </div>
+        {/* ── Payment education — contextual based on driver state ── */}
+
+        {/* "Where's My Money?" — pending funds, nothing available yet */}
+        {balance.pending > 0 && balance.available <= 0 && (
+          <PaymentInfoCard
+            title="Where&apos;s My Money?"
+            icon="&#x23F3;"
+            color="#FFB300"
+            items={[
+              'Your money is safe — Stripe holds funds briefly to verify new accounts',
+              'First payout: usually 2-7 days while Stripe confirms your identity',
+              'After that: funds settle in 1-2 days (same-day with Instant payout)',
+              'More rides = faster verification. Stripe prioritizes active drivers',
+            ]}
+          />
         )}
+
+        {/* "Same-Day Payment Tips" — no digital rides yet */}
+        {cashableAmount <= 0 && balance.pending <= 0 && (
+          <PaymentInfoCard
+            title="Same-Day Payment Tips"
+            icon="&#x26A1;"
+            color="#00E676"
+            items={[
+              'Complete a digital (non-cash) ride to start building your payout history',
+              'New accounts: Stripe verifies your identity over the first ~7 days',
+              'After 30 days of activity, most drivers qualify for same-day payouts',
+              'Your earnings are 100% guaranteed — holds are only for fraud prevention',
+            ]}
+          />
+        )}
+
+        {/* "Speed Up Your Payouts" — has money but still in early window */}
+        {cashableAmount > 0 && balance.available <= 0 && balance.pending > 0 && (
+          <PaymentInfoCard
+            title="Speed Up Your Payouts"
+            icon="&#x1F680;"
+            color="#448AFF"
+            items={[
+              `$${balance.pending.toFixed(2)} is processing — nobody took your money`,
+              'Do more digital rides to build trust with Stripe faster',
+              'Drivers with 10+ rides get faster fund settlement',
+              'HMU First members get free instant payouts once eligible',
+            ]}
+          />
+        )}
+
         {cashableAmount > 0 && balance.available > 0 && balance.available === cashableAmount && (
           <div className="co-pending" style={{ color: '#00E676' }}>Ready to cash out</div>
         )}
@@ -454,5 +484,65 @@ export default function CashoutCard() {
         )}
       </div>
     </>
+  );
+}
+
+/** Expandable payment education card */
+function PaymentInfoCard({ title, icon, color, items }: {
+  title: string;
+  icon: string;
+  color: string;
+  items: string[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div style={{
+      background: `${color}08`,
+      border: `1px solid ${color}20`,
+      borderRadius: 14,
+      marginBottom: 16,
+      marginTop: 4,
+      overflow: 'hidden',
+    }}>
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          width: '100%', padding: '12px 14px',
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: 'transparent', border: 'none', cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        <span style={{ fontSize: 18, flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: icon }} />
+        <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}
+          dangerouslySetInnerHTML={{ __html: title }}
+        />
+        <span style={{
+          fontSize: 12, color: color, fontWeight: 600,
+          transition: 'transform 0.2s',
+          transform: expanded ? 'rotate(180deg)' : 'none',
+        }}>
+          ▾
+        </span>
+      </button>
+
+      {expanded && (
+        <div style={{ padding: '0 14px 14px' }}>
+          {items.map((item, i) => (
+            <div key={i} style={{
+              display: 'flex', gap: 8, alignItems: 'flex-start',
+              marginBottom: i < items.length - 1 ? 8 : 0,
+            }}>
+              <span style={{ color, fontSize: 8, marginTop: 5, flexShrink: 0 }}>●</span>
+              <span style={{ fontSize: 12, color: '#bbb', lineHeight: 1.5, fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}>
+                {item}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
