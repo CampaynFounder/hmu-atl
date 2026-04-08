@@ -584,95 +584,145 @@ const DRIVER_PAIN_POINTS = [
   'No-Shows',
 ];
 
-/** Horizontal audio-meter style vibe bar — red→yellow→green gradient with animated fill */
+/**
+ * 90s-style signal meter — stacked block pairs that light up left→right,
+ * red→orange→yellow→green, with cascade animation on load.
+ */
 function VibeRatingBar({ score }: { score: number }) {
-  const [animatedWidth, setAnimatedWidth] = useState(0);
-  const [mounted, setMounted] = useState(false);
+  const [litCount, setLitCount] = useState(0);
+
+  const TOTAL_BARS = 20;
+  const scorePercent = Math.min(100, Math.max(0, score));
+  const targetLit = Math.round((scorePercent / 100) * TOTAL_BARS);
 
   useEffect(() => {
-    // Trigger the rise animation after mount
-    const t1 = setTimeout(() => setMounted(true), 100);
-    const t2 = setTimeout(() => setAnimatedWidth(Math.min(100, Math.max(0, score))), 300);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [score]);
+    // Cascade animation — light up bars one by one
+    let i = 0;
+    const interval = setInterval(() => {
+      i++;
+      setLitCount(i);
+      if (i >= targetLit) clearInterval(interval);
+    }, 60);
+    return () => clearInterval(interval);
+  }, [targetLit]);
 
-  const tiers = [
-    { label: 'WEIRDO', emoji: '\uD83D\uDEA9', pos: 0 },
-    { label: 'Sketchy', emoji: '\uD83D\uDC40', pos: 25 },
-    { label: 'Aight', emoji: '\uD83E\uDD37', pos: 50 },
-    { label: 'CHILL', emoji: '\u2705', pos: 75 },
-    { label: 'Cool AF', emoji: '\uD83D\uDE0E', pos: 92 },
-  ];
+  // Color for each bar position (left=red, right=green)
+  function barColor(index: number): string {
+    const pct = index / (TOTAL_BARS - 1);
+    if (pct < 0.25) return '#FF5252';
+    if (pct < 0.40) return '#FF7043';
+    if (pct < 0.55) return '#FF9100';
+    if (pct < 0.65) return '#FFC107';
+    if (pct < 0.75) return '#FFD600';
+    if (pct < 0.85) return '#8BC34A';
+    return '#00E676';
+  }
+
+  // Bar heights — grow taller left to right like signal bars
+  function barHeight(index: number): { top: number; bottom: number } {
+    const pct = index / (TOTAL_BARS - 1);
+    const h = 8 + Math.round(pct * 18); // 8px → 26px
+    return { top: h, bottom: h };
+  }
 
   const currentTier = score >= 90 ? 'Cool AF' : score >= 75 ? 'CHILL' : score >= 50 ? 'Aight' : score >= 25 ? 'Sketchy' : 'WEIRDO';
+  const tierEmoji = score >= 90 ? '\uD83D\uDE0E' : score >= 75 ? '\u2705' : score >= 50 ? '\uD83E\uDD37' : score >= 25 ? '\uD83D\uDC40' : '\uD83D\uDEA9';
   const tierColor = score >= 75 ? '#00E676' : score >= 50 ? '#FFD600' : score >= 25 ? '#FF9100' : '#FF5252';
 
   return (
-    <div style={{ padding: '2px 0' }}>
+    <div>
       <style>{`
-        @keyframes meterGlow { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
-        @keyframes meterShimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        @keyframes blockPop { 0% { transform: scaleY(0); } 60% { transform: scaleY(1.15); } 100% { transform: scaleY(1); } }
+        @keyframes blockGlow { 0%,100% { opacity: 0.85; } 50% { opacity: 1; } }
       `}</style>
 
-      {/* Meter track */}
+      {/* Label */}
       <div style={{
-        position: 'relative', height: 14, borderRadius: 100,
-        background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.06)',
-        overflow: 'hidden',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 8,
       }}>
-        {/* Gradient fill — animates from 0 to score width */}
         <div style={{
-          position: 'absolute', top: 0, left: 0, bottom: 0,
-          width: `${animatedWidth}%`,
-          borderRadius: 100,
-          background: 'linear-gradient(90deg, #FF5252 0%, #FF9100 25%, #FFD600 50%, #8BC34A 75%, #00E676 100%)',
-          transition: mounted ? 'width 1.2s cubic-bezier(0.34, 1.56, 0.64, 1)' : 'none',
-          boxShadow: `0 0 12px ${tierColor}40`,
-          animation: mounted && animatedWidth > 0 ? 'meterGlow 2s ease-in-out infinite' : 'none',
+          fontSize: 10, color: '#888',
+          fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+          letterSpacing: 3, textTransform: 'uppercase',
         }}>
-          {/* Shimmer overlay */}
-          <div style={{
-            position: 'absolute', inset: 0, borderRadius: 100,
-            background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%)',
-            backgroundSize: '200% 100%',
-            animation: mounted ? 'meterShimmer 3s ease-in-out infinite' : 'none',
-          }} />
+          Vibe
         </div>
-
-        {/* Tick marks at tier boundaries */}
-        {[25, 50, 75, 90].map(pos => (
-          <div key={pos} style={{
-            position: 'absolute', top: 0, bottom: 0, left: `${pos}%`,
-            width: 1, background: 'rgba(255,255,255,0.1)',
-          }} />
-        ))}
+        <div style={{
+          fontSize: 13, fontWeight: 700, color: tierColor,
+          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          display: 'flex', alignItems: 'center', gap: 4,
+        }}>
+          <span>{tierEmoji}</span>
+          <span>{currentTier}</span>
+        </div>
       </div>
 
-      {/* Tier labels underneath */}
-      <div style={{ position: 'relative', height: 28, marginTop: 6 }}>
-        {tiers.map(t => {
-          const isActive = t.label === currentTier;
+      {/* Meter — stacked block pairs */}
+      <div style={{
+        display: 'flex', alignItems: 'flex-end', gap: 3,
+        height: 30, padding: '0 2px',
+      }}>
+        {Array.from({ length: TOTAL_BARS }, (_, i) => {
+          const lit = i < litCount;
+          const color = barColor(i);
+          const { top } = barHeight(i);
+          const isLastLit = i === litCount - 1 && litCount === targetLit;
+
           return (
-            <div key={t.label} style={{
-              position: 'absolute',
-              left: `${t.pos}%`,
-              transform: t.pos > 80 ? 'translateX(-80%)' : t.pos === 0 ? 'none' : 'translateX(-40%)',
-              textAlign: 'center',
-              transition: 'all 0.5s ease',
+            <div key={i} style={{
+              display: 'flex', flexDirection: 'column', gap: 2,
+              flex: 1, alignItems: 'stretch',
+              transformOrigin: 'bottom',
+              animation: lit ? `blockPop 0.25s ease-out ${i * 0.03}s both` : 'none',
             }}>
+              {/* Top block */}
               <div style={{
-                fontSize: isActive ? 12 : 9,
-                fontWeight: isActive ? 800 : 500,
-                color: isActive ? tierColor : '#555',
-                whiteSpace: 'nowrap',
-                lineHeight: 1,
-                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-              }}>
-                {isActive ? `${t.emoji} ${t.label}` : t.label}
-              </div>
+                height: Math.round(top * 0.45),
+                borderRadius: 2,
+                background: lit ? color : '#1a1a1a',
+                opacity: lit ? 1 : 0.3,
+                transition: 'background 0.15s, opacity 0.15s',
+                boxShadow: lit ? `0 0 6px ${color}50` : 'none',
+                animation: isLastLit ? 'blockGlow 1.5s ease-in-out infinite' : 'none',
+              }} />
+              {/* Bottom block */}
+              <div style={{
+                height: Math.round(top * 0.55),
+                borderRadius: 2,
+                background: lit ? color : '#1a1a1a',
+                opacity: lit ? 1 : 0.3,
+                transition: 'background 0.15s, opacity 0.15s',
+                boxShadow: lit ? `0 0 6px ${color}50` : 'none',
+                animation: isLastLit ? 'blockGlow 1.5s ease-in-out infinite' : 'none',
+              }} />
             </div>
           );
         })}
+      </div>
+
+      {/* Tier labels underneath */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        marginTop: 6, padding: '0 2px',
+      }}>
+        {[
+          { label: 'WEIRDO', color: '#FF5252' },
+          { label: 'Sketchy', color: '#FF9100' },
+          { label: 'Aight', color: '#FFD600' },
+          { label: 'CHILL', color: '#8BC34A' },
+          { label: 'Cool AF', color: '#00E676' },
+        ].map(t => (
+          <span key={t.label} style={{
+            fontSize: t.label === currentTier ? 10 : 8,
+            fontWeight: t.label === currentTier ? 800 : 500,
+            color: t.label === currentTier ? t.color : '#444',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            transition: 'all 0.3s',
+          }}>
+            {t.label}
+          </span>
+        ))}
       </div>
     </div>
   );
