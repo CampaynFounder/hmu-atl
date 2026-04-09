@@ -41,7 +41,7 @@ export default async function SignUpPage({ searchParams }: Props) {
           lineHeight: 1.1,
           marginBottom: '8px',
         }}>
-          {isDriver ? 'CONFIRM PAYMENTS BEFORE YOU PUSH UP' : isRider ? 'GET A RIDE WITH HMU' : 'JOIN HMU ATL'}
+          {isDriver ? 'MAKE MORE DOING RIDES.' : isRider ? 'GET A RIDE WITH HMU' : 'JOIN HMU ATL'}
         </div>
         <div style={{
           fontSize: '14px',
@@ -49,7 +49,7 @@ export default async function SignUpPage({ searchParams }: Props) {
           lineHeight: 1.4,
         }}>
           {isDriver
-            ? 'They Request. We Verify. You Push Up. Funds Release. No Goofy Ish.'
+            ? 'Keep More $$$. Upfront Payments. No Blank Trips. No Goofy Ish.'
             : isRider
             ? 'Sign up to ride. Skip the surge, book local drivers at your price.'
             : 'Create your account to get started.'}
