@@ -1,17 +1,17 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 
 // Add new videos here — order matters (first = shown first)
 const SHOWCASE_VIDEOS = [
-  { src: '/videos/sample-hmu-1.mp4', label: 'See how HMU works' },
-  // { src: '/videos/sample-hmu-2.mp4', label: 'Your HMU link page' },
-  // { src: '/videos/sample-hmu-3.mp4', label: 'Getting paid' },
+  { src: '/videos/sample-hmu-1.mp4' },
+  // { src: '/videos/sample-hmu-2.mp4' },
+  // { src: '/videos/sample-hmu-3.mp4' },
 ];
 
 export default function ShowcaseCarousel() {
   const [current, setCurrent] = useState(0);
-  const [paused, setPaused] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const touchStartX = useRef(0);
 
@@ -20,12 +20,11 @@ export default function ShowcaseCarousel() {
 
   const goTo = useCallback((idx: number) => {
     setCurrent(((idx % count) + count) % count);
-    setPaused(false);
   }, [count]);
 
   const next = useCallback(() => goTo(current + 1), [current, goTo]);
 
-  // Auto-advance when a video ends
+  // Auto-advance to next video when one ends (or loop if only 1)
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
@@ -34,13 +33,19 @@ export default function ShowcaseCarousel() {
     el.play().catch(() => {});
 
     const onEnded = () => {
-      if (count > 1) next();
+      if (count > 1) {
+        next();
+      } else {
+        // Single video — restart loop
+        el.currentTime = 0;
+        el.play().catch(() => {});
+      }
     };
     el.addEventListener('ended', onEnded);
     return () => el.removeEventListener('ended', onEnded);
   }, [current, count, next]);
 
-  // Swipe handling
+  // Swipe to navigate (multi-video only)
   const onTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
   };
@@ -50,14 +55,6 @@ export default function ShowcaseCarousel() {
     if (Math.abs(dx) > 50) {
       goTo(dx < 0 ? current + 1 : current - 1);
     }
-  };
-
-  // Tap to pause/play
-  const togglePause = () => {
-    const el = videoRef.current;
-    if (!el) return;
-    if (el.paused) { el.play(); setPaused(false); }
-    else { el.pause(); setPaused(true); }
   };
 
   return (
@@ -83,39 +80,7 @@ export default function ShowcaseCarousel() {
           position: absolute;
           inset: 0;
           pointer-events: none;
-          background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 30%);
-        }
-        .showcase-label {
-          position: absolute;
-          bottom: 44px;
-          left: 16px;
-          right: 16px;
-          font-family: var(--font-display, 'Bebas Neue', sans-serif);
-          font-size: 20px;
-          color: #fff;
-          line-height: 1.1;
-          pointer-events: none;
-        }
-        .showcase-dots {
-          position: absolute;
-          bottom: 16px;
-          left: 0;
-          right: 0;
-          display: flex;
-          justify-content: center;
-          gap: 6px;
-          pointer-events: none;
-        }
-        .showcase-dot {
-          width: 6px;
-          height: 6px;
-          border-radius: 50%;
-          background: rgba(255,255,255,0.3);
-          transition: background 0.2s, transform 0.2s;
-        }
-        .showcase-dot.active {
-          background: #00E676;
-          transform: scale(1.3);
+          background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 40%);
         }
         .showcase-badge {
           position: absolute;
@@ -137,19 +102,46 @@ export default function ShowcaseCarousel() {
           font-family: var(--font-mono, 'Space Mono', monospace);
           pointer-events: none;
         }
-        .showcase-pause {
+        .showcase-cta {
           position: absolute;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%);
-          font-size: 40px;
-          color: rgba(255,255,255,0.7);
-          pointer-events: none;
-          animation: showcaseFadeIn 0.2s ease;
+          bottom: 16px;
+          left: 16px;
+          right: 16px;
+          display: block;
+          text-align: center;
+          padding: 14px 20px;
+          border-radius: 100px;
+          background: #00E676;
+          color: #080808;
+          font-size: 15px;
+          font-weight: 700;
+          text-decoration: none;
+          font-family: var(--font-body, 'DM Sans', sans-serif);
+          z-index: 2;
         }
-        @keyframes showcaseFadeIn {
-          from { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
-          to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        .showcase-cta:active {
+          transform: scale(0.97);
+        }
+        .showcase-dots {
+          position: absolute;
+          bottom: 72px;
+          left: 0;
+          right: 0;
+          display: flex;
+          justify-content: center;
+          gap: 6px;
+          pointer-events: none;
+        }
+        .showcase-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.3);
+          transition: background 0.2s, transform 0.2s;
+        }
+        .showcase-dot.active {
+          background: #00E676;
+          transform: scale(1.3);
         }
       `}</style>
 
@@ -157,7 +149,6 @@ export default function ShowcaseCarousel() {
         className="showcase-wrap"
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
-        onClick={togglePause}
       >
         <video
           ref={videoRef}
@@ -170,7 +161,6 @@ export default function ShowcaseCarousel() {
         />
         <div className="showcase-overlay" />
         <div className="showcase-badge">HMU</div>
-        <div className="showcase-label">{video.label}</div>
 
         {count > 1 && (
           <div className="showcase-dots">
@@ -180,7 +170,9 @@ export default function ShowcaseCarousel() {
           </div>
         )}
 
-        {paused && <div className="showcase-pause">||</div>}
+        <Link href="/sign-up?type=driver" className="showcase-cta">
+          Claim Your HMU Link Now
+        </Link>
       </div>
     </>
   );
