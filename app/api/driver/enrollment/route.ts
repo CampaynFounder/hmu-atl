@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-import { getDriverEnrollment, getOfferProgress } from '@/lib/db/enrollment-offers';
+import { getDriverEnrollment, getOfferProgress, LAUNCH_OFFER_ENABLED } from '@/lib/db/enrollment-offers';
 
 export async function GET() {
   try {
+    // If the offer is disabled, short-circuit — no DB hit
+    if (!LAUNCH_OFFER_ENABLED) {
+      return NextResponse.json({ enrolled: false });
+    }
+
     const { userId: clerkId } = await auth();
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

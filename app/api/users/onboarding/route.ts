@@ -10,7 +10,7 @@ import {
   getDriverProfileByUserId
 } from '@/lib/db/profiles';
 import { sql } from '@/lib/db/client';
-import { getActiveOffer, enrollDriver } from '@/lib/db/enrollment-offers';
+import { getActiveOffer, enrollDriver, LAUNCH_OFFER_ENABLED } from '@/lib/db/enrollment-offers';
 import { sendSms } from '@/lib/sms/textbee';
 import { publishAdminEvent } from '@/lib/ably/server';
 
@@ -188,7 +188,7 @@ export async function POST(request: NextRequest) {
 
         // Auto-enroll in active launch offer (snapshot terms at signup)
         try {
-          const activeOffer = await getActiveOffer();
+          const activeOffer = LAUNCH_OFFER_ENABLED ? await getActiveOffer() : null;
           if (activeOffer) {
             const enrollment = await enrollDriver(userId, activeOffer);
             results.enrollment = {

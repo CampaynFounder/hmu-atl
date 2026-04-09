@@ -5,6 +5,11 @@ import { sql } from './client';
 import type { DriverEnrollmentOffer, DriverOfferEnrollment } from './types';
 
 // ============================================
+// FEATURE FLAG — flip to true to re-enable the launch offer
+// ============================================
+export const LAUNCH_OFFER_ENABLED = false;
+
+// ============================================
 // OFFER TEMPLATES
 // ============================================
 
@@ -91,6 +96,8 @@ export async function updateEnrollmentProgress(
 }
 
 export async function isDriverInFreeWindow(driverId: string): Promise<boolean> {
+  if (!LAUNCH_OFFER_ENABLED) return false;
+
   const enrollment = await getDriverEnrollment(driverId);
   if (!enrollment || enrollment.status !== 'active') return false;
 

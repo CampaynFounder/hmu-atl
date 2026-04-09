@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAbly } from '@/hooks/use-ably';
 import CashoutCard from '@/components/driver/cashout-card';
 import DealCard from '@/components/driver/deal-card';
+import ShowcaseCarousel from '@/components/driver/showcase-carousel';
 import { PendingActionBanner } from '@/components/pending-action-banner';
 
 interface BookingRequest {
@@ -242,8 +243,11 @@ export default function DriverHomeClient({
           ))
         )}
 
-        {/* Launch Deal */}
+        {/* Launch Deal (hidden when LAUNCH_OFFER_ENABLED=false) */}
         <DealCard />
+
+        {/* HMU showcase videos */}
+        <ShowcaseCarousel />
 
         {/* Lifecycle Card */}
         {!payoutSetup && !cashOnly ? (
