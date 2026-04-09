@@ -198,9 +198,9 @@ export default function DriverLandingClient() {
           For ATL Driver-Preneurs
         </div>
         <h1 className={styles.heroHeadline}>
-          <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0s' }}>Passenger</span>
-          <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0.1s' }}>Payment</span>
-          <span className={`${styles.fadeUp} ${styles.lineDim}`} style={{ display: 'block', animationDelay: '0.2s' }}>Verification</span>
+          <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0s' }}>Make More</span>
+          <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0.1s' }}>With Ride<span style={{ textDecoration: 'line-through', opacity: 0.4 }}>share</span></span>
+          <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0.2s' }}>Fair</span>
         </h1>
         <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }}>
           Quit Raw Doggin&apos; Your Cash Rides. <strong>Know Before You Go.</strong> Don&apos;t Push Up Without It.
@@ -696,7 +696,7 @@ export default function DriverLandingClient() {
       <section className={styles.ctaSection} id="signup">
         <p className={`${styles.ctaEyebrow} ${styles.reveal}`}>Ready to Run It?</p>
         <h2 className={`${styles.ctaHeadline} ${styles.reveal}`}>
-          Start Verifying<br /><span className={styles.blockGreen}>Passenger Payments</span>
+          Start Earning<br /><span className={styles.blockGreen}>More Per Ride</span>
         </h2>
         <p className={`${styles.ctaSub} ${styles.reveal}`}>
           No subscription required to start.<br />
@@ -729,7 +729,7 @@ export default function DriverLandingClient() {
             type="submit"
             className={`${styles.ctaSubmit} ${isSubmitting ? styles.ctaSubmitLoading : ''}`}
           >
-            {isSubmitting ? 'Setting up verification...' : 'Verify My Passenger\u2019s Payment \u2014 Free'}
+            {isSubmitting ? 'Setting you up...' : 'Keep More $$$ From My Rides'}
           </button>
           <p className={styles.ctaFine}>Free to start. No credit card. Cancel anytime.</p>
         </form>
