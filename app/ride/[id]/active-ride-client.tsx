@@ -448,7 +448,8 @@ export default function ActiveRideClient({
         }
         break;
       }
-      case 'add_on_added': {
+      case 'add_on_pending': {
+        // Rider requested an add-on — driver must confirm
         const addOn = data.addOn as { id: string; name: string; subtotal: number; quantity: number };
         const addOnTotal = Number(data.addOnTotal ?? 0);
         if (addOn) {
@@ -460,15 +461,53 @@ export default function ActiveRideClient({
               unitPrice: Number(addOn.subtotal || 0) / (Number(addOn.quantity) || 1),
               quantity: Number(addOn.quantity) || 1,
               subtotal: Number(addOn.subtotal || 0),
-              status: 'pre_selected',
+              status: 'pending_driver',
               addedBy: 'rider',
             }],
             addOnTotal,
           }));
           if (isDriver) {
-            showNotification(`Rider added: ${addOn.name}`, '\uD83D\uDED2', COLORS.green, `+$${Number(addOn.subtotal || 0).toFixed(2)}`);
-            if (navigator.vibrate) navigator.vibrate([100]);
+            showNotification(`Rider wants to add: ${addOn.name}`, '🛒', COLORS.orange, `$${Number(addOn.subtotal || 0).toFixed(2)} — tap to confirm`);
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
           }
+        }
+        break;
+      }
+      case 'add_on_confirmed':
+      case 'add_on_rejected':
+      case 'add_ons_confirmed_all': {
+        // Driver confirmed or rejected — refresh to get accurate totals
+        fetch(`/api/rides/${rideId}/add-ons`).then(r => r.json()).then(d => {
+          if (d.addOns) setRide(prev => ({ ...prev, addOns: d.addOns, addOnTotal: Number(d.total ?? 0) }));
+        }).catch(() => {});
+        if (!isDriver) {
+          if (msg.name === 'add_on_confirmed' || msg.name === 'add_ons_confirmed_all') {
+            showNotification('Driver confirmed your add-on', '✅', COLORS.green);
+          } else {
+            showNotification('Driver declined your add-on request', '❌', COLORS.red);
+          }
+        }
+        break;
+      }
+      case 'removal_requested': {
+        // Rider wants to remove an add-on — driver must approve
+        fetch(`/api/rides/${rideId}/add-ons`).then(r => r.json()).then(d => {
+          if (d.addOns) setRide(prev => ({ ...prev, addOns: d.addOns, addOnTotal: Number(d.total ?? 0) }));
+        }).catch(() => {});
+        if (isDriver) {
+          const aon = data.addOn as { name: string; subtotal: number } | undefined;
+          showNotification(`Rider wants to remove: ${aon?.name || 'an add-on'}`, '🗑️', COLORS.orange, `−$${Number(aon?.subtotal || 0).toFixed(2)} — tap to confirm`);
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        }
+        break;
+      }
+      case 'removal_rejected': {
+        // Driver rejected the removal — item stays confirmed
+        fetch(`/api/rides/${rideId}/add-ons`).then(r => r.json()).then(d => {
+          if (d.addOns) setRide(prev => ({ ...prev, addOns: d.addOns, addOnTotal: Number(d.total ?? 0) }));
+        }).catch(() => {});
+        if (!isDriver) {
+          showNotification('Driver declined your removal request', '⚠️', COLORS.yellow, 'You can dispute this charge');
         }
         break;
       }
@@ -1084,8 +1123,8 @@ export default function ActiveRideClient({
         .then(r => { if (r.ok) return r.json(); return null; })
         .then(data => {
           if (data && data.addOns) {
-            const total = (data.addOns as RideData['addOns']).reduce((s: number, a: { subtotal: number; status: string }) => a.status !== 'removed' ? s + Number(a.subtotal || 0) : s, 0);
-            setRide(prev => ({ ...prev, addOns: data.addOns, addOnTotal: total }));
+            // Use server-calculated total — it correctly handles all statuses
+            setRide(prev => ({ ...prev, addOns: data.addOns, addOnTotal: Number(data.total ?? 0) }));
           }
         })
         .catch(() => {});
@@ -1688,14 +1727,14 @@ export default function ActiveRideClient({
           onAdded={(addOn, total) => {
             setRide(prev => ({
               ...prev,
-              addOns: [...prev.addOns, addOn],
+              addOns: [...prev.addOns, { ...addOn, status: 'pending_driver' }],
               addOnTotal: total,
             }));
           }}
           onRemoved={(addOnId, total) => {
             setRide(prev => ({
               ...prev,
-              addOns: prev.addOns.map(a => a.id === addOnId ? { ...a, status: 'disputed' } : a),
+              addOns: prev.addOns.map(a => a.id === addOnId ? { ...a, status: 'removal_pending' } : a),
               addOnTotal: total,
             }));
           }}
@@ -2096,7 +2135,7 @@ export default function ActiveRideClient({
           const cSecs = confirmCountdown !== null ? Math.ceil(confirmCountdown / 1000) : null;
           const cMins = cSecs !== null ? Math.floor(cSecs / 60) : null;
           const cSecsRem = cSecs !== null ? cSecs % 60 : null;
-          const dConfirmAddOns = ride.addOns.filter(a => a.status !== 'removed' && a.status !== 'disputed');
+          const dConfirmAddOns = ride.addOns.filter(a => a.status === 'confirmed' || a.status === 'adjusted');
           const dConfirmExtras = dConfirmAddOns.reduce((s, a) => s + Number(a.subtotal || 0), 0);
           const dConfirmTotal = Number(ride.agreedPrice || 0) + dConfirmExtras;
           return (
@@ -2562,7 +2601,7 @@ export default function ActiveRideClient({
         const cSecs = confirmCountdown !== null ? Math.ceil(confirmCountdown / 1000) : null;
         const cMins = cSecs !== null ? Math.floor(cSecs / 60) : null;
         const cSecsRem = cSecs !== null ? cSecs % 60 : null;
-        const confirmAddOns = ride.addOns.filter(a => a.status !== 'removed' && a.status !== 'disputed');
+        const confirmAddOns = ride.addOns.filter(a => a.status === 'confirmed' || a.status === 'adjusted');
         const confirmExtras = confirmAddOns.reduce((s, a) => s + Number(a.subtotal || 0), 0);
         const confirmTotal = Number(ride.agreedPrice || 0) + confirmExtras;
         const confirmGrouped = confirmAddOns.reduce<{ name: string; qty: number; total: number; lastId: string }[]>((g, a) => {
@@ -2626,30 +2665,6 @@ export default function ActiveRideClient({
                         {g.name}{g.qty > 1 ? ` \u00D7${g.qty}` : ''}
                       </span>
                       <span style={{ fontFamily: FONTS.mono, fontSize: 12, color: COLORS.green, flexShrink: 0 }}>${g.total.toFixed(2)}</span>
-                      <button
-                        onClick={async () => {
-                          await fetch(`/api/rides/${rideId}/add-ons`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ add_on_id: g.lastId, action: 'remove' }),
-                          }).then(r => r.json()).then(data => {
-                            if (data.total !== undefined) {
-                              setRide(prev => ({
-                                ...prev,
-                                addOns: prev.addOns.map(a => a.id === g.lastId ? { ...a, status: 'disputed' } : a),
-                                addOnTotal: data.total,
-                              }));
-                            }
-                          }).catch(() => {});
-                        }}
-                        style={{
-                          background: 'rgba(255,82,82,0.12)', border: 'none', borderRadius: 8,
-                          padding: '3px 10px', color: COLORS.red, fontSize: 10, fontWeight: 700,
-                          cursor: 'pointer', fontFamily: FONTS.body, flexShrink: 0,
-                        }}
-                      >
-                        {g.qty > 1 ? '-1' : 'Remove'}
-                      </button>
                     </div>
                   ))}
                 </>
@@ -2874,37 +2889,52 @@ export default function ActiveRideClient({
 
   // ── Add-on summary (shown during active ride) ──
   function renderAddOnSummary() {
-    const active = ride.addOns.filter(a => a.status !== 'removed' && a.status !== 'disputed');
-    const grouped = active.reduce<{ name: string; qty: number; total: number }[]>((groups, a) => {
-      const existing = groups.find(g => g.name === a.name);
-      if (existing) { existing.qty += Number(a.quantity) || 1; existing.total += Number(a.subtotal || 0); }
-      else { groups.push({ name: a.name, qty: Number(a.quantity) || 1, total: Number(a.subtotal || 0) }); }
-      return groups;
-    }, []);
-    if (grouped.length === 0) return null;
-    const extrasTotal = grouped.reduce((s, g) => s + g.total, 0);
+    const visible = ride.addOns.filter(a => !['removed', 'rejected'].includes(a.status));
+    if (visible.length === 0) return null;
+
+    // Only confirmed/adjusted items count toward charged total
+    const confirmedTotal = visible
+      .filter(a => a.status === 'confirmed' || a.status === 'adjusted')
+      .reduce((s, a) => s + Number(a.subtotal || 0), 0);
+
+    const statusLabel = (s: string) => {
+      if (s === 'pending_driver') return { text: 'Pending', color: COLORS.orange };
+      if (s === 'removal_pending') return { text: 'Removal pending', color: COLORS.orange };
+      if (s === 'disputed') return { text: 'Disputed', color: COLORS.red };
+      if (s === 'confirmed') return null;
+      return null;
+    };
+
     return (
       <div style={{ backgroundColor: COLORS.card, borderRadius: 14, padding: '14px 16px', marginTop: 8 }}>
         <div style={{ fontSize: 11, color: COLORS.gray, textTransform: 'uppercase', letterSpacing: 1, fontFamily: FONTS.mono, marginBottom: 8 }}>
           {isDriver ? 'Rider Add-Ons' : 'Add-Ons'}
         </div>
-        {grouped.map(g => (
-          <div key={g.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 14, color: COLORS.grayLight }}>
-            <span>{g.name}{g.qty > 1 ? ` \u00D7${g.qty}` : ''}</span>
-            <span style={{ fontFamily: FONTS.mono, color: COLORS.green }}>${g.total.toFixed(2)}</span>
-          </div>
-        ))}
+        {visible.map(a => {
+          const badge = statusLabel(a.status);
+          return (
+            <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 14, color: COLORS.grayLight, opacity: badge ? 0.7 : 1 }}>
+              <span>
+                {a.name}{a.quantity > 1 ? ` \u00D7${a.quantity}` : ''}
+                {badge && <span style={{ fontSize: 10, color: badge.color, marginLeft: 6 }}>({badge.text})</span>}
+              </span>
+              <span style={{ fontFamily: FONTS.mono, color: (a.status === 'confirmed' || a.status === 'adjusted') ? COLORS.green : COLORS.gray }}>
+                ${Number(a.subtotal || 0).toFixed(2)}
+              </span>
+            </div>
+          );
+        })}
         <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <span style={{ fontSize: 12, color: COLORS.gray }}>Base ride</span>
           <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.white }}>${Number(ride.agreedPrice || 0).toFixed(2)}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
-          <span style={{ fontSize: 12, color: COLORS.gray }}>Extras</span>
-          <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.green }}>+${extrasTotal.toFixed(2)}</span>
+          <span style={{ fontSize: 12, color: COLORS.gray }}>Confirmed extras</span>
+          <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.green }}>+${confirmedTotal.toFixed(2)}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.08)', fontWeight: 700 }}>
           <span style={{ fontSize: 13, color: COLORS.white }}>Ride total</span>
-          <span style={{ fontFamily: FONTS.mono, fontSize: 16, color: COLORS.green }}>${(Number(ride.agreedPrice || 0) + extrasTotal).toFixed(2)}</span>
+          <span style={{ fontFamily: FONTS.mono, fontSize: 16, color: COLORS.green }}>${(Number(ride.agreedPrice || 0) + confirmedTotal).toFixed(2)}</span>
         </div>
       </div>
     );
@@ -2987,7 +3017,7 @@ export default function ActiveRideClient({
           <div style={{ fontSize: 11, color: COLORS.gray, marginBottom: 12, lineHeight: 1.4 }}>
             Dispute an add-on if you didn&apos;t receive it. Driver must approve removal.
           </div>
-          {ride.addOns.filter(a => a.status !== 'removed').map(addOn => {
+          {ride.addOns.filter(a => a.status === 'confirmed' || a.status === 'adjusted').map(addOn => {
             const decision = addOnReview.get(addOn.id) || 'keep';
             return (
               <div key={addOn.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
@@ -3022,7 +3052,7 @@ export default function ActiveRideClient({
           <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, marginTop: 8, fontWeight: 700 }}>
             <span style={{ fontSize: 15, color: COLORS.white }}>Total</span>
             <span style={{ fontFamily: FONTS.mono, fontSize: 18, color: COLORS.green }}>
-              ${(Number(ride.agreedPrice || 0) + ride.addOns.filter(a => (addOnReview.get(a.id) || 'keep') !== 'dispute' && a.status !== 'removed').reduce((s, a) => s + Number(a.subtotal || 0), 0)).toFixed(2)}
+              ${(Number(ride.agreedPrice || 0) + ride.addOns.filter(a => (a.status === 'confirmed' || a.status === 'adjusted') && (addOnReview.get(a.id) || 'keep') !== 'dispute').reduce((s, a) => s + Number(a.subtotal || 0), 0)).toFixed(2)}
             </span>
           </div>
 

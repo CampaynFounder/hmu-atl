@@ -75,8 +75,10 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
       .finally(() => setLoading(false));
   }, [open, rideId]);
 
-  const activeAddOns = addOns.filter(a => a.status !== 'removed' && a.status !== 'disputed');
-  const extrasTotal = activeAddOns.reduce((sum, a) => sum + Number(a.subtotal || 0), 0);
+  const activeAddOns = addOns.filter(a => !['removed', 'rejected'].includes(a.status));
+  // Only confirmed items count toward the charged total
+  const confirmedTotal = addOns.filter(a => a.status === 'confirmed' || a.status === 'adjusted').reduce((sum, a) => sum + Number(a.subtotal || 0), 0);
+  const extrasTotal = confirmedTotal;
 
   // Group add-ons by name for display
   const groupedAddOns = activeAddOns.reduce<{ name: string; unitPrice: number; totalQty: number; totalSubtotal: number; ids: string[] }[]>((groups, a) => {
@@ -122,7 +124,7 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
         unitPrice: Number(data.addOn.unit_price ?? item.price),
         quantity: Number(data.addOn.quantity ?? 1),
         subtotal: Number(data.addOn.subtotal ?? item.price),
-        status: 'pre_selected',
+        status: 'pending_driver',
         addedBy: 'rider',
       }, data.total);
     } catch {
@@ -141,7 +143,7 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
       const res = await fetch(`/api/rides/${rideId}/add-ons`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ add_on_id: addOn.id, action: 'remove' }),
+        body: JSON.stringify({ add_on_id: addOn.id, action: 'request_removal' }),
       });
       const data = await res.json();
 
@@ -239,49 +241,70 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
                 }}>
                   Extras
                 </div>
-                {groupedAddOns.map(g => {
-                  const lastId = g.ids[g.ids.length - 1];
-                  const isRemoving = g.ids.some(id => removing === id);
+                {activeAddOns.map(a => {
+                  const isRemoving = removing === a.id;
+                  const isPending = a.status === 'pending_driver';
+                  const isRemovalPending = a.status === 'removal_pending';
+                  const isDisputed = a.status === 'disputed';
+                  const isConfirmed = a.status === 'confirmed';
+                  const canRemove = isConfirmed && !isRemoving;
+
                   return (
-                    <div key={g.name} style={{
+                    <div key={a.id} style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       padding: '5px 0', gap: 8,
+                      opacity: isPending || isRemovalPending ? 0.6 : 1,
                     }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ fontSize: 13, color: COLORS.white }}>
-                          {g.name}
+                          {a.name}
                         </span>
-                        {g.totalQty > 1 && (
+                        {a.quantity > 1 && (
                           <span style={{
                             fontSize: 11, color: COLORS.orange, fontFamily: FONTS.mono,
                             marginLeft: 6,
                           }}>
-                            &times;{g.totalQty}
+                            &times;{a.quantity}
                           </span>
                         )}
-                        {g.totalQty > 1 && (
-                          <span style={{ fontSize: 10, color: COLORS.gray, marginLeft: 4 }}>
-                            @ ${Number(g.unitPrice || 0).toFixed(2)} ea
-                          </span>
+                        {isPending && (
+                          <div style={{ fontSize: 10, color: COLORS.orange, marginTop: 2 }}>
+                            Waiting for driver...
+                          </div>
+                        )}
+                        {isRemovalPending && (
+                          <div style={{ fontSize: 10, color: COLORS.orange, marginTop: 2 }}>
+                            Removal pending driver...
+                          </div>
+                        )}
+                        {isDisputed && (
+                          <div style={{ fontSize: 10, color: COLORS.red, marginTop: 2 }}>
+                            Disputed
+                          </div>
                         )}
                       </div>
-                      <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.green, flexShrink: 0 }}>
-                        ${Number(g.totalSubtotal || 0).toFixed(2)}
+                      <span style={{
+                        fontFamily: FONTS.mono, fontSize: 13, flexShrink: 0,
+                        color: isConfirmed ? COLORS.green : COLORS.gray,
+                      }}>
+                        {isConfirmed ? '' : isPending ? '~' : ''}${Number(a.subtotal || 0).toFixed(2)}
                       </span>
-                      <button
-                        onClick={() => handleRemove({ id: lastId, name: g.name, unitPrice: g.unitPrice, quantity: 1, subtotal: g.unitPrice, status: 'pre_selected', addedBy: 'rider' })}
-                        disabled={isRemoving}
-                        style={{
-                          background: 'rgba(255,82,82,0.12)', border: 'none',
-                          borderRadius: 8, padding: '4px 10px',
-                          color: COLORS.red, fontSize: 11, fontWeight: 700,
-                          cursor: isRemoving ? 'not-allowed' : 'pointer',
-                          fontFamily: FONTS.body, flexShrink: 0,
-                          opacity: isRemoving ? 0.5 : 1,
-                        }}
-                      >
-                        {isRemoving ? '...' : g.totalQty > 1 ? '-1' : 'Remove'}
-                      </button>
+                      {canRemove && (
+                        <button
+                          onClick={() => handleRemove(a)}
+                          disabled={isRemoving}
+                          style={{
+                            background: 'rgba(255,82,82,0.12)', border: 'none',
+                            borderRadius: 8, padding: '4px 10px',
+                            color: COLORS.red, fontSize: 11, fontWeight: 700,
+                            cursor: 'pointer',
+                            fontFamily: FONTS.body, flexShrink: 0,
+                            opacity: isRemoving ? 0.5 : 1,
+                          }}
+                        >
+                          {isRemoving ? '...' : 'Remove'}
+                        </button>
+                      )}
                     </div>
                   );
                 })}

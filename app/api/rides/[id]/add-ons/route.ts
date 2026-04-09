@@ -12,6 +12,9 @@ import {
   confirmAllAddOns,
   calculateAddOnTotal,
   getDriverMenuForRider,
+  requestAddOnRemoval,
+  confirmAddOnRemoval,
+  rejectAddOnRemoval,
 } from '@/lib/db/service-menu';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 
@@ -113,23 +116,21 @@ export async function POST(
 
     const addOn = await addRideAddOn(rideId, menu_item_id, quantity);
 
-    // Update ride add-on total
+    // Total doesn't change yet — item is pending_driver confirmation
     const total = await calculateAddOnTotal(rideId);
-    await sql`UPDATE rides SET add_on_total = ${total} WHERE id = ${rideId}`;
 
-    // Notify both parties via Ably (ride channel + driver personal channel as backup)
-    publishRideUpdate(rideId, 'add_on_added', {
-      addOn: { id: addOn.id, name: addOn.name, subtotal: addOn.subtotal, quantity: addOn.quantity },
+    // Notify driver that rider wants to add an item — driver must confirm
+    publishRideUpdate(rideId, 'add_on_pending', {
+      addOn: { id: addOn.id, name: addOn.name, subtotal: addOn.subtotal, quantity: addOn.quantity, status: 'pending_driver' },
       addOnTotal: total,
     }).catch(() => {});
 
-    // Also notify driver directly in case ride channel subscription is stale
     if (ride.driver_id && ride.driver_id !== userId) {
       notifyUser(ride.driver_id as string, 'ride_update', {
         rideId,
-        type: 'add_on_added',
-        addOn: { name: addOn.name, subtotal: addOn.subtotal },
-        message: `Rider added: ${addOn.name} (+$${Number(addOn.subtotal || 0).toFixed(2)})`,
+        type: 'add_on_pending',
+        addOn: { id: addOn.id, name: addOn.name, subtotal: addOn.subtotal },
+        message: `Rider wants to add: ${addOn.name} ($${Number(addOn.subtotal || 0).toFixed(2)}) — tap to confirm`,
       }).catch(() => {});
     }
 
@@ -140,7 +141,9 @@ export async function POST(
   }
 }
 
-// PATCH — rider confirms, adjusts, disputes, or removes add-ons
+// PATCH — rider or driver manages add-ons
+// Driver actions: confirm, reject, confirm_removal, reject_removal, confirm_all
+// Rider actions: request_removal, disputed
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -153,58 +156,112 @@ export async function PATCH(
     const body = await request.json();
     const { add_on_id, action, adjusted_amount, dispute_reason } = body;
 
-    // Verify user is the rider
+    // Look up user
     const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     const userId = userRows[0].id;
 
-    const rideRows = await sql`SELECT rider_id FROM rides WHERE id = ${rideId} LIMIT 1`;
+    // Verify user is part of this ride
+    const rideRows = await sql`SELECT rider_id, driver_id FROM rides WHERE id = ${rideId} LIMIT 1`;
     if (!rideRows.length) return NextResponse.json({ error: 'Ride not found' }, { status: 404 });
-    if ((rideRows[0] as Record<string, unknown>).rider_id !== userId) {
-      return NextResponse.json({ error: 'Only the rider can modify add-ons' }, { status: 403 });
+    const ride = rideRows[0] as Record<string, unknown>;
+
+    const isRider = ride.rider_id === userId;
+    const isDriver = ride.driver_id === userId;
+    if (!isRider && !isDriver) {
+      return NextResponse.json({ error: 'Not authorized for this ride' }, { status: 403 });
     }
 
-    // Determine if user is driver or rider
-    const isDriver = (rideRows[0] as Record<string, unknown>).rider_id !== userId;
+    const otherPartyId = isRider ? ride.driver_id as string : ride.rider_id as string;
 
-    if (action === 'confirm_all') {
-      await confirmAllAddOns(rideId);
-    } else if (action === 'remove' && add_on_id) {
-      if (!isDriver) {
-        // Rider tried to remove — convert to a dispute instead
-        await updateAddOnStatus(add_on_id, 'disputed', undefined, 'Rider requested removal');
+    // ── DRIVER ACTIONS ──
+    if (isDriver) {
+      if (action === 'confirm' && add_on_id) {
+        // Driver confirms a pending add-on → it now counts toward total
+        await updateAddOnStatus(add_on_id, 'confirmed');
+        publishRideUpdate(rideId, 'add_on_confirmed', { addOnId: add_on_id }).catch(() => {});
+        notifyUser(otherPartyId, 'ride_update', {
+          rideId, type: 'add_on_confirmed',
+          message: 'Driver confirmed your add-on',
+        }).catch(() => {});
+
+      } else if (action === 'reject' && add_on_id) {
+        // Driver rejects a pending add-on → rider notified, $0
+        await updateAddOnStatus(add_on_id, 'rejected');
+        publishRideUpdate(rideId, 'add_on_rejected', { addOnId: add_on_id }).catch(() => {});
+        notifyUser(otherPartyId, 'ride_update', {
+          rideId, type: 'add_on_rejected',
+          message: 'Driver declined your add-on request',
+        }).catch(() => {});
+
+      } else if (action === 'confirm_removal' && add_on_id) {
+        // Driver approves rider's removal request → item removed, $0
+        await confirmAddOnRemoval(add_on_id, rideId);
+        publishRideUpdate(rideId, 'add_on_removed', { addOnId: add_on_id }).catch(() => {});
+        notifyUser(otherPartyId, 'ride_update', {
+          rideId, type: 'add_on_removed',
+          message: 'Driver approved your removal request',
+        }).catch(() => {});
+
+      } else if (action === 'reject_removal' && add_on_id) {
+        // Driver rejects removal → item stays confirmed
+        await rejectAddOnRemoval(add_on_id, rideId);
+        publishRideUpdate(rideId, 'removal_rejected', { addOnId: add_on_id }).catch(() => {});
+        notifyUser(otherPartyId, 'ride_update', {
+          rideId, type: 'removal_rejected',
+          message: 'Driver declined your removal request — you can dispute this',
+        }).catch(() => {});
+
+      } else if (action === 'confirm_all') {
+        // Driver confirms all pending add-ons at once
+        await confirmAllAddOns(rideId);
+        publishRideUpdate(rideId, 'add_ons_confirmed_all', {}).catch(() => {});
+        notifyUser(otherPartyId, 'ride_update', {
+          rideId, type: 'add_ons_confirmed_all',
+          message: 'Driver confirmed all add-ons',
+        }).catch(() => {});
+
+      } else {
+        return NextResponse.json({ error: 'Invalid driver action' }, { status: 400 });
+      }
+    }
+
+    // ── RIDER ACTIONS ──
+    if (isRider) {
+      if (action === 'request_removal' && add_on_id) {
+        // Rider requests removal of a confirmed item → driver must approve
+        const result = await requestAddOnRemoval(add_on_id, rideId);
+        if (!result) {
+          return NextResponse.json({ error: 'Can only request removal of confirmed add-ons' }, { status: 400 });
+        }
+        publishRideUpdate(rideId, 'removal_requested', {
+          addOnId: add_on_id,
+          addOn: { id: result.id, name: result.name, subtotal: result.subtotal },
+        }).catch(() => {});
+        notifyUser(otherPartyId, 'ride_update', {
+          rideId, type: 'removal_requested',
+          addOn: { id: result.id, name: result.name, subtotal: result.subtotal },
+          message: `Rider wants to remove: ${result.name} (-$${Number(result.subtotal || 0).toFixed(2)}) — tap to confirm`,
+        }).catch(() => {});
+
+      } else if (action === 'disputed' && add_on_id) {
+        // Rider disputes an add-on (e.g. after driver rejects their removal)
+        await updateAddOnStatus(add_on_id, 'disputed', adjusted_amount, dispute_reason);
         publishRideUpdate(rideId, 'add_on_disputed', {
           addOnId: add_on_id,
-          reason: 'Rider requested removal',
+          reason: dispute_reason || 'Rider disputes this add-on',
         }).catch(() => {});
-        const total = await calculateAddOnTotal(rideId);
-        await sql`UPDATE rides SET add_on_total = ${total} WHERE id = ${rideId}`;
-        const addOns = await getRideAddOns(rideId);
-        return NextResponse.json({
-          addOns,
-          total,
-          message: 'Removal requested — your driver will review this.',
-        });
+        notifyUser(otherPartyId, 'ride_update', {
+          rideId, type: 'add_on_disputed',
+          message: 'Rider is disputing an add-on charge',
+        }).catch(() => {});
+
+      } else {
+        return NextResponse.json({ error: 'Invalid rider action' }, { status: 400 });
       }
-      await removeRideAddOn(add_on_id, rideId);
-      // Notify rider that driver approved removal
-      publishRideUpdate(rideId, 'add_on_removed', { addOnId: add_on_id }).catch(() => {});
-    } else if (action === 'disputed' && add_on_id) {
-      await updateAddOnStatus(add_on_id, action, adjusted_amount, dispute_reason);
-      // Notify driver about the dispute
-      const rideData = rideRows[0] as Record<string, unknown>;
-      const driverId = rideData.rider_id === userId ? rideData.driver_id : rideData.rider_id;
-      publishRideUpdate(rideId, 'add_on_disputed', {
-        addOnId: add_on_id,
-        reason: dispute_reason || 'Rider disputes this add-on',
-      }).catch(() => {});
-    } else if (add_on_id && action) {
-      await updateAddOnStatus(add_on_id, action, adjusted_amount, dispute_reason);
-    } else {
-      return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
 
-    // Recalculate total
+    // Recalculate total (only confirmed + adjusted items count)
     const total = await calculateAddOnTotal(rideId);
     await sql`UPDATE rides SET add_on_total = ${total} WHERE id = ${rideId}`;
 

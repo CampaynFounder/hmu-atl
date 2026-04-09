@@ -129,7 +129,7 @@ export default function DriverLandingClient() {
         <Link href="/" className={styles.navLogo}>HMU ATL</Link>
         <div className={styles.navActions}>
           <Link href="/sign-in?type=driver" className={styles.navSignIn}>Sign In</Link>
-          <Link href="/sign-up?type=driver" className={styles.navCta} onClick={() => { posthog.capture('driver_nav_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'nav' }); }}>Upfront Payments</Link>
+          <Link href="/sign-up?type=driver" className={styles.navCta} onClick={() => { posthog.capture('driver_nav_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'nav' }); }}>Make More Driving</Link>
         </div>
       </nav>
 
@@ -206,7 +206,7 @@ export default function DriverLandingClient() {
           Quit Raw Doggin&apos; Your Cash Rides. <strong>Know Before You Go.</strong> Don&apos;t Push Up Without It.
         </p>
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
-          <Link href="/sign-up?type=driver" className={styles.btnPrimary} onClick={() => { posthog.capture('driver_hero_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'hero' }); }}>Verify My Passenger&apos;s Payment</Link>
+          <Link href="/sign-up?type=driver" className={styles.btnPrimary} onClick={() => { posthog.capture('driver_hero_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'hero' }); }}>Keep More $$$ From My Rides</Link>
           <a href="#how" className={styles.btnGhost}>See how it works ↓</a>
         </div>
         <div className={`${styles.heroTrust} ${styles.fadeUp}`} style={{ animationDelay: '0.5s' }}>

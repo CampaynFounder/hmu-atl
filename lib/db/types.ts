@@ -185,7 +185,7 @@ export interface DriverOfferEnrollment {
 // Service Menu
 export type PricingType = 'flat' | 'per_unit' | 'per_minute';
 export type ServiceCategory = 'ride' | 'vibe' | 'vehicle' | 'errand' | 'custom';
-export type AddOnStatus = 'pre_selected' | 'confirmed' | 'disputed' | 'adjusted' | 'removed';
+export type AddOnStatus = 'pending_driver' | 'confirmed' | 'removal_pending' | 'removed' | 'rejected' | 'disputed' | 'adjusted';
 
 // Validated address from Mapbox Search Box
 export interface ValidatedAddress {

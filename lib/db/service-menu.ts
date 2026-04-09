@@ -176,9 +176,10 @@ export async function addRideAddOn(
   const unitPrice = Number(item.price);
   const subtotal = Math.round(unitPrice * quantity * 100) / 100;
 
+  // Status starts as pending_driver — driver must confirm before it counts toward total
   const rows = await sql`
     INSERT INTO ride_add_ons (ride_id, menu_item_id, name, unit_price, quantity, subtotal, added_by, status)
-    VALUES (${rideId}, ${menuItemId}, ${item.name}, ${unitPrice}, ${quantity}, ${subtotal}, 'rider', 'pre_selected')
+    VALUES (${rideId}, ${menuItemId}, ${item.name}, ${unitPrice}, ${quantity}, ${subtotal}, 'rider', 'pending_driver')
     RETURNING *
   `;
   return rows[0] as RideAddOn;
@@ -201,8 +202,10 @@ export async function updateAddOnStatus(
 ): Promise<RideAddOn | null> {
   const finalAmount = status === 'adjusted' && adjustedAmount !== undefined
     ? adjustedAmount
-    : status === 'removed'
+    : (status === 'removed' || status === 'rejected')
     ? 0
+    : status === 'confirmed'
+    ? null // will use COALESCE to subtotal
     : null;
 
   const rows = await sql`
@@ -231,18 +234,49 @@ export async function confirmAllAddOns(rideId: string): Promise<void> {
   await sql`
     UPDATE ride_add_ons
     SET status = 'confirmed', final_amount = subtotal, confirmed_at = NOW()
-    WHERE ride_id = ${rideId} AND status = 'pre_selected'
+    WHERE ride_id = ${rideId} AND status IN ('pending_driver', 'pre_selected')
   `;
 }
 
+export async function requestAddOnRemoval(addOnId: string, rideId: string): Promise<RideAddOn | null> {
+  // Mark a confirmed add-on as removal_pending — driver must approve
+  const rows = await sql`
+    UPDATE ride_add_ons
+    SET status = 'removal_pending'
+    WHERE id = ${addOnId} AND ride_id = ${rideId} AND status = 'confirmed'
+    RETURNING *
+  `;
+  return (rows[0] as RideAddOn) ?? null;
+}
+
+export async function confirmAddOnRemoval(addOnId: string, rideId: string): Promise<void> {
+  await sql`
+    UPDATE ride_add_ons
+    SET status = 'removed', final_amount = 0
+    WHERE id = ${addOnId} AND ride_id = ${rideId} AND status = 'removal_pending'
+  `;
+}
+
+export async function rejectAddOnRemoval(addOnId: string, rideId: string): Promise<RideAddOn | null> {
+  // Driver rejects removal — item goes back to confirmed
+  const rows = await sql`
+    UPDATE ride_add_ons
+    SET status = 'confirmed'
+    WHERE id = ${addOnId} AND ride_id = ${rideId} AND status = 'removal_pending'
+    RETURNING *
+  `;
+  return (rows[0] as RideAddOn) ?? null;
+}
+
 export async function calculateAddOnTotal(rideId: string): Promise<number> {
+  // Only confirmed and adjusted items count toward the total.
+  // pending_driver, removal_pending, removed, rejected, disputed = $0
   const rows = await sql`
     SELECT COALESCE(SUM(
       CASE
-        WHEN status = 'removed' THEN 0
+        WHEN status = 'confirmed' THEN subtotal
         WHEN status = 'adjusted' THEN COALESCE(rider_adjusted_amount, subtotal)
-        WHEN status = 'disputed' THEN 0
-        ELSE subtotal
+        ELSE 0
       END
     ), 0) as total
     FROM ride_add_ons
