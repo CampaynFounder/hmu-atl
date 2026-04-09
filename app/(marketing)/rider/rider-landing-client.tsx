@@ -48,7 +48,7 @@ export default function RiderLandingClient() {
     return () => observer.disconnect();
   }, []);
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     const pErr = validatePhone(phone);
     const eErr = validateEmail(email);
@@ -64,6 +64,23 @@ export default function RiderLandingClient() {
     } catch (_) {
       // posthog may not be initialized
     }
+
+    // Store lead before redirecting
+    const params = new URLSearchParams(window.location.search);
+    fetch('/api/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: email || null,
+        phone: phone || null,
+        lead_type: 'rider',
+        source: 'rider_landing',
+        utm_source: params.get('utm_source'),
+        utm_medium: params.get('utm_medium'),
+        utm_campaign: params.get('utm_campaign'),
+      }),
+    }).catch(() => {});
+
     setTimeout(() => router.push('/sign-up?type=rider'), 800);
   };
 

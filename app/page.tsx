@@ -68,8 +68,15 @@ export default function HomePage() {
 
     setIsSubmitting(true);
     try {
-      // For now, log to console — wire up to API/PostHog later
-      console.log('Waitlist signup:', { email, city, userType });
+      await fetch('/api/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          lead_type: userType || 'rider',
+          source: 'homepage_waitlist',
+        }),
+      }).catch(() => {});
       setWaitlistSubmitted(true);
     } finally {
       setIsSubmitting(false);

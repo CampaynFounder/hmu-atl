@@ -107,7 +107,7 @@ export default function DriverLandingClient() {
     }
   }, [earnedToday]);
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     const pErr = validatePhone(phone);
     const eErr = validateEmail(email);
@@ -117,6 +117,23 @@ export default function DriverLandingClient() {
     setIsSubmitting(true);
     posthog.capture('driver_signup_form_submitted', { phone: phone ? 'provided' : 'empty', email: email ? 'provided' : 'empty' });
     fbEvent('Lead', { content_name: 'Driver Signup Form', content_category: 'driver_funnel' });
+
+    // Store lead before redirecting
+    const params = new URLSearchParams(window.location.search);
+    fetch('/api/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: email || null,
+        phone: phone || null,
+        lead_type: 'driver',
+        source: 'driver_landing',
+        utm_source: params.get('utm_source'),
+        utm_medium: params.get('utm_medium'),
+        utm_campaign: params.get('utm_campaign'),
+      }),
+    }).catch(() => {});
+
     setTimeout(() => router.push('/sign-up?type=driver'), 800);
   };
 
