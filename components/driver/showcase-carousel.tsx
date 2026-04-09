@@ -104,23 +104,28 @@ export default function ShowcaseCarousel() {
         }
         .showcase-cta {
           position: absolute;
-          bottom: 16px;
-          left: 16px;
-          right: 16px;
-          display: block;
+          bottom: 14px;
+          right: 14px;
+          display: inline-block;
           text-align: center;
-          padding: 14px 20px;
+          padding: 8px 16px;
           border-radius: 100px;
           background: #00E676;
           color: #080808;
-          font-size: 15px;
+          font-size: 12px;
           font-weight: 700;
           text-decoration: none;
           font-family: var(--font-body, 'DM Sans', sans-serif);
           z-index: 2;
+          animation: showcasePulse 2.5s ease-in-out infinite;
+          box-shadow: 0 0 12px rgba(0,230,118,0.4);
         }
         .showcase-cta:active {
-          transform: scale(0.97);
+          transform: scale(0.95);
+        }
+        @keyframes showcasePulse {
+          0%, 100% { box-shadow: 0 0 8px rgba(0,230,118,0.3); }
+          50% { box-shadow: 0 0 18px rgba(0,230,118,0.6); }
         }
         .showcase-dots {
           position: absolute;
@@ -171,7 +176,7 @@ export default function ShowcaseCarousel() {
         )}
 
         <Link href="/sign-up?type=driver" className="showcase-cta">
-          Claim Your HMU Link Now
+          Make My HMU Link
         </Link>
       </div>
     </>
