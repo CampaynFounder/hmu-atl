@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { posthog } from '@/components/analytics/posthog-provider';
 import { fbEvent, fbCustomEvent } from '@/components/analytics/meta-pixel';
 import { Footer } from '@/components/landing/footer';
+import ShowcaseCarousel from '@/components/driver/showcase-carousel';
 import styles from './driver.module.css';
 
 export default function DriverLandingClient() {
@@ -151,44 +152,9 @@ export default function DriverLandingClient() {
         </div>
       </div>
 
-      {/* LAUNCH OFFER BANNER */}
-      <div className={`${styles.fadeUp}`} style={{
-        animationDelay: '0s',
-        background: 'linear-gradient(135deg, rgba(0,230,118,0.08) 0%, rgba(0,230,118,0.02) 100%)',
-        border: '1px solid rgba(0,230,118,0.25)',
-        borderRadius: 16,
-        padding: '24px 20px',
-        margin: '100px 20px 0',
-        textAlign: 'center',
-        position: 'relative',
-        zIndex: 2,
-      }}>
-        <div style={{ marginBottom: 10 }}>
-          <span style={{
-            display: 'inline-block', background: '#fff', color: '#080808',
-            fontSize: 10, fontWeight: 800, letterSpacing: 1.5, textTransform: 'uppercase',
-            padding: '4px 12px', borderRadius: 100, marginBottom: 8,
-          }}>
-            DRIVERS
-          </span>
-        </div>
-        <div style={{
-          fontFamily: 'var(--font-display, Bebas Neue, sans-serif)',
-          fontSize: 'clamp(32px, 8vw, 52px)',
-          lineHeight: 1,
-          color: 'var(--green)',
-          marginBottom: 8,
-        }}>
-          KEEP MORE $$$
-        </div>
-        <div style={{
-          fontFamily: 'var(--font-body, DM Sans, sans-serif)',
-          fontSize: 15,
-          color: 'var(--gray-light)',
-          lineHeight: 1.5,
-        }}>
-          Set your own price. <strong style={{ color: '#fff' }}>The less you make, the less we take.</strong> Daily fee caps mean more in your pocket.
-        </div>
+      {/* HMU SHOWCASE CAROUSEL */}
+      <div style={{ margin: '100px 20px 0', position: 'relative', zIndex: 2 }}>
+        <ShowcaseCarousel />
       </div>
 
       {/* HERO */}

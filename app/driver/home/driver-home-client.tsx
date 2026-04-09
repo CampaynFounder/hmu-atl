@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAbly } from '@/hooks/use-ably';
 import CashoutCard from '@/components/driver/cashout-card';
-import ShowcaseCarousel from '@/components/driver/showcase-carousel';
 import { PendingActionBanner } from '@/components/pending-action-banner';
 
 interface BookingRequest {
@@ -241,9 +240,6 @@ export default function DriverHomeClient({
             <RequestCard key={req.id} req={req} actionLoading={actionLoading} onAction={handleAction} />
           ))
         )}
-
-        {/* HMU showcase videos */}
-        <ShowcaseCarousel />
 
         {/* Lifecycle Card */}
         {!payoutSetup && !cashOnly ? (
