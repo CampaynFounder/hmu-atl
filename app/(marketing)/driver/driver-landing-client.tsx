@@ -179,7 +179,7 @@ export default function DriverLandingClient() {
           color: 'var(--green)',
           marginBottom: 8,
         }}>
-          FREE $500<a href="#offer-details" style={{ fontSize: '0.45em', verticalAlign: 'super', color: 'var(--gray)', textDecoration: 'none' }}>*</a>
+          KEEP MORE $$$
         </div>
         <div style={{
           fontFamily: 'var(--font-body, DM Sans, sans-serif)',
@@ -187,8 +187,7 @@ export default function DriverLandingClient() {
           color: 'var(--gray-light)',
           lineHeight: 1.5,
         }}>
-          Keep <strong style={{ color: '#fff' }}>100% of your earnings</strong> while you get started.
-          Zero platform fees.
+          Set your own price. <strong style={{ color: '#fff' }}>The less you make, the less we take.</strong> Daily fee caps mean more in your pocket.
         </div>
       </div>
 
@@ -745,30 +744,20 @@ export default function DriverLandingClient() {
             fontSize: 10, letterSpacing: 2, textTransform: 'uppercase',
             color: 'var(--gray)', marginBottom: 12,
           }}>
-            * Launch Offer Details
+            Fee Structure
           </div>
           <div style={{
             fontSize: 13, color: 'var(--gray)', lineHeight: 1.7,
           }}>
             <p style={{ marginBottom: 10 }}>
-              <strong style={{ color: 'var(--gray-light)' }}>FREE $500 Launch Offer:</strong> New drivers
-              pay 0% platform fees until any of the following conditions are met &mdash; whichever comes first:
-            </p>
-            <ul style={{ paddingLeft: 20, marginBottom: 10 }}>
-              <li>15 completed rides</li>
-              <li>$500 in total earnings</li>
-              <li>30 days from signup</li>
-            </ul>
-            <p style={{ marginBottom: 10 }}>
-              Offer terms are <strong style={{ color: 'var(--gray-light)' }}>locked at the time you sign up</strong>.
-              If we change the offer later, your original terms are honored in full.
+              <strong style={{ color: 'var(--gray-light)' }}>Progressive fees:</strong> The less you make, the less we take.
+              Platform fees range from 10&ndash;25% based on your daily earnings, with daily ($40) and weekly ($150) caps.
             </p>
             <p style={{ marginBottom: 10 }}>
-              After the offer period, standard progressive platform fees apply (10&ndash;25% with daily and weekly caps).
-              Drivers on HMU First ($9.99/mo) pay a flat 12% with lower caps.
+              Drivers on <strong style={{ color: 'var(--gray-light)' }}>HMU First ($9.99/mo)</strong> pay a flat 12% with lower caps ($25/day, $100/week) plus instant payouts after every ride.
             </p>
             <p>
-              Standard payment processing applies to all transactions. Platform fees are separate and are what this offer waives.
+              Standard payment processing applies to all transactions. Payouts via Cash App, Venmo, Zelle, and bank are always free.
             </p>
           </div>
         </div>
