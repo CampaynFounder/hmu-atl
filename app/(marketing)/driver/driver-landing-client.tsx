@@ -164,7 +164,7 @@ export default function DriverLandingClient() {
         </div>
         <h1 className={styles.heroHeadline}>
           <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0s' }}>Keep More.</span>
-          <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0.1s' }}>Ride<span className={styles.lineGreen}>Fair</span> {'>'} Ride<span style={{ textDecoration: 'line-through', opacity: 0.4 }}>share</span></span>
+          <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0.1s' }}>Ride<span className={styles.lineGreen}>Fair</span> {'>'} Ride<span style={{ opacity: 0.25 }}>share</span></span>
         </h1>
         <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }}>
           You Drive. You Thrive. Stop Letting Algorithms Determine Your Worth. <strong>Your Pay. Your Way.</strong> HMU.
