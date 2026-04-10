@@ -28,6 +28,7 @@ const navSections = [
     items: [
       { href: '/admin/marketing', label: 'Outreach', icon: '📣' },
       { href: '/admin/messages', label: 'Messages', icon: '💬', badge: true },
+      { href: '/admin/leads', label: 'Leads', icon: '📧' },
       { href: '/admin/content', label: 'Content', icon: '🎬' },
     ],
   },
