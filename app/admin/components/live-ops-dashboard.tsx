@@ -55,6 +55,12 @@ export function LiveOpsDashboard() {
   const [sheetBucket, setSheetBucket] = useState<'new_users' | 'incomplete' | null>(null);
   const { selectedMarketId } = useMarket();
 
+  // Stable reference so the sheet's useEffect doesn't re-fire on every render.
+  const handleCloseSheet = useCallback(() => setSheetBucket(null), []);
+  const handleResetCursor = useCallback(() => {
+    setNewSince((prev) => (prev ? { ...prev, newUsers: { riders: 0, drivers: 0, total: 0 } } : prev));
+  }, []);
+
   const fetchAll = useCallback(async () => {
     const mq = selectedMarketId ? `?marketId=${selectedMarketId}` : '';
     try {
@@ -178,10 +184,8 @@ export function LiveOpsDashboard() {
       <NewUsersSheet
         open={sheetBucket !== null}
         bucket={sheetBucket ?? 'new_users'}
-        onClose={() => setSheetBucket(null)}
-        onResetCursor={() => {
-          setNewSince((prev) => (prev ? { ...prev, newUsers: { riders: 0, drivers: 0, total: 0 } } : prev));
-        }}
+        onClose={handleCloseSheet}
+        onResetCursor={handleResetCursor}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

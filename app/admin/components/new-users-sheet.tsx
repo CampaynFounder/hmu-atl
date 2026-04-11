@@ -4,7 +4,7 @@
 // Opening fetches the user list via POST /api/admin/users/new-since, which also
 // resets the admin_last_seen_at cursor when bucket = 'new_users'.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AdminSheet } from './admin-sheet';
 
 type Bucket = 'new_users' | 'incomplete';
@@ -42,6 +42,14 @@ export function NewUsersSheet({ open, onClose, bucket, onResetCursor }: Props) {
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<'riders' | 'drivers'>('riders');
 
+  // Store the latest onResetCursor in a ref so the fetch effect doesn't
+  // depend on it. Without this, an inline arrow passed from the parent
+  // created a new reference every render → effect re-ran → fetched again
+  // → called onResetCursor → parent state change → re-render → infinite
+  // loop with the sheet flickering between loading and empty states.
+  const onResetCursorRef = useRef(onResetCursor);
+  onResetCursorRef.current = onResetCursor;
+
   useEffect(() => {
     if (!open) return;
     setLoading(true);
@@ -64,11 +72,14 @@ export function NewUsersSheet({ open, onClose, bucket, onResetCursor }: Props) {
         } else {
           setTab('riders');
         }
-        if (bucket === 'new_users') onResetCursor?.();
+        if (bucket === 'new_users') onResetCursorRef.current?.();
       })
       .catch((err) => console.error('new-since fetch failed:', err))
       .finally(() => setLoading(false));
-  }, [open, bucket, onResetCursor]);
+    // Deliberately excluding onResetCursor — we read it from the ref to
+    // avoid re-fetching every time the parent re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, bucket]);
 
   const riders = users.filter((u) => u.profileType === 'rider');
   const drivers = users.filter((u) => u.profileType === 'driver');
