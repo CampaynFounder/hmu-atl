@@ -72,7 +72,17 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
   // Ably subscription for real-time notifications
   const handleAblyMessage = useCallback((msg: { name: string; data: unknown }) => {
     const data = msg.data as Record<string, unknown>;
-    if (msg.name === 'booking_accepted' || msg.name === 'ride_update') {
+    // The match overlay should ONLY fire for the initial driver-accepted event,
+    // not for subsequent ride_update events (otw, here, ended, etc.). Previously
+    // this fired for every ride_update — causing "DRIVER FOUND!" + "Link payment"
+    // to appear AFTER a ride already ended because /api/rides/[id]/end publishes
+    // a ride_update with status='ended' to the rider's notify channel.
+    const status = (data.status as string | undefined) || null;
+    const isInitialMatch =
+      msg.name === 'booking_accepted' ||
+      (msg.name === 'ride_update' && (status === 'matched' || status === 'accepted'));
+
+    if (isInitialMatch) {
       const rideId = data.rideId as string;
       if (rideId) {
         setMatchNotif({
