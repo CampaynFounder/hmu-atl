@@ -148,19 +148,27 @@ const TOOLS = [
 
 export async function POST(req: NextRequest) {
   try {
-    // Auth gate — chat is no longer public. Unauthenticated callers bounce so
-    // we can attribute rate limits to a Neon user_id rather than IP.
+    // Chat is intentionally anonymous-friendly — the product flow is
+    // "chat first, sign up at the booking moment, attribution on sign-up."
+    // We attempt to resolve a Neon user_id if the caller is already logged in,
+    // but a missing session is NOT an error. Rate limits fall back to IP.
     const { userId: clerkId } = await auth();
-    if (!clerkId) {
-      return NextResponse.json({ error: 'Sign in to chat' }, { status: 401 });
+    let neonUserId: string | null = null;
+    if (clerkId) {
+      const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+      if (userRows.length) {
+        neonUserId = (userRows[0] as { id: string }).id;
+      }
     }
 
-    // Resolve Clerk id → Neon user_id for rate-limit keys + self-booking check.
-    const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
-    if (!userRows.length) {
-      return NextResponse.json({ error: 'Finish onboarding to chat' }, { status: 403 });
-    }
-    const neonUserId = (userRows[0] as { id: string }).id;
+    // Anonymous callers get an IP-based rate-limit key via Cloudflare's
+    // cf-connecting-ip header (the canonical source on Workers). Fall back
+    // to x-forwarded-for, then a shared 'unknown' bucket of last resort.
+    const clientIp =
+      req.headers.get('cf-connecting-ip') ||
+      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      'unknown';
+    const rateLimitSubject = neonUserId ? `user:${neonUserId}` : `ip:${clientIp}`;
 
     const { messages, driverHandle, extractedSoFar, currentStep } = await req.json() as {
       messages: { role: 'user' | 'assistant'; content: string }[];
@@ -173,18 +181,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'messages and driverHandle required' }, { status: 400 });
     }
 
-    // Chat message rate limit — counts every POST to this route.
+    // Chat message rate limit — counts every POST to this route. Keyed on
+    // user_id if signed in, IP if anonymous.
     const msgLimit = await checkRateLimit({
-      key: `chat:msg:${neonUserId}`,
+      key: `chat:msg:${rateLimitSubject}`,
       limit: LIMIT_CHAT_MSG_PER_HOUR,
       windowSeconds: 3600,
     });
     if (!msgLimit.ok) {
-      await logSuspectEvent(neonUserId, 'chat_message_rate', {
-        count: msgLimit.count,
-        limit: msgLimit.limit,
-        driverHandle,
-      });
+      // Only log a suspect event if we have a user_id to attribute it to.
+      // Anonymous rate-limit trips just 429 without audit log (can't track).
+      if (neonUserId) {
+        await logSuspectEvent(neonUserId, 'chat_message_rate', {
+          count: msgLimit.count,
+          limit: msgLimit.limit,
+          driverHandle,
+        });
+      }
       return NextResponse.json(
         {
           error: 'You\'re chatting too fast. Take a break and try again in a few minutes.',
@@ -214,10 +227,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Driver not found' }, { status: 404 });
     }
 
-    // Server-side self-booking guard — the UI blocker is the first line, this
-    // is the backstop in case someone calls the API directly.
+    // Server-side self-booking guard — only fires when the caller is
+    // authenticated (anonymous callers have no identity to match against).
+    // The booking create endpoint /api/drivers/[handle]/book has its own
+    // structural guard that catches anonymous→auth→self-booking attempts.
     const driverUserId = String((driverRows[0] as Record<string, unknown>).user_id);
-    if (driverUserId === neonUserId) {
+    if (neonUserId && driverUserId === neonUserId) {
       await logSuspectEvent(neonUserId, 'driver_booking_self_via_ui', { driverHandle });
       return NextResponse.json(
         { error: 'You can\'t book yourself. Try another driver.' },
@@ -317,19 +332,22 @@ ${getStepInstructions(step, driver)}`;
 
           case 'confirm_details': {
             // Booking-conversion rate limits — protect drivers from a rider
-            // spraying fake booking requests. Checked BEFORE persisting the
-            // extracted details so we fail loud.
+            // spraying fake booking requests. Keyed on user_id if signed in,
+            // IP if anonymous. Only logs suspect events when we have a
+            // user_id to attribute them to.
             const hourlyBook = await checkRateLimit({
-              key: `book:${neonUserId}`,
+              key: `book:${rateLimitSubject}`,
               limit: LIMIT_BOOKING_PER_HOUR,
               windowSeconds: 3600,
             });
             if (!hourlyBook.ok) {
-              await logSuspectEvent(neonUserId, 'booking_rate', {
-                count: hourlyBook.count,
-                limit: hourlyBook.limit,
-                driverHandle,
-              });
+              if (neonUserId) {
+                await logSuspectEvent(neonUserId, 'booking_rate', {
+                  count: hourlyBook.count,
+                  limit: hourlyBook.limit,
+                  driverHandle,
+                });
+              }
               result = {
                 error: 'rate_limited',
                 message: 'You\'ve submitted a lot of booking requests lately. Wait an hour and try again.',
@@ -338,17 +356,19 @@ ${getStepInstructions(step, driver)}`;
             }
 
             const sameDriverBook = await checkRateLimit({
-              key: `book:${neonUserId}:${driverUserId}`,
+              key: `book:${rateLimitSubject}:${driverUserId}`,
               limit: LIMIT_SAME_DRIVER_PER_DAY,
               windowSeconds: 86400,
             });
             if (!sameDriverBook.ok) {
-              await logSuspectEvent(neonUserId, 'same_driver_booking_rate', {
-                count: sameDriverBook.count,
-                limit: sameDriverBook.limit,
-                driverHandle,
-                driverUserId,
-              });
+              if (neonUserId) {
+                await logSuspectEvent(neonUserId, 'same_driver_booking_rate', {
+                  count: sameDriverBook.count,
+                  limit: sameDriverBook.limit,
+                  driverHandle,
+                  driverUserId,
+                });
+              }
               result = {
                 error: 'rate_limited',
                 message: `You've already submitted booking requests to ${driver.display_name || driverHandle} recently. Give them a chance to respond first.`,
