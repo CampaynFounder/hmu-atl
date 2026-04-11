@@ -18,6 +18,7 @@ export default function DriverSupportClient({ userName }: { userName: string }) 
       background: '#080808', minHeight: '100svh', color: '#fff',
       fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
       display: 'flex', flexDirection: 'column',
+      paddingTop: 56,
     }}>
       {/* Header */}
       <div style={{ padding: '20px 20px 0', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>

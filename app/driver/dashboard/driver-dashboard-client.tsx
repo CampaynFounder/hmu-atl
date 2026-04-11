@@ -99,7 +99,7 @@ export default function DriverDashboardClient() {
   };
 
   return (
-    <div style={{ background: COLORS.black, minHeight: '100svh', color: COLORS.white, fontFamily: FONTS.body, paddingBottom: 100 }}>
+    <div style={{ background: COLORS.black, minHeight: '100svh', color: COLORS.white, fontFamily: FONTS.body, paddingTop: 56, paddingBottom: 100 }}>
       {/* Header */}
       <div style={{ padding: '20px 20px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
         <Link href="/driver/home" style={{ color: COLORS.green, display: 'flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>

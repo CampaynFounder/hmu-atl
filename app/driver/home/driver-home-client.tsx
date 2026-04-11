@@ -158,7 +158,7 @@ export default function DriverHomeClient({
     <>
       <style>{`
         :root { --green: #00E676; --black: #080808; --card: #141414; --card2: #1a1a1a; --border: rgba(255,255,255,0.08); --gray: #888; --gray-light: #bbb; }
-        .driver-home { background: var(--black); color: #fff; min-height: 100svh; font-family: var(--font-body, 'DM Sans', sans-serif); padding: 24px 20px 100px; }
+        .driver-home { background: var(--black); color: #fff; min-height: 100svh; font-family: var(--font-body, 'DM Sans', sans-serif); padding: 72px 20px 100px; }
         .greeting { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 36px; line-height: 1.1; margin-bottom: 4px; }
         .greeting-sub { font-size: 14px; color: var(--gray); margin-bottom: 28px; }
         .share-card { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 24px 20px; margin-bottom: 32px; }
