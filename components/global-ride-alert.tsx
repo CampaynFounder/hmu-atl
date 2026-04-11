@@ -14,6 +14,13 @@ interface RideAlert {
   message?: string;
 }
 
+// Ably's rewind=2m delivers recent messages on reconnect, so a rider who
+// navigates back to the app after a ride has already ended can get a
+// replayed 'here' or 'otw' event and see "Your driver is here!" again.
+// Real-time events are always <1s old; anything older than this threshold
+// is almost certainly a rewind replay and should be suppressed.
+const ALERT_MAX_AGE_MS = 30 * 1000;
+
 /**
  * Global ride alert listener. Subscribes to the rider/driver's Ably notify channel
  * and shows a full-screen interstitial when a critical ride event happens
@@ -40,7 +47,13 @@ export function GlobalRideAlert() {
       .catch(() => {});
   }, [isLoaded, isSignedIn]);
 
-  const handleMessage = useCallback((msg: { name: string; data: unknown }) => {
+  const handleMessage = useCallback((msg: { name: string; data: unknown; timestamp?: number }) => {
+    // Suppress Ably rewind replays — only fire alerts for genuinely fresh events.
+    // See ALERT_MAX_AGE_MS comment above.
+    if (msg.timestamp && Date.now() - msg.timestamp > ALERT_MAX_AGE_MS) {
+      return;
+    }
+
     const data = msg.data as Record<string, unknown>;
 
     if (msg.name === 'booking_accepted') {

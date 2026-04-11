@@ -70,7 +70,14 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
   const hasActiveRide = !!activeRideId;
 
   // Ably subscription for real-time notifications
-  const handleAblyMessage = useCallback((msg: { name: string; data: unknown }) => {
+  const handleAblyMessage = useCallback((msg: { name: string; data: unknown; timestamp?: number }) => {
+    // Ably rewinds the last 2 minutes of messages on reconnect. Suppress
+    // replayed events so the match overlay doesn't re-fire on navigation
+    // back to /rider/home after a ride has already completed.
+    if (msg.timestamp && Date.now() - msg.timestamp > 30 * 1000) {
+      return;
+    }
+
     const data = msg.data as Record<string, unknown>;
     // The match overlay should ONLY fire for the initial driver-accepted event,
     // not for subsequent ride_update events (otw, here, ended, etc.). Previously
