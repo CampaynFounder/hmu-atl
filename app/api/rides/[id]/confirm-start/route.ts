@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { captureRiderPayment } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { syncBookingFromRide } from '@/lib/schedule/conflicts';
 
 /**
  * Rider confirms they're in the car → capture payment → ride active.
@@ -74,6 +75,8 @@ export async function POST(
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'confirming'
     `;
+
+    syncBookingFromRide(rideId, 'active').catch(() => {});
 
     // Notify both parties
     await publishRideUpdate(rideId, 'status_change', {

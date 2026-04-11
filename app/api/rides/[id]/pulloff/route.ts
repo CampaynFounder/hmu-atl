@@ -113,9 +113,11 @@ export async function POST(
       message: riderMessage,
     }).catch(() => {});
 
-    // Cancel calendar booking + linked post
+    // Cancel calendar booking + linked post. If this was a no-show charge,
+    // tag the booking as 'no_show' (not plain 'cancelled') so analytics and
+    // history show the difference.
     const { cancelRideBooking } = await import('@/lib/schedule/conflicts');
-    cancelRideBooking(rideId).catch(() => {});
+    cancelRideBooking(rideId, { noShow: chargePercent > 0 }).catch(() => {});
     if (ride.hmu_post_id) {
       await sql`UPDATE hmu_posts SET status = 'cancelled' WHERE id = ${ride.hmu_post_id}`.catch(() => {});
     }

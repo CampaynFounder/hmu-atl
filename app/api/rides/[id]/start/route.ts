@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { syncBookingFromRide } from '@/lib/schedule/conflicts';
 
 // Haversine distance in meters
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -81,6 +82,8 @@ export async function POST(
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'here'
     `;
+
+    syncBookingFromRide(rideId, 'confirming').catch(() => {});
 
     // Ably: tell rider to confirm
     await publishRideUpdate(rideId, 'confirm_start', {

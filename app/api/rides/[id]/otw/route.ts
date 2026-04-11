@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyRiderDriverOtw } from '@/lib/sms/textbee';
+import { syncBookingFromRide } from '@/lib/schedule/conflicts';
 
 export async function POST(
   _req: NextRequest,
@@ -44,6 +45,10 @@ export async function POST(
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'matched'
     `;
+
+    // Flip the calendar booking to in_progress so the slot stays occupied
+    // for any conflict checks during the ride.
+    syncBookingFromRide(rideId, 'otw').catch(() => {});
 
     // Notify rider via Ably
     await publishRideUpdate(rideId, 'status_change', { status: 'otw', message: 'Driver is on the way' }).catch(() => {});

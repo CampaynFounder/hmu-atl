@@ -6,6 +6,7 @@ import { captureRiderPayment } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { isWithinProximity } from '@/lib/geo/distance';
 import { calculateAndStoreRideAnalytics } from '@/lib/rides/analytics';
+import { syncBookingFromRide } from '@/lib/schedule/conflicts';
 import { getDriverEnrollment, updateEnrollmentProgress, isDriverInFreeWindow } from '@/lib/db/enrollment-offers';
 import Stripe from 'stripe';
 
@@ -149,6 +150,10 @@ export async function POST(
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'active'
     `;
+
+    // Booking row stays 'in_progress' through the dispute window — slot is
+    // still occupied until rate flips it to 'completed'.
+    syncBookingFromRide(rideId, 'ended').catch(() => {});
 
     // Calculate ride analytics (non-blocking)
     calculateAndStoreRideAnalytics(rideId).catch(() => {});

@@ -3,12 +3,12 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyRiderBookingAccepted } from '@/lib/sms/textbee';
-import { checkDriverAvailability, createRideBooking, confirmTentativeBooking } from '@/lib/schedule/conflicts';
+import {
+  checkDriverAvailability,
+  confirmTentativeBooking,
+  resolveBookingWindow,
+} from '@/lib/schedule/conflicts';
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
-
-function parseRideTime(timeStr: string): string {
-  return parseNaturalTime(timeStr).iso;
-}
 
 export async function POST(
   _req: NextRequest,
@@ -110,23 +110,24 @@ export async function POST(
         return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });
       }
 
-      // Check schedule conflicts using resolved time
-      const tw = (timeWindow || {}) as Record<string, unknown>;
-      const resolvedTimeStr = (tw.resolvedTime as string) || (tw.time as string) || '';
-      const parsedTime = parseNaturalTime(resolvedTimeStr);
-      if (!parsedTime.isNow) {
-        const proposedEnd = new Date(new Date(parsedTime.iso).getTime() + 45 * 60000).toISOString();
-        const availability = await checkDriverAvailability(driverUserId, parsedTime.iso, proposedEnd);
-        // Allow if the only conflict is the tentative hold for THIS booking
-        if (!availability.available && availability.conflict) {
-          const conflictDetails = availability.conflict as Record<string, unknown>;
-          const isSelfHold = conflictDetails.bookingType === 'hold';
-          if (!isSelfHold) {
-            return NextResponse.json({
-              error: 'You have a booking conflict at this time',
-              code: 'schedule_conflict',
-            }, { status: 409 });
-          }
+      // Check schedule conflicts — same window helper as every other route.
+      // Strict for non-cash (held card), loose for cash.
+      const window = resolveBookingWindow(timeWindow || {});
+      const availability = await checkDriverAvailability(
+        driverUserId,
+        window.startAt,
+        window.endAt,
+        { strict: !isCash }
+      );
+      // Allow if the only conflict is a tentative hold (may be this driver's own)
+      if (!availability.available && availability.conflict) {
+        const conflictDetails = availability.conflict as Record<string, unknown>;
+        const isSelfHold = conflictDetails.bookingType === 'hold';
+        if (!isSelfHold) {
+          return NextResponse.json({
+            error: 'You have a booking conflict at this time',
+            code: 'schedule_conflict',
+          }, { status: 409 });
         }
       }
 
@@ -169,6 +170,23 @@ export async function POST(
       return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });
     }
 
+    // Re-verify the slot is still clean before promoting. The driver could
+    // have picked up another future booking after the tentative hold was
+    // placed. A self-hold match is fine — that's this booking's own row.
+    const directWindow = resolveBookingWindow(timeWindow || {});
+    const directAvail = await checkDriverAvailability(
+      driverUserId,
+      directWindow.startAt,
+      directWindow.endAt,
+      { strict: !isCash }
+    );
+    if (!directAvail.available && directAvail.conflict && directAvail.conflict.bookingType !== 'hold') {
+      return NextResponse.json({
+        error: 'Your schedule changed — you already have a booking at this time',
+        code: 'schedule_conflict',
+      }, { status: 409 });
+    }
+
     // Get driver's wait time setting
     const waitRows = await sql`SELECT wait_minutes FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1`;
     const waitMinutes = Number((waitRows[0] as Record<string, unknown>)?.wait_minutes ?? 10);
@@ -200,7 +218,7 @@ export async function POST(
           pickup: timeWindow.pickup || '',
           dropoff: timeWindow.dropoff || '',
           time: timeWindow.time || 'ASAP',
-          resolvedTime: timeWindow.resolvedTime || parseRideTime(String(timeWindow.time || '')),
+          resolvedTime: timeWindow.resolvedTime || directWindow.startAt,
           timeDisplay: timeWindow.timeDisplay || parseNaturalTime(String(timeWindow.time || '')).display,
           stops: timeWindow.stops || 'none',
           roundTrip: timeWindow.round_trip === true,
@@ -242,10 +260,8 @@ export async function POST(
       }
     } catch { /* non-blocking */ }
 
-    // Create calendar booking — use resolvedTime first, then parse time, fallback to now
-    const rideTime = (timeWindow.resolvedTime as string) || parseRideTime((timeWindow.time as string) || '');
-    // Promote tentative hold to confirmed, or create fresh booking
-    confirmTentativeBooking(driverUserId, riderId, rideId, postId, rideTime, post.market_id as string || null)
+    // Promote tentative hold to confirmed/scheduled, or create fresh booking.
+    confirmTentativeBooking(driverUserId, riderId, rideId, postId, directWindow.startAt, post.market_id as string || null)
       .catch(e => console.error('Calendar booking failed:', e));
 
     return NextResponse.json({ status: 'matched', rideId });

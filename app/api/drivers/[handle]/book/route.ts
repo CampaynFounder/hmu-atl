@@ -8,8 +8,12 @@ import {
 } from '@/lib/db/direct-bookings';
 import { notifyUser } from '@/lib/ably/server';
 import { notifyDriverNewBooking } from '@/lib/sms/textbee';
-import { checkDriverAvailability, createTentativeBooking, cancelTentativeBooking } from '@/lib/schedule/conflicts';
-import { parseNaturalTime } from '@/lib/schedule/parse-time';
+import {
+  checkDriverAvailability,
+  createTentativeBooking,
+  cancelTentativeBooking,
+  resolveBookingWindow,
+} from '@/lib/schedule/conflicts';
 import { logSuspectEvent } from '@/lib/admin/suspect-events';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 
@@ -146,19 +150,22 @@ export async function POST(
     return NextResponse.json({ error: eligibility.reason, code: eligibility.code }, { status: 403 });
   }
 
-  // Check driver availability for the requested time (future bookings)
-  const tw = (timeWindow || {}) as Record<string, unknown>;
-  const rideTimeStr = (tw.resolvedTime as string) || (tw.time as string) || '';
-  const parsed = parseNaturalTime(rideTimeStr);
-  if (!parsed.isNow) {
-    const proposedEnd = new Date(new Date(parsed.iso).getTime() + 45 * 60000).toISOString();
-    const avail = await checkDriverAvailability(driverUserId, parsed.iso, proposedEnd);
-    if (!avail.available && avail.conflict) {
-      return NextResponse.json(
-        { error: `${driverProfile.areas?.[0] ? '' : ''}This driver already has a booking at that time. Try a different time.`, code: 'schedule_conflict' },
-        { status: 409 }
-      );
-    }
+  // Check driver availability for the requested time — same window for
+  // "now" and future so two riders can't race on the same slot before the
+  // ride record exists. Strict for non-cash (held card → chargebacks if we
+  // double-book), loose for cash (only an actively running ride blocks).
+  const window = resolveBookingWindow(timeWindow || {});
+  const avail = await checkDriverAvailability(
+    driverUserId,
+    window.startAt,
+    window.endAt,
+    { strict: !is_cash }
+  );
+  if (!avail.available && avail.conflict) {
+    return NextResponse.json(
+      { error: 'This driver already has a booking at that time. Try a different time.', code: 'schedule_conflict' },
+      { status: 409 }
+    );
   }
 
   const post = await createDirectBookingPost({
@@ -170,13 +177,12 @@ export async function POST(
     isCash: is_cash,
   });
 
-  // Create tentative calendar hold for future bookings (blocks the time slot during acceptance window)
-  if (!parsed.isNow) {
-    try {
-      await createTentativeBooking(driverUserId, rider.id, post.id, parsed.iso, null);
-    } catch (e) {
-      console.error('Tentative booking failed:', e);
-    }
+  // Always create a tentative hold — "now" bookings need the same
+  // double-book protection during the 15-min acceptance window.
+  try {
+    await createTentativeBooking(driverUserId, rider.id, post.id, window.startAt, null);
+  } catch (e) {
+    console.error('Tentative booking failed:', e);
   }
 
   // Fire Ably notification to driver

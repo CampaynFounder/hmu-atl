@@ -299,6 +299,11 @@ ${getStepInstructions(step, driver)}`;
             break;
 
           case 'check_availability': {
+            // Fail closed: any error in the parse / DB check means we cannot
+            // confirm the slot is free, so we must report unavailable. This
+            // is load-bearing for the confirm_details gate below — a false
+            // "available: true" here would allow the chat to proceed to
+            // booking summary without real verification.
             try {
               const proposedStart = parseTimeToISO(args.proposedTime);
               const proposedEnd = new Date(new Date(proposedStart).getTime() + 45 * 60000).toISOString();
@@ -307,9 +312,15 @@ ${getStepInstructions(step, driver)}`;
                 available: avail.available,
                 isWorkingHours: avail.isWorkingHours,
                 conflict: avail.conflict ? 'Driver has another booking at this time' : null,
+                checkedStart: proposedStart,
               };
-            } catch {
-              result = { available: true, isWorkingHours: true, note: 'Could not verify — assume available' };
+            } catch (e) {
+              console.error('check_availability failed:', e);
+              result = {
+                available: false,
+                isWorkingHours: false,
+                error: 'Could not verify availability — please try again in a moment',
+              };
             }
             break;
           }
@@ -332,11 +343,8 @@ ${getStepInstructions(step, driver)}`;
           case 'confirm_details': {
             // NOTE: booking-conversion rate limits used to fire here, but
             // confirm_details is just "GPT has extracted enough info to
-            // summarize" — not an actual booking submission. Dismissing a
-            // chat without clicking the booking button was incorrectly
-            // counting as a request. The real limits now live on
-            // /api/drivers/[handle]/book where the driver actually gets
-            // notified.
+            // summarize" — not an actual booking submission. The real
+            // limits live on /api/drivers/[handle]/book.
 
             // Resolve the time to a concrete ISO timestamp + display string
             const timeInput = args.resolvedTime || args.time || '';
@@ -344,6 +352,37 @@ ${getStepInstructions(step, driver)}`;
             args.resolvedTime = parsed.iso;
             args.timeDisplay = parsed.display;
             args.isNow = parsed.isNow;
+
+            // Fail-closed availability gate: the GPT tool loop is untrusted
+            // for safety-critical checks, so we run one inline here every
+            // time confirm_details is called. If the slot is not available,
+            // we refuse to return details_confirmed — the client can't
+            // advance to the booking form.
+            let availabilityOk = true;
+            let availabilityError: string | null = null;
+            try {
+              const proposedEnd = new Date(new Date(parsed.iso).getTime() + 45 * 60000).toISOString();
+              const avail = await checkDriverAvailability(driver.user_id as string, parsed.iso, proposedEnd);
+              if (!avail.available) {
+                availabilityOk = false;
+                availabilityError = avail.conflict
+                  ? 'Driver already has a booking at that time. Pick a different time?'
+                  : 'Driver isn\'t scheduled to work at that time. Pick a different time?';
+              }
+            } catch (e) {
+              console.error('confirm_details availability gate failed:', e);
+              availabilityOk = false;
+              availabilityError = 'Could not verify availability — please try again in a moment';
+            }
+
+            if (!availabilityOk) {
+              result = {
+                action: 'unavailable',
+                error: availabilityError,
+                resolvedTimeDisplay: parsed.display,
+              };
+              break;
+            }
 
             result = {
               action: 'details_confirmed',
@@ -384,6 +423,28 @@ ${getStepInstructions(step, driver)}`;
       const confirmAction = toolResults.find(tr => tr.name === 'confirm_details');
       if (confirmAction) {
         const confirmResult = confirmAction.result as Record<string, unknown>;
+
+        // Availability gate failed — surface the reason, do NOT mark as
+        // details_confirmed. Client stays in the chat step so the rider
+        // can pick another time.
+        if (confirmResult.action === 'unavailable') {
+          const finalRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body: JSON.stringify({ model: 'gpt-4o-mini', messages: toolMessages, temperature: 0.7, max_tokens: 200 }),
+          });
+          const finalData = await finalRes.json();
+          const finalMessage = finalData.choices?.[0]?.message?.content
+            || (confirmResult.error as string)
+            || 'That time isn\'t available. Want to try a different time?';
+          return NextResponse.json({
+            reply: finalMessage,
+            action: 'unavailable',
+            error: confirmResult.error || null,
+            nextStep: 'trip_details',
+          });
+        }
+
         const booking = confirmResult.booking as Record<string, unknown>;
         // Ensure riderPrice takes priority — fall back to suggestedPrice for backwards compat
         if (booking.riderPrice) {

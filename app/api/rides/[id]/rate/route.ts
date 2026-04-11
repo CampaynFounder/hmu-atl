@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { syncBookingFromRide } from '@/lib/schedule/conflicts';
 
 export async function POST(
   req: NextRequest,
@@ -60,6 +61,7 @@ export async function POST(
     // Move ride to completed after any rating
     if (ride.status === 'ended') {
       await sql`UPDATE rides SET status = 'completed', completed_at = NOW(), updated_at = NOW() WHERE id = ${rideId}`;
+      syncBookingFromRide(rideId, 'completed').catch(() => {});
 
       // Increment completed_rides for both driver and rider
       try {

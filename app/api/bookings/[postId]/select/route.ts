@@ -3,7 +3,12 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyRiderBookingAccepted } from '@/lib/sms/textbee';
-import { createRideBooking } from '@/lib/schedule/conflicts';
+import {
+  checkDriverAvailability,
+  confirmTentativeBooking,
+  cancelOtherTentativeHoldsForPost,
+  resolveBookingWindow,
+} from '@/lib/schedule/conflicts';
 
 /**
  * POST — Rider selects a driver from interested drivers.
@@ -63,6 +68,24 @@ export async function POST(
     }
     if (driverActiveRides.length) {
       return NextResponse.json({ error: 'This driver is now on another ride' }, { status: 409 });
+    }
+
+    // Re-verify the slot is still clean for the selected driver. Other
+    // interested drivers' tentative holds don't count — we only reject if
+    // the conflict is a confirmed/scheduled/in_progress booking. The
+    // selected driver's own self-hold is also fine.
+    const selectWindow = resolveBookingWindow(timeWindow);
+    const selectAvail = await checkDriverAvailability(
+      driverUserId,
+      selectWindow.startAt,
+      selectWindow.endAt,
+      { strict: !isCash }
+    );
+    if (!selectAvail.available && selectAvail.conflict && selectAvail.conflict.bookingType !== 'hold') {
+      return NextResponse.json({
+        error: 'This driver already has a booking at that time',
+        code: 'schedule_conflict',
+      }, { status: 409 });
     }
 
     // Get driver info
@@ -153,14 +176,21 @@ export async function POST(
       }
     } catch { /* non-blocking */ }
 
-    // Create calendar booking with actual ride time
-    const rideTime = (() => {
-      const t = (timeWindow.time as string) || '';
-      if (!t || t.toLowerCase() === 'asap' || t.toLowerCase() === 'now') return new Date().toISOString();
-      const parsed = new Date(t);
-      return !isNaN(parsed.getTime()) ? parsed.toISOString() : new Date().toISOString();
-    })();
-    createRideBooking(driverUserId, riderId, rideId, rideTime, post.market_id as string || null).catch(e => console.error('Calendar booking failed:', e));
+    // Promote the selected driver's tentative hold (if any) to a real
+    // booking, and explicitly cancel every OTHER interested driver's hold
+    // for this post so those calendar slots free up immediately instead of
+    // waiting for expireStaleTentativeHolds to sweep them.
+    confirmTentativeBooking(
+      driverUserId,
+      riderId,
+      rideId,
+      postId,
+      selectWindow.startAt,
+      (post.market_id as string) || null
+    ).catch(e => console.error('Calendar booking failed:', e));
+    cancelOtherTentativeHoldsForPost(postId, driverUserId).catch(e =>
+      console.error('Rival hold cancel failed:', e)
+    );
 
     return NextResponse.json({ status: 'matched', rideId });
   } catch (error) {

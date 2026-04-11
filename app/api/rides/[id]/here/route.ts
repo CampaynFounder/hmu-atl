@@ -5,6 +5,7 @@ import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyRiderDriverHere } from '@/lib/sms/textbee';
 import { isWithinProximity } from '@/lib/geo/distance';
+import { syncBookingFromRide } from '@/lib/schedule/conflicts';
 
 export async function POST(
   req: NextRequest,
@@ -62,6 +63,8 @@ export async function POST(
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'otw'
     `;
+
+    syncBookingFromRide(rideId, 'here').catch(() => {});
 
     const waitMinutes = Number(ride.wait_minutes ?? 10);
 
