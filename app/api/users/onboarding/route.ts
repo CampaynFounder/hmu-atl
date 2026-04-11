@@ -14,6 +14,7 @@ import { getActiveOffer, enrollDriver, LAUNCH_OFFER_ENABLED } from '@/lib/db/enr
 import { sendSms } from '@/lib/sms/textbee';
 import { publishAdminEvent } from '@/lib/ably/server';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
+import { afterResponse } from '@/lib/runtime/after-response';
 
 export async function POST(request: NextRequest) {
   try {
@@ -131,21 +132,23 @@ export async function POST(request: NextRequest) {
       if (newUser.length > 0) {
         userId = newUser[0].id;
 
-        // Mirror the webhook's Stripe provisioning so users whose onboarding
-        // beat the webhook don't end up without a Stripe customer/Connect account.
-        // Best-effort: if Stripe fails, log but don't block onboarding.
-        try {
-          const clerk = await clerkClient();
-          const clerkUser = await clerk.users.getUser(clerkId);
-          const email = clerkUser.emailAddresses[0]?.emailAddress || '';
-          const name = `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'User';
-          await createCustomer({ clerkId, email, name });
-          if (profile_type === 'driver' || profile_type === 'both') {
-            await createConnectAccount({ clerkId, email });
+        // Mirror the webhook's Stripe provisioning for the race case where
+        // onboarding beat the webhook. Deferred via afterResponse so slow
+        // Stripe API calls don't block the success screen.
+        afterResponse(async () => {
+          try {
+            const clerk = await clerkClient();
+            const clerkUser = await clerk.users.getUser(clerkId);
+            const email = clerkUser.emailAddresses[0]?.emailAddress || '';
+            const name = `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'User';
+            await createCustomer({ clerkId, email, name });
+            if (profile_type === 'driver' || profile_type === 'both') {
+              await createConnectAccount({ clerkId, email });
+            }
+          } catch (stripeErr) {
+            console.error('[ONBOARDING] Stripe provisioning failed (non-fatal):', stripeErr);
           }
-        } catch (stripeErr) {
-          console.error('[ONBOARDING] Stripe provisioning failed (non-fatal):', stripeErr);
-        }
+        });
       } else {
         // Lost the race to the webhook — re-fetch the row it just created.
         const raced = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
@@ -274,39 +277,44 @@ export async function POST(request: NextRequest) {
     `;
     results.accountStatus = 'active';
 
-    // Sync profileType to Clerk publicMetadata so the onboarding page
-    // can read it directly on return logins without relying on URL params.
-    try {
-      const clerk = await clerkClient();
-      await clerk.users.updateUserMetadata(clerkId, {
-        publicMetadata: { profileType: profile_type },
-      });
-    } catch (clerkErr) {
-      // Non-fatal — user can still use the app, just log it
-      console.error('[ONBOARDING] Failed to sync profileType to Clerk:', clerkErr);
-    }
-
-    // Send welcome SMS with guide link
-    if (phone) {
+    // Defer non-critical external API work until AFTER the response is sent.
+    // Before: these two blocks added 1–3s of latency to the user-visible
+    // response (and up to 3 minutes on cold starts), hiding the success screen
+    // and confetti. Now they run via ctx.waitUntil() so the response returns
+    // immediately and these side effects run in the background.
+    afterResponse(async () => {
+      // Sync profileType to Clerk publicMetadata so return logins can read it
+      // without relying on URL params.
       try {
-        if (profile_type === 'driver') {
-          await sendSms(
-            phone,
-            `${first_name || 'Hey'}, welcome to HMU ATL! We're Atlanta-based and built this for you. See how drivers get paid: atl.hmucashride.com/guide/driver`,
-            { userId, eventType: 'welcome_driver' }
-          );
-        } else {
-          await sendSms(
-            phone,
-            `${first_name || 'Hey'}, welcome to HMU ATL! We're Atlanta-based and value every rider's voice. See how booking works: atl.hmucashride.com/guide/rider`,
-            { userId, eventType: 'welcome_rider' }
-          );
-        }
-      } catch (smsErr) {
-        console.error('[ONBOARDING] Welcome SMS failed:', smsErr);
-        // Non-fatal — don't block onboarding
+        const clerk = await clerkClient();
+        await clerk.users.updateUserMetadata(clerkId, {
+          publicMetadata: { profileType: profile_type },
+        });
+      } catch (clerkErr) {
+        console.error('[ONBOARDING] Failed to sync profileType to Clerk:', clerkErr);
       }
-    }
+
+      // Send welcome SMS with guide link.
+      if (phone) {
+        try {
+          if (profile_type === 'driver') {
+            await sendSms(
+              phone,
+              `${first_name || 'Hey'}, welcome to HMU ATL! We're Atlanta-based and built this for you. See how drivers get paid: atl.hmucashride.com/guide/driver`,
+              { userId, eventType: 'welcome_driver' }
+            );
+          } else {
+            await sendSms(
+              phone,
+              `${first_name || 'Hey'}, welcome to HMU ATL! We're Atlanta-based and value every rider's voice. See how booking works: atl.hmucashride.com/guide/rider`,
+              { userId, eventType: 'welcome_rider' }
+            );
+          }
+        } catch (smsErr) {
+          console.error('[ONBOARDING] Welcome SMS failed:', smsErr);
+        }
+      }
+    });
 
     publishAdminEvent('user_signup', { userId, profileType: profile_type, name: first_name }).catch(() => {});
 
