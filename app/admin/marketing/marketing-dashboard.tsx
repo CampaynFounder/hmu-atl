@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { UtmBuilder } from './utm-builder';
 import { RecentSignups } from './recent-signups';
+import { consumeStagedRecipients } from '@/lib/admin/outreach-staging';
 
 interface Recipient {
   phone: string;
@@ -10,6 +11,8 @@ interface Recipient {
   sex?: string;
   issue?: string;
   fbName?: string;
+  userId?: string;
+  profileType?: string;
   [key: string]: string | undefined;
 }
 
@@ -31,16 +34,34 @@ const MESSAGE_TEMPLATES = [
 ];
 
 export function MarketingDashboard() {
-  const [inputMode, setInputMode] = useState<'signups' | 'compose' | 'csv'>('signups');
+  const [inputMode, setInputMode] = useState<'signups' | 'compose' | 'csv' | 'selected'>('signups');
   const [phones, setPhones] = useState('');
   const [message, setMessage] = useState('');
   const [link, setLink] = useState('');
   const [csvRecipients, setCsvRecipients] = useState<Recipient[]>([]);
   const [csvColumns, setCsvColumns] = useState<string[]>([]);
+  // Recipients staged from a drill-in sheet elsewhere in /admin (e.g., Growth tab).
+  // Loaded once on mount via consumeStagedRecipients() which also clears sessionStorage.
+  const [stagedRecipients, setStagedRecipients] = useState<Recipient[]>([]);
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState<SendResult[] | null>(null);
   const [summary, setSummary] = useState<{ sent: number; failed: number; total: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // On mount, check for recipients staged from a drill-in sheet. If present,
+  // auto-switch to the Selected mode so the admin sees them immediately.
+  useEffect(() => {
+    const staged = consumeStagedRecipients();
+    if (staged.length > 0) {
+      setStagedRecipients(staged.map((r) => ({
+        phone: r.phone,
+        name: r.name,
+        userId: r.userId,
+        profileType: r.profileType,
+      })));
+      setInputMode('selected');
+    }
+  }, []);
 
   const hasMessage = message.trim().length > 0;
   const hasLink = link.trim().length > 0;
@@ -96,7 +117,15 @@ export function MarketingDashboard() {
     return result;
   };
 
-  const getRecipients = (): Recipient[] => inputMode === 'csv' ? csvRecipients : parsePhones();
+  const getRecipients = (): Recipient[] => {
+    if (inputMode === 'csv') return csvRecipients;
+    if (inputMode === 'selected') return stagedRecipients;
+    return parsePhones();
+  };
+
+  const removeStaged = (phone: string) => {
+    setStagedRecipients((prev) => prev.filter((r) => r.phone !== phone));
+  };
 
   const handleSend = async () => {
     const recipients = getRecipients();
@@ -115,10 +144,17 @@ export function MarketingDashboard() {
     setSummary(null);
 
     try {
+      // Pass userId when available (from the Selected mode) so the audit log
+      // links the SMS to the recipient's Neon user_id without a phone lookup.
+      const payload = recipients.map((r) => ({
+        phone: r.phone,
+        name: r.name,
+        userId: r.userId,
+      }));
       const res = await fetch('/api/admin/marketing/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipients, message: message.trim(), link: link.trim() || undefined }),
+        body: JSON.stringify({ recipients: payload, message: message.trim(), link: link.trim() || undefined }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -143,18 +179,28 @@ export function MarketingDashboard() {
       <h1 className="text-xl font-bold">Marketing SMS</h1>
 
       {/* Input Mode */}
-      <div className="flex gap-2">
-        {(['signups', 'compose', 'csv'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => { setInputMode(t); setResults(null); setSummary(null); }}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              inputMode === t ? 'bg-white text-black' : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white'
-            }`}
-          >
-            {t === 'signups' ? 'New Signups' : t === 'csv' ? 'Upload CSV' : 'Enter Numbers'}
-          </button>
-        ))}
+      <div className="flex gap-2 flex-wrap">
+        {(['signups', 'compose', 'csv', 'selected'] as const).map((t) => {
+          // 'selected' tab only appears when there are staged recipients from a drill-in
+          if (t === 'selected' && stagedRecipients.length === 0) return null;
+          return (
+            <button
+              key={t}
+              onClick={() => { setInputMode(t); setResults(null); setSummary(null); }}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                inputMode === t ? 'bg-white text-black' : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white'
+              }`}
+            >
+              {t === 'signups'
+                ? 'New Signups'
+                : t === 'csv'
+                ? 'Upload CSV'
+                : t === 'selected'
+                ? `Selected (${stagedRecipients.length})`
+                : 'Enter Numbers'}
+            </button>
+          );
+        })}
       </div>
 
       {inputMode === 'signups' ? (
@@ -164,7 +210,44 @@ export function MarketingDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: Recipients */}
         <div className="space-y-4">
-          {inputMode === 'compose' ? (
+          {inputMode === 'selected' ? (
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold">Selected from drill-in</h3>
+                <span className="text-xs text-[#00E676]">{stagedRecipients.length} recipient{stagedRecipients.length !== 1 ? 's' : ''}</span>
+              </div>
+              {stagedRecipients.length === 0 ? (
+                <p className="text-xs text-neutral-500 py-4 text-center">
+                  No recipients staged. Go to /admin/users → Growth tab → click a stat card → select users → Message.
+                </p>
+              ) : (
+                <div className="max-h-80 overflow-y-auto space-y-1">
+                  {stagedRecipients.map((r) => (
+                    <div key={r.phone} className="flex items-center justify-between text-xs bg-neutral-800/50 rounded px-2 py-2 gap-2">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        {r.profileType && (
+                          <span className={`text-[10px] uppercase px-1 py-0.5 rounded shrink-0 ${
+                            r.profileType === 'rider' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'
+                          }`}>
+                            {r.profileType === 'rider' ? 'R' : 'D'}
+                          </span>
+                        )}
+                        <span className="text-white truncate">{r.name || 'Unknown'}</span>
+                        <span className="text-neutral-500 font-mono shrink-0">{r.phone}</span>
+                      </div>
+                      <button
+                        onClick={() => removeStaged(r.phone)}
+                        className="text-neutral-500 hover:text-red-400 text-sm shrink-0 px-1"
+                        aria-label="Remove"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : inputMode === 'compose' ? (
             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
               <h3 className="text-sm font-semibold mb-2">Phone Numbers</h3>
               <p className="text-xs text-neutral-500 mb-3">One per line, or comma separated</p>
