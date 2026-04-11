@@ -52,7 +52,18 @@ export function NewUsersSheet({ open, onClose, bucket, onResetCursor }: Props) {
     })
       .then((r) => r.json())
       .then((data) => {
-        setUsers(data.users || []);
+        const next = data.users || [];
+        setUsers(next);
+        // Auto-select whichever tab has data so an admin opening the drill-in
+        // doesn't see "No riders in this bucket" when the users are all drivers
+        // (or vice versa). Priority: riders > drivers if both have data.
+        const nextRiders = next.filter((u: UserRow) => u.profileType === 'rider');
+        const nextDrivers = next.filter((u: UserRow) => u.profileType === 'driver');
+        if (nextRiders.length === 0 && nextDrivers.length > 0) {
+          setTab('drivers');
+        } else {
+          setTab('riders');
+        }
         if (bucket === 'new_users') onResetCursor?.();
       })
       .catch((err) => console.error('new-since fetch failed:', err))
@@ -93,8 +104,17 @@ export function NewUsersSheet({ open, onClose, bucket, onResetCursor }: Props) {
       {/* List */}
       <div className="p-4">
         {loading && <p className="text-sm text-neutral-500 text-center py-8">Loading…</p>}
-        {!loading && visible.length === 0 && (
-          <p className="text-sm text-neutral-500 text-center py-8">No {tab} in this bucket</p>
+        {!loading && visible.length === 0 && users.length === 0 && (
+          <p className="text-sm text-neutral-500 text-center py-8">
+            {bucket === 'new_users'
+              ? 'No new users since your last visit — you\'re all caught up.'
+              : 'No users in this bucket.'}
+          </p>
+        )}
+        {!loading && visible.length === 0 && users.length > 0 && (
+          <p className="text-sm text-neutral-500 text-center py-8">
+            No {tab} in this bucket — tap the {tab === 'riders' ? 'Drivers' : 'Riders'} tab above.
+          </p>
         )}
         {!loading && visible.length > 0 && (
           <div className="space-y-2">
