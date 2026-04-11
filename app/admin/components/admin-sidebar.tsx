@@ -21,6 +21,7 @@ const navSections = [
     items: [
       { href: '/admin/disputes', label: 'Disputes', icon: '⚖️' },
       { href: '/admin/users', label: 'Users', icon: '👥' },
+      { href: '/admin/suspect-usage', label: 'Suspect Usage', icon: '🚨' },
     ],
   },
   {

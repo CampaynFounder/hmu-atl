@@ -6,6 +6,7 @@ import { StatCard } from './stat-card';
 import { AlertBadge } from './alert-badge';
 import { LiveMap } from './live-map';
 import { useMarket } from './market-context';
+import { NewUsersSheet } from './new-users-sheet';
 
 interface Stats {
   rides: { matched: number; active: number; completed: number; cancelled: number; disputed: number };
@@ -40,20 +41,28 @@ function fmt(n: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 }
 
+interface NewSinceSummary {
+  newUsers: { riders: number; drivers: number; total: number };
+  incomplete: { riders: number; drivers: number; total: number };
+}
+
 export function LiveOpsDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [rides, setRides] = useState<ActiveRide[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [newSince, setNewSince] = useState<NewSinceSummary | null>(null);
+  const [sheetBucket, setSheetBucket] = useState<'new_users' | 'incomplete' | null>(null);
   const { selectedMarketId } = useMarket();
 
   const fetchAll = useCallback(async () => {
     const mq = selectedMarketId ? `?marketId=${selectedMarketId}` : '';
     try {
-      const [statsRes, ridesRes, alertsRes] = await Promise.all([
+      const [statsRes, ridesRes, alertsRes, newSinceRes] = await Promise.all([
         fetch(`/api/admin/stats${mq}`),
         fetch(`/api/admin/rides/active${mq}`),
         fetch(`/api/admin/alerts${mq}`),
+        fetch(`/api/admin/users/new-since`),
       ]);
 
       if (statsRes.ok) setStats(await statsRes.json());
@@ -65,6 +74,7 @@ export function LiveOpsDashboard() {
         const data = await alertsRes.json();
         setAlerts(data.alerts ?? []);
       }
+      if (newSinceRes.ok) setNewSince(await newSinceRes.json());
     } catch (err) {
       console.error('Failed to fetch admin data:', err);
     } finally {
@@ -132,13 +142,47 @@ export function LiveOpsDashboard() {
           subtitle={`Fees: ${fmt(stats?.revenue.platformFees ?? 0)}`}
           color="green"
         />
-        <StatCard
-          label="New Users"
-          value={(stats?.users.newRiders ?? 0) + (stats?.users.newDrivers ?? 0)}
-          subtitle={`${stats?.users.newRiders ?? 0} riders / ${stats?.users.newDrivers ?? 0} drivers`}
-          color="blue"
-        />
+        <button
+          type="button"
+          disabled={!newSince || newSince.newUsers.total === 0}
+          onClick={() => setSheetBucket('new_users')}
+          className="text-left disabled:cursor-default cursor-pointer"
+        >
+          <StatCard
+            label="New Users (since last visit)"
+            value={newSince?.newUsers.total ?? 0}
+            subtitle={`${newSince?.newUsers.riders ?? 0} R / ${newSince?.newUsers.drivers ?? 0} D${newSince && newSince.newUsers.total > 0 ? ' · click to view' : ''}`}
+            color="blue"
+          />
+        </button>
       </div>
+
+      {/* Incomplete Signups — separate outreach bucket, all-time */}
+      {newSince && newSince.incomplete.total > 0 && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setSheetBucket('incomplete')}
+            className="text-left cursor-pointer"
+          >
+            <StatCard
+              label="Incomplete Signups (outreach queue)"
+              value={newSince.incomplete.total}
+              subtitle={`${newSince.incomplete.riders} R / ${newSince.incomplete.drivers} D · click to reach out`}
+              color="yellow"
+            />
+          </button>
+        </div>
+      )}
+
+      <NewUsersSheet
+        open={sheetBucket !== null}
+        bucket={sheetBucket ?? 'new_users'}
+        onClose={() => setSheetBucket(null)}
+        onResetCursor={() => {
+          setNewSince((prev) => (prev ? { ...prev, newUsers: { riders: 0, drivers: 0, total: 0 } } : prev));
+        }}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Map View */}

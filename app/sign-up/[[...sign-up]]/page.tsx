@@ -18,6 +18,22 @@ export default async function SignUpPage({ searchParams }: Props) {
   const isDriver = type === 'driver';
   const isRider = type === 'rider';
 
+  // Extract driver handle from returnTo (/d/<handle>[/?#...]) for attribution.
+  // signup_source = 'hmu_chat' only when the user came via a driver's share profile.
+  const refHandle = returnTo && returnTo.startsWith('/d/')
+    ? returnTo.slice(3).split(/[/?#]/)[0] || null
+    : null;
+  const signupSource = refHandle ? 'hmu_chat' : 'direct';
+
+  // unsafeMetadata is persisted on the Clerk user at sign_up.create time and
+  // is readable from the webhook payload as `evt.data.unsafe_metadata`. This is
+  // the only mechanism that survives the OAuth round-trip (URL params do not).
+  const unsafeMetadata: Record<string, string> = {
+    intent: type || 'rider',
+    signup_source: signupSource,
+  };
+  if (refHandle) unsafeMetadata.ref_handle = refHandle;
+
   return (
     <InAppBrowserGate>
     <div style={{
@@ -88,6 +104,7 @@ export default async function SignUpPage({ searchParams }: Props) {
         forceRedirectUrl={afterSignUpUrl}
         fallbackRedirectUrl="/auth-callback"
         signInUrl={type ? `/sign-in?type=${type}` : '/sign-in'}
+        unsafeMetadata={unsafeMetadata}
         appearance={{
           variables: {
             colorPrimary: '#00E676',

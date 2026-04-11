@@ -5,9 +5,19 @@
 import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import { WebhookEvent } from '@clerk/nextjs/server';
-import { createUser, updateUser, deleteUser, getUserByClerkId } from '@/lib/db/users';
+import { createUser, updateUser, deleteUser, getUserByClerkId, resolveDriverHandleToUserId } from '@/lib/db/users';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 import type { ProfileType } from '@/lib/db/types';
+
+// Extract the first verified phone number from a Clerk user payload.
+// Returns null if no phone has a verification.status of 'verified'.
+function getVerifiedPhone(data: { phone_numbers?: Array<{ phone_number: string; verification?: { status?: string } | null }> }): string | null {
+  const numbers = data.phone_numbers || [];
+  for (const n of numbers) {
+    if (n.verification?.status === 'verified') return n.phone_number;
+  }
+  return null;
+}
 
 // Force dynamic rendering (don't pre-render at build time)
 export const dynamic = 'force-dynamic';
@@ -52,86 +62,103 @@ export async function POST(req: Request) {
   // Handle events
   const eventType = evt.type;
 
+  // user.created: log only. We DELIBERATELY do not create the Neon row here
+  // because phone is not yet verified — unverified signups are treated as bots
+  // and excluded from admin analytics. Row creation happens on user.updated
+  // the first time a verified phone appears.
   if (eventType === 'user.created') {
-    try {
-      const { id, email_addresses, first_name, last_name, public_metadata } = evt.data;
-
-      // Extract profile_type from publicMetadata (set during sign-up)
-      // Default to 'rider' if not provided (for testing - proper flow will require this)
-      let profileType = public_metadata?.profile_type as ProfileType;
-      const videoIntroUrl = public_metadata?.video_intro_url as string | undefined;
-
-      if (!profileType || !['rider', 'driver', 'both'].includes(profileType)) {
-        console.warn('Missing profile_type in publicMetadata, defaulting to "rider":', public_metadata);
-        profileType = 'rider'; // Default for testing
-      }
-
-      // Create user in Neon with pending_activation status
-      await createUser({
-        clerk_id: id,
-        profile_type: profileType,
-        video_intro_url: videoIntroUrl,
-      });
-
-      // Create Stripe Customer for ALL users
-      const email = email_addresses[0]?.email_address || '';
-      const name = `${first_name || ''} ${last_name || ''}`.trim() || 'User';
-
-      const stripeCustomerId = await createCustomer({
-        clerkId: id,
-        email,
-        name,
-      });
-
-      // Create Stripe Connect account for drivers only
-      let stripeAccountId: string | undefined;
-      if (profileType === 'driver') {
-        stripeAccountId = await createConnectAccount({
-          clerkId: id,
-          email,
-        });
-      }
-
-      // Update Clerk publicMetadata with Stripe IDs
-      // NOTE: In production, you'd use the Clerk Backend SDK to update metadata
-      // For now, we log and rely on the client to sync this data
-      console.log('[WEBHOOK] user.created - Stripe IDs generated:', {
-        clerkId: id,
-        stripeCustomerId,
-        stripeAccountId,
-      });
-
-      // TODO: Use Clerk Backend API to update publicMetadata:
-      // await clerkClient.users.updateUserMetadata(id, {
-      //   publicMetadata: { stripeCustomerId, stripeAccountId }
-      // });
-
-      return new Response('User created', { status: 201 });
-    } catch (error) {
-      console.error('[WEBHOOK] user.created error:', error);
-      return new Response('Internal server error', { status: 500 });
-    }
+    console.log('[WEBHOOK] user.created - deferring Neon row until phone verified:', {
+      clerkId: evt.data.id,
+    });
+    return new Response('Deferred until phone verified', { status: 200 });
   }
 
   if (eventType === 'user.updated') {
     try {
-      const { id, public_metadata } = evt.data;
+      const data = evt.data;
+      const { id, email_addresses, first_name, last_name, public_metadata, unsafe_metadata } = data;
 
-      // Sync any metadata changes to Neon if needed
-      const user = await getUserByClerkId(id);
-      if (!user) {
-        console.warn('[WEBHOOK] user.updated - User not found in Neon:', id);
-        return new Response('User not found', { status: 404 });
+      // Keep existing metadata-driven status sync for already-created users.
+      const existing = await getUserByClerkId(id);
+      if (existing) {
+        const accountStatus = public_metadata?.account_status as string | undefined;
+        if (accountStatus && ['pending_activation', 'active', 'suspended', 'banned'].includes(accountStatus)) {
+          await updateUser(id, { account_status: accountStatus as any });
+        }
+        return new Response('User updated', { status: 200 });
       }
 
-      // Example: If account_status changed in publicMetadata, sync it
-      const accountStatus = public_metadata?.account_status as string | undefined;
-      if (accountStatus && ['pending_activation', 'active', 'suspended', 'banned'].includes(accountStatus)) {
-        await updateUser(id, { account_status: accountStatus as any });
+      // No Neon row yet — create one only if phone is now verified.
+      const verifiedPhone = getVerifiedPhone(data as any);
+      if (!verifiedPhone) {
+        console.log('[WEBHOOK] user.updated - no verified phone yet, still deferring:', { clerkId: id });
+        return new Response('Deferred until phone verified', { status: 200 });
       }
 
-      console.log('[WEBHOOK] user.updated - Synced metadata:', { clerkId: id });
-      return new Response('User updated', { status: 200 });
+      // Read attribution from unsafeMetadata (set by sign-up page).
+      const meta = (unsafe_metadata || {}) as Record<string, unknown>;
+      const intentRaw = (meta.intent as string) || (public_metadata?.profile_type as string) || 'rider';
+      const profileType = (['rider', 'driver'].includes(intentRaw) ? intentRaw : 'rider') as ProfileType;
+      const signupSourceRaw = (meta.signup_source as string) || 'direct';
+      const signupSource = (['hmu_chat', 'direct', 'homepage_lead'].includes(signupSourceRaw)
+        ? signupSourceRaw
+        : 'direct') as 'hmu_chat' | 'direct' | 'homepage_lead';
+      const refHandle = (meta.ref_handle as string) || null;
+
+      // Resolve referring driver from handle, if provided.
+      let referredByDriverId: string | null = null;
+      if (refHandle) {
+        referredByDriverId = await resolveDriverHandleToUserId(refHandle);
+        if (!referredByDriverId) {
+          console.warn('[WEBHOOK] ref_handle did not resolve to a driver:', refHandle);
+        }
+      }
+
+      const { created } = await createUser({
+        clerk_id: id,
+        profile_type: profileType,
+        signup_source: signupSource,
+        referred_by_driver_id: referredByDriverId,
+      });
+
+      // Only provision Stripe if THIS invocation won the create-race.
+      // If we lost the race (another concurrent webhook or the onboarding fallback
+      // created the row first), the winner is responsible for Stripe.
+      if (!created) {
+        console.log('[WEBHOOK] user.updated - lost race, skipping Stripe provisioning:', { clerkId: id });
+        return new Response('User already existed', { status: 200 });
+      }
+
+      // Provision Stripe Customer + Connect account now that the user is real.
+      const email = email_addresses?.[0]?.email_address || '';
+      const name = `${first_name || ''} ${last_name || ''}`.trim() || 'User';
+
+      let stripeCustomerId: string | undefined;
+      try {
+        stripeCustomerId = await createCustomer({ clerkId: id, email, name });
+      } catch (stripeErr) {
+        console.error('[WEBHOOK] Stripe customer creation failed:', stripeErr);
+      }
+
+      let stripeAccountId: string | undefined;
+      if (profileType === 'driver') {
+        try {
+          stripeAccountId = await createConnectAccount({ clerkId: id, email });
+        } catch (stripeErr) {
+          console.error('[WEBHOOK] Stripe Connect creation failed:', stripeErr);
+        }
+      }
+
+      console.log('[WEBHOOK] user.updated - Neon row created after phone verification:', {
+        clerkId: id,
+        profileType,
+        signupSource,
+        referredByDriverId,
+        stripeCustomerId,
+        stripeAccountId,
+      });
+
+      return new Response('User created after phone verification', { status: 201 });
     } catch (error) {
       console.error('[WEBHOOK] user.updated error:', error);
       return new Response('Internal server error', { status: 500 });

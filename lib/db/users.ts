@@ -2,12 +2,19 @@
 // CRUD operations for users table
 
 import { sql } from './client';
-import type { User, ProfileType, AccountStatus, Tier } from './types';
+import type { User, UserAttribution, ProfileType, AccountStatus, Tier } from './types';
+
+// Default queries return only non-sensitive columns. Attribution fields
+// (signup_source, referred_by_driver_id, referred_via_hmu_post_id, admin_last_seen_at)
+// are admin-only and must be fetched via getUserAttribution().
 
 export interface CreateUserParams {
   clerk_id: string;
   profile_type: ProfileType;
   video_intro_url?: string;
+  signup_source?: 'hmu_chat' | 'direct' | 'homepage_lead' | null;
+  referred_by_driver_id?: string | null;
+  referred_via_hmu_post_id?: string | null;
 }
 
 export interface UpdateUserParams {
@@ -17,30 +24,62 @@ export interface UpdateUserParams {
   chill_score?: number;
 }
 
-// Create a new user (called from Clerk webhook)
-export async function createUser(params: CreateUserParams): Promise<User> {
+// Create a new user (called from Clerk webhook after phone verification, or from onboarding fallback).
+// Idempotent via ON CONFLICT — concurrent webhook events with the same clerk_id
+// will not throw; the loser just re-reads the existing row. Returns { user, created }
+// where created=false means someone else raced ahead.
+export async function createUser(params: CreateUserParams): Promise<{ user: User; created: boolean }> {
   const result = await sql`
     INSERT INTO users (
       clerk_id,
       profile_type,
       account_status,
-      chill_score
+      chill_score,
+      signup_source,
+      referred_by_driver_id,
+      referred_via_hmu_post_id
     ) VALUES (
       ${params.clerk_id},
       ${params.profile_type},
       'pending_activation',
-      100
+      100,
+      ${params.signup_source ?? null},
+      ${params.referred_by_driver_id ?? null},
+      ${params.referred_via_hmu_post_id ?? null}
     )
-    RETURNING *
+    ON CONFLICT (clerk_id) DO NOTHING
+    RETURNING
+      id, clerk_id, profile_type, account_status, tier, og_status,
+      chill_score, completed_rides, is_admin, created_at, updated_at
   `;
 
-  return result[0] as User;
+  if (result.length > 0) {
+    return { user: result[0] as User, created: true };
+  }
+  // Lost the race — another concurrent writer won. Re-fetch.
+  const existing = await getUserByClerkId(params.clerk_id);
+  if (!existing) {
+    throw new Error(`createUser: ON CONFLICT DO NOTHING returned empty and re-fetch also empty for ${params.clerk_id}`);
+  }
+  return { user: existing, created: false };
+}
+
+// Resolve a driver handle to its user_id for signup attribution.
+// Returns null if handle doesn't match any driver.
+export async function resolveDriverHandleToUserId(handle: string): Promise<string | null> {
+  const result = await sql`
+    SELECT user_id FROM driver_profiles WHERE handle = ${handle} LIMIT 1
+  `;
+  return result[0]?.user_id || null;
 }
 
 // Get user by Clerk ID
 export async function getUserByClerkId(clerkId: string): Promise<User | null> {
   const result = await sql`
-    SELECT * FROM users
+    SELECT
+      id, clerk_id, profile_type, account_status, tier, og_status,
+      chill_score, completed_rides, is_admin, created_at, updated_at
+    FROM users
     WHERE clerk_id = ${clerkId}
     LIMIT 1
   `;
@@ -51,12 +90,27 @@ export async function getUserByClerkId(clerkId: string): Promise<User | null> {
 // Get user by internal ID
 export async function getUserById(id: string): Promise<User | null> {
   const result = await sql`
-    SELECT * FROM users
+    SELECT
+      id, clerk_id, profile_type, account_status, tier, og_status,
+      chill_score, completed_rides, is_admin, created_at, updated_at
+    FROM users
     WHERE id = ${id}
     LIMIT 1
   `;
 
   return result[0] as User || null;
+}
+
+// Get admin-only attribution fields for a user.
+// Callers: Clerk webhook, admin APIs. Never expose directly to clients.
+export async function getUserAttribution(userId: string): Promise<UserAttribution | null> {
+  const result = await sql`
+    SELECT signup_source, referred_by_driver_id, referred_via_hmu_post_id, admin_last_seen_at
+    FROM users
+    WHERE id = ${userId}
+    LIMIT 1
+  `;
+  return (result[0] as UserAttribution) || null;
 }
 
 // Update user (simplified - updates all fields that are provided)

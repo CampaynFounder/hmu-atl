@@ -22,8 +22,19 @@ export interface User {
   tier: Tier;
   og_status: boolean;
   chill_score: number;
+  completed_rides: number;
+  is_admin: boolean;
   created_at: Date;
   updated_at: Date;
+}
+
+// Admin-only attribution fields — not returned by default getUserByClerkId/getUserById.
+// Use getUserAttribution() for admin routes and webhook handlers.
+export interface UserAttribution {
+  signup_source: 'hmu_chat' | 'direct' | 'homepage_lead' | null;
+  referred_by_driver_id: string | null;
+  referred_via_hmu_post_id: string | null;
+  admin_last_seen_at: Date | null;
 }
 
 export interface DriverProfile {
@@ -31,6 +42,8 @@ export interface DriverProfile {
   user_id: string;
   first_name: string;
   last_name: string;
+  display_name?: string;
+  phone?: string;
   gender?: string;
   pronouns?: string;
   lgbtq_friendly: boolean;
@@ -54,6 +67,8 @@ export interface RiderProfile {
   user_id: string;
   first_name: string;
   last_name: string;
+  display_name?: string;
+  phone?: string;
   gender?: string;
   pronouns?: string;
   lgbtq_friendly: boolean;

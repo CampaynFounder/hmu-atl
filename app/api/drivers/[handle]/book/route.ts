@@ -10,6 +10,7 @@ import { notifyUser } from '@/lib/ably/server';
 import { notifyDriverNewBooking } from '@/lib/sms/textbee';
 import { checkDriverAvailability, createTentativeBooking, cancelTentativeBooking } from '@/lib/schedule/conflicts';
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
+import { logSuspectEvent } from '@/lib/admin/suspect-events';
 
 /** Strip city, state, zip, directional prefixes from address for shorter SMS */
 function stripAddress(addr: string): string {
@@ -59,6 +60,17 @@ export async function POST(
   const rider = riderRows[0] as { id: string; account_status: string };
   const driverProfile = driverRows[0] as { user_id: string; areas: string[]; enforce_minimum: boolean; min_ride_price: number | null };
   const driverUserId = driverProfile.user_id;
+
+  // Structural self-booking guard — rider and driver cannot be the same user.
+  // Backs up the UI blocker on /d/[handle] in case someone calls the API directly
+  // or uses a dual-profile account in a future release.
+  if (rider.id === driverUserId) {
+    await logSuspectEvent(rider.id, 'self_booking_attempt', { driverHandle: handle });
+    return NextResponse.json(
+      { error: 'You can\'t book yourself. Try another driver.', code: 'self_booking' },
+      { status: 403 }
+    );
+  }
 
   // Enforce minimum price if driver has it enabled
   if (driverProfile.enforce_minimum !== false && driverProfile.min_ride_price && price < Number(driverProfile.min_ride_price)) {

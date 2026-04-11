@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { GrowthDrillInSheet } from '../components/growth-drill-in-sheet';
+
+type DrillBucket = 'riders' | 'drivers' | 'active' | 'pending' | 'other';
 
 interface GrowthBucket {
   bucket: string;
@@ -21,11 +24,37 @@ interface Totals {
 
 type Period = 'daily' | 'weekly' | 'monthly';
 
+interface SummaryCardProps {
+  label: string;
+  value: number;
+  valueColor: string;
+  onClick: () => void;
+  disabled: boolean;
+}
+
+function SummaryCard({ label, value, valueColor, onClick, disabled }: SummaryCardProps) {
+  return (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className={`bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-left transition-colors ${
+        disabled ? 'cursor-default opacity-70' : 'cursor-pointer hover:border-neutral-700'
+      }`}
+    >
+      <p className="text-[10px] text-neutral-500 uppercase">{label}</p>
+      <p className={`text-xl font-bold ${valueColor}`}>{value}</p>
+      {!disabled && <p className="text-[9px] text-neutral-600 mt-0.5">click to view</p>}
+    </button>
+  );
+}
+
 export function UserGrowthChart() {
   const [period, setPeriod] = useState<Period>('daily');
   const [growth, setGrowth] = useState<GrowthBucket[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
   const [loading, setLoading] = useState(true);
+  const [drillBucket, setDrillBucket] = useState<DrillBucket | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -71,34 +100,58 @@ export function UserGrowthChart() {
 
   return (
     <div className="space-y-4">
-      {/* Summary Cards */}
+      {/* Summary Cards — clickable when count > 0, opens drill-in scoped to current period */}
       {totals && (
         <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
             <p className="text-[10px] text-neutral-500 uppercase">Total</p>
             <p className="text-xl font-bold text-white">{totals.total}</p>
           </div>
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-            <p className="text-[10px] text-neutral-500 uppercase">Riders</p>
-            <p className="text-xl font-bold text-green-400">{totals.riders}</p>
-          </div>
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-            <p className="text-[10px] text-neutral-500 uppercase">Drivers</p>
-            <p className="text-xl font-bold text-blue-400">{totals.drivers}</p>
-          </div>
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-            <p className="text-[10px] text-neutral-500 uppercase">Other</p>
-            <p className="text-xl font-bold text-neutral-400">{totals.other}</p>
-          </div>
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-            <p className="text-[10px] text-neutral-500 uppercase">Active</p>
-            <p className="text-xl font-bold text-emerald-400">{totals.active}</p>
-          </div>
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-            <p className="text-[10px] text-neutral-500 uppercase">Pending</p>
-            <p className="text-xl font-bold text-yellow-400">{totals.pending}</p>
-          </div>
+          <SummaryCard
+            label="Riders"
+            value={totals.riders}
+            valueColor="text-green-400"
+            onClick={() => setDrillBucket('riders')}
+            disabled={totals.riders === 0}
+          />
+          <SummaryCard
+            label="Drivers"
+            value={totals.drivers}
+            valueColor="text-blue-400"
+            onClick={() => setDrillBucket('drivers')}
+            disabled={totals.drivers === 0}
+          />
+          <SummaryCard
+            label="Other"
+            value={totals.other}
+            valueColor="text-neutral-400"
+            onClick={() => setDrillBucket('other')}
+            disabled={totals.other === 0}
+          />
+          <SummaryCard
+            label="Active"
+            value={totals.active}
+            valueColor="text-emerald-400"
+            onClick={() => setDrillBucket('active')}
+            disabled={totals.active === 0}
+          />
+          <SummaryCard
+            label="Pending"
+            value={totals.pending}
+            valueColor="text-yellow-400"
+            onClick={() => setDrillBucket('pending')}
+            disabled={totals.pending === 0}
+          />
         </div>
+      )}
+
+      {drillBucket && (
+        <GrowthDrillInSheet
+          open={drillBucket !== null}
+          onClose={() => setDrillBucket(null)}
+          bucket={drillBucket}
+          period={period}
+        />
       )}
 
       {/* Chart */}

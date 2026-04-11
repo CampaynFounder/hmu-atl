@@ -13,6 +13,7 @@ import { sql } from '@/lib/db/client';
 import { getActiveOffer, enrollDriver, LAUNCH_OFFER_ENABLED } from '@/lib/db/enrollment-offers';
 import { sendSms } from '@/lib/sms/textbee';
 import { publishAdminEvent } from '@/lib/ably/server';
+import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 
 export async function POST(request: NextRequest) {
   try {
@@ -82,7 +83,27 @@ export async function POST(request: NextRequest) {
     let userId: string;
 
     if (userResult.length === 0) {
-      // Create new user record
+      // Race fallback: onboarding finished before the Clerk webhook fired.
+      // Pull attribution from Clerk unsafeMetadata so it matches the webhook path.
+      let signupSource: 'hmu_chat' | 'direct' | 'homepage_lead' = 'direct';
+      let referredByDriverId: string | null = null;
+      try {
+        const clerk = await clerkClient();
+        const clerkUser = await clerk.users.getUser(clerkId);
+        const meta = (clerkUser.unsafeMetadata || {}) as Record<string, unknown>;
+        const srcRaw = (meta.signup_source as string) || 'direct';
+        if (['hmu_chat', 'direct', 'homepage_lead'].includes(srcRaw)) {
+          signupSource = srcRaw as typeof signupSource;
+        }
+        const refHandle = (meta.ref_handle as string) || null;
+        if (refHandle) {
+          const rows = await sql`SELECT user_id FROM driver_profiles WHERE handle = ${refHandle} LIMIT 1`;
+          referredByDriverId = rows[0]?.user_id || null;
+        }
+      } catch (metaErr) {
+        console.warn('[ONBOARDING] Could not read Clerk unsafeMetadata for attribution:', metaErr);
+      }
+
       const newUser = await sql`
         INSERT INTO users (
           clerk_id,
@@ -90,18 +111,46 @@ export async function POST(request: NextRequest) {
           account_status,
           tier,
           og_status,
-          chill_score
+          chill_score,
+          signup_source,
+          referred_by_driver_id
         ) VALUES (
           ${clerkId},
           ${profile_type},
           'pending_activation',
           'free',
           false,
-          100
+          100,
+          ${signupSource},
+          ${referredByDriverId}
         )
+        ON CONFLICT (clerk_id) DO NOTHING
         RETURNING id
       `;
-      userId = newUser[0].id;
+
+      if (newUser.length > 0) {
+        userId = newUser[0].id;
+
+        // Mirror the webhook's Stripe provisioning so users whose onboarding
+        // beat the webhook don't end up without a Stripe customer/Connect account.
+        // Best-effort: if Stripe fails, log but don't block onboarding.
+        try {
+          const clerk = await clerkClient();
+          const clerkUser = await clerk.users.getUser(clerkId);
+          const email = clerkUser.emailAddresses[0]?.emailAddress || '';
+          const name = `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'User';
+          await createCustomer({ clerkId, email, name });
+          if (profile_type === 'driver' || profile_type === 'both') {
+            await createConnectAccount({ clerkId, email });
+          }
+        } catch (stripeErr) {
+          console.error('[ONBOARDING] Stripe provisioning failed (non-fatal):', stripeErr);
+        }
+      } else {
+        // Lost the race to the webhook — re-fetch the row it just created.
+        const raced = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+        userId = (raced[0] as { id: string }).id;
+      }
     } else {
       userId = userResult[0].id;
 
@@ -145,6 +194,11 @@ export async function POST(request: NextRequest) {
           stripe_customer_id,
         });
         results.profiles.rider = riderProfile;
+
+        // Save phone from Clerk auth (parallels the driver path below).
+        if (phone) {
+          await sql`UPDATE rider_profiles SET phone = ${phone} WHERE user_id = ${userId}`;
+        }
       } else {
         results.profiles.rider = existingRider;
         results.message = 'Rider profile already exists';

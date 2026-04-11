@@ -3,10 +3,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { sendSms } from '@/lib/sms/textbee';
+import { sql } from '@/lib/db/client';
 
 interface Recipient {
   phone: string;
   name?: string;
+  // Optional Neon user id — when provided, the admin_sms_sent audit row links
+  // directly to the recipient. When absent, we best-effort resolve from phone.
+  userId?: string;
+}
+
+// Resolve a phone number to a Neon user_id by checking both profile tables.
+async function resolveUserIdByPhone(normalizedPhone: string): Promise<string | null> {
+  const rows = await sql`
+    SELECT user_id FROM rider_profiles WHERE phone = ${normalizedPhone}
+    UNION
+    SELECT user_id FROM driver_profiles WHERE phone = ${normalizedPhone}
+    LIMIT 1
+  `;
+  return rows[0]?.user_id || null;
 }
 
 export async function POST(req: NextRequest) {
@@ -81,6 +96,23 @@ export async function POST(req: NextRequest) {
 
       const expectedCount = (hasMessage ? 1 : 0) + (hasLink ? 1 : 0);
       const status = recipientError ? (recipientSent > 0 ? 'partial' : 'failed') : 'sent';
+
+      // Audit log row for admin drill-ins ("have we texted them Y/N + when").
+      // Non-blocking: failures here must not break the send flow.
+      if (recipientSent > 0) {
+        try {
+          const recipientId = recipient.userId || await resolveUserIdByPhone(phone);
+          const auditMessage = [hasMessage ? message!.trim() : null, hasLink ? link!.trim() : null]
+            .filter(Boolean)
+            .join('\n');
+          await sql`
+            INSERT INTO admin_sms_sent (admin_id, recipient_id, recipient_phone, message, status)
+            VALUES (${admin.id}, ${recipientId}, ${phone}, ${auditMessage}, ${status})
+          `;
+        } catch (auditErr) {
+          console.error('[ADMIN_SMS_AUDIT] failed:', auditErr);
+        }
+      }
 
       results.push({
         phone: recipient.phone,

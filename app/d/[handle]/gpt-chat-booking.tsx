@@ -264,19 +264,6 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
           </div>
         )}
 
-        {/* Signed in as driver → can't book */}
-        {isSignedIn && isDriver && hasAgreedBooking && (
-          <div style={{ padding: '0 16px 8px' }}>
-            <div style={{
-              padding: '12px 16px', borderRadius: 14, textAlign: 'center',
-              background: 'rgba(255,145,0,0.1)', border: '1px solid rgba(255,145,0,0.2)',
-              fontSize: 13, color: '#FFB300', lineHeight: 1.5,
-            }}>
-              You&apos;re signed in as a driver. To book a ride, create a separate rider account with a different email or phone.
-            </div>
-          </div>
-        )}
-
         {/* Not signed in + has details → sign up to book */}
         {!isSignedIn && hasAgreedBooking && (
           <div style={{ padding: '0 16px 8px', display: 'flex', gap: 8 }}>

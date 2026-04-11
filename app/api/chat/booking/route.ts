@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { checkDriverAvailability } from '@/lib/schedule/conflicts';
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
+import { checkRateLimit } from '@/lib/rate-limit/check';
+import { logSuspectEvent } from '@/lib/admin/suspect-events';
+
+// Rate-limit ceilings — see PR1 design notes in docs.
+const LIMIT_CHAT_MSG_PER_HOUR = 30;
+const LIMIT_BOOKING_PER_HOUR = 5;
+const LIMIT_SAME_DRIVER_PER_DAY = 2;
 
 /**
  * POST /api/chat/booking
@@ -140,6 +148,20 @@ const TOOLS = [
 
 export async function POST(req: NextRequest) {
   try {
+    // Auth gate — chat is no longer public. Unauthenticated callers bounce so
+    // we can attribute rate limits to a Neon user_id rather than IP.
+    const { userId: clerkId } = await auth();
+    if (!clerkId) {
+      return NextResponse.json({ error: 'Sign in to chat' }, { status: 401 });
+    }
+
+    // Resolve Clerk id → Neon user_id for rate-limit keys + self-booking check.
+    const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    if (!userRows.length) {
+      return NextResponse.json({ error: 'Finish onboarding to chat' }, { status: 403 });
+    }
+    const neonUserId = (userRows[0] as { id: string }).id;
+
     const { messages, driverHandle, extractedSoFar, currentStep } = await req.json() as {
       messages: { role: 'user' | 'assistant'; content: string }[];
       driverHandle: string;
@@ -149,6 +171,27 @@ export async function POST(req: NextRequest) {
 
     if (!messages?.length || !driverHandle) {
       return NextResponse.json({ error: 'messages and driverHandle required' }, { status: 400 });
+    }
+
+    // Chat message rate limit — counts every POST to this route.
+    const msgLimit = await checkRateLimit({
+      key: `chat:msg:${neonUserId}`,
+      limit: LIMIT_CHAT_MSG_PER_HOUR,
+      windowSeconds: 3600,
+    });
+    if (!msgLimit.ok) {
+      await logSuspectEvent(neonUserId, 'chat_message_rate', {
+        count: msgLimit.count,
+        limit: msgLimit.limit,
+        driverHandle,
+      });
+      return NextResponse.json(
+        {
+          error: 'You\'re chatting too fast. Take a break and try again in a few minutes.',
+          retryAfter: msgLimit.retryAfterSeconds,
+        },
+        { status: 429 }
+      );
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
@@ -169,6 +212,17 @@ export async function POST(req: NextRequest) {
 
     if (!driverRows.length) {
       return NextResponse.json({ error: 'Driver not found' }, { status: 404 });
+    }
+
+    // Server-side self-booking guard — the UI blocker is the first line, this
+    // is the backstop in case someone calls the API directly.
+    const driverUserId = String((driverRows[0] as Record<string, unknown>).user_id);
+    if (driverUserId === neonUserId) {
+      await logSuspectEvent(neonUserId, 'driver_booking_self_via_ui', { driverHandle });
+      return NextResponse.json(
+        { error: 'You can\'t book yourself. Try another driver.' },
+        { status: 403 }
+      );
     }
 
     const driver = driverRows[0] as Record<string, unknown>;
@@ -262,6 +316,46 @@ ${getStepInstructions(step, driver)}`;
           }
 
           case 'confirm_details': {
+            // Booking-conversion rate limits — protect drivers from a rider
+            // spraying fake booking requests. Checked BEFORE persisting the
+            // extracted details so we fail loud.
+            const hourlyBook = await checkRateLimit({
+              key: `book:${neonUserId}`,
+              limit: LIMIT_BOOKING_PER_HOUR,
+              windowSeconds: 3600,
+            });
+            if (!hourlyBook.ok) {
+              await logSuspectEvent(neonUserId, 'booking_rate', {
+                count: hourlyBook.count,
+                limit: hourlyBook.limit,
+                driverHandle,
+              });
+              result = {
+                error: 'rate_limited',
+                message: 'You\'ve submitted a lot of booking requests lately. Wait an hour and try again.',
+              };
+              break;
+            }
+
+            const sameDriverBook = await checkRateLimit({
+              key: `book:${neonUserId}:${driverUserId}`,
+              limit: LIMIT_SAME_DRIVER_PER_DAY,
+              windowSeconds: 86400,
+            });
+            if (!sameDriverBook.ok) {
+              await logSuspectEvent(neonUserId, 'same_driver_booking_rate', {
+                count: sameDriverBook.count,
+                limit: sameDriverBook.limit,
+                driverHandle,
+                driverUserId,
+              });
+              result = {
+                error: 'rate_limited',
+                message: `You've already submitted booking requests to ${driver.display_name || driverHandle} recently. Give them a chance to respond first.`,
+              };
+              break;
+            }
+
             // Resolve the time to a concrete ISO timestamp + display string
             const timeInput = args.resolvedTime || args.time || '';
             const parsed = parseNaturalTime(timeInput);
@@ -307,7 +401,17 @@ ${getStepInstructions(step, driver)}`;
       // Check if confirm_details was called — return extracted data to client
       const confirmAction = toolResults.find(tr => tr.name === 'confirm_details');
       if (confirmAction) {
-        const booking = (confirmAction.result as Record<string, unknown>).booking as Record<string, unknown>;
+        const confirmResult = confirmAction.result as Record<string, unknown>;
+        // Rate-limit trip — tool handler set error + message, bail with 429.
+        // The human-readable message goes in `error` so the chat client shows it;
+        // `code` gives downstream consumers something machine-readable.
+        if (confirmResult.error === 'rate_limited') {
+          return NextResponse.json(
+            { error: String(confirmResult.message), code: 'rate_limited' },
+            { status: 429 }
+          );
+        }
+        const booking = confirmResult.booking as Record<string, unknown>;
         // Ensure riderPrice takes priority — fall back to suggestedPrice for backwards compat
         if (booking.riderPrice) {
           booking.price = booking.riderPrice;

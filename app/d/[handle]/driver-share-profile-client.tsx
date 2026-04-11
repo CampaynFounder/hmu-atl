@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic';
 import { posthog } from '@/components/analytics/posthog-provider';
 import GptChatBooking from './gpt-chat-booking';
 import BookingDrawer from './booking-drawer';
+import { DriverBlockerModal } from './driver-blocker-modal';
 import type { EligibilityResult } from '@/lib/db/direct-bookings';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
@@ -47,6 +48,10 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [bookingFormOpen, setBookingFormOpen] = useState(false);
+  // Viewer's own profile type + driver handle, used to decide whether the
+  // HMU button opens the chat or shows the soft blocker modal.
+  const [viewerProfile, setViewerProfile] = useState<{ profileType: string; driverHandle: string | null } | null>(null);
+  const [blockerVariant, setBlockerVariant] = useState<'own' | 'other' | null>(null);
   const [prefillData, setPrefillData] = useState<{ price?: string; pickup?: string; dropoff?: string; time?: string; resolvedTime?: string; timeDisplay?: string; stops?: string; roundTrip?: boolean; isCash?: boolean; driverMinimum?: number } | null>(null);
   const [videoMuted, setVideoMuted] = useState(true);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
@@ -72,6 +77,23 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
       referrer: document.referrer || null,
     });
   }, [driver.handle]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch viewer's own profile type once we know they're signed in.
+  // Used to branch the HMU button between chat and soft-blocker modal.
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) {
+      setViewerProfile(null);
+      return;
+    }
+    fetch('/api/users/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.profileType) {
+          setViewerProfile({ profileType: data.profileType, driverHandle: data.driverHandle || null });
+        }
+      })
+      .catch(() => {});
+  }, [isLoaded, isSignedIn]);
 
   // Fetch eligibility once auth is known
   useEffect(() => {
@@ -183,13 +205,29 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
 
   const signUpUrl = `/sign-up?type=rider&returnTo=/d/${driver.handle}`;
 
+  const handleHmuClick = () => {
+    posthog.capture('hmu_button_clicked', {
+      driverHandle: driver.handle,
+      driverName: driver.displayName,
+      isSignedIn,
+      viewerProfileType: viewerProfile?.profileType,
+    });
+
+    // Logged-out or rider viewers: open chat immediately.
+    if (!isSignedIn || !viewerProfile || viewerProfile.profileType !== 'driver') {
+      setDrawerOpen(true);
+      return;
+    }
+
+    // Signed-in driver: branch on own vs other handle.
+    const isOwnPage = viewerProfile.driverHandle === driver.handle;
+    setBlockerVariant(isOwnPage ? 'own' : 'other');
+  };
+
   const renderCtaButton = () => {
     // Always show the HMU button — GPT chat handles sign-up, payment, and booking
     return (
-      <button className="cta-btn cta-btn--primary" onClick={() => {
-        posthog.capture('hmu_button_clicked', { driverHandle: driver.handle, driverName: driver.displayName, isSignedIn });
-        setDrawerOpen(true);
-      }}>
+      <button className="cta-btn cta-btn--primary" onClick={handleHmuClick}>
         HMU {driver.displayName}{driver.cashOnly ? ' (Cash)' : ''}
       </button>
     );
@@ -573,6 +611,14 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
           prefill={prefillData}
         />
       )}
+
+      {/* Soft blocker — driver tapped HMU on a driver profile */}
+      <DriverBlockerModal
+        open={blockerVariant !== null}
+        variant={blockerVariant ?? 'other'}
+        driverDisplayName={driver.displayName}
+        onClose={() => setBlockerVariant(null)}
+      />
     </>
   );
 }
