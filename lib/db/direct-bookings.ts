@@ -36,7 +36,7 @@ export async function checkRiderEligibility(
       LIMIT 1
     `,
     sql`
-      SELECT accept_direct_bookings, min_rider_chill_score, require_og_status, handle
+      SELECT accept_direct_bookings, min_rider_chill_score, require_og_status, handle, cash_only
       FROM driver_profiles
       WHERE user_id = ${driverUserId}
       LIMIT 1
@@ -72,6 +72,7 @@ export async function checkRiderEligibility(
     min_rider_chill_score: number;
     require_og_status: boolean;
     handle: string | null;
+    cash_only: boolean | null;
   } | undefined;
 
   const dailyCount = Number((dailyCountRows[0] as { count: string }).count);
@@ -81,8 +82,13 @@ export async function checkRiderEligibility(
   const riderChillScore = rider?.chill_score ?? 100;
   const riderOgStatus = rider?.og_status ?? false;
 
+  // Effective cash flag: explicit isCash from caller OR driver is cash_only.
+  // Cash-only drivers have no digital payment path, so every booking is
+  // implicitly a cash ride and we must NOT gate on payment method.
+  const effectiveCash = isCash || driver?.cash_only === true;
+
   // 1. Payment method check — skip for cash rides
-  if (!isCash && !hasPaymentMethod) {
+  if (!effectiveCash && !hasPaymentMethod) {
     const driverHandle = driver?.handle || 'This driver';
     return {
       eligible: false,
