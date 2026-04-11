@@ -19,9 +19,15 @@ export async function GET() {
   const { userId: clerkId } = await auth();
   if (!clerkId) return NextResponse.json({ actions: [] });
 
+  // dispute_count is not a column on users — compute it on-the-fly from disputes
+  // (matches the pattern in /api/admin/users/[id] and /api/admin/disputes).
   const userRows = await sql`
-    SELECT id, profile_type, account_status, completed_rides, dispute_count, og_status
-    FROM users WHERE clerk_id = ${clerkId} LIMIT 1
+    SELECT
+      u.id, u.profile_type, u.account_status, u.completed_rides, u.og_status,
+      (SELECT COUNT(*) FROM disputes d WHERE d.filed_by = u.id)::int AS dispute_count
+    FROM users u
+    WHERE u.clerk_id = ${clerkId}
+    LIMIT 1
   `;
   if (!userRows.length) return NextResponse.json({ actions: [] });
 

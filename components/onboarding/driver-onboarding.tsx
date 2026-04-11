@@ -780,7 +780,7 @@ function ConfirmationScreen({ name, onContinue }: { name: string; onContinue: ()
           marginBottom: '32px',
           animation: 'fadeUp 0.5s ease-out 0.5s both',
         }}>
-          Your profile is live. Share your link, get ride requests, and start earning today.
+          Your profile is live. Update your pricing now and share your HMU link to start getting rides.
         </p>
 
         <button
