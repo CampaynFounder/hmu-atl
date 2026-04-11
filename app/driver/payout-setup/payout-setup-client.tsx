@@ -6,7 +6,6 @@ import dynamic from 'next/dynamic';
 
 const DriverPaymentForm = dynamic(() => import('@/components/payments/driver-payment-form'), { ssr: false });
 const StripeEmbedded = dynamic(() => import('./stripe-embedded'), { ssr: false });
-import ManageAccounts from './manage-accounts';
 
 interface PayoutStatus {
   stripeAccountId: string | null;
@@ -24,7 +23,6 @@ interface Props {
 
 export default function PayoutSetupClient({ initialStatus }: Props) {
   const [status, setStatus] = useState<PayoutStatus>(initialStatus);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -57,30 +55,6 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
       setRefreshing(false);
     }
   }
-
-  async function startOnboarding() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/driver/onboarding/start', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'Something went wrong');
-        setLoading(false);
-        return;
-      }
-      if (data.onboardingUrl) {
-        window.location.href = data.onboardingUrl;
-      } else {
-        setError('No onboarding URL returned');
-        setLoading(false);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Network error');
-      setLoading(false);
-    }
-  }
-
 
   const [hasPaymentMethod, setHasPaymentMethod] = useState<boolean | null>(null);
 
@@ -229,11 +203,7 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
             Go Live
           </Link>
 
-          <StripeEmbedded />
-
-          {/* Fallback: ManageAccounts — re-enable if embedded components fail
-          <ManageAccounts onUpdate={refreshStatus} />
-          */}
+          <StripeEmbedded isOnboarded={true} onOnboardingExit={refreshStatus} />
         </div>
       ) : (
         /* Steps */
@@ -274,26 +244,7 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
                 &#x2713; Identity Verified
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={startOnboarding}
-                disabled={loading}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  padding: '16px',
-                  borderRadius: '100px',
-                  border: 'none',
-                  background: loading ? 'rgba(0,230,118,0.3)' : '#00E676',
-                  color: '#080808',
-                  fontWeight: 700,
-                  fontSize: '16px',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  fontFamily: 'var(--font-body, DM Sans, sans-serif)',
-                }}
-              >
-                {loading ? 'Connecting to Stripe...' : 'Verify Identity'}
-              </button>
+              <StripeEmbedded isOnboarded={false} onOnboardingExit={refreshStatus} />
             )}
           </div>
 

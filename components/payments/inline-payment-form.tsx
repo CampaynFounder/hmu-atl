@@ -147,8 +147,13 @@ function PaymentFormInner({
       return;
     }
 
+    const returnUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}/payments/return?next=${encodeURIComponent(window.location.pathname + window.location.search)}`
+      : '/payments/return';
+
     const { error: confirmError, setupIntent } = await stripe.confirmSetup({
       elements,
+      confirmParams: { return_url: returnUrl },
       redirect: 'if_required',
     });
 
@@ -159,9 +164,9 @@ function PaymentFormInner({
     }
 
     if (setupIntent?.payment_method) {
-      // Save the payment method to our DB
+      // Save the payment method to our DB (non-redirect path; redirect path saves via /payments/return)
       try {
-        const res = await fetch('/api/rider/payment-methods/save', {
+        const res = await fetch('/api/payments/setup-intent-complete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ paymentMethodId: setupIntent.payment_method }),

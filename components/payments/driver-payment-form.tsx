@@ -93,7 +93,15 @@ function DriverPaymentInner({ onSuccess }: { onSuccess: () => void }) {
     const { error: submitError } = await elements.submit();
     if (submitError) { setError(submitError.message || 'Validation failed'); setSubmitting(false); return; }
 
-    const { error: confirmError } = await stripe.confirmSetup({ elements, redirect: 'if_required' });
+    const returnUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}/payments/return?next=${encodeURIComponent(window.location.pathname + window.location.search)}`
+      : '/payments/return';
+
+    const { error: confirmError } = await stripe.confirmSetup({
+      elements,
+      confirmParams: { return_url: returnUrl },
+      redirect: 'if_required',
+    });
     if (confirmError) { setError(confirmError.message || 'Failed'); setSubmitting(false); return; }
 
     fbCustomEvent('PaymentMethodAdded', { source: 'driver_profile' });

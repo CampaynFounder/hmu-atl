@@ -5,12 +5,18 @@ import {
   ConnectComponentsProvider,
   ConnectPayouts,
   ConnectAccountManagement,
+  ConnectAccountOnboarding,
 } from '@stripe/react-connect-js';
 import { loadConnectAndInitialize } from '@stripe/connect-js';
 
 type Tab = 'payouts' | 'account';
 
-export default function StripeEmbedded() {
+interface Props {
+  isOnboarded: boolean;
+  onOnboardingExit?: () => void;
+}
+
+export default function StripeEmbedded({ isOnboarded, onOnboardingExit }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('payouts');
 
@@ -80,7 +86,7 @@ export default function StripeEmbedded() {
         marginBottom: '16px',
       }}>
         <p style={{ fontSize: '13px', color: '#888', textAlign: 'center' }}>
-          Stripe components unavailable. Use the fallback option below.
+          Stripe components unavailable.
         </p>
       </div>
     );
@@ -95,12 +101,33 @@ export default function StripeEmbedded() {
         padding: '24px 20px',
         marginBottom: '16px',
       }}>
-        <p style={{ fontSize: '13px', color: '#FF5252', textAlign: 'center', marginBottom: '8px' }}>
+        <p style={{ fontSize: '13px', color: '#FF5252', textAlign: 'center' }}>
           {error}
         </p>
-        <p style={{ fontSize: '11px', color: '#888', textAlign: 'center' }}>
-          Use the fallback option below to manage your account via Stripe.
-        </p>
+      </div>
+    );
+  }
+
+  // Embedded onboarding path — runs fully in-app
+  if (!isOnboarded) {
+    return (
+      <div style={{
+        background: '#141414',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: '20px',
+        padding: '20px',
+        marginBottom: '16px',
+      }}>
+        <ConnectComponentsProvider connectInstance={connectInstance}>
+          <div style={{ minHeight: '300px' }}>
+            <ConnectAccountOnboarding
+              onExit={() => {
+                onOnboardingExit?.();
+              }}
+              onLoadError={handleError}
+            />
+          </div>
+        </ConnectComponentsProvider>
       </div>
     );
   }
@@ -145,13 +172,9 @@ export default function StripeEmbedded() {
       <ConnectComponentsProvider connectInstance={connectInstance}>
         <div style={{ minHeight: '200px' }}>
           {tab === 'payouts' ? (
-            <ConnectPayouts
-              onLoadError={handleError}
-            />
+            <ConnectPayouts onLoadError={handleError} />
           ) : (
-            <ConnectAccountManagement
-              onLoadError={handleError}
-            />
+            <ConnectAccountManagement onLoadError={handleError} />
           )}
         </div>
       </ConnectComponentsProvider>
