@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 
 interface Props {
@@ -12,20 +11,6 @@ interface Props {
 }
 
 export default function PayoutSection({ payoutSetupComplete, last4, accountType, bankName, tier }: Props) {
-  const [changing, setChanging] = useState(false);
-
-  async function handleChangeMethod() {
-    setChanging(true);
-    try {
-      const res = await fetch('/api/driver/onboarding/start', { method: 'POST' });
-      const data = await res.json();
-      if (data.onboardingUrl) {
-        window.location.href = data.onboardingUrl;
-      }
-    } catch {
-      setChanging(false);
-    }
-  }
 
   return (
     <>
@@ -47,7 +32,7 @@ export default function PayoutSection({ payoutSetupComplete, last4, accountType,
         .po-account-icon { font-size: 20px; }
         .po-account-detail { font-size: 14px; color: var(--gray-light, #bbb); }
         .po-account-detail span { font-family: var(--font-mono, 'Space Mono', monospace); font-size: 13px; }
-        .po-change-btn { display: block; width: 100%; margin-top: 14px; text-align: center; font-size: 13px; color: var(--green, #00E676); font-weight: 600; padding: 10px; border: 1px solid rgba(0,230,118,0.2); border-radius: 100px; background: transparent; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); transition: all 0.15s; }
+        .po-change-btn { display: block; width: 100%; margin-top: 14px; text-align: center; font-size: 13px; color: var(--green, #00E676); font-weight: 600; padding: 10px; border: 1px solid rgba(0,230,118,0.2); border-radius: 100px; background: transparent; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); transition: all 0.15s; text-decoration: none; box-sizing: border-box; }
         .po-change-btn:hover { background: rgba(0,230,118,0.06); }
         .po-change-btn:active { transform: scale(0.97); }
         .po-change-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -97,14 +82,9 @@ export default function PayoutSection({ payoutSetupComplete, last4, accountType,
               </div>
             </div>
 
-            <button
-              type="button"
-              className="po-change-btn"
-              onClick={handleChangeMethod}
-              disabled={changing}
-            >
-              {changing ? 'Opening Stripe...' : 'Change payout method'}
-            </button>
+            <Link href="/driver/payout-setup" className="po-change-btn">
+              Change payout method
+            </Link>
           </>
         )}
       </div>
