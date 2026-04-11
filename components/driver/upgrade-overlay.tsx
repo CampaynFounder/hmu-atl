@@ -264,9 +264,13 @@ function SubscriptionPaymentForm({ onSuccess, onBack, isSetup }: { onSuccess: ()
       return;
     }
 
+    const returnUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}/payments/return?next=${encodeURIComponent(window.location.pathname + window.location.search)}`
+      : '/payments/return';
+
     const { error: confirmError } = isSetup
-      ? await stripe.confirmSetup({ elements, redirect: 'if_required' })
-      : await stripe.confirmPayment({ elements, redirect: 'if_required' });
+      ? await stripe.confirmSetup({ elements, confirmParams: { return_url: returnUrl }, redirect: 'if_required' })
+      : await stripe.confirmPayment({ elements, confirmParams: { return_url: returnUrl }, redirect: 'if_required' });
 
     if (confirmError) {
       setError(confirmError.message || 'Payment failed');

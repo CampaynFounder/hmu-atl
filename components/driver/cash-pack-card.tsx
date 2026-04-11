@@ -289,8 +289,13 @@ function CashPackPaymentInner({
       return;
     }
 
+    const returnUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}/payments/return?next=${encodeURIComponent(window.location.pathname + window.location.search)}`
+      : '/payments/return';
+
     const { error: confirmError, setupIntent } = await stripe.confirmSetup({
       elements,
+      confirmParams: { return_url: returnUrl },
       redirect: 'if_required',
     });
 
