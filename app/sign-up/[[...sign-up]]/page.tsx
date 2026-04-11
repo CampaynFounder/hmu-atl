@@ -103,7 +103,15 @@ export default async function SignUpPage({ searchParams }: Props) {
       <SignUp
         forceRedirectUrl={afterSignUpUrl}
         fallbackRedirectUrl="/auth-callback"
-        signInUrl={type ? `/sign-in?type=${type}` : '/sign-in'}
+        // Carry returnTo into the cross-link so users flipping to Sign In via
+        // Clerk's in-form link don't lose their driver-page redirect target.
+        // SignUpTypeStore also stashes it in localStorage as a backup.
+        signInUrl={(() => {
+          const p = new URLSearchParams();
+          if (type) p.set('type', type);
+          if (returnTo) p.set('returnTo', returnTo);
+          return `/sign-in${p.size ? `?${p}` : ''}`;
+        })()}
         unsafeMetadata={unsafeMetadata}
         appearance={{
           variables: {

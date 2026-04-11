@@ -141,18 +141,27 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
       }
 
       const data = await res.json();
+      // Merge newly-extracted fields first, then (if details_confirmed) also
+      // merge data.booking into a single finalExtracted value. This value is
+      // what gets persisted AND passed to saveChatProgress below — previously
+      // those two stores diverged because saveChatProgress received the
+      // pre-booking newExtracted, overwriting the flat save with a wrapped
+      // shape that lacked pickup/dropoff/price.
       const newExtracted = data.extracted ? { ...extractedSoFar, ...data.extracted } : extractedSoFar;
-      if (data.extracted) setExtractedSoFar(newExtracted);
+      const finalExtracted = data.action === 'details_confirmed' && data.booking
+        ? { ...newExtracted, ...data.booking }
+        : newExtracted;
+      if (data.extracted || data.booking) setExtractedSoFar(finalExtracted);
       const nextStep = data.nextStep || currentStep;
       if (data.nextStep) setCurrentStep(nextStep);
 
-      // GPT confirmed ride details — save for booking form pre-fill
+      // GPT confirmed ride details — also write to the legacy cross-driver key
+      // so the sign-up return flow can find them even if the per-driver key
+      // is stale or cleared.
       if (data.action === 'details_confirmed' && data.booking) {
-        const bookingDetails = { ...newExtracted, ...(data.booking || {}) };
-        localStorage.setItem(chatStorageKey(driver.handle), JSON.stringify(bookingDetails));
-        // Also save under legacy key for sign-up return flow
-        localStorage.setItem('hmu_chat_booking', JSON.stringify(bookingDetails));
-        setExtractedSoFar(bookingDetails);
+        try {
+          localStorage.setItem('hmu_chat_booking', JSON.stringify(finalExtracted));
+        } catch { /* quota exceeded — ignore */ }
       }
 
       let updatedMessages = messages;
@@ -164,8 +173,9 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
         });
       }
 
-      // Save progress after every exchange so navigation away doesn't lose chat
-      saveChatProgress(driver.handle, [...messages, userMsg, ...(data.reply ? [{ id: `a-${Date.now()}`, from: 'assistant' as const, text: data.reply }] : [])], newExtracted, nextStep);
+      // Save progress after every exchange so navigation away doesn't lose chat.
+      // finalExtracted contains pickup/dropoff/price once confirm_details has fired.
+      saveChatProgress(driver.handle, [...messages, userMsg, ...(data.reply ? [{ id: `a-${Date.now()}`, from: 'assistant' as const, text: data.reply }] : [])], finalExtracted, nextStep);
     } catch (err) {
       setMessages(prev => [...prev, {
         id: `e-${Date.now()}`, from: 'system',
