@@ -6,10 +6,9 @@ import { parseNaturalTime } from '@/lib/schedule/parse-time';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 import { logSuspectEvent } from '@/lib/admin/suspect-events';
 
-// Rate-limit ceilings — see PR1 design notes in docs.
+// Rate-limit ceiling for chat messages. Booking rate limits live on
+// /api/drivers/[handle]/book where they actually fire on real submissions.
 const LIMIT_CHAT_MSG_PER_HOUR = 30;
-const LIMIT_BOOKING_PER_HOUR = 5;
-const LIMIT_SAME_DRIVER_PER_DAY = 2;
 
 /**
  * POST /api/chat/booking
@@ -331,50 +330,13 @@ ${getStepInstructions(step, driver)}`;
           }
 
           case 'confirm_details': {
-            // Booking-conversion rate limits — protect drivers from a rider
-            // spraying fake booking requests. Keyed on user_id if signed in,
-            // IP if anonymous. Only logs suspect events when we have a
-            // user_id to attribute them to.
-            const hourlyBook = await checkRateLimit({
-              key: `book:${rateLimitSubject}`,
-              limit: LIMIT_BOOKING_PER_HOUR,
-              windowSeconds: 3600,
-            });
-            if (!hourlyBook.ok) {
-              if (neonUserId) {
-                await logSuspectEvent(neonUserId, 'booking_rate', {
-                  count: hourlyBook.count,
-                  limit: hourlyBook.limit,
-                  driverHandle,
-                });
-              }
-              result = {
-                error: 'rate_limited',
-                message: 'You\'ve submitted a lot of booking requests lately. Wait an hour and try again.',
-              };
-              break;
-            }
-
-            const sameDriverBook = await checkRateLimit({
-              key: `book:${rateLimitSubject}:${driverUserId}`,
-              limit: LIMIT_SAME_DRIVER_PER_DAY,
-              windowSeconds: 86400,
-            });
-            if (!sameDriverBook.ok) {
-              if (neonUserId) {
-                await logSuspectEvent(neonUserId, 'same_driver_booking_rate', {
-                  count: sameDriverBook.count,
-                  limit: sameDriverBook.limit,
-                  driverHandle,
-                  driverUserId,
-                });
-              }
-              result = {
-                error: 'rate_limited',
-                message: `You've already submitted booking requests to ${driver.display_name || driverHandle} recently. Give them a chance to respond first.`,
-              };
-              break;
-            }
+            // NOTE: booking-conversion rate limits used to fire here, but
+            // confirm_details is just "GPT has extracted enough info to
+            // summarize" — not an actual booking submission. Dismissing a
+            // chat without clicking the booking button was incorrectly
+            // counting as a request. The real limits now live on
+            // /api/drivers/[handle]/book where the driver actually gets
+            // notified.
 
             // Resolve the time to a concrete ISO timestamp + display string
             const timeInput = args.resolvedTime || args.time || '';
@@ -422,15 +384,6 @@ ${getStepInstructions(step, driver)}`;
       const confirmAction = toolResults.find(tr => tr.name === 'confirm_details');
       if (confirmAction) {
         const confirmResult = confirmAction.result as Record<string, unknown>;
-        // Rate-limit trip — tool handler set error + message, bail with 429.
-        // The human-readable message goes in `error` so the chat client shows it;
-        // `code` gives downstream consumers something machine-readable.
-        if (confirmResult.error === 'rate_limited') {
-          return NextResponse.json(
-            { error: String(confirmResult.message), code: 'rate_limited' },
-            { status: 429 }
-          );
-        }
         const booking = confirmResult.booking as Record<string, unknown>;
         // Ensure riderPrice takes priority — fall back to suggestedPrice for backwards compat
         if (booking.riderPrice) {

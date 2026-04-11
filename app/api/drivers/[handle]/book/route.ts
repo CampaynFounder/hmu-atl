@@ -11,6 +11,12 @@ import { notifyDriverNewBooking } from '@/lib/sms/textbee';
 import { checkDriverAvailability, createTentativeBooking, cancelTentativeBooking } from '@/lib/schedule/conflicts';
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
 import { logSuspectEvent } from '@/lib/admin/suspect-events';
+import { checkRateLimit } from '@/lib/rate-limit/check';
+
+// Cap total booking submissions per rider per hour. The structural
+// getActiveDirectBooking() check already prevents duplicate active bookings
+// to the SAME driver, so this only has to cover aggregate spam across drivers.
+const LIMIT_BOOKINGS_PER_HOUR = 5;
 
 /** Strip city, state, zip, directional prefixes from address for shorter SMS */
 function stripAddress(addr: string): string {
@@ -69,6 +75,31 @@ export async function POST(
     return NextResponse.json(
       { error: 'You can\'t book yourself. Try another driver.', code: 'self_booking' },
       { status: 403 }
+    );
+  }
+
+  // Hourly booking rate limit — fires on ACTUAL booking submissions, not
+  // chat summaries. Dismissing a chat doesn't increment this. The structural
+  // "one active booking per rider-driver pair" check below handles the
+  // "spam one driver" case, so we only cap aggregate spam.
+  const bookRate = await checkRateLimit({
+    key: `book:rider:${rider.id}`,
+    limit: LIMIT_BOOKINGS_PER_HOUR,
+    windowSeconds: 3600,
+  });
+  if (!bookRate.ok) {
+    await logSuspectEvent(rider.id, 'booking_rate', {
+      count: bookRate.count,
+      limit: bookRate.limit,
+      driverHandle: handle,
+    });
+    return NextResponse.json(
+      {
+        error: 'You\'ve submitted a lot of booking requests lately. Give the drivers a chance to respond, then try again in a bit.',
+        code: 'booking_rate_limit',
+        retryAfter: bookRate.retryAfterSeconds,
+      },
+      { status: 429 }
     );
   }
 
