@@ -3,7 +3,11 @@
 // Soft blocker shown when a driver taps the HMU button on a driver profile page.
 // Two variants:
 //   - 'own':   you can't book yourself — pick another driver
-//   - 'other': booking is for riders — browse riders or create a rider account later
+//   - 'other': booking is for riders — we'll add a dual-role flow in PR 2
+//
+// Both variants route the driver to /driver/feed where they can see open
+// ride requests in their area. That's the most useful destination for a
+// logged-in driver standing in front of a booking blocker.
 
 interface Props {
   open: boolean;
@@ -15,10 +19,10 @@ interface Props {
 export function DriverBlockerModal({ open, variant, driverDisplayName, onClose }: Props) {
   if (!open) return null;
 
-  const title = variant === 'own' ? 'You can\'t book yourself' : 'Booking is for riders';
+  const title = variant === 'own' ? "You can't book yourself" : 'Booking is for riders';
   const body = variant === 'own'
-    ? `This is your own driver profile. Pick a different driver if you need a ride.`
-    : `You're signed in as a driver. To book ${driverDisplayName}, you'll need a rider account — we'll add one to the app soon so you don't have to log out.`;
+    ? "This is your own driver profile. Check your ride request feed instead — real rides to accept."
+    : `You're signed in as a driver. To book ${driverDisplayName}, you'll need a rider account — we'll add one to the app soon so you don't have to log out. In the meantime, check your ride request feed.`;
 
   return (
     <div
@@ -35,15 +39,17 @@ export function DriverBlockerModal({ open, variant, driverDisplayName, onClose }
         <p className="text-sm text-neutral-400 leading-relaxed mb-5">{body}</p>
         <div className="flex flex-col gap-2">
           <a
-            href="/drivers"
+            href="/driver/feed"
             className="w-full py-3 rounded-full bg-[#00E676] text-black font-bold text-center text-sm"
+            style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'rgba(0,0,0,0)' }}
           >
-            Browse drivers
+            Browse Ride Requests
           </a>
           <button
             type="button"
             onClick={onClose}
             className="w-full py-3 rounded-full border border-white/10 text-neutral-300 font-medium text-sm"
+            style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'rgba(0,0,0,0)' }}
           >
             Close
           </button>
