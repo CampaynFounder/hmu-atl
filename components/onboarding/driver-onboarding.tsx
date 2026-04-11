@@ -792,8 +792,13 @@ function ConfirmationScreen({ name, onContinue }: { name: string; onContinue: ()
             border: 'none', background: '#00E676', color: '#080808',
             fontWeight: 800, fontSize: '17px', cursor: navigating ? 'not-allowed' : 'pointer',
             fontFamily: 'var(--font-body, DM Sans, sans-serif)',
-            animation: 'fadeUp 0.5s ease-out 0.7s both',
+            // Visible immediately — animated button was clickable while invisible
+            // during the 0.7s fadeUp delay, causing "several clicks needed" UX on mobile.
+            // touch-action: manipulation disables iOS Safari's double-tap-to-zoom
+            // delay so the first tap always registers.
             opacity: navigating ? 0.6 : 1,
+            touchAction: 'manipulation',
+            WebkitTapHighlightColor: 'rgba(0,0,0,0)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
           }}
         >

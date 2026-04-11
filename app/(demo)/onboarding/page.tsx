@@ -40,8 +40,13 @@ function OnboardingInner() {
       // Rider signed up from a driver's HMU link — send them back with booking open
       const url = returnTo.includes('bookingOpen') ? returnTo : `${returnTo}?bookingOpen=1`;
       window.location.href = url;
+    } else if (activeType === 'driver') {
+      // New drivers land on their profile page to set ride prices, share their
+      // HMU link, and configure their availability. /driver/home only makes
+      // sense once they've done that setup.
+      window.location.href = '/driver/profile';
     } else {
-      window.location.href = activeType === 'driver' ? '/driver/home' : '/rider/home';
+      window.location.href = '/rider/home';
     }
   };
 
