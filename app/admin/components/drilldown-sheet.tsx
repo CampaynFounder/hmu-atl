@@ -85,7 +85,11 @@ export function DrillDownSheet({ type, onClose }: DrillDownSheetProps) {
 
   // Users with phones for SMS
   const usersWithPhone = type === 'unconverted' ? items.filter(i => i.phone) : [];
+  const ridersWithPhone = usersWithPhone.filter(i => i.profileType === 'rider');
+  const driversWithPhone = usersWithPhone.filter(i => i.profileType === 'driver');
   const allSelected = usersWithPhone.length > 0 && usersWithPhone.every(i => selected.has(i.id));
+  const allRidersSelected = ridersWithPhone.length > 0 && ridersWithPhone.every(i => selected.has(i.id));
+  const allDriversSelected = driversWithPhone.length > 0 && driversWithPhone.every(i => selected.has(i.id));
 
   function toggleSelect(id: string) {
     setSelected(prev => {
@@ -143,19 +147,57 @@ export function DrillDownSheet({ type, onClose }: DrillDownSheetProps) {
           {/* SMS compose bar for unconverted users */}
           {type === 'unconverted' && usersWithPhone.length > 0 && (
             <div className="sticky top-0 z-10 bg-neutral-950 border-b border-neutral-800 p-4 space-y-3">
-              {/* Select all + count */}
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={toggleAll}
-                  className="flex items-center gap-2 text-xs text-neutral-400 hover:text-white"
-                >
-                  <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${
-                    allSelected ? 'bg-emerald-500 border-emerald-500 text-black' : 'border-neutral-600'
-                  }`}>
-                    {allSelected ? '✓' : ''}
-                  </span>
-                  Select all ({usersWithPhone.length} with phone)
-                </button>
+              {/* Select controls */}
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={toggleAll}
+                    className="flex items-center gap-1.5 text-xs text-neutral-400 hover:text-white"
+                  >
+                    <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${
+                      allSelected ? 'bg-emerald-500 border-emerald-500 text-black' : 'border-neutral-600'
+                    }`}>
+                      {allSelected ? '✓' : ''}
+                    </span>
+                    All ({usersWithPhone.length})
+                  </button>
+                  {ridersWithPhone.length > 0 && (
+                    <button
+                      onClick={() => {
+                        if (allRidersSelected) {
+                          setSelected(prev => { const n = new Set(prev); ridersWithPhone.forEach(i => n.delete(i.id)); return n; });
+                        } else {
+                          setSelected(prev => { const n = new Set(prev); ridersWithPhone.forEach(i => n.add(i.id)); return n; });
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-medium border ${
+                        allRidersSelected
+                          ? 'bg-blue-500/20 border-blue-500/40 text-blue-400'
+                          : 'border-neutral-700 text-neutral-500 hover:text-blue-400'
+                      }`}
+                    >
+                      Riders ({ridersWithPhone.length})
+                    </button>
+                  )}
+                  {driversWithPhone.length > 0 && (
+                    <button
+                      onClick={() => {
+                        if (allDriversSelected) {
+                          setSelected(prev => { const n = new Set(prev); driversWithPhone.forEach(i => n.delete(i.id)); return n; });
+                        } else {
+                          setSelected(prev => { const n = new Set(prev); driversWithPhone.forEach(i => n.add(i.id)); return n; });
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-medium border ${
+                        allDriversSelected
+                          ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+                          : 'border-neutral-700 text-neutral-500 hover:text-emerald-400'
+                      }`}
+                    >
+                      Drivers ({driversWithPhone.length})
+                    </button>
+                  )}
+                </div>
                 {selected.size > 0 && (
                   <span className="text-xs text-emerald-400 font-medium">{selected.size} selected</span>
                 )}
