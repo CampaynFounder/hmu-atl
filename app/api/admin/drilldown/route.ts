@@ -128,6 +128,30 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    case 'abandoned': {
+      const rows = await sql`
+        SELECT
+          u.id, u.clerk_id, u.profile_type, u.created_at, u.account_status,
+          u.phone, u.signup_source,
+          COALESCE(rp.display_name, rp.first_name, dp.display_name, dp.first_name) as name,
+          COALESCE(rp.handle, dp.handle) as handle
+        FROM users u
+        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+        LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+        WHERE u.completed_rides = 0 AND u.account_status = 'pending_activation'
+        ORDER BY u.created_at DESC
+        LIMIT 100
+      `;
+      return NextResponse.json({
+        items: rows.map((r: Record<string, unknown>) => ({
+          id: r.id, clerkId: r.clerk_id, name: r.name ?? 'Unknown', handle: r.handle,
+          phone: r.phone, profileType: r.profile_type,
+          signupSource: r.signup_source ?? 'unknown',
+          accountStatus: r.account_status, createdAt: r.created_at,
+        })),
+      });
+    }
+
     case 'drivers': {
       const rows = await sql`
         SELECT

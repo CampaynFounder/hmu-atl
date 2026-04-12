@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { AdminSheet } from './admin-sheet';
 
-type DrillType = 'matched' | 'active' | 'completed' | 'cancelled' | 'disputed' | 'revenue' | 'unconverted' | 'drivers' | null;
+type DrillType = 'matched' | 'active' | 'completed' | 'cancelled' | 'disputed' | 'revenue' | 'unconverted' | 'abandoned' | 'drivers' | null;
 
 interface DrillDownSheetProps {
   type: DrillType;
@@ -22,6 +22,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   disputed: { title: 'Disputed Rides', subtitle: 'Rides with open or resolved disputes' },
   revenue: { title: 'Revenue Breakdown', subtitle: 'Completed rides sorted by price' },
   unconverted: { title: 'Unconverted Users', subtitle: 'Signed up but no completed ride yet' },
+  abandoned: { title: 'Incomplete Signups', subtitle: 'Started signup but never finished onboarding — delete from Clerk + Neon' },
   drivers: { title: 'Active Drivers', subtitle: 'Drivers currently on a ride' },
 };
 
@@ -62,6 +63,12 @@ export function DrillDownSheet({ type, onClose }: DrillDownSheetProps) {
   const [smsSending, setSmsSending] = useState(false);
   const [smsResult, setSmsResult] = useState<string | null>(null);
 
+  // Delete state for abandoned users
+  const [deleting, setDeleting] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<string | null>(null);
+  const [ageFilter, setAgeFilter] = useState<number | null>(null); // weeks old
+
   useEffect(() => {
     if (!type) return;
     if (type === lastType.current && items.length > 0) return;
@@ -78,8 +85,50 @@ export function DrillDownSheet({ type, onClose }: DrillDownSheetProps) {
   }, [type]);
 
   useEffect(() => {
-    if (!type) { setItems([]); lastType.current = null; setSelected(new Set()); setSmsMessage(''); setSmsResult(null); }
+    if (!type) { setItems([]); lastType.current = null; setSelected(new Set()); setSmsMessage(''); setSmsResult(null); setDeleteConfirm(false); setDeleteResult(null); setAgeFilter(null); }
   }, [type]);
+
+  // Abandoned users — filtered by age
+  const abandonedItems = type === 'abandoned'
+    ? (ageFilter !== null
+      ? items.filter(i => (Date.now() - new Date(i.createdAt).getTime()) > ageFilter * 7 * 86400000)
+      : items)
+    : [];
+  const abandonedRiders = abandonedItems.filter(i => i.profileType === 'rider');
+  const abandonedDrivers = abandonedItems.filter(i => i.profileType === 'driver');
+  const allAbandonedSelected = abandonedItems.length > 0 && abandonedItems.every(i => selected.has(i.id));
+  const allAbandonedRidersSelected = abandonedRiders.length > 0 && abandonedRiders.every(i => selected.has(i.id));
+  const allAbandonedDriversSelected = abandonedDrivers.length > 0 && abandonedDrivers.every(i => selected.has(i.id));
+
+  function weeksAgo(d: string): number {
+    return Math.floor((Date.now() - new Date(d).getTime()) / (7 * 86400000));
+  }
+
+  async function deleteSelected() {
+    const ids = Array.from(selected).filter(id => abandonedItems.some(i => i.id === id));
+    if (!ids.length) return;
+    setDeleting(true);
+    setDeleteResult(null);
+    try {
+      const res = await fetch('/api/admin/users/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userIds: ids }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setDeleteResult(`Deleted ${data.deleted} user${data.deleted !== 1 ? 's' : ''}${data.skipped ? ` (${data.skipped} skipped)` : ''}`);
+        setItems(prev => prev.filter(i => !ids.includes(i.id)));
+        setSelected(new Set());
+        setDeleteConfirm(false);
+      } else {
+        setDeleteResult(data.error || 'Delete failed');
+      }
+    } catch {
+      setDeleteResult('Network error');
+    }
+    setDeleting(false);
+  }
 
   const info = type ? TITLES[type] : { title: '', subtitle: '' };
 
@@ -233,20 +282,147 @@ export function DrillDownSheet({ type, onClose }: DrillDownSheetProps) {
             </div>
           )}
 
+          {/* Abandoned signups controls */}
+          {type === 'abandoned' && abandonedItems.length > 0 && (
+            <div className="sticky top-0 z-10 bg-neutral-950 border-b border-neutral-800 p-4 space-y-3">
+              {/* Age filter */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-neutral-500">Older than:</span>
+                {[null, 1, 2, 4, 8].map(w => (
+                  <button
+                    key={w ?? 'all'}
+                    onClick={() => { setAgeFilter(w); setSelected(new Set()); }}
+                    className={`px-2 py-1 rounded-full text-[10px] font-medium border ${
+                      ageFilter === w ? 'bg-white/10 border-white/20 text-white' : 'border-neutral-700 text-neutral-500'
+                    }`}
+                  >
+                    {w === null ? 'All' : `${w}w+`}
+                  </button>
+                ))}
+              </div>
+
+              {/* Select controls */}
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      if (allAbandonedSelected) setSelected(new Set());
+                      else setSelected(new Set(abandonedItems.map(i => i.id)));
+                    }}
+                    className="flex items-center gap-1.5 text-xs text-neutral-400 hover:text-white"
+                  >
+                    <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${
+                      allAbandonedSelected ? 'bg-red-500 border-red-500 text-white' : 'border-neutral-600'
+                    }`}>
+                      {allAbandonedSelected ? '✓' : ''}
+                    </span>
+                    All ({abandonedItems.length})
+                  </button>
+                  {abandonedRiders.length > 0 && (
+                    <button
+                      onClick={() => {
+                        if (allAbandonedRidersSelected) {
+                          setSelected(prev => { const n = new Set(prev); abandonedRiders.forEach(i => n.delete(i.id)); return n; });
+                        } else {
+                          setSelected(prev => { const n = new Set(prev); abandonedRiders.forEach(i => n.add(i.id)); return n; });
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-medium border ${
+                        allAbandonedRidersSelected ? 'bg-blue-500/20 border-blue-500/40 text-blue-400' : 'border-neutral-700 text-neutral-500'
+                      }`}
+                    >
+                      Riders ({abandonedRiders.length})
+                    </button>
+                  )}
+                  {abandonedDrivers.length > 0 && (
+                    <button
+                      onClick={() => {
+                        if (allAbandonedDriversSelected) {
+                          setSelected(prev => { const n = new Set(prev); abandonedDrivers.forEach(i => n.delete(i.id)); return n; });
+                        } else {
+                          setSelected(prev => { const n = new Set(prev); abandonedDrivers.forEach(i => n.add(i.id)); return n; });
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-medium border ${
+                        allAbandonedDriversSelected ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' : 'border-neutral-700 text-neutral-500'
+                      }`}
+                    >
+                      Drivers ({abandonedDrivers.length})
+                    </button>
+                  )}
+                </div>
+                {selected.size > 0 && (
+                  <span className="text-xs text-red-400 font-medium">{selected.size} selected</span>
+                )}
+              </div>
+
+              {/* Delete button + confirmation */}
+              {selected.size > 0 && !deleteConfirm && (
+                <button
+                  onClick={() => setDeleteConfirm(true)}
+                  className="w-full py-2 rounded-lg bg-red-500/15 border border-red-500/30 text-red-400 text-sm font-medium"
+                >
+                  Delete {selected.size} user{selected.size !== 1 ? 's' : ''} from Clerk + Neon
+                </button>
+              )}
+              {deleteConfirm && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 space-y-2">
+                  <div className="text-xs text-red-400 font-semibold">
+                    Permanently delete {selected.size} user{selected.size !== 1 ? 's' : ''}?
+                  </div>
+                  <div className="text-[10px] text-neutral-500">
+                    This removes them from Clerk and Neon. Cannot be undone.
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={deleteSelected}
+                      disabled={deleting}
+                      className="flex-1 py-2 rounded-lg bg-red-500 text-white text-xs font-bold disabled:opacity-50"
+                    >
+                      {deleting ? 'Deleting...' : `Yes, delete ${selected.size}`}
+                    </button>
+                    <button
+                      onClick={() => setDeleteConfirm(false)}
+                      className="flex-1 py-2 rounded-lg border border-neutral-700 text-neutral-400 text-xs font-medium"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {deleteResult && (
+                <div className={`text-xs text-center py-1 ${deleteResult.includes('Deleted') ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {deleteResult}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="divide-y divide-neutral-800/50">
-            {type === 'unconverted'
-              ? items.map((item) => (
-                <UserRow
+            {type === 'abandoned'
+              ? abandonedItems.map((item) => (
+                <AbandonedRow
                   key={item.id}
                   item={item}
-                  selectable
                   selected={selected.has(item.id)}
                   onToggle={() => toggleSelect(item.id)}
+                  weeksOld={weeksAgo(item.createdAt)}
                 />
               ))
-              : type === 'drivers'
-                ? items.map((item, i) => <DriverRow key={i} item={item} />)
-                : items.map((item) => <RideRow key={item.id} item={item} type={type!} />)
+              : type === 'unconverted'
+                ? items.map((item) => (
+                  <UserRow
+                    key={item.id}
+                    item={item}
+                    selectable
+                    selected={selected.has(item.id)}
+                    onToggle={() => toggleSelect(item.id)}
+                  />
+                ))
+                : type === 'drivers'
+                  ? items.map((item, i) => <DriverRow key={i} item={item} />)
+                  : items.map((item) => <RideRow key={item.id} item={item} type={type!} />)
             }
           </div>
         </>
@@ -329,6 +505,47 @@ function UserRow({ item, selectable, selected, onToggle }: { item: Item; selecta
           Text
         </a>
       )}
+    </div>
+  );
+}
+
+function AbandonedRow({ item, selected, onToggle, weeksOld }: { item: Item; selected: boolean; onToggle: () => void; weeksOld: number }) {
+  const sourceColors: Record<string, string> = {
+    direct: 'text-neutral-500',
+    hmu_chat: 'text-blue-400',
+    homepage_lead: 'text-emerald-400',
+  };
+
+  return (
+    <div className="px-5 py-3 flex items-center gap-3">
+      <button onClick={onToggle} className="flex-shrink-0">
+        <span className={`w-5 h-5 rounded border flex items-center justify-center text-xs ${
+          selected ? 'bg-red-500 border-red-500 text-white' : 'border-neutral-600 text-transparent'
+        }`}>
+          ✓
+        </span>
+      </button>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-white">{item.name}</span>
+          {item.handle && <span className="text-xs text-neutral-500">@{item.handle}</span>}
+        </div>
+        <div className="flex items-center gap-2 mt-1 text-[11px] flex-wrap">
+          <span className={item.profileType === 'driver' ? 'text-emerald-400' : 'text-blue-400'}>
+            {item.profileType}
+          </span>
+          <span className={sourceColors[item.signupSource] || 'text-neutral-600'}>
+            via {item.signupSource}
+          </span>
+          {item.phone
+            ? <span className="font-mono text-neutral-500">{item.phone}</span>
+            : <span className="text-red-400">no phone</span>
+          }
+          <span className="text-neutral-600">
+            {weeksOld === 0 ? 'this week' : `${weeksOld}w ago`}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
