@@ -183,6 +183,7 @@ export default function ActiveRideClient({
   } | null>(null);
   const [addressUpdateSent, setAddressUpdateSent] = useState(false);
   const [timingCollapsed, setTimingCollapsed] = useState(false);
+  const [stopsExpanded, setStopsExpanded] = useState(false);
   const [notification, setNotification] = useState<{
     message: string;
     emoji: string;
@@ -1595,113 +1596,198 @@ export default function ActiveRideClient({
           </div>
         </div>
 
-        {/* Itinerary — pickup → stops → dropoff */}
-        {(pickupAddress || dropoffAddress || ride.pickupAddress || ride.dropoffAddress) && (
-          <div style={{
-            backgroundColor: COLORS.card,
-            borderRadius: 12,
-            padding: '12px 14px',
-            marginBottom: 12,
-            fontSize: 13,
-            color: COLORS.grayLight,
-          }}>
-            {/* Pickup row */}
-            {(pickupAddress || ride.pickupAddress) && (
-              editingAddress === 'pickup' ? (
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.green, marginBottom: 6 }}>UPDATE PICKUP</div>
-                  <AddressAutocomplete
-                    label=""
-                    placeholder="Search new pickup address..."
-                    onSelect={async (addr) => {
-                      setAddressUpdateSent(true);
-                      try {
-                        await fetch(`/api/rides/${rideId}/update-address`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ addressType: 'pickup', address: addr.address || addr.name, latitude: addr.latitude, longitude: addr.longitude }),
-                        });
-                      } catch { setError('Failed to send address update'); setAddressUpdateSent(false); }
-                    }}
-                    onClear={() => setEditingAddress(null)}
-                  />
-                  {addressUpdateSent && (
-                    <div style={{ fontSize: 11, color: COLORS.orange, marginTop: 6, textAlign: 'center' }}>Waiting for driver to confirm...</div>
-                  )}
-                  <button onClick={() => { setEditingAddress(null); setAddressUpdateSent(false); }}
-                    style={{ marginTop: 6, width: '100%', padding: 6, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: COLORS.gray, fontSize: 12, cursor: 'pointer', fontFamily: FONTS.body }}>
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
-                  <span style={{ color: COLORS.green, fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>PICKUP</span>
-                  <span style={{ flex: 1 }}>{pickupAddress || ride.pickupAddress}</span>
-                  {/* Edit button — rider only, matched + post-COO only */}
-                  {!isDriver && ride.status === 'matched' && ride.cooAt && (
-                    <button onClick={() => setEditingAddress('pickup')}
-                      style={{ background: 'none', border: 'none', color: COLORS.orange, fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0, padding: '0 2px', fontFamily: FONTS.body }}>
-                      Edit
+        {/* Itinerary — pickup → stops → dropoff + navigate button */}
+        {(pickupAddress || dropoffAddress || ride.pickupAddress || ride.dropoffAddress) && (() => {
+          const pAddr = pickupAddress || ride.pickupAddress;
+          const dAddr = dropoffAddress || ride.dropoffAddress;
+          const stops = (ride.stops || []) as { address?: string; name?: string; latitude?: number; longitude?: number; reached_at?: string }[];
+          const unreachedStops = stops.filter(s => !s.reached_at);
+          const canEdit = !isDriver && ride.status === 'matched' && !!ride.cooAt;
+
+          // Build Google Maps directions URL with all waypoints
+          function buildNavUrl() {
+            const parts: string[] = [];
+            // Origin = pickup
+            if (ride.pickupLat && ride.pickupLng) parts.push(`${ride.pickupLat},${ride.pickupLng}`);
+            else if (pAddr) parts.push(encodeURIComponent(pAddr));
+            // Waypoints = unreached stops
+            const wpParts: string[] = [];
+            for (const s of unreachedStops) {
+              if (s.latitude && s.longitude) wpParts.push(`${s.latitude},${s.longitude}`);
+              else if (s.address || s.name) wpParts.push(encodeURIComponent(s.address || s.name || ''));
+            }
+            // Destination = dropoff
+            let dest = '';
+            if (ride.dropoffLat && ride.dropoffLng) dest = `${ride.dropoffLat},${ride.dropoffLng}`;
+            else if (dAddr) dest = encodeURIComponent(dAddr);
+
+            if (!parts.length || !dest) return null;
+
+            let url = `https://www.google.com/maps/dir/?api=1&origin=${parts[0]}&destination=${dest}&travelmode=driving`;
+            if (wpParts.length > 0) url += `&waypoints=${wpParts.join('|')}`;
+            return url;
+          }
+
+          const navUrl = buildNavUrl();
+          const totalPoints = (pAddr ? 1 : 0) + stops.length + (dAddr ? 1 : 0);
+          const navLabel = totalPoints > 2 ? 'Navigate Full Trip' : pAddr && dAddr ? 'Navigate Trip' : 'Navigate';
+
+          return (
+            <div style={{
+              backgroundColor: COLORS.card,
+              borderRadius: 12,
+              padding: '10px 14px',
+              marginBottom: 8,
+              fontSize: 13,
+              color: COLORS.grayLight,
+            }}>
+              {/* Pickup row */}
+              {pAddr && (
+                editingAddress === 'pickup' ? (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.green, marginBottom: 6 }}>UPDATE PICKUP</div>
+                    <AddressAutocomplete
+                      label=""
+                      placeholder="Search new pickup address..."
+                      onSelect={async (addr) => {
+                        setAddressUpdateSent(true);
+                        try {
+                          await fetch(`/api/rides/${rideId}/update-address`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ addressType: 'pickup', address: addr.address || addr.name, latitude: addr.latitude, longitude: addr.longitude }),
+                          });
+                        } catch { setError('Failed to send address update'); setAddressUpdateSent(false); }
+                      }}
+                      onClear={() => setEditingAddress(null)}
+                    />
+                    {addressUpdateSent && (
+                      <div style={{ fontSize: 11, color: COLORS.orange, marginTop: 6, textAlign: 'center' }}>Waiting for driver to confirm...</div>
+                    )}
+                    <button onClick={() => { setEditingAddress(null); setAddressUpdateSent(false); }}
+                      style={{ marginTop: 6, width: '100%', padding: 6, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: COLORS.gray, fontSize: 12, cursor: 'pointer', fontFamily: FONTS.body }}>
+                      Cancel
                     </button>
-                  )}
-                </div>
-              )
-            )}
-            {/* Stops */}
-            {ride.stops && ride.stops.length > 0 && (ride.stops as { address?: string; reached_at?: string }[]).map((stop, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8, paddingLeft: 4 }}>
-                <span style={{ color: COLORS.orange, fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>
-                  {stop.reached_at ? '✓' : `STOP ${i + 1}`}
-                </span>
-                <span style={{ color: stop.reached_at ? COLORS.gray : COLORS.grayLight, textDecoration: stop.reached_at ? 'line-through' : 'none' }}>
-                  {stop.address || `Stop ${i + 1}`}
-                </span>
-              </div>
-            ))}
-            {/* Dropoff row */}
-            {(dropoffAddress || ride.dropoffAddress) && (
-              editingAddress === 'dropoff' ? (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.red, marginBottom: 6 }}>UPDATE DROP-OFF</div>
-                  <AddressAutocomplete
-                    label=""
-                    placeholder="Search new drop-off address..."
-                    onSelect={async (addr) => {
-                      setAddressUpdateSent(true);
-                      try {
-                        await fetch(`/api/rides/${rideId}/update-address`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ addressType: 'dropoff', address: addr.address || addr.name, latitude: addr.latitude, longitude: addr.longitude }),
-                        });
-                      } catch { setError('Failed to send address update'); setAddressUpdateSent(false); }
-                    }}
-                    onClear={() => setEditingAddress(null)}
-                  />
-                  {addressUpdateSent && (
-                    <div style={{ fontSize: 11, color: COLORS.orange, marginTop: 6, textAlign: 'center' }}>Waiting for driver to confirm...</div>
-                  )}
-                  <button onClick={() => { setEditingAddress(null); setAddressUpdateSent(false); }}
-                    style={{ marginTop: 6, width: '100%', padding: 6, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: COLORS.gray, fontSize: 12, cursor: 'pointer', fontFamily: FONTS.body }}>
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <span style={{ color: COLORS.red, fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>DROP</span>
-                  <span style={{ flex: 1 }}>{dropoffAddress || ride.dropoffAddress}</span>
-                  {/* Edit button — rider only, matched + post-COO only */}
-                  {!isDriver && ride.status === 'matched' && ride.cooAt && (
-                    <button onClick={() => setEditingAddress('dropoff')}
-                      style={{ background: 'none', border: 'none', color: COLORS.orange, fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0, padding: '0 2px', fontFamily: FONTS.body }}>
-                      Edit
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: stops.length > 0 || dAddr ? 6 : 0 }}>
+                    <span style={{ color: COLORS.green, fontSize: 10, fontWeight: 700, flexShrink: 0, marginTop: 2, width: 36 }}>PICKUP</span>
+                    <span style={{ flex: 1, fontSize: 12, lineHeight: 1.3 }}>{pAddr}</span>
+                    {canEdit && (
+                      <button onClick={() => setEditingAddress('pickup')}
+                        style={{ background: 'none', border: 'none', color: COLORS.orange, fontSize: 11, fontWeight: 600, cursor: 'pointer', flexShrink: 0, padding: '0 2px', fontFamily: FONTS.body }}>
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                )
+              )}
+
+              {/* Stops — collapsible when more than 1 */}
+              {stops.length > 0 && (
+                stops.length === 1 ? (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+                    <span style={{ color: stops[0].reached_at ? COLORS.gray : COLORS.orange, fontSize: 10, fontWeight: 700, flexShrink: 0, marginTop: 2, width: 36 }}>
+                      {stops[0].reached_at ? '✓' : 'STOP'}
+                    </span>
+                    <span style={{ flex: 1, fontSize: 12, lineHeight: 1.3, color: stops[0].reached_at ? COLORS.gray : COLORS.grayLight, textDecoration: stops[0].reached_at ? 'line-through' : 'none' }}>
+                      {stops[0].address || stops[0].name || 'Stop 1'}
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setStopsExpanded(prev => !prev)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
+                        background: 'none', border: 'none', padding: 0, cursor: 'pointer', width: '100%',
+                      }}
+                    >
+                      <span style={{ color: COLORS.orange, fontSize: 10, fontWeight: 700, flexShrink: 0, width: 36 }}>
+                        STOPS
+                      </span>
+                      <span style={{ fontSize: 12, color: COLORS.grayLight }}>
+                        {unreachedStops.length} of {stops.length} remaining
+                      </span>
+                      <span style={{ marginLeft: 'auto', fontSize: 9, color: COLORS.gray }}>
+                        {stopsExpanded ? '▲' : '▼'}
+                      </span>
                     </button>
-                  )}
-                </div>
-              )
-            )}
-          </div>
-        )}
+                    {stopsExpanded && stops.map((stop, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 4, paddingLeft: 4 }}>
+                        <span style={{ color: stop.reached_at ? COLORS.gray : COLORS.orange, fontSize: 10, fontWeight: 700, flexShrink: 0, marginTop: 2, width: 32, textAlign: 'right' }}>
+                          {stop.reached_at ? '✓' : `${i + 1}`}
+                        </span>
+                        <span style={{ fontSize: 12, lineHeight: 1.3, color: stop.reached_at ? COLORS.gray : COLORS.grayLight, textDecoration: stop.reached_at ? 'line-through' : 'none' }}>
+                          {stop.address || stop.name || `Stop ${i + 1}`}
+                        </span>
+                      </div>
+                    ))}
+                  </>
+                )
+              )}
+
+              {/* Dropoff row */}
+              {dAddr && (
+                editingAddress === 'dropoff' ? (
+                  <div style={{ marginTop: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.red, marginBottom: 6 }}>UPDATE DROP-OFF</div>
+                    <AddressAutocomplete
+                      label=""
+                      placeholder="Search new drop-off address..."
+                      onSelect={async (addr) => {
+                        setAddressUpdateSent(true);
+                        try {
+                          await fetch(`/api/rides/${rideId}/update-address`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ addressType: 'dropoff', address: addr.address || addr.name, latitude: addr.latitude, longitude: addr.longitude }),
+                          });
+                        } catch { setError('Failed to send address update'); setAddressUpdateSent(false); }
+                      }}
+                      onClear={() => setEditingAddress(null)}
+                    />
+                    {addressUpdateSent && (
+                      <div style={{ fontSize: 11, color: COLORS.orange, marginTop: 6, textAlign: 'center' }}>Waiting for driver to confirm...</div>
+                    )}
+                    <button onClick={() => { setEditingAddress(null); setAddressUpdateSent(false); }}
+                      style={{ marginTop: 6, width: '100%', padding: 6, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: COLORS.gray, fontSize: 12, cursor: 'pointer', fontFamily: FONTS.body }}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <span style={{ color: COLORS.red, fontSize: 10, fontWeight: 700, flexShrink: 0, marginTop: 2, width: 36 }}>DROP</span>
+                    <span style={{ flex: 1, fontSize: 12, lineHeight: 1.3 }}>{dAddr}</span>
+                    {canEdit && (
+                      <button onClick={() => setEditingAddress('dropoff')}
+                        style={{ background: 'none', border: 'none', color: COLORS.orange, fontSize: 11, fontWeight: 600, cursor: 'pointer', flexShrink: 0, padding: '0 2px', fontFamily: FONTS.body }}>
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                )
+              )}
+
+              {/* Navigate Full Trip button — driver only, when not editing */}
+              {isDriver && navUrl && !editingAddress && (
+                <button
+                  type="button"
+                  onClick={() => window.open(navUrl, '_blank')}
+                  style={{
+                    width: '100%', marginTop: 8, padding: '9px 14px', borderRadius: 100,
+                    border: '1px solid rgba(68,138,255,0.3)', background: 'rgba(68,138,255,0.08)',
+                    color: COLORS.blue, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    fontFamily: FONTS.body, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  }}
+                >
+                  <span style={{ fontSize: 14 }}>🧭</span> {navLabel}
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Driver: pending address update from rider */}
         {isDriver && pendingAddressUpdate && (
@@ -1980,7 +2066,6 @@ export default function ActiveRideClient({
                 collapsed={timingCollapsed}
                 onToggle={() => setTimingCollapsed(prev => !prev)}
               />
-              <TappableAddresses ride={ride} />
               {/* Update price option for driver */}
               {!ride.proposedPrice && !priceEditorOpen && (
                 <div style={{ marginBottom: 8 }}>
@@ -2162,7 +2247,6 @@ export default function ActiveRideClient({
                 </div>
               )}
               <StatusMessage text="Heading to rider..." />
-              <TappableAddresses ride={ride} />
               {ride.addOns.length > 0 && renderAddOnSummary()}
               <ActionButton
                 label="I'M HERE"
@@ -4309,99 +4393,6 @@ function CancelButton({ rideId, label, needsApproval, onCancelled }: {
 }
 
 // ── Tappable Addresses for Driver ──
-function TappableAddresses({ ride }: { ride: RideData }) {
-  const hasPickup = ride.pickupAddress || ride.riderLocationText;
-  const hasDropoff = ride.dropoffAddress;
-  const stops = Array.isArray(ride.stops) ? ride.stops as Record<string, unknown>[] : [];
-
-  if (!hasPickup && !hasDropoff) return null;
-
-  function openInMaps(address: string, lat?: number | null, lng?: number | null) {
-    const q = lat && lng ? `${lat},${lng}` : encodeURIComponent(address);
-    // Apple Maps on iOS, Google Maps on Android/desktop
-    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    const url = isIOS
-      ? `maps://maps.apple.com/?q=${q}`
-      : `https://www.google.com/maps/search/?api=1&query=${q}`;
-    window.open(url, '_blank');
-  }
-
-  return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', gap: '6px',
-      padding: '10px 12px', borderRadius: '12px',
-      background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-      marginBottom: '8px',
-    }}>
-      {/* Pickup */}
-      {hasPickup && (
-        <button
-          type="button"
-          onClick={() => openInMaps(ride.pickupAddress || ride.riderLocationText || '', ride.pickupLat, ride.pickupLng)}
-          style={{
-            display: 'flex', alignItems: 'flex-start', gap: '8px',
-            background: 'transparent', border: 'none', cursor: 'pointer',
-            textAlign: 'left', padding: '6px 4px', width: '100%',
-          }}
-        >
-          <span style={{ fontSize: '14px', flexShrink: 0, marginTop: '1px' }}>A</span>
-          <div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: COLORS.green }}>Pickup</div>
-            <div style={{ fontSize: '13px', color: COLORS.white }}>{ride.pickupAddress || ride.riderLocationText}</div>
-          </div>
-          <span style={{ marginLeft: 'auto', color: COLORS.blue, fontSize: '13px', flexShrink: 0 }}>Navigate</span>
-        </button>
-      )}
-
-      {/* Stops */}
-      {stops.map((stop, i) => (
-        <button
-          key={i}
-          type="button"
-          onClick={() => openInMaps((stop.address as string) || (stop.name as string) || '', stop.latitude as number, stop.longitude as number)}
-          style={{
-            display: 'flex', alignItems: 'flex-start', gap: '8px',
-            background: 'transparent', border: 'none', cursor: 'pointer',
-            textAlign: 'left', padding: '6px 4px', width: '100%',
-            borderTop: '1px solid rgba(255,255,255,0.06)',
-          }}
-        >
-          <span style={{ fontSize: '14px', flexShrink: 0, marginTop: '1px' }}>{i + 1}</span>
-          <div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: COLORS.yellow }}>
-              Stop {i + 1}
-              {(stop.verified as boolean) && <span style={{ color: COLORS.green, marginLeft: '6px' }}>Done</span>}
-            </div>
-            <div style={{ fontSize: '13px', color: COLORS.white }}>{(stop.name as string) || (stop.address as string)}</div>
-          </div>
-          <span style={{ marginLeft: 'auto', color: COLORS.blue, fontSize: '13px', flexShrink: 0 }}>Navigate</span>
-        </button>
-      ))}
-
-      {/* Dropoff */}
-      {hasDropoff && (
-        <button
-          type="button"
-          onClick={() => openInMaps(ride.dropoffAddress || '', ride.dropoffLat, ride.dropoffLng)}
-          style={{
-            display: 'flex', alignItems: 'flex-start', gap: '8px',
-            background: 'transparent', border: 'none', cursor: 'pointer',
-            textAlign: 'left', padding: '6px 4px', width: '100%',
-            borderTop: '1px solid rgba(255,255,255,0.06)',
-          }}
-        >
-          <span style={{ fontSize: '14px', flexShrink: 0, marginTop: '1px' }}>B</span>
-          <div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: COLORS.red }}>Drop-off</div>
-            <div style={{ fontSize: '13px', color: COLORS.white }}>{ride.dropoffAddress}</div>
-          </div>
-          <span style={{ marginLeft: 'auto', color: COLORS.blue, fontSize: '13px', flexShrink: 0 }}>Navigate</span>
-        </button>
-      )}
-    </div>
-  );
-}
-
 // ── Ride Analytics Summary (shown post-ride for drivers) ──
 function RideAnalyticsSummary({ rideId, payout }: { rideId: string; payout: number }) {
   const [analytics, setAnalytics] = useState<{
