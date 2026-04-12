@@ -1,0 +1,192 @@
+'use client';
+
+import { useEffect, useState, useRef } from 'react';
+import Link from 'next/link';
+import { AdminSheet } from './admin-sheet';
+
+type DrillType = 'matched' | 'active' | 'completed' | 'cancelled' | 'disputed' | 'revenue' | 'unconverted' | 'drivers' | null;
+
+interface DrillDownSheetProps {
+  type: DrillType;
+  onClose: () => void;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Item = Record<string, any>;
+
+const TITLES: Record<string, { title: string; subtitle: string }> = {
+  matched: { title: 'Matched Rides', subtitle: 'Live rides waiting for driver to go OTW' },
+  active: { title: 'Active Rides', subtitle: 'Rides currently in progress (OTW, Here, Confirming, Active)' },
+  completed: { title: 'Completed Rides', subtitle: 'All completed and ended rides' },
+  cancelled: { title: 'Cancelled Rides', subtitle: 'All cancelled rides' },
+  disputed: { title: 'Disputed Rides', subtitle: 'Rides with open or resolved disputes' },
+  revenue: { title: 'Revenue Breakdown', subtitle: 'Completed rides sorted by price' },
+  unconverted: { title: 'Unconverted Users', subtitle: 'Signed up but no completed ride yet' },
+  drivers: { title: 'Active Drivers', subtitle: 'Drivers currently on a ride' },
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  matched: 'text-blue-400',
+  otw: 'text-orange-400',
+  here: 'text-yellow-400',
+  confirming: 'text-yellow-400',
+  active: 'text-emerald-400',
+  completed: 'text-emerald-400',
+  ended: 'text-neutral-400',
+  cancelled: 'text-red-400',
+  disputed: 'text-orange-400',
+};
+
+function timeAgo(d: string): string {
+  const mins = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+function fmt(n: number): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+}
+
+export function DrillDownSheet({ type, onClose }: DrillDownSheetProps) {
+  const [items, setItems] = useState<Item[]>([]);
+  const [loading, setLoading] = useState(false);
+  const lastType = useRef<DrillType>(null);
+
+  useEffect(() => {
+    if (!type) return;
+    if (type === lastType.current && items.length > 0) return;
+    lastType.current = type;
+    setLoading(true);
+    fetch(`/api/admin/drilldown?type=${type}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.items) setItems(data.items); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [type]);
+
+  // Reset when closed
+  useEffect(() => {
+    if (!type) { setItems([]); lastType.current = null; }
+  }, [type]);
+
+  const info = type ? TITLES[type] : { title: '', subtitle: '' };
+
+  return (
+    <AdminSheet open={!!type} onClose={onClose} title={info.title} subtitle={info.subtitle}>
+      {loading ? (
+        <div className="p-6 text-center text-neutral-500 text-sm">Loading...</div>
+      ) : items.length === 0 ? (
+        <div className="p-6 text-center text-neutral-600 text-sm">No data</div>
+      ) : (
+        <div className="divide-y divide-neutral-800/50">
+          {type === 'unconverted'
+            ? items.map((item) => <UserRow key={item.id} item={item} />)
+            : type === 'drivers'
+              ? items.map((item, i) => <DriverRow key={i} item={item} />)
+              : items.map((item) => <RideRow key={item.id} item={item} type={type!} />)
+          }
+        </div>
+      )}
+    </AdminSheet>
+  );
+}
+
+function RideRow({ item, type }: { item: Item; type: string }) {
+  return (
+    <Link href={`/ride/${item.id}`} className="block px-5 py-3 hover:bg-neutral-900/50 transition-colors">
+      {/* Top line: people + price */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <span className="text-sm font-semibold text-white truncate">{item.driverName}</span>
+          <span className="text-neutral-600 text-xs flex-shrink-0">→</span>
+          <span className="text-sm text-neutral-300 truncate">{item.riderName}</span>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {item.isCash && (
+            <span className="text-[9px] font-bold text-yellow-400 bg-yellow-400/15 px-1.5 py-0.5 rounded-full">CASH</span>
+          )}
+          <span className="text-emerald-400 font-mono font-bold text-sm">{fmt(item.price)}</span>
+        </div>
+      </div>
+
+      {/* Second line: ref + status + time */}
+      <div className="flex items-center gap-2 mt-1 text-[11px]">
+        {item.refCode && (
+          <span className="text-emerald-400 font-mono font-medium">{item.refCode}</span>
+        )}
+        <span className={STATUS_COLORS[item.status] || 'text-neutral-500'}>
+          {item.status}
+        </span>
+        <span className="text-neutral-600">{timeAgo(item.createdAt)}</span>
+      </div>
+
+      {/* Addresses */}
+      {(item.pickup || item.dropoff) && (
+        <div className="mt-1.5 text-[11px] text-neutral-500 space-y-0.5">
+          {item.pickup && <div className="truncate"><span className="text-emerald-600 font-bold">A</span> {item.pickup}</div>}
+          {item.dropoff && <div className="truncate"><span className="text-red-600 font-bold">B</span> {item.dropoff}</div>}
+        </div>
+      )}
+
+      {/* Revenue rows get payout breakdown */}
+      {type === 'revenue' && item.driverPayout != null && (
+        <div className="mt-1.5 flex gap-4 text-[10px] text-neutral-500">
+          <span>Driver: {fmt(item.driverPayout)}</span>
+          <span>Fee: {fmt(item.platformFee ?? 0)}</span>
+        </div>
+      )}
+    </Link>
+  );
+}
+
+function UserRow({ item }: { item: Item }) {
+  return (
+    <div className="px-5 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-white">{item.name}</span>
+            {item.handle && <span className="text-xs text-neutral-500">@{item.handle}</span>}
+          </div>
+          <div className="flex items-center gap-2 mt-1 text-[11px] text-neutral-500">
+            <span className={item.profileType === 'driver' ? 'text-emerald-400' : 'text-blue-400'}>
+              {item.profileType}
+            </span>
+            <span>{item.accountStatus}</span>
+            <span>Joined {timeAgo(item.createdAt)}</span>
+          </div>
+        </div>
+        {item.phone && (
+          <a href={`tel:${item.phone}`} className="text-xs text-blue-400 flex-shrink-0 hover:underline">
+            Call
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DriverRow({ item }: { item: Item }) {
+  return (
+    <Link href={`/ride/${item.rideId}`} className="block px-5 py-3 hover:bg-neutral-900/50 transition-colors">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-white">{item.name}</span>
+            {item.handle && <span className="text-xs text-neutral-500">@{item.handle}</span>}
+          </div>
+          <div className="flex items-center gap-2 mt-1 text-[11px]">
+            <span className={STATUS_COLORS[item.status] || 'text-neutral-500'}>{item.status}</span>
+            <span className="text-neutral-600">→ {item.riderName}</span>
+            {item.refCode && <span className="text-emerald-400 font-mono">{item.refCode}</span>}
+          </div>
+        </div>
+        <span className="text-emerald-400 font-mono font-bold text-sm flex-shrink-0">{fmt(item.price)}</span>
+      </div>
+    </Link>
+  );
+}
