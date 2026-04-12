@@ -10,7 +10,7 @@ import { NewUsersSheet } from './new-users-sheet';
 
 interface Stats {
   rides: { matched: number; active: number; completed: number; cancelled: number; disputed: number };
-  revenue: { totalCaptured: number; platformFees: number; feesWaived: number };
+  revenue: { totalCaptured: number; platformFees: number; feesWaived: number; allTimeCaptured: number; allTimeRides: number };
   users: { newRiders: number; newDrivers: number };
   drivers: { onRide: number };
 }
@@ -159,7 +159,11 @@ export function LiveOpsDashboard() {
         <StatCard
           label="Revenue"
           value={fmt(stats?.revenue.totalCaptured ?? 0)}
-          subtitle={`Fees: ${fmt(stats?.revenue.platformFees ?? 0)}`}
+          subtitle={
+            (stats?.revenue.totalCaptured ?? 0) > 0
+              ? `Fees: ${fmt(stats?.revenue.platformFees ?? 0)}`
+              : `All-time: ${fmt(stats?.revenue.allTimeCaptured ?? 0)} (${stats?.revenue.allTimeRides ?? 0} rides)`
+          }
           color="green"
         />
         <button
