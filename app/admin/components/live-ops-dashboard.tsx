@@ -9,9 +9,9 @@ import { useMarket } from './market-context';
 import { NewUsersSheet } from './new-users-sheet';
 
 interface Stats {
-  rides: { matched: number; active: number; completed: number; cancelled: number; disputed: number };
-  revenue: { totalCaptured: number; platformFees: number; feesWaived: number; allTimeCaptured: number; allTimeRides: number };
-  users: { newRiders: number; newDrivers: number };
+  rides: { matched: number; active: number; completed: number; cancelled: number; disputed: number; total: number };
+  revenue: { totalCaptured: number; platformFees: number; feesWaived: number };
+  users: { unconvertedRiders: number; unconvertedDrivers: number; unconvertedTotal: number };
   drivers: { onRide: number };
 }
 
@@ -144,33 +144,42 @@ export function LiveOpsDashboard() {
         </span>
       </div>
 
-      {/* Today's Stats */}
+      {/* Live + Lifetime Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <StatCard
           label="Matched"
           value={stats?.rides.matched ?? 0}
+          subtitle="Live now"
           color="blue"
         />
         <StatCard
           label="Active"
           value={stats?.rides.active ?? 0}
+          subtitle="Live now"
           color="green"
         />
         <StatCard
           label="Completed"
           value={stats?.rides.completed ?? 0}
+          subtitle={`${stats?.rides.total ?? 0} total rides`}
           color="white"
         />
         <StatCard
           label="Revenue"
           value={fmt(stats?.revenue.totalCaptured ?? 0)}
-          subtitle={
-            (stats?.revenue.totalCaptured ?? 0) > 0
-              ? `Fees: ${fmt(stats?.revenue.platformFees ?? 0)}`
-              : `All-time: ${fmt(stats?.revenue.allTimeCaptured ?? 0)} (${stats?.revenue.allTimeRides ?? 0} rides)`
-          }
+          subtitle={`Fees: ${fmt(stats?.revenue.platformFees ?? 0)}`}
           color="green"
         />
+        <StatCard
+          label="Unconverted"
+          value={stats?.users.unconvertedTotal ?? 0}
+          subtitle={`${stats?.users.unconvertedRiders ?? 0} R / ${stats?.users.unconvertedDrivers ?? 0} D — no ride yet`}
+          color="yellow"
+        />
+      </div>
+
+      {/* New users since last visit + incomplete signups */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button
           type="button"
           disabled={!newSince || newSince.newUsers.total === 0}
@@ -184,25 +193,21 @@ export function LiveOpsDashboard() {
             color="blue"
           />
         </button>
-      </div>
-
-      {/* Incomplete Signups — separate outreach bucket, all-time */}
-      {newSince && newSince.incomplete.total > 0 && (
-        <div>
+        {newSince && newSince.incomplete.total > 0 && (
           <button
             type="button"
             onClick={() => setSheetBucket('incomplete')}
             className="text-left cursor-pointer"
           >
             <StatCard
-              label="Incomplete Signups (outreach queue)"
+              label="Incomplete Signups"
               value={newSince.incomplete.total}
               subtitle={`${newSince.incomplete.riders} R / ${newSince.incomplete.drivers} D · click to reach out`}
               color="yellow"
             />
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       <NewUsersSheet
         open={sheetBucket !== null}
