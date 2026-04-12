@@ -8,7 +8,7 @@ export async function GET() {
   if (!admin) return unauthorizedResponse();
 
   const rows = await sql`
-    SELECT notification_type, enabled, admin_phone, excluded_user_ids, updated_at
+    SELECT notification_type, enabled, admin_phone, excluded_user_ids, signup_after, exclude_before, updated_at
     FROM admin_notification_config
     ORDER BY notification_type
   `;
@@ -19,6 +19,8 @@ export async function GET() {
       enabled: r.enabled,
       adminPhone: r.admin_phone,
       excludedUserIds: r.excluded_user_ids || [],
+      signupAfter: r.signup_after || null,
+      excludeBefore: r.exclude_before || null,
       updatedAt: r.updated_at,
     })),
   });
@@ -29,22 +31,26 @@ export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
 
-  const { type, enabled, adminPhone, excludedUserIds } = await req.json() as {
+  const { type, enabled, adminPhone, excludedUserIds, signupAfter, excludeBefore } = await req.json() as {
     type: string;
     enabled?: boolean;
     adminPhone?: string | null;
     excludedUserIds?: string[];
+    signupAfter?: string | null;
+    excludeBefore?: string | null;
   };
 
   if (!type) return NextResponse.json({ error: 'type required' }, { status: 400 });
 
   await sql`
-    INSERT INTO admin_notification_config (notification_type, enabled, admin_phone, excluded_user_ids)
-    VALUES (${type}, ${enabled ?? true}, ${adminPhone ?? null}, ${excludedUserIds ?? []})
+    INSERT INTO admin_notification_config (notification_type, enabled, admin_phone, excluded_user_ids, signup_after, exclude_before)
+    VALUES (${type}, ${enabled ?? true}, ${adminPhone ?? null}, ${excludedUserIds ?? []}, ${signupAfter ?? null}, ${excludeBefore ?? null})
     ON CONFLICT (notification_type) DO UPDATE SET
       enabled = COALESCE(${enabled ?? null}::boolean, admin_notification_config.enabled),
       admin_phone = CASE WHEN ${adminPhone !== undefined} THEN ${adminPhone ?? null} ELSE admin_notification_config.admin_phone END,
       excluded_user_ids = CASE WHEN ${excludedUserIds !== undefined} THEN ${excludedUserIds ?? []}::text[] ELSE admin_notification_config.excluded_user_ids END,
+      signup_after = CASE WHEN ${signupAfter !== undefined} THEN ${signupAfter ?? null}::date ELSE admin_notification_config.signup_after END,
+      exclude_before = CASE WHEN ${excludeBefore !== undefined} THEN ${excludeBefore ?? null}::date ELSE admin_notification_config.exclude_before END,
       updated_at = NOW()
   `;
 

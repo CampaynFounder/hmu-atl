@@ -7,6 +7,8 @@ interface NotifConfig {
   enabled: boolean;
   adminPhone: string | null;
   excludedUserIds: string[];
+  signupAfter: string | null;
+  excludeBefore: string | null;
   updatedAt: string;
 }
 
@@ -20,6 +22,16 @@ const TYPE_LABELS: Record<string, { label: string; description: string; emoji: s
     label: 'New Rider Signup',
     description: 'SMS when a new rider completes phone verification',
     emoji: '🧑',
+  },
+  driver_first_return: {
+    label: 'Driver First Return',
+    description: 'SMS when a driver signs in for the first time after signup day',
+    emoji: '🔄',
+  },
+  rider_first_return: {
+    label: 'Rider First Return',
+    description: 'SMS when a rider signs in for the first time after signup day',
+    emoji: '🔄',
   },
 };
 
@@ -37,10 +49,10 @@ export default function AdminNotificationsClient() {
       .then(data => {
         if (data?.configs) {
           setConfigs(data.configs);
-          // Set phone from first config that has one
           const withPhone = data.configs.find((c: NotifConfig) => c.adminPhone);
           if (withPhone) setPhoneInput(withPhone.adminPhone);
         }
+        // Note: signupAfter and excludeBefore come from the API configs
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -167,6 +179,48 @@ export default function AdminNotificationsClient() {
                   }}
                 />
               </button>
+            </div>
+
+            {/* Date filters */}
+            <div className="mt-3 pt-3 border-t border-neutral-800 space-y-3">
+              <div>
+                <div className="text-xs font-medium text-neutral-400 mb-1.5">Only notify for signups after</div>
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={config.signupAfter || ''}
+                    onChange={e => updateConfig(config.type, { signupAfter: e.target.value || null } as Partial<NotifConfig>)}
+                    className="flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-neutral-600 [color-scheme:dark]"
+                  />
+                  {config.signupAfter && (
+                    <button
+                      onClick={() => updateConfig(config.type, { signupAfter: null } as Partial<NotifConfig>)}
+                      className="px-2 text-xs text-red-400 hover:text-red-300"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs font-medium text-neutral-400 mb-1.5">Exclude signups before</div>
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={config.excludeBefore || ''}
+                    onChange={e => updateConfig(config.type, { excludeBefore: e.target.value || null } as Partial<NotifConfig>)}
+                    className="flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-neutral-600 [color-scheme:dark]"
+                  />
+                  {config.excludeBefore && (
+                    <button
+                      onClick={() => updateConfig(config.type, { excludeBefore: null } as Partial<NotifConfig>)}
+                      className="px-2 text-xs text-red-400 hover:text-red-300"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Exclusion list */}

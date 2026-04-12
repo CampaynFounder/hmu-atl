@@ -6,6 +6,7 @@ import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import { WebhookEvent } from '@clerk/nextjs/server';
 import { createUser, updateUser, deleteUser, getUserByClerkId, resolveDriverHandleToUserId } from '@/lib/db/users';
+import { sql } from '@/lib/db/client';
 import { notifyAdminSms } from '@/lib/admin/notify';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 import type { ProfileType } from '@/lib/db/types';
@@ -195,6 +196,61 @@ export async function POST(req: Request) {
       return new Response('User deleted', { status: 200 });
     } catch (error) {
       console.error('[WEBHOOK] user.deleted error:', error);
+      return new Response('Internal server error', { status: 500 });
+    }
+  }
+
+  // session.created: track sign-in for activation metrics + first-return notifications
+  if (eventType === 'session.created') {
+    try {
+      const data = evt.data as { user_id?: string };
+      const clerkId = data.user_id;
+      if (!clerkId) return new Response('No user_id on session', { status: 200 });
+
+      // Update sign-in tracking
+      const rows = await sql`
+        UPDATE users SET
+          last_sign_in_at = NOW(),
+          sign_in_count = COALESCE(sign_in_count, 0) + 1,
+          first_return_at = CASE
+            WHEN first_return_at IS NULL AND created_at::date < CURRENT_DATE
+            THEN NOW()
+            ELSE first_return_at
+          END
+        WHERE clerk_id = ${clerkId}
+        RETURNING id, profile_type, first_return_at, sign_in_count, created_at
+      `;
+
+      if (rows.length > 0) {
+        const user = rows[0] as { id: string; profile_type: string; first_return_at: string | null; sign_in_count: number; created_at: string };
+
+        // Fire first-return notification if this is the first return (sign_in_count = 1 after signup day)
+        if (user.sign_in_count === 1 && user.first_return_at) {
+          const notifType = user.profile_type === 'driver' ? 'driver_first_return' : 'rider_first_return';
+          // Get user details for the SMS
+          const profileRows = await sql`
+            SELECT COALESCE(dp.display_name, rp.display_name, rp.first_name) as name,
+                   COALESCE(dp.phone, rp.phone) as phone
+            FROM users u
+            LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+            LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+            WHERE u.id = ${user.id} LIMIT 1
+          `;
+          const profile = (profileRows[0] || {}) as { name?: string; phone?: string };
+          const name = profile.name || 'User';
+          const phone = profile.phone || '';
+          const emoji = user.profile_type === 'driver' ? '🚗' : '🧑';
+          notifyAdminSms(
+            notifType,
+            `${emoji} First return: ${name} (${phone}) — ${user.profile_type} signed in for the first time since signup`,
+            { clerkId, userId: user.id },
+          ).catch(() => {});
+        }
+      }
+
+      return new Response('Session tracked', { status: 200 });
+    } catch (error) {
+      console.error('[WEBHOOK] session.created error:', error);
       return new Response('Internal server error', { status: 500 });
     }
   }
