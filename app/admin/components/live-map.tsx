@@ -65,7 +65,11 @@ function timeAgo(dateStr: string): string {
 export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<unknown>(null);
-  const markersRef = useRef<Map<string, unknown>>(new Map());
+  // Markers: each ride has up to 3 markers (pickup, dropoff, driver) and a route line
+  const markersRef = useRef<Map<string, unknown>>(new Map()); // driver/main markers
+  const pickupMarkersRef = useRef<Map<string, unknown>>(new Map());
+  const dropoffMarkersRef = useRef<Map<string, unknown>>(new Map());
+  const routeLinesRef = useRef<Set<string>>(new Set()); // track which ride route sources exist
   const [selectedRide, setSelectedRide] = useState<ActiveRide | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState(false);
@@ -158,76 +162,161 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mapboxgl = (window as any).mapboxgl;
     if (!mapboxgl) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const map = mapRef.current as any;
 
     const filteredRides = rides.filter(r => statusFilter.has(r.status));
-
-    // Track which ride IDs are still present
     const activeIds = new Set<string>();
 
     filteredRides.forEach((ride) => {
-      // Use live GPS position if available, otherwise API data
-      const live = livePositions.current.get(ride.id);
-      const lat = live?.lat ?? ride.lastLat;
-      const lng = live?.lng ?? ride.lastLng;
-      if (!lat || !lng) return;
+      const color = STATUS_COLORS[ride.status] ?? '#ffffff';
+      const hasPickup = ride.pickupLat && ride.pickupLng;
+      const hasDropoff = ride.dropoffLat && ride.dropoffLng;
+      if (!hasPickup && !hasDropoff) return;
 
       activeIds.add(ride.id);
 
+      // Live driver GPS position
+      const live = livePositions.current.get(ride.id);
+      const driverLat = live?.lat ?? (ride.hasLiveGps ? ride.lastLat : null);
+      const driverLng = live?.lng ?? (ride.hasLiveGps ? ride.lastLng : null);
+      const hasDriver = driverLat && driverLng;
       const isStale = ride.hasLiveGps && ride.lastGpsAt
         ? Date.now() - new Date(ride.lastGpsAt).getTime() > STALE_THRESHOLD_MS
         : false;
-      const color = isStale ? STALE_COLOR : (STATUS_COLORS[ride.status] ?? '#ffffff');
-      const isMoving = ride.hasLiveGps && ['otw', 'active'].includes(ride.status);
 
-      const existing = markersRef.current.get(ride.id);
-      if (existing) {
-        // Update position and element
-        (existing as { setLngLat(coords: [number, number]): void }).setLngLat([lng, lat]);
-        const el = (existing as { getElement(): HTMLDivElement }).getElement();
-        el.style.background = color;
-        el.style.boxShadow = `0 0 ${isMoving ? '12' : '8'}px ${color}80`;
-        el.textContent = isMoving ? '🚗' : '';
-        el.style.fontSize = isMoving ? '16px' : '0';
-        el.style.animation = ride.status === 'here' ? 'adminPulse 1.5s infinite' : 'none';
-        return;
+      // ── Pickup marker (A) — green circle ──
+      if (hasPickup) {
+        const existing = pickupMarkersRef.current.get(ride.id);
+        if (!existing) {
+          const el = document.createElement('div');
+          el.style.cssText = `
+            width: 12px; height: 12px; border-radius: 50%;
+            background: transparent; border: 3px solid #22c55e;
+            cursor: pointer;
+          `;
+          el.addEventListener('click', (e) => { e.stopPropagation(); setSelectedRide(ride); });
+          const m = new mapboxgl.Marker({ element: el })
+            .setLngLat([ride.pickupLng, ride.pickupLat])
+            .addTo(map);
+          pickupMarkersRef.current.set(ride.id, m);
+        }
       }
 
-      // Create new marker
-      const el = document.createElement('div');
-      el.style.cssText = `
-        width: ${isMoving ? '28px' : '14px'};
-        height: ${isMoving ? '28px' : '14px'};
-        border-radius: 50%;
-        background: ${color};
-        border: 2px solid rgba(255,255,255,0.6);
-        cursor: pointer;
-        box-shadow: 0 0 ${isMoving ? '12' : '8'}px ${color}80;
-        display: flex; align-items: center; justify-content: center;
-        font-size: ${isMoving ? '16px' : '0'};
-        line-height: 1;
-        transition: all 0.3s ease;
-        ${ride.status === 'here' ? 'animation: adminPulse 1.5s infinite;' : ''}
-      `;
-      if (isMoving) el.textContent = '🚗';
+      // ── Dropoff marker (B) — red square ──
+      if (hasDropoff) {
+        const existing = dropoffMarkersRef.current.get(ride.id);
+        if (!existing) {
+          const el = document.createElement('div');
+          el.style.cssText = `
+            width: 10px; height: 10px; border-radius: 2px;
+            background: #ef4444; border: 2px solid rgba(255,255,255,0.5);
+            cursor: pointer;
+          `;
+          el.addEventListener('click', (e) => { e.stopPropagation(); setSelectedRide(ride); });
+          const m = new mapboxgl.Marker({ element: el })
+            .setLngLat([ride.dropoffLng, ride.dropoffLat])
+            .addTo(map);
+          dropoffMarkersRef.current.set(ride.id, m);
+        }
+      }
 
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        setSelectedRide(ride);
-      });
+      // ── Driver marker (🚗) — only when live GPS exists ──
+      if (hasDriver) {
+        const existing = markersRef.current.get(ride.id);
+        const driverColor = isStale ? STALE_COLOR : color;
+        if (existing) {
+          (existing as { setLngLat(c: [number, number]): void }).setLngLat([driverLng!, driverLat!]);
+          const el = (existing as { getElement(): HTMLDivElement }).getElement();
+          el.style.background = driverColor;
+          el.style.boxShadow = `0 0 12px ${driverColor}80`;
+        } else {
+          const el = document.createElement('div');
+          el.style.cssText = `
+            width: 28px; height: 28px; border-radius: 50%;
+            background: ${driverColor}; border: 2px solid rgba(255,255,255,0.7);
+            cursor: pointer; box-shadow: 0 0 12px ${driverColor}80;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px; line-height: 1; transition: all 0.3s ease;
+            z-index: 2;
+          `;
+          el.textContent = '🚗';
+          el.addEventListener('click', (e) => { e.stopPropagation(); setSelectedRide(ride); });
+          const m = new mapboxgl.Marker({ element: el })
+            .setLngLat([driverLng!, driverLat!])
+            .addTo(map);
+          markersRef.current.set(ride.id, m);
+        }
+      }
 
-      const marker = new mapboxgl.Marker({ element: el })
-        .setLngLat([lng, lat])
-        .addTo(mapRef.current);
+      // ── Route line: pickup → (driver) → dropoff ──
+      const lineId = `route-${ride.id}`;
+      const coords: [number, number][] = [];
+      if (hasPickup) coords.push([ride.pickupLng!, ride.pickupLat!]);
+      if (hasDriver) coords.push([driverLng!, driverLat!]);
+      if (hasDropoff) coords.push([ride.dropoffLng!, ride.dropoffLat!]);
 
-      markersRef.current.set(ride.id, marker);
+      if (coords.length >= 2) {
+        const geojson = {
+          type: 'Feature' as const,
+          properties: {},
+          geometry: { type: 'LineString' as const, coordinates: coords },
+        };
+
+        if (routeLinesRef.current.has(lineId)) {
+          // Update existing line
+          const src = map.getSource(lineId);
+          if (src) src.setData(geojson);
+        } else {
+          // Add new source + layer
+          try {
+            map.addSource(lineId, { type: 'geojson', data: geojson });
+            map.addLayer({
+              id: lineId,
+              type: 'line',
+              source: lineId,
+              layout: { 'line-cap': 'round', 'line-join': 'round' },
+              paint: {
+                'line-color': color,
+                'line-width': 2,
+                'line-opacity': 0.4,
+                'line-dasharray': [2, 3],
+              },
+            });
+            routeLinesRef.current.add(lineId);
+          } catch { /* source may already exist from rapid re-render */ }
+        }
+      }
     });
 
-    // Remove markers for rides no longer in the list
+    // Remove markers and lines for rides no longer in the list
     for (const [id, marker] of markersRef.current) {
       if (!activeIds.has(id)) {
         (marker as { remove(): void }).remove();
         markersRef.current.delete(id);
         livePositions.current.delete(id);
+      }
+    }
+    for (const [id, marker] of pickupMarkersRef.current) {
+      if (!activeIds.has(id)) {
+        (marker as { remove(): void }).remove();
+        pickupMarkersRef.current.delete(id);
+      }
+    }
+    for (const [id, marker] of dropoffMarkersRef.current) {
+      if (!activeIds.has(id)) {
+        (marker as { remove(): void }).remove();
+        dropoffMarkersRef.current.delete(id);
+      }
+    }
+    for (const lineId of routeLinesRef.current) {
+      const rideId = lineId.replace('route-', '');
+      if (!activeIds.has(rideId)) {
+        try {
+          if (map.getLayer(lineId)) map.removeLayer(lineId);
+          if (map.getSource(lineId)) map.removeSource(lineId);
+        } catch { /* ignore */ }
+        routeLinesRef.current.delete(lineId);
       }
     }
   }, [rides, mapLoaded, statusFilter]);
@@ -387,12 +476,24 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
       {/* Legend */}
       <div className="absolute top-3 right-3 bg-neutral-900/90 backdrop-blur rounded-lg p-2 text-[10px] space-y-1">
         <div className="flex items-center gap-1.5">
-          <span style={{ fontSize: '12px' }}>🚗</span>
-          <span className="text-neutral-400">Moving driver</span>
+          <span className="w-2.5 h-2.5 rounded-full border-2 border-green-500" style={{ background: 'transparent' }} />
+          <span className="text-neutral-400">Pickup</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-sm" style={{ background: '#ef4444' }} />
+          <span className="text-neutral-400">Drop-off</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span style={{ fontSize: '11px' }}>🚗</span>
+          <span className="text-neutral-400">Driver (live GPS)</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full" style={{ background: STALE_COLOR }} />
           <span className="text-neutral-400">Stale GPS (&gt;90s)</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-4 border-t border-dashed border-neutral-500" />
+          <span className="text-neutral-400">Route line</span>
         </div>
       </div>
 
