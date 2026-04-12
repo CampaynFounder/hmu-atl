@@ -10,58 +10,92 @@ export async function GET(req: NextRequest) {
   const marketId = req.nextUrl.searchParams.get('marketId');
   const today = new Date().toISOString().split('T')[0];
 
-  // Split queries: live counts (no date filter) vs daily metrics (today only)
-  const marketFilter = marketId ? sql`AND market_id = ${marketId}` : sql``;
-
   const [liveStats, dailyStats, revenueStats, allTimeRevenue, userStats, driverStats] = await Promise.all([
     // Live ride counts — currently active regardless of when created
-    sql`
+    marketId ? sql`
       SELECT
         COUNT(*) FILTER (WHERE status = 'matched') as matched,
         COUNT(*) FILTER (WHERE status IN ('active', 'otw', 'here', 'confirming')) as active
       FROM rides
-      WHERE status IN ('matched', 'active', 'otw', 'here', 'confirming') ${marketFilter}
+      WHERE status IN ('matched', 'active', 'otw', 'here', 'confirming') AND market_id = ${marketId}
+    ` : sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'matched') as matched,
+        COUNT(*) FILTER (WHERE status IN ('active', 'otw', 'here', 'confirming')) as active
+      FROM rides
+      WHERE status IN ('matched', 'active', 'otw', 'here', 'confirming')
     `,
     // Daily completed/cancelled/disputed — today only
-    sql`
+    marketId ? sql`
       SELECT
         COUNT(*) FILTER (WHERE status = 'completed') as completed,
         COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled,
         COUNT(*) FILTER (WHERE status = 'disputed') as disputed
       FROM rides
-      WHERE created_at::date = ${today}::date ${marketFilter}
+      WHERE created_at::date = ${today}::date AND market_id = ${marketId}
+    ` : sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'completed') as completed,
+        COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled,
+        COUNT(*) FILTER (WHERE status = 'disputed') as disputed
+      FROM rides
+      WHERE created_at::date = ${today}::date
     `,
     // Today's revenue
-    sql`
+    marketId ? sql`
       SELECT
         COALESCE(SUM(COALESCE(final_agreed_price, amount)), 0) as total_captured,
         COALESCE(SUM(COALESCE(platform_fee_amount, 0)), 0) as platform_fees,
         COALESCE(SUM(COALESCE(waived_fee_amount, 0)), 0) as fees_waived
       FROM rides
-      WHERE status IN ('completed', 'ended') AND created_at::date = ${today}::date ${marketFilter}
+      WHERE status IN ('completed', 'ended') AND created_at::date = ${today}::date AND market_id = ${marketId}
+    ` : sql`
+      SELECT
+        COALESCE(SUM(COALESCE(final_agreed_price, amount)), 0) as total_captured,
+        COALESCE(SUM(COALESCE(platform_fee_amount, 0)), 0) as platform_fees,
+        COALESCE(SUM(COALESCE(waived_fee_amount, 0)), 0) as fees_waived
+      FROM rides
+      WHERE status IN ('completed', 'ended') AND created_at::date = ${today}::date
     `,
-    // All-time revenue (for context)
-    sql`
+    // All-time revenue
+    marketId ? sql`
       SELECT
         COALESCE(SUM(COALESCE(final_agreed_price, amount)), 0) as total_captured,
         COUNT(*) as total_rides
       FROM rides
-      WHERE status IN ('completed', 'ended') ${marketFilter}
+      WHERE status IN ('completed', 'ended') AND market_id = ${marketId}
+    ` : sql`
+      SELECT
+        COALESCE(SUM(COALESCE(final_agreed_price, amount)), 0) as total_captured,
+        COUNT(*) as total_rides
+      FROM rides
+      WHERE status IN ('completed', 'ended')
     `,
     // New users today
-    sql`
+    marketId ? sql`
       SELECT
         COUNT(*) FILTER (WHERE profile_type = 'rider') as new_riders,
         COUNT(*) FILTER (WHERE profile_type = 'driver') as new_drivers
       FROM users
-      WHERE created_at::date = ${today}::date ${marketFilter}
+      WHERE created_at::date = ${today}::date AND market_id = ${marketId}
+    ` : sql`
+      SELECT
+        COUNT(*) FILTER (WHERE profile_type = 'rider') as new_riders,
+        COUNT(*) FILTER (WHERE profile_type = 'driver') as new_drivers
+      FROM users
+      WHERE created_at::date = ${today}::date
     `,
     // Drivers currently on a ride (live)
-    sql`
+    marketId ? sql`
       SELECT
         COUNT(DISTINCT driver_id) as on_ride
       FROM rides
-      WHERE status IN ('matched', 'otw', 'here', 'confirming', 'active') ${marketFilter}
+      WHERE status IN ('matched', 'otw', 'here', 'confirming', 'active') AND market_id = ${marketId}
+    ` : sql`
+      SELECT
+        COUNT(DISTINCT driver_id) as on_ride
+      FROM rides
+      WHERE status IN ('matched', 'otw', 'here', 'confirming', 'active')
     `,
   ]);
 
