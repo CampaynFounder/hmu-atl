@@ -19,12 +19,26 @@ interface ActiveRide {
   id: string;
   status: string;
   price: number;
+  isCash: boolean;
+  pickupAddress: string | null;
+  dropoffAddress: string | null;
+  pickupLat: number | null;
+  pickupLng: number | null;
+  dropoffLat: number | null;
+  dropoffLng: number | null;
   driverName: string;
+  driverHandle: string | null;
   riderName: string;
+  riderHandle: string | null;
   lastLat: number | null;
   lastLng: number | null;
   lastGpsAt: string | null;
+  hasLiveGps: boolean;
   createdAt: string;
+  updatedAt: string;
+  otwAt: string | null;
+  hereAt: string | null;
+  startedAt: string | null;
 }
 
 interface Alert {
@@ -196,7 +210,7 @@ export function LiveOpsDashboard() {
               <h2 className="text-sm font-semibold">Active Rides Map</h2>
               <span className="text-xs text-neutral-500">{rides.length} ride{rides.length !== 1 ? 's' : ''}</span>
             </div>
-            <LiveMap rides={rides} />
+            <LiveMap rides={rides} onRidesRefresh={fetchAll} />
           </div>
         </div>
 

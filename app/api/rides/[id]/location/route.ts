@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-import { publishRideUpdate } from '@/lib/ably/server';
+import { publishRideUpdate, publishAdminEvent } from '@/lib/ably/server';
 
 export async function POST(
   req: NextRequest,
@@ -39,7 +39,10 @@ export async function POST(
     `;
 
     // Publish location to ride channel for real-time map
-    await publishRideUpdate(rideId, 'location', { userId, lat, lng, timestamp: Date.now() }).catch(() => {});
+    const ts = Date.now();
+    await publishRideUpdate(rideId, 'location', { userId, lat, lng, timestamp: ts }).catch(() => {});
+    // Also publish to admin feed for live ops map
+    await publishAdminEvent('driver_location', { rideId, lat, lng, timestamp: ts }).catch(() => {});
 
     // Background stop tracking — auto-mark stops as reached when within ~300ft
     const rideStatus = (rideRows[0] as Record<string, unknown>).status;

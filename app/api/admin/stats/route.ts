@@ -36,14 +36,14 @@ export async function GET(req: NextRequest) {
         COALESCE(SUM(COALESCE(platform_fee_amount, 0)), 0) as platform_fees,
         COALESCE(SUM(COALESCE(waived_fee_amount, 0)), 0) as fees_waived
       FROM rides
-      WHERE status = 'completed' AND created_at::date = ${today}::date AND market_id = ${marketId}
+      WHERE status IN ('completed', 'ended') AND created_at::date = ${today}::date AND market_id = ${marketId}
     ` : sql`
       SELECT
         COALESCE(SUM(COALESCE(final_agreed_price, amount)), 0) as total_captured,
         COALESCE(SUM(COALESCE(platform_fee_amount, 0)), 0) as platform_fees,
         COALESCE(SUM(COALESCE(waived_fee_amount, 0)), 0) as fees_waived
       FROM rides
-      WHERE status = 'completed' AND created_at::date = ${today}::date
+      WHERE status IN ('completed', 'ended') AND created_at::date = ${today}::date
     `,
     marketId ? sql`
       SELECT
