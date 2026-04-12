@@ -1,6 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
+
+const StripeEmbedded = dynamic(() => import('@/app/driver/payout-setup/stripe-embedded'), { ssr: false });
 
 interface Props {
   payoutSetupComplete: boolean;
@@ -11,6 +15,7 @@ interface Props {
 }
 
 export default function PayoutSection({ payoutSetupComplete, last4, accountType, bankName, tier }: Props) {
+  const [managing, setManaging] = useState(false);
 
   return (
     <>
@@ -82,9 +87,19 @@ export default function PayoutSection({ payoutSetupComplete, last4, accountType,
               </div>
             </div>
 
-            <Link href="/driver/payout-setup" className="po-change-btn">
-              Change payout method
-            </Link>
+            <button
+              type="button"
+              className="po-change-btn"
+              onClick={() => setManaging((v) => !v)}
+            >
+              {managing ? 'Close' : 'Change payout method'}
+            </button>
+
+            {managing && (
+              <div style={{ marginTop: 14 }}>
+                <StripeEmbedded isOnboarded={true} />
+              </div>
+            )}
           </>
         )}
       </div>
