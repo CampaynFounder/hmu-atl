@@ -14,7 +14,7 @@ type Tab = 'payouts' | 'account';
 interface Props {
   isOnboarded: boolean;
   onOnboardingExit?: () => void;
-  variant?: 'full' | 'payouts';
+  variant?: 'full' | 'payouts' | 'update-payout-method';
 }
 
 export default function StripeEmbedded({ isOnboarded, onOnboardingExit, variant = 'full' }: Props) {
@@ -125,6 +125,31 @@ export default function StripeEmbedded({ isOnboarded, onOnboardingExit, variant 
               onExit={() => {
                 onOnboardingExit?.();
               }}
+              onLoadError={handleError}
+            />
+          </div>
+        </ConnectComponentsProvider>
+      </div>
+    );
+  }
+
+  if (variant === 'update-payout-method') {
+    return (
+      <div style={{
+        background: '#141414',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: '20px',
+        padding: '20px',
+        marginBottom: '16px',
+      }}>
+        <ConnectComponentsProvider connectInstance={connectInstance}>
+          <div style={{ minHeight: '300px' }}>
+            <ConnectAccountOnboarding
+              collectionOptions={{
+                fields: 'eventually_due',
+                futureRequirements: 'include',
+              }}
+              onExit={() => onOnboardingExit?.()}
               onLoadError={handleError}
             />
           </div>
