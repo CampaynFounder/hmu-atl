@@ -3850,16 +3850,21 @@ function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }:
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      <div style={{ fontSize: '14px', color: COLORS.grayLight, marginBottom: '4px' }}>
-        {pickupAddr || dropoffAddr
-          ? 'Confirm your addresses — tap to edit if needed'
-          : 'Where are you and where are you going?'}
+      <div style={{ marginBottom: '6px' }}>
+        <div style={{ fontSize: '14px', color: COLORS.grayLight }}>
+          {pickupAddr || dropoffAddr
+            ? 'Confirm your addresses — tap to edit if needed'
+            : 'Where are you and where are you going?'}
+        </div>
+        <div style={{ fontSize: '11px', color: COLORS.gray, marginTop: '3px' }}>
+          Try an address, apartment name, building, or nearby landmark. Scroll the list for more results.
+        </div>
       </div>
 
       {/* Pickup address autocomplete */}
       <AddressAutocomplete
         label="Pickup"
-        placeholder="Where should your driver pick you up?"
+        placeholder="Address, apartment, or landmark..."
         onSelect={(addr) => setPickupAddr(addr)}
         onClear={() => setPickupAddr(null)}
         proximity={geoLat && geoLng ? { lat: geoLat, lng: geoLng } : undefined}
@@ -3869,7 +3874,7 @@ function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }:
       {/* Dropoff address autocomplete */}
       <AddressAutocomplete
         label="Drop-off"
-        placeholder="Where are you headed?"
+        placeholder="Address, building, or landmark..."
         onSelect={(addr) => setDropoffAddr(addr)}
         onClear={() => setDropoffAddr(null)}
         proximity={geoLat && geoLng ? { lat: geoLat, lng: geoLng } : undefined}
@@ -3883,7 +3888,7 @@ function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }:
           <div style={{ flex: 1 }}>
             <AddressAutocomplete
               label={`Stop ${i + 1}`}
-              placeholder="Add a stop along the way"
+              placeholder="Stop address or landmark..."
               onSelect={(addr) => {
                 const updated = [...stopAddrs];
                 updated[i] = { ...addr, _key: stopEntry._key };
