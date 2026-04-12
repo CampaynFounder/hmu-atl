@@ -76,6 +76,9 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
   const [statusFilter, setStatusFilter] = useState<Set<string>>(
     new Set(['matched', 'otw', 'here', 'confirming', 'active'])
   );
+  const [showHistory, setShowHistory] = useState(false);
+  const historyMarkersRef = useRef<unknown[]>([]);
+  const historySourceAdded = useRef(false);
   // Live GPS positions from Ably — keyed by rideId
   const livePositions = useRef<Map<string, { lat: number; lng: number; timestamp: number }>>(new Map());
 
@@ -321,6 +324,79 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
     }
   }, [rides, mapLoaded, statusFilter]);
 
+  // ── Ride history overlay ──
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const map = mapRef.current as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mapboxgl = (window as any).mapboxgl;
+
+    if (!showHistory) {
+      // Remove history markers and layers
+      historyMarkersRef.current.forEach((m: unknown) => (m as { remove(): void }).remove());
+      historyMarkersRef.current = [];
+      if (historySourceAdded.current) {
+        try {
+          if (map.getLayer('history-lines')) map.removeLayer('history-lines');
+          if (map.getSource('history-lines')) map.removeSource('history-lines');
+        } catch { /* ignore */ }
+        historySourceAdded.current = false;
+      }
+      return;
+    }
+
+    // Fetch and render
+    fetch('/api/admin/rides/history')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.rides || !mapboxgl) return;
+        const features: { type: 'Feature'; properties: Record<string, unknown>; geometry: { type: 'LineString'; coordinates: [number, number][] } }[] = [];
+
+        for (const ride of data.rides) {
+          // Pickup marker — small green dot
+          const pEl = document.createElement('div');
+          pEl.style.cssText = 'width:6px;height:6px;border-radius:50%;background:#22c55e;opacity:0.6;';
+          const pMarker = new mapboxgl.Marker({ element: pEl }).setLngLat([ride.pickupLng, ride.pickupLat]).addTo(map);
+          historyMarkersRef.current.push(pMarker);
+
+          // Dropoff marker — small red dot
+          const dEl = document.createElement('div');
+          dEl.style.cssText = 'width:6px;height:6px;border-radius:50%;background:#ef4444;opacity:0.6;';
+          const dMarker = new mapboxgl.Marker({ element: dEl }).setLngLat([ride.dropoffLng, ride.dropoffLat]).addTo(map);
+          historyMarkersRef.current.push(dMarker);
+
+          // Line feature
+          features.push({
+            type: 'Feature',
+            properties: { status: ride.status },
+            geometry: {
+              type: 'LineString',
+              coordinates: [[ride.pickupLng, ride.pickupLat], [ride.dropoffLng, ride.dropoffLat]],
+            },
+          });
+        }
+
+        // Add lines as a single GeoJSON source
+        if (!historySourceAdded.current) {
+          try {
+            map.addSource('history-lines', {
+              type: 'geojson',
+              data: { type: 'FeatureCollection', features },
+            });
+            map.addLayer({
+              id: 'history-lines',
+              type: 'line',
+              source: 'history-lines',
+              paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.12 },
+            });
+            historySourceAdded.current = true;
+          } catch { /* ignore */ }
+        }
+      })
+      .catch(() => {});
+  }, [showHistory, mapLoaded]);
+
   // Toggle status filter
   function toggleStatus(status: string) {
     setStatusFilter(prev => {
@@ -393,9 +469,23 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
         })}
       </div>
 
-      {/* Ride count badge */}
-      <div className="absolute bottom-3 left-3 text-[10px] text-neutral-500 bg-neutral-900/80 backdrop-blur px-2 py-1 rounded">
-        {filteredCount} ride{filteredCount !== 1 ? 's' : ''} on map
+      {/* Bottom bar: ride count + history toggle */}
+      <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
+        <div className="text-[10px] text-neutral-500 bg-neutral-900/80 backdrop-blur px-2 py-1 rounded">
+          {filteredCount} ride{filteredCount !== 1 ? 's' : ''} on map
+        </div>
+        <button
+          onClick={() => setShowHistory(prev => !prev)}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors"
+          style={{
+            background: showHistory ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.6)',
+            border: showHistory ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.1)',
+            color: showHistory ? '#fff' : '#666',
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          {showHistory ? '✕ Hide' : '📊'} Ride History
+        </button>
       </div>
 
       {/* Ride detail popup */}

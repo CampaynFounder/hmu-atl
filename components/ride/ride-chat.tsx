@@ -40,7 +40,7 @@ interface RideChatProps {
   messages: ChatMessage[];
   open: boolean;
   onClose: () => void;
-  onSend: (content: string) => void;
+  onSend: (content: string, realId?: string) => void;
   rideStatus: string;
 }
 
@@ -109,7 +109,8 @@ export default function RideChat({
         body: JSON.stringify({ content: text, quickKey, extraData }),
       });
       if (res.ok) {
-        onSend(text);
+        const data = await res.json();
+        onSend(text, data.id);
         if (quickKey) setSentQuickKeys(prev => new Set([...prev, quickKey]));
       }
     } catch { /* silent */ }

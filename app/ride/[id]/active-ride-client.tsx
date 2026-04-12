@@ -171,6 +171,9 @@ export default function ActiveRideClient({
   const [cancelRequest, setCancelRequest] = useState<{ message: string; reason: string } | null>(null);
   const [endRideConfirm, setEndRideConfirm] = useState<{ show: boolean; reason: string; notes: string }>({ show: false, reason: '', notes: '' });
   const [addingMidRideStop, setAddingMidRideStop] = useState(false);
+  // Location request: driver asks rider for live GPS
+  const [locationRequested, setLocationRequested] = useState(false);
+  const [locationRequestPending, setLocationRequestPending] = useState(false); // rider sees this
   const [priceEditorOpen, setPriceEditorOpen] = useState(false);
   const [priceEditorValue, setPriceEditorValue] = useState('');
   // Address update flow — rider can edit addresses post-COO before OTW
@@ -191,6 +194,9 @@ export default function ActiveRideClient({
     color: string;
     sub?: string;
   } | null>(null);
+
+  const [headingUp, setHeadingUp] = useState(true); // heading-up mode for driver during OTW/active
+  const prevDriverLocation = useRef<{ lat: number; lng: number } | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any | null>(null);
@@ -524,6 +530,35 @@ export default function ActiveRideClient({
         }
         break;
       }
+      case 'location_request': {
+        // Driver is asking rider for live GPS
+        if (!isDriver) {
+          setLocationRequestPending(true);
+          showNotification('Driver needs your exact location', '📍', COLORS.orange, 'Tap to share your GPS');
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        }
+        break;
+      }
+      case 'location_shared': {
+        // Rider shared their live GPS
+        const lat = data.lat as number;
+        const lng = data.lng as number;
+        setRide(prev => ({ ...prev, riderLat: lat, riderLng: lng }));
+        setLocationRequested(false);
+        setLocationRequestPending(false);
+        if (isDriver) {
+          showNotification('Rider shared their location', '📍', COLORS.green, 'Pin dropped on map');
+        }
+        break;
+      }
+      case 'location_request_expired': {
+        setLocationRequested(false);
+        setLocationRequestPending(false);
+        if (isDriver) {
+          showNotification('Rider didn\'t share location', '📍', COLORS.gray);
+        }
+        break;
+      }
       case 'address_update_proposed': {
         // Driver sees rider's proposed address change
         if (isDriver) {
@@ -655,6 +690,17 @@ export default function ActiveRideClient({
       });
 
       map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+
+      // When map style reloads (tab resume, background restore), redraw everything
+      map.on('style.load', () => {
+        routeDrawnRef.current = false;
+        // Re-add markers — remove existing and let the update effects re-create them
+        if (driverMarkerRef.current) { driverMarkerRef.current.remove(); driverMarkerRef.current = null; }
+        if (riderMarkerRef.current) { riderMarkerRef.current.remove(); riderMarkerRef.current = null; }
+        if (pickupMarkerRef.current) { pickupMarkerRef.current.remove(); pickupMarkerRef.current = null; }
+        if (dropoffMarkerRef.current) { dropoffMarkerRef.current.remove(); dropoffMarkerRef.current = null; }
+      });
+
       mapRef.current = map;
       return true;
     }
@@ -693,14 +739,32 @@ export default function ActiveRideClient({
       driverMarkerRef.current.setLngLat([driverLocation.lng, driverLocation.lat]);
     }
 
-    // Fly to driver location if actively tracking
+    // Fly to driver location — with heading if enabled
     if (shouldTrackGps || !isDriver) {
+      const isMovingPhase = ['otw', 'active'].includes(ride.status);
+      const prev = prevDriverLocation.current;
+      let bearing: number | undefined;
+
+      if (isDriver && headingUp && isMovingPhase && prev && driverLocation) {
+        // Calculate bearing from previous to current position
+        const dLon = (driverLocation.lng - prev.lng) * Math.PI / 180;
+        const lat1 = prev.lat * Math.PI / 180;
+        const lat2 = driverLocation.lat * Math.PI / 180;
+        const y = Math.sin(dLon) * Math.cos(lat2);
+        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+        bearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+      }
+
       mapRef.current.easeTo({
         center: [driverLocation.lng, driverLocation.lat],
+        ...(bearing !== undefined ? { bearing, pitch: 50 } : {}),
+        ...(!headingUp || !isMovingPhase ? { bearing: 0, pitch: 0 } : {}),
         duration: 1000,
       });
     }
-  }, [driverLocation, shouldTrackGps, isDriver]);
+
+    if (driverLocation) prevDriverLocation.current = { ...driverLocation };
+  }, [driverLocation, shouldTrackGps, isDriver, headingUp, ride.status]);
 
   // ── Rider location marker (from COO or live updates) ──
   useEffect(() => {
@@ -1130,9 +1194,9 @@ export default function ActiveRideClient({
     setEtaStale(false);
   }, [ride.status]);
 
-  // ── ETA calculation ──
-  // OTW/HERE: distance from driver to rider (pickup)
-  // ACTIVE: distance from driver to dropoff
+  // ── ETA calculation — Mapbox Directions API with Haversine fallback ──
+  const lastDirectionsFetch = useRef(0);
+  const directionsEta = useRef<{ minutes: number; miles: number } | null>(null);
   useEffect(() => {
     if (!driverLocation || !['otw', 'here', 'confirming', 'active'].includes(ride.status)) {
       setEta(null);
@@ -1143,21 +1207,48 @@ export default function ActiveRideClient({
     let targetLng: number | null | undefined;
 
     if (ride.status === 'active') {
-      // During active ride, ETA is to the dropoff
       targetLat = ride.dropoffLat;
       targetLng = ride.dropoffLng;
     } else {
-      // During OTW/HERE/CONFIRMING, ETA is to the rider (pickup)
-      targetLat = ride.riderLat;
-      targetLng = ride.riderLng;
+      targetLat = ride.pickupLat || ride.riderLat;
+      targetLng = ride.pickupLng || ride.riderLng;
     }
 
     if (!targetLat || !targetLng) { setEta(null); return; }
 
+    // Immediate Haversine fallback
     const miles = haversineDistance(driverLocation.lat, driverLocation.lng, targetLat, targetLng);
-    const minutes = Math.max(1, Math.round((miles / 25) * 60)); // 25mph avg
-    setEta({ minutes, miles });
-  }, [driverLocation, ride.status, ride.riderLat, ride.riderLng, ride.dropoffLat, ride.dropoffLng]);
+    const haversineMinutes = Math.max(1, Math.round((miles / 25) * 60));
+
+    // Use cached directions ETA if fresh, otherwise show Haversine
+    if (directionsEta.current && Date.now() - lastDirectionsFetch.current < 35000) {
+      setEta(directionsEta.current);
+    } else {
+      setEta({ minutes: haversineMinutes, miles });
+    }
+
+    // Fetch Mapbox Directions every 30s for road-based ETA
+    const now = Date.now();
+    if (now - lastDirectionsFetch.current < 30000) return;
+    lastDirectionsFetch.current = now;
+
+    const token = mapboxToken;
+    if (!token) return;
+
+    const coords = `${driverLocation.lng},${driverLocation.lat};${targetLng},${targetLat}`;
+    fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?access_token=${token}&overview=false`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const route = data?.routes?.[0];
+        if (route) {
+          const dirMiles = route.distance * 0.000621371; // meters to miles
+          const dirMinutes = Math.max(1, Math.round(route.duration / 60));
+          directionsEta.current = { minutes: dirMinutes, miles: dirMiles };
+          setEta({ minutes: dirMinutes, miles: dirMiles });
+        }
+      })
+      .catch(() => {}); // silent — Haversine remains as fallback
+  }, [driverLocation, ride.status, ride.riderLat, ride.riderLng, ride.pickupLat, ride.pickupLng, ride.dropoffLat, ride.dropoffLng, mapboxToken]);
 
   // ── Load chat history on status change (Ably handles real-time messages) ──
   useEffect(() => {
@@ -1194,10 +1285,16 @@ export default function ActiveRideClient({
 
   useEffect(() => { refreshAddOns(); }, [refreshAddOns]);
 
-  // Refresh add-ons when page becomes visible (catches missed Ably events)
+  // Refresh add-ons + map when page becomes visible (catches missed Ably events + map blank)
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') refreshAddOns();
+      if (document.visibilityState === 'visible') {
+        refreshAddOns();
+        // Trigger map resize to fix blank canvas after tab resume
+        if (mapRef.current) {
+          (mapRef.current as { resize(): void }).resize();
+        }
+      }
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
@@ -1503,6 +1600,36 @@ export default function ActiveRideClient({
           }}>
             Waiting for driver location...
           </div>
+        )}
+
+        {/* Compass toggle — driver only during moving phases */}
+        {isDriver && ['otw', 'active'].includes(ride.status) && (
+          <button
+            type="button"
+            onClick={() => {
+              setHeadingUp(prev => {
+                if (prev && mapRef.current) {
+                  // Reset to north-up
+                  mapRef.current.easeTo({ bearing: 0, pitch: 0, duration: 500 });
+                }
+                return !prev;
+              });
+            }}
+            style={{
+              position: 'absolute', top: 8, left: 8,
+              width: 36, height: 36, borderRadius: '50%',
+              background: headingUp ? 'rgba(0,230,118,0.15)' : 'rgba(0,0,0,0.6)',
+              border: headingUp ? '1px solid rgba(0,230,118,0.4)' : '1px solid rgba(255,255,255,0.15)',
+              color: headingUp ? COLORS.green : COLORS.gray,
+              fontSize: 16, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              backdropFilter: 'blur(4px)',
+              zIndex: 5,
+            }}
+            title={headingUp ? 'Heading up — tap for north up' : 'North up — tap for heading up'}
+          >
+            🧭
+          </button>
         )}
       </div>
       )}
@@ -1903,6 +2030,66 @@ export default function ActiveRideClient({
           </div>
         )}
 
+        {/* Rider: driver is requesting your live GPS */}
+        {!isDriver && locationRequestPending && (
+          <div style={{
+            background: 'rgba(68,138,255,0.1)', border: '1px solid rgba(68,138,255,0.3)',
+            borderRadius: 14, padding: '14px 16px', marginBottom: 10,
+          }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.blue, marginBottom: 4 }}>
+              Driver needs your exact location
+            </div>
+            <div style={{ fontSize: 12, color: COLORS.grayLight, marginBottom: 10, lineHeight: 1.4 }}>
+              Share your GPS so they can find you
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => {
+                  if (!navigator.geolocation) {
+                    setLocationRequestPending(false);
+                    return;
+                  }
+                  navigator.geolocation.getCurrentPosition(
+                    async (pos) => {
+                      const lat = pos.coords.latitude;
+                      const lng = pos.coords.longitude;
+                      await fetch(`/api/rides/${rideId}/share-location`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ lat, lng }),
+                      }).catch(() => {});
+                      setLocationRequestPending(false);
+                      showNotification('Location shared with driver', '📍', COLORS.green);
+                    },
+                    () => {
+                      showNotification('Could not get GPS — check your settings', '📍', COLORS.red);
+                    },
+                    { enableHighAccuracy: true, timeout: 10000 }
+                  );
+                }}
+                style={{
+                  flex: 1, padding: 12, borderRadius: 100, border: 'none',
+                  background: COLORS.blue, color: COLORS.white,
+                  fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: FONTS.body,
+                }}
+              >
+                Share My Location
+              </button>
+              <button
+                onClick={() => setLocationRequestPending(false)}
+                style={{
+                  padding: '12px 20px', borderRadius: 100,
+                  border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
+                  color: COLORS.gray, fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', fontFamily: FONTS.body,
+                }}
+              >
+                Not now
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Cancel request banner (driver sees this when rider requests cancel) */}
         {cancelRequest && isDriver && (
           <div style={{
@@ -2004,10 +2191,11 @@ export default function ActiveRideClient({
           messages={chatMessages}
           open={chatOpen}
           onClose={() => setChatOpen(false)}
-          onSend={(content: string) => {
+          onSend={(content: string, realId?: string) => {
+            const optId = `opt_${Date.now()}`;
             // Optimistically add sender's own message immediately
             const optimisticMsg = {
-              id: `opt_${Date.now()}`,
+              id: realId || optId,
               senderId: userId,
               content,
               createdAt: new Date().toISOString(),
@@ -2015,6 +2203,18 @@ export default function ActiveRideClient({
               quickKey: null as string | null,
             };
             setChatMessages(prev => [...prev, optimisticMsg]);
+            // If we got a real ID, replace any lingering optimistic version
+            if (realId) {
+              setChatMessages(prev => prev.filter(m => !(m.id === optId)));
+            }
+            // Fallback: if no Ably confirmation in 3s, fetch messages from API
+            setTimeout(() => {
+              fetch(`/api/rides/${rideId}/messages`).then(r => r.json()).then(data => {
+                if (data.messages) {
+                  setChatMessages(data.messages);
+                }
+              }).catch(() => {});
+            }, 3000);
           }}
           rideStatus={ride.status}
         />
@@ -2266,6 +2466,31 @@ export default function ActiveRideClient({
               )}
               <StatusMessage text="Heading to rider..." />
               {ride.addOns.length > 0 && renderAddOnSummary()}
+              {/* Request rider's live GPS */}
+              {!locationRequested ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setLocationRequested(true);
+                    await fetch(`/api/rides/${rideId}/request-location`, { method: 'POST' }).catch(() => {});
+                  }}
+                  style={{
+                    width: '100%', padding: 9, borderRadius: 100, marginBottom: 6,
+                    border: '1px solid rgba(68,138,255,0.3)', background: 'rgba(68,138,255,0.08)',
+                    color: COLORS.blue, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    fontFamily: FONTS.body, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  }}
+                >
+                  <span>📍</span> Request Rider Location
+                </button>
+              ) : (
+                <div style={{
+                  textAlign: 'center', padding: '6px 0', marginBottom: 6,
+                  fontSize: 11, color: COLORS.gray,
+                }}>
+                  Waiting for rider to share location...
+                </div>
+              )}
               <ActionButton
                 label="I'M HERE"
                 color={COLORS.green}
@@ -2368,6 +2593,32 @@ export default function ActiveRideClient({
                       {extensionsGranted} extension{extensionsGranted > 1 ? 's' : ''} granted
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Request rider's live GPS */}
+              {!locationRequested ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setLocationRequested(true);
+                    await fetch(`/api/rides/${rideId}/request-location`, { method: 'POST' }).catch(() => {});
+                  }}
+                  style={{
+                    width: '100%', padding: 9, borderRadius: 100, marginBottom: 6,
+                    border: '1px solid rgba(68,138,255,0.3)', background: 'rgba(68,138,255,0.08)',
+                    color: COLORS.blue, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    fontFamily: FONTS.body, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  }}
+                >
+                  <span>📍</span> Request Rider Location
+                </button>
+              ) : (
+                <div style={{
+                  textAlign: 'center', padding: '6px 0', marginBottom: 6,
+                  fontSize: 11, color: COLORS.gray,
+                }}>
+                  Waiting for rider to share location...
                 </div>
               )}
 
