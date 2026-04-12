@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
       // Pull attribution from Clerk unsafeMetadata so it matches the webhook path.
       let signupSource: 'hmu_chat' | 'direct' | 'homepage_lead' = 'direct';
       let referredByDriverId: string | null = null;
+      let verifiedPhone: string | null = null;
       try {
         const clerk = await clerkClient();
         const clerkUser = await clerk.users.getUser(clerkId);
@@ -101,6 +102,10 @@ export async function POST(request: NextRequest) {
           const rows = await sql`SELECT user_id FROM driver_profiles WHERE handle = ${refHandle} LIMIT 1`;
           referredByDriverId = rows[0]?.user_id || null;
         }
+        // Extract verified phone
+        for (const p of clerkUser.phoneNumbers || []) {
+          if (p.verification?.status === 'verified') { verifiedPhone = p.phoneNumber; break; }
+        }
       } catch (metaErr) {
         console.warn('[ONBOARDING] Could not read Clerk unsafeMetadata for attribution:', metaErr);
       }
@@ -113,6 +118,7 @@ export async function POST(request: NextRequest) {
           tier,
           og_status,
           chill_score,
+          phone,
           signup_source,
           referred_by_driver_id
         ) VALUES (
@@ -122,6 +128,7 @@ export async function POST(request: NextRequest) {
           'free',
           false,
           100,
+          ${verifiedPhone},
           ${signupSource},
           ${referredByDriverId}
         )

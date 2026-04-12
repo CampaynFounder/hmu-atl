@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
         FROM users u
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-        WHERE u.completed_rides = 0 AND u.account_status != 'suspended'
+        WHERE u.completed_rides = 0 AND u.account_status = 'active'
         ORDER BY u.created_at DESC
         LIMIT 50
       `;
