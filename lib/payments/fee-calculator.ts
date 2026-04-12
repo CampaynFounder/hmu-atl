@@ -19,6 +19,92 @@ interface PayoutResult {
   tierLabel: string;
 }
 
+interface PricingConfig {
+  feeRate: number;
+  dailyCap: number;
+  weeklyCap: number;
+  progressiveThresholds: { below?: number; above?: number; rate: number }[] | null;
+  peakMultiplier: number;
+}
+
+// In-memory cache for pricing config — refreshed every 60s
+let configCache: Map<string, PricingConfig> = new Map();
+let configCacheTime = 0;
+const CACHE_TTL_MS = 60000;
+
+// Default fallback values (match CLAUDE.md spec)
+const DEFAULTS: Record<string, PricingConfig> = {
+  free: {
+    feeRate: 0.10,
+    dailyCap: 40,
+    weeklyCap: 150,
+    progressiveThresholds: [
+      { below: 50, rate: 0.10 },
+      { below: 150, rate: 0.15 },
+      { below: 300, rate: 0.20 },
+      { above: 300, rate: 0.25 },
+    ],
+    peakMultiplier: 1,
+  },
+  hmu_first: {
+    feeRate: 0.12,
+    dailyCap: 25,
+    weeklyCap: 100,
+    progressiveThresholds: null,
+    peakMultiplier: 1,
+  },
+};
+
+async function getPricingConfig(tier: string): Promise<PricingConfig> {
+  // Return from cache if fresh
+  if (Date.now() - configCacheTime < CACHE_TTL_MS && configCache.has(tier)) {
+    return configCache.get(tier)!;
+  }
+
+  try {
+    const rows = await sql`
+      SELECT fee_rate, daily_cap, weekly_cap, progressive_thresholds, peak_multiplier
+      FROM pricing_config
+      WHERE tier = ${tier} AND is_active = true
+        AND effective_from <= CURRENT_DATE
+        AND (effective_to IS NULL OR effective_to >= CURRENT_DATE)
+      ORDER BY effective_from DESC
+      LIMIT 1
+    `;
+
+    if (rows.length > 0) {
+      const r = rows[0] as Record<string, unknown>;
+      const config: PricingConfig = {
+        feeRate: Number(r.fee_rate),
+        dailyCap: Number(r.daily_cap),
+        weeklyCap: Number(r.weekly_cap),
+        progressiveThresholds: r.progressive_thresholds as PricingConfig['progressiveThresholds'],
+        peakMultiplier: Number(r.peak_multiplier ?? 1),
+      };
+      configCache.set(tier, config);
+      configCacheTime = Date.now();
+      return config;
+    }
+  } catch (err) {
+    console.error('Failed to load pricing config, using defaults:', err);
+  }
+
+  // Fallback to defaults
+  return DEFAULTS[tier] || DEFAULTS.free;
+}
+
+export async function calculatePlatformFeeAsync(
+  rideNetAmount: number,
+  tier: 'free' | 'hmu_first',
+  cumulativeDailyEarnings: number,
+  dailyFeePaid: number,
+  weeklyFeePaid: number
+): Promise<FeeResult> {
+  const config = await getPricingConfig(tier);
+  return calculatePlatformFeeWithConfig(rideNetAmount, tier, cumulativeDailyEarnings, dailyFeePaid, weeklyFeePaid, config);
+}
+
+// Synchronous version using defaults (for backwards compat)
 export function calculatePlatformFee(
   rideNetAmount: number,
   tier: 'free' | 'hmu_first',
@@ -26,41 +112,55 @@ export function calculatePlatformFee(
   dailyFeePaid: number,
   weeklyFeePaid: number
 ): FeeResult {
-  const DAILY_CAP = tier === 'hmu_first' ? 25 : 40;
-  const WEEKLY_CAP = tier === 'hmu_first' ? 100 : 150;
+  const config = configCache.get(tier) || DEFAULTS[tier] || DEFAULTS.free;
+  return calculatePlatformFeeWithConfig(rideNetAmount, tier, cumulativeDailyEarnings, dailyFeePaid, weeklyFeePaid, config);
+}
 
+function calculatePlatformFeeWithConfig(
+  rideNetAmount: number,
+  tier: 'free' | 'hmu_first',
+  cumulativeDailyEarnings: number,
+  dailyFeePaid: number,
+  weeklyFeePaid: number,
+  config: PricingConfig
+): FeeResult {
   const remainingCap = Math.min(
-    DAILY_CAP - dailyFeePaid,
-    WEEKLY_CAP - weeklyFeePaid
+    config.dailyCap - dailyFeePaid,
+    config.weeklyCap - weeklyFeePaid
   );
 
   if (remainingCap <= 0) {
     return {
       fee: 0,
       rate: 0,
-      dailyCapHit: dailyFeePaid >= DAILY_CAP,
-      weeklyCapHit: weeklyFeePaid >= WEEKLY_CAP,
+      dailyCapHit: dailyFeePaid >= config.dailyCap,
+      weeklyCapHit: weeklyFeePaid >= config.weeklyCap,
       tierLabel: tier === 'hmu_first' ? 'HMU First' : 'Free',
     };
   }
 
   let rate: number;
-  if (tier === 'hmu_first') {
-    rate = 0.12;
+  if (config.progressiveThresholds?.length) {
+    // Progressive rates based on cumulative daily earnings
+    rate = config.feeRate; // default
+    for (const t of config.progressiveThresholds) {
+      if (t.below && cumulativeDailyEarnings < t.below) { rate = t.rate; break; }
+      if (t.above && cumulativeDailyEarnings >= t.above) { rate = t.rate; break; }
+    }
   } else {
-    if (cumulativeDailyEarnings < 50) rate = 0.10;
-    else if (cumulativeDailyEarnings < 150) rate = 0.15;
-    else if (cumulativeDailyEarnings < 300) rate = 0.20;
-    else rate = 0.25;
+    rate = config.feeRate;
   }
+
+  // Apply peak multiplier
+  rate = rate * config.peakMultiplier;
 
   const fee = Math.min(rideNetAmount * rate, remainingCap);
 
   return {
     fee: Math.round(fee * 100) / 100,
     rate,
-    dailyCapHit: (dailyFeePaid + fee) >= DAILY_CAP,
-    weeklyCapHit: (weeklyFeePaid + fee) >= WEEKLY_CAP,
+    dailyCapHit: (dailyFeePaid + fee) >= config.dailyCap,
+    weeklyCapHit: (weeklyFeePaid + fee) >= config.weeklyCap,
     tierLabel: tier === 'hmu_first' ? 'HMU First' : 'Free',
   };
 }
@@ -72,31 +172,17 @@ export function calculateDriverPayout(
   dailyFeePaid: number,
   weeklyFeePaid: number
 ): PayoutResult {
-  // Stripe processing fee (platform absorbs)
   const stripeFee = Math.round((rideAmount * 0.029 + 0.30) * 100) / 100;
   const rideNetAmount = rideAmount - stripeFee;
 
   const { fee: platformFee, dailyCapHit, weeklyCapHit, tierLabel } = calculatePlatformFee(
-    rideNetAmount,
-    tier,
-    cumulativeDailyEarnings,
-    dailyFeePaid,
-    weeklyFeePaid
+    rideNetAmount, tier, cumulativeDailyEarnings, dailyFeePaid, weeklyFeePaid
   );
 
   const driverReceives = Math.round((rideNetAmount - platformFee) * 100) / 100;
   const platformReceives = Math.round((stripeFee + platformFee) * 100) / 100;
 
-  return {
-    rideAmount,
-    stripeFee,
-    platformFee,
-    driverReceives,
-    platformReceives,
-    dailyCapHit,
-    weeklyCapHit,
-    tierLabel,
-  };
+  return { rideAmount, stripeFee, platformFee, driverReceives, platformReceives, dailyCapHit, weeklyCapHit, tierLabel };
 }
 
 export function calculateFullBreakdown(
@@ -119,14 +205,14 @@ export function calculateFullBreakdown(
   tierLabel: string;
   nextTierAt: number | null;
 } {
+  const config = configCache.get(tier) || DEFAULTS[tier] || DEFAULTS.free;
   const stripeFee = Math.round((rideAmount * 0.029 + 0.30) * 100) / 100;
   const netAfterStripe = rideAmount - stripeFee;
 
-  const { fee: platformFee, rate, dailyCapHit, weeklyCapHit, tierLabel } = calculatePlatformFee(
-    netAfterStripe, tier, cumulativeDailyEarnings, dailyFeePaid, weeklyFeePaid
+  const { fee: platformFee, rate, dailyCapHit, weeklyCapHit, tierLabel } = calculatePlatformFeeWithConfig(
+    netAfterStripe, tier, cumulativeDailyEarnings, dailyFeePaid, weeklyFeePaid, config
   );
 
-  // Dots payout fees (driver-facing)
   let dotsPayoutFee = 0;
   if (payoutMethod === 'debit') dotsPayoutFee = netAfterStripe * 0.005;
   else if (payoutMethod === 'paypal') dotsPayoutFee = netAfterStripe * 0.01;
@@ -135,18 +221,16 @@ export function calculateFullBreakdown(
   const driverReceives = Math.round((netAfterStripe - platformFee - dotsPayoutFee) * 100) / 100;
   const platformReceives = Math.round((stripeFee + platformFee + dotsPayoutFee) * 100) / 100;
 
-  // Next tier threshold
   let nextTierAt: number | null = null;
-  if (tier === 'free') {
-    if (cumulativeDailyEarnings < 50) nextTierAt = 50;
-    else if (cumulativeDailyEarnings < 150) nextTierAt = 150;
-    else if (cumulativeDailyEarnings < 300) nextTierAt = 300;
+  if (tier === 'free' && config.progressiveThresholds?.length) {
+    for (const t of config.progressiveThresholds) {
+      if (t.below && cumulativeDailyEarnings < t.below) { nextTierAt = t.below; break; }
+    }
   }
 
   return {
     rideAmount, stripeFee, netAfterStripe, platformFee, dotsPayoutFee,
-    driverReceives, platformReceives, dailyCapHit, weeklyCapHit,
-    tierLabel, nextTierAt,
+    driverReceives, platformReceives, dailyCapHit, weeklyCapHit, tierLabel, nextTierAt,
   };
 }
 
