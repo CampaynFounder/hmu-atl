@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAbly } from '@/hooks/use-ably';
 import { StatCard } from './stat-card';
 import { AlertBadge } from './alert-badge';
@@ -106,9 +106,14 @@ export function LiveOpsDashboard() {
     fetchAll();
   }, [fetchAll]);
 
-  // Re-fetch on any admin:feed event (ride created, status change, user signup, etc.)
-  const handleAdminEvent = useCallback(() => {
-    fetchAll();
+  // Re-fetch on admin:feed events — skip GPS updates (map handles those)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleAdminEvent = useCallback((msg: { name: string; data: unknown }) => {
+    // GPS events are handled directly by the LiveMap — no need to refetch stats
+    if (msg.name === 'driver_location') return;
+    // Debounce rapid events (e.g. rewind replay) to avoid hammering the API
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchAll(), 500);
   }, [fetchAll]);
 
   const { connected: ablyConnected } = useAbly({
