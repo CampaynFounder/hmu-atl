@@ -20,6 +20,7 @@ const navSections = [
     label: 'ACT',
     items: [
       { href: '/admin/support', label: 'Support', icon: '🎫' },
+      { href: '/admin/notifications', label: 'Notifications', icon: '🔔' },
       { href: '/admin/disputes', label: 'Disputes', icon: '⚖️' },
       { href: '/admin/users', label: 'Users', icon: '👥' },
       { href: '/admin/suspect-usage', label: 'Suspect Usage', icon: '🚨' },

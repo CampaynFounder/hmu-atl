@@ -6,6 +6,7 @@ import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import { WebhookEvent } from '@clerk/nextjs/server';
 import { createUser, updateUser, deleteUser, getUserByClerkId, resolveDriverHandleToUserId } from '@/lib/db/users';
+import { notifyAdminSms } from '@/lib/admin/notify';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 import type { ProfileType } from '@/lib/db/types';
 
@@ -157,6 +158,16 @@ export async function POST(req: Request) {
         stripeCustomerId,
         stripeAccountId,
       });
+
+      // Fire-and-forget admin SMS notification
+      const displayName = `${first_name || ''} ${last_name || ''}`.trim() || verifiedPhone;
+      const notifType = profileType === 'driver' ? 'new_driver_signup' : 'new_rider_signup';
+      const emoji = profileType === 'driver' ? '🚗' : '🧑';
+      notifyAdminSms(
+        notifType,
+        `${emoji} New ${profileType} signup: ${displayName} (${verifiedPhone}) via ${signupSource}`,
+        { clerkId: id },
+      ).catch(() => {});
 
       return new Response('User created after phone verification', { status: 201 });
     } catch (error) {
