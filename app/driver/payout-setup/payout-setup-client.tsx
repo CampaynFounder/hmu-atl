@@ -203,7 +203,7 @@ export default function PayoutSetupClient({ initialStatus }: Props) {
             Go Live
           </Link>
 
-          <StripeEmbedded isOnboarded={true} onOnboardingExit={refreshStatus} />
+          <StripeEmbedded isOnboarded={true} variant="payouts" onOnboardingExit={refreshStatus} />
         </div>
       ) : (
         /* Steps */

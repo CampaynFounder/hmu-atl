@@ -97,7 +97,7 @@ export default function PayoutSection({ payoutSetupComplete, last4, accountType,
 
             {managing && (
               <div style={{ marginTop: 14 }}>
-                <StripeEmbedded isOnboarded={true} />
+                <StripeEmbedded isOnboarded={true} variant="payouts" />
               </div>
             )}
           </>

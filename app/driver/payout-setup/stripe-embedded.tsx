@@ -14,9 +14,10 @@ type Tab = 'payouts' | 'account';
 interface Props {
   isOnboarded: boolean;
   onOnboardingExit?: () => void;
+  variant?: 'full' | 'payouts';
 }
 
-export default function StripeEmbedded({ isOnboarded, onOnboardingExit }: Props) {
+export default function StripeEmbedded({ isOnboarded, onOnboardingExit, variant = 'full' }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('payouts');
 
@@ -126,6 +127,24 @@ export default function StripeEmbedded({ isOnboarded, onOnboardingExit }: Props)
               }}
               onLoadError={handleError}
             />
+          </div>
+        </ConnectComponentsProvider>
+      </div>
+    );
+  }
+
+  if (variant === 'payouts') {
+    return (
+      <div style={{
+        background: '#141414',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: '20px',
+        padding: '20px',
+        marginBottom: '16px',
+      }}>
+        <ConnectComponentsProvider connectInstance={connectInstance}>
+          <div style={{ minHeight: '200px' }}>
+            <ConnectPayouts onLoadError={handleError} />
           </div>
         </ConnectComponentsProvider>
       </div>
