@@ -19,6 +19,7 @@ const navSections = [
   {
     label: 'ACT',
     items: [
+      { href: '/admin/support', label: 'Support', icon: '🎫' },
       { href: '/admin/disputes', label: 'Disputes', icon: '⚖️' },
       { href: '/admin/users', label: 'Users', icon: '👥' },
       { href: '/admin/suspect-usage', label: 'Suspect Usage', icon: '🚨' },
@@ -31,6 +32,12 @@ const navSections = [
       { href: '/admin/messages', label: 'Messages', icon: '💬', badge: true },
       { href: '/admin/leads', label: 'Leads', icon: '📧' },
       { href: '/admin/content', label: 'Content', icon: '🎬' },
+    ],
+  },
+  {
+    label: 'RAISE',
+    items: [
+      { href: '/admin/data-room', label: 'Data Room', icon: '🔒' },
     ],
   },
 ];

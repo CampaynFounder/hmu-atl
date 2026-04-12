@@ -8,7 +8,7 @@ import { Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FeatureSearch } from '@/components/search/feature-search';
 
-const MARKETING_PATHS = ['/', '/driver', '/rider'];
+const MARKETING_PATHS = ['/', '/driver', '/rider', '/pitch'];
 
 function getLogoHref(pathname: string, profileType?: string) {
   // On sign-in/sign-up pages, check for type param in URL
@@ -131,6 +131,7 @@ export function Header() {
                     <>
                       <NavItem href="/rider/home" label="Find a Ride" active={pathname === '/rider/home'} accent onClick={close} />
                       <NavItem href="/rider/browse" label="Browse Drivers" active={pathname.startsWith('/rider/browse') || pathname.startsWith('/d/')} onClick={close} />
+                      <NavItem href="/rider/rides" label="Your Rides" active={pathname.startsWith('/rider/rides')} onClick={close} />
                       <NavItem href="/rider/profile" label="HMU Profile" active={pathname.startsWith('/rider/profile')} onClick={close} />
                       <NavItem href="/rider/settings" label="HMU Settings" active={pathname.startsWith('/rider/settings')} onClick={close} />
                       <NavItem href="/rider/support" label="Support" icon="💬" active={pathname.startsWith('/rider/support')} onClick={close} />

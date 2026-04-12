@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyRiderBookingAccepted } from '@/lib/sms/textbee';
+import { generateRefCode } from '@/lib/rides/ref-code';
 import {
   checkDriverAvailability,
   confirmTentativeBooking,
@@ -111,12 +112,13 @@ export async function POST(
     `;
 
     // Create ride
+    const refCode = generateRefCode();
     const rideRows = await sql`
       INSERT INTO rides (
         driver_id, rider_id, status, amount, final_agreed_price,
         price_mode, price_accepted_at,
         hmu_post_id, agreement_summary,
-        dispute_window_minutes, is_cash, wait_minutes
+        dispute_window_minutes, is_cash, wait_minutes, ref_code
       ) VALUES (
         ${driverUserId}, ${riderId}, 'matched', ${price}, ${price},
         'proposed', NOW(),
@@ -130,9 +132,10 @@ export async function POST(
         })}::jsonb,
         ${parseInt(process.env.DISPUTE_WINDOW_MINUTES || '5')},
         ${isCash},
-        ${waitMinutes}
+        ${waitMinutes},
+        ${refCode}
       )
-      RETURNING id
+      RETURNING id, ref_code
     `;
     const rideId = (rideRows[0] as { id: string }).id;
 

@@ -16,6 +16,7 @@ export async function GET() {
     const rides = await sql`
       SELECT
         r.id,
+        r.ref_code,
         r.status,
         r.amount,
         r.final_agreed_price,
@@ -25,11 +26,17 @@ export async function GET() {
         r.rider_rating,
         r.pickup,
         r.dropoff,
+        r.pickup_address,
+        r.dropoff_address,
+        r.is_cash,
         r.created_at,
         r.started_at,
         r.ended_at,
+        r.dispute_window_expires_at,
         dp.display_name as driver_name,
+        dp.handle as driver_handle,
         rp.first_name as rider_name,
+        rp.handle as rider_handle,
         hp.time_window
       FROM rides r
       LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
@@ -48,6 +55,7 @@ export async function GET() {
       const dropoffAddr = (dropoff?.address as string) || (dropoff?.name as string) || null;
       return {
         id: r.id,
+        ref_code: r.ref_code || null,
         status: r.status,
         amount: Number(r.amount || 0),
         final_agreed_price: r.final_agreed_price ? Number(r.final_agreed_price) : null,
@@ -56,13 +64,17 @@ export async function GET() {
         driver_rating: r.driver_rating,
         rider_rating: r.rider_rating,
         driver_name: r.driver_name || null,
+        driver_handle: r.driver_handle || null,
         rider_name: r.rider_name || null,
-        pickup_address: pickupAddr,
-        dropoff_address: dropoffAddr,
-        destination: (tw?.destination as string) || dropoffAddr,
+        rider_handle: r.rider_handle || null,
+        pickup_address: (r.pickup_address as string) || pickupAddr,
+        dropoff_address: (r.dropoff_address as string) || dropoffAddr,
+        destination: (tw?.destination as string) || (r.dropoff_address as string) || dropoffAddr,
+        is_cash: r.is_cash ?? false,
         created_at: r.created_at,
         started_at: r.started_at,
         ended_at: r.ended_at,
+        dispute_window_expires_at: r.dispute_window_expires_at || null,
       };
     });
 

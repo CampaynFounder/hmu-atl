@@ -68,6 +68,7 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
       userId={user.id}
       isDriver={isDriver}
       initialRide={{
+        refCode: (ride.ref_code as string) || null,
         status: ride.status as string,
         driverName: (ride.driver_name as string) || (ride.driver_handle as string) || 'Driver',
         driverHandle: (ride.driver_handle as string) || null,

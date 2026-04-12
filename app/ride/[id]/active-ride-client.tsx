@@ -41,6 +41,7 @@ const FONTS = {
 
 // ── Types ──
 interface RideData {
+  refCode: string | null;
   status: string;
   driverName: string;
   driverHandle: string | null;
@@ -1579,6 +1580,11 @@ export default function ActiveRideClient({
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
+            {ride.refCode && (
+              <div style={{ fontSize: 10, color: COLORS.green, fontFamily: FONTS.mono, letterSpacing: 1, lineHeight: 1, marginBottom: 2 }}>
+                {ride.refCode}
+              </div>
+            )}
             {Number(ride.addOnTotal || 0) > 0 && (
               <div style={{ fontSize: 11, color: COLORS.gray, fontFamily: FONTS.mono, lineHeight: 1 }}>
                 ${Number(ride.agreedPrice || 0).toFixed(2)} + ${Number(ride.addOnTotal || 0).toFixed(2)}
