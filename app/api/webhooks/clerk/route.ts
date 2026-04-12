@@ -119,6 +119,7 @@ export async function POST(req: Request) {
       const { created } = await createUser({
         clerk_id: id,
         profile_type: profileType,
+        phone: verifiedPhone,
         signup_source: signupSource,
         referred_by_driver_id: referredByDriverId,
       });

@@ -11,6 +11,7 @@ import type { User, UserAttribution, ProfileType, AccountStatus, Tier } from './
 export interface CreateUserParams {
   clerk_id: string;
   profile_type: ProfileType;
+  phone?: string | null;
   video_intro_url?: string;
   signup_source?: 'hmu_chat' | 'direct' | 'homepage_lead' | null;
   referred_by_driver_id?: string | null;
@@ -35,6 +36,7 @@ export async function createUser(params: CreateUserParams): Promise<{ user: User
       profile_type,
       account_status,
       chill_score,
+      phone,
       signup_source,
       referred_by_driver_id,
       referred_via_hmu_post_id
@@ -43,6 +45,7 @@ export async function createUser(params: CreateUserParams): Promise<{ user: User
       ${params.profile_type},
       'pending_activation',
       100,
+      ${params.phone ?? null},
       ${params.signup_source ?? null},
       ${params.referred_by_driver_id ?? null},
       ${params.referred_via_hmu_post_id ?? null}

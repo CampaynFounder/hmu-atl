@@ -109,10 +109,9 @@ export async function GET(req: NextRequest) {
     case 'unconverted': {
       const rows = await sql`
         SELECT
-          u.id, u.profile_type, u.created_at, u.account_status,
+          u.id, u.profile_type, u.created_at, u.account_status, u.phone,
           COALESCE(rp.display_name, rp.first_name, dp.display_name, dp.first_name) as name,
-          COALESCE(rp.handle, dp.handle) as handle,
-          COALESCE(rp.phone, dp.phone) as phone
+          COALESCE(rp.handle, dp.handle) as handle
         FROM users u
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id

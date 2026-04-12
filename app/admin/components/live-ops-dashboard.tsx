@@ -14,7 +14,7 @@ type DrillType = 'matched' | 'active' | 'completed' | 'cancelled' | 'disputed' |
 interface Stats {
   rides: { matched: number; active: number; completed: number; cancelled: number; disputed: number; total: number };
   revenue: { totalCaptured: number; platformFees: number; feesWaived: number };
-  users: { unconvertedRiders: number; unconvertedDrivers: number; unconvertedTotal: number };
+  users: { unconvertedRiders: number; unconvertedDrivers: number; unconvertedTotal: number; abandonedTotal: number };
   drivers: { onRide: number };
 }
 
@@ -155,7 +155,7 @@ export function LiveOpsDashboard() {
           { key: 'active' as DrillType, label: 'Active', value: stats?.rides.active ?? 0, subtitle: 'Live now', color: 'green' as const },
           { key: 'completed' as DrillType, label: 'Completed', value: stats?.rides.completed ?? 0, subtitle: `${stats?.rides.total ?? 0} total rides`, color: 'white' as const },
           { key: 'revenue' as DrillType, label: 'Revenue', value: fmt(stats?.revenue.totalCaptured ?? 0), subtitle: `Fees: ${fmt(stats?.revenue.platformFees ?? 0)}`, color: 'green' as const },
-          { key: 'unconverted' as DrillType, label: 'Unconverted', value: stats?.users.unconvertedTotal ?? 0, subtitle: `${stats?.users.unconvertedRiders ?? 0} R / ${stats?.users.unconvertedDrivers ?? 0} D`, color: 'yellow' as const },
+          { key: 'unconverted' as DrillType, label: 'Unconverted', value: stats?.users.unconvertedTotal ?? 0, subtitle: `${stats?.users.unconvertedRiders ?? 0} R / ${stats?.users.unconvertedDrivers ?? 0} D · ${stats?.users.abandonedTotal ?? 0} abandoned`, color: 'yellow' as const },
         ]).map(card => {
           const numVal = typeof card.value === 'number' ? card.value : parseFloat(String(card.value).replace(/[^0-9.]/g, ''));
           const clickable = numVal > 0;

@@ -77,24 +77,28 @@ export async function GET(req: NextRequest) {
       WHERE status IN ('matched', 'otw', 'here', 'confirming', 'active')
     `,
 
-    // Unconverted users — signed up but 0 completed rides
+    // Unconverted users — split active (real) vs abandoned (pending_activation)
     marketId ? sql`
       SELECT
-        COUNT(*) FILTER (WHERE u.profile_type = 'rider') as riders,
-        COUNT(*) FILTER (WHERE u.profile_type = 'driver') as drivers,
+        COUNT(*) FILTER (WHERE u.account_status = 'active' AND u.profile_type = 'rider') as active_riders,
+        COUNT(*) FILTER (WHERE u.account_status = 'active' AND u.profile_type = 'driver') as active_drivers,
+        COUNT(*) FILTER (WHERE u.account_status = 'active') as active_total,
+        COUNT(*) FILTER (WHERE u.account_status = 'pending_activation') as abandoned_total,
         COUNT(*) as total
       FROM users u
       WHERE u.completed_rides = 0
-        AND u.account_status != 'suspended'
+        AND u.account_status NOT IN ('suspended', 'banned')
         AND (u.market_id = ${marketId} OR u.market_id IS NULL)
     ` : sql`
       SELECT
-        COUNT(*) FILTER (WHERE u.profile_type = 'rider') as riders,
-        COUNT(*) FILTER (WHERE u.profile_type = 'driver') as drivers,
+        COUNT(*) FILTER (WHERE u.account_status = 'active' AND u.profile_type = 'rider') as active_riders,
+        COUNT(*) FILTER (WHERE u.account_status = 'active' AND u.profile_type = 'driver') as active_drivers,
+        COUNT(*) FILTER (WHERE u.account_status = 'active') as active_total,
+        COUNT(*) FILTER (WHERE u.account_status = 'pending_activation') as abandoned_total,
         COUNT(*) as total
       FROM users u
       WHERE u.completed_rides = 0
-        AND u.account_status != 'suspended'
+        AND u.account_status NOT IN ('suspended', 'banned')
     `,
   ]);
 
@@ -119,9 +123,10 @@ export async function GET(req: NextRequest) {
       feesWaived: Number(revenue.fees_waived ?? 0),
     },
     users: {
-      unconvertedRiders: Number(unconverted.riders ?? 0),
-      unconvertedDrivers: Number(unconverted.drivers ?? 0),
-      unconvertedTotal: Number(unconverted.total ?? 0),
+      unconvertedRiders: Number(unconverted.active_riders ?? 0),
+      unconvertedDrivers: Number(unconverted.active_drivers ?? 0),
+      unconvertedTotal: Number(unconverted.active_total ?? 0),
+      abandonedTotal: Number(unconverted.abandoned_total ?? 0),
     },
     drivers: {
       onRide: Number(drivers.on_ride ?? 0),
