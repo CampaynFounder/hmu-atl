@@ -1610,26 +1610,38 @@ export default function ActiveRideClient({
           const unreachedStops = stops.filter(s => !s.reached_at);
           const canEdit = !isDriver && ride.status === 'matched' && !!ride.cooAt;
 
-          // Build Google Maps directions URL with all waypoints
+          // Build Google Maps directions URL: driver GPS → pickup → stops → dropoff
           function buildNavUrl() {
-            const parts: string[] = [];
-            // Origin = pickup
-            if (ride.pickupLat && ride.pickupLng) parts.push(`${ride.pickupLat},${ride.pickupLng}`);
-            else if (pAddr) parts.push(encodeURIComponent(pAddr));
-            // Waypoints = unreached stops
+            // Origin = driver's current GPS, or pickup as fallback
+            let origin = '';
+            if (geo.lat && geo.lng) {
+              origin = `${geo.lat},${geo.lng}`;
+            } else if (ride.pickupLat && ride.pickupLng) {
+              origin = `${ride.pickupLat},${ride.pickupLng}`;
+            } else if (pAddr) {
+              origin = encodeURIComponent(pAddr);
+            }
+
+            // Waypoints = pickup (when driver GPS is origin) + unreached stops
             const wpParts: string[] = [];
+            // If driver GPS is origin, pickup becomes a waypoint
+            if (geo.lat && geo.lng) {
+              if (ride.pickupLat && ride.pickupLng) wpParts.push(`${ride.pickupLat},${ride.pickupLng}`);
+              else if (pAddr) wpParts.push(encodeURIComponent(pAddr));
+            }
             for (const s of unreachedStops) {
               if (s.latitude && s.longitude) wpParts.push(`${s.latitude},${s.longitude}`);
               else if (s.address || s.name) wpParts.push(encodeURIComponent(s.address || s.name || ''));
             }
+
             // Destination = dropoff
             let dest = '';
             if (ride.dropoffLat && ride.dropoffLng) dest = `${ride.dropoffLat},${ride.dropoffLng}`;
             else if (dAddr) dest = encodeURIComponent(dAddr);
 
-            if (!parts.length || !dest) return null;
+            if (!origin || !dest) return null;
 
-            let url = `https://www.google.com/maps/dir/?api=1&origin=${parts[0]}&destination=${dest}&travelmode=driving`;
+            let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=driving`;
             if (wpParts.length > 0) url += `&waypoints=${wpParts.join('|')}`;
             return url;
           }
