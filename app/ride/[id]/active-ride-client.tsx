@@ -172,6 +172,16 @@ export default function ActiveRideClient({
   const [addingMidRideStop, setAddingMidRideStop] = useState(false);
   const [priceEditorOpen, setPriceEditorOpen] = useState(false);
   const [priceEditorValue, setPriceEditorValue] = useState('');
+  // Address update flow — rider can edit addresses post-COO before OTW
+  const [editingAddress, setEditingAddress] = useState<'pickup' | 'dropoff' | null>(null);
+  const [pendingAddressUpdate, setPendingAddressUpdate] = useState<{
+    type: 'pickup' | 'dropoff';
+    address: string;
+    latitude: number;
+    longitude: number;
+    riderName?: string;
+  } | null>(null);
+  const [addressUpdateSent, setAddressUpdateSent] = useState(false);
   const [notification, setNotification] = useState<{
     message: string;
     emoji: string;
@@ -508,6 +518,54 @@ export default function ActiveRideClient({
         }).catch(() => {});
         if (!isDriver) {
           showNotification('Driver declined your removal request', '⚠️', COLORS.yellow, 'You can dispute this charge');
+        }
+        break;
+      }
+      case 'address_update_proposed': {
+        // Driver sees rider's proposed address change
+        if (isDriver) {
+          setPendingAddressUpdate({
+            type: data.addressType as 'pickup' | 'dropoff',
+            address: data.address as string,
+            latitude: data.latitude as number,
+            longitude: data.longitude as number,
+            riderName: data.riderName as string,
+          });
+          showNotification(
+            `Rider wants to update ${data.addressType as string}`,
+            '📍',
+            COLORS.orange,
+            data.address as string,
+          );
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        }
+        break;
+      }
+      case 'address_update_confirmed': {
+        // Address change was approved by driver
+        const addrType = data.addressType as string;
+        const addr = data.address as string;
+        const lat = data.latitude as number;
+        const lng = data.longitude as number;
+        if (addrType === 'pickup') {
+          setRide(prev => ({ ...prev, pickupAddress: addr, pickupLat: lat, pickupLng: lng }));
+        } else {
+          setRide(prev => ({ ...prev, dropoffAddress: addr, dropoffLat: lat, dropoffLng: lng }));
+        }
+        setEditingAddress(null);
+        setAddressUpdateSent(false);
+        setPendingAddressUpdate(null);
+        if (!isDriver) {
+          showNotification(`Driver confirmed new ${addrType}`, '✅', COLORS.green, addr);
+        }
+        break;
+      }
+      case 'address_update_rejected': {
+        setEditingAddress(null);
+        setAddressUpdateSent(false);
+        setPendingAddressUpdate(null);
+        if (!isDriver) {
+          showNotification('Driver kept the original address', '❌', COLORS.red);
         }
         break;
       }
@@ -1257,6 +1315,29 @@ export default function ActiveRideClient({
 
   const stopCount = ride.stops ? ride.stops.length : 0;
 
+  // Dynamic map height — map is secondary pre-OTW, primary during OTW/active
+  const mapPercent = (() => {
+    switch (ride.status) {
+      case 'matched':
+        return ride.cooAt ? 30 : 28;
+      case 'otw':
+        return 55;
+      case 'here':
+        return 35;
+      case 'confirming':
+        return 22;
+      case 'active':
+        return 55;
+      case 'ended':
+      case 'completed':
+      case 'disputed':
+      case 'cancelled':
+        return 0;
+      default:
+        return 40;
+    }
+  })();
+
   // ── Render ──
   return (
     <div style={{
@@ -1357,8 +1438,9 @@ export default function ActiveRideClient({
         </div>
       )}
 
-      {/* Map section — top 60% */}
-      <div style={{ flex: '0 0 60%', position: 'relative' }}>
+      {/* Map section — dynamic height based on ride phase */}
+      {mapPercent > 0 && (
+      <div style={{ flex: `0 0 ${mapPercent}%`, position: 'relative', transition: 'flex-basis 0.3s ease' }}>
         <div
           ref={mapContainerRef}
           id="ride-map"
@@ -1420,17 +1502,26 @@ export default function ActiveRideClient({
           </div>
         )}
       </div>
+      )}
 
-      {/* Status + Actions section — bottom 40% */}
+      {/* Status + Actions section — dynamic height, scrollable content with pinned buttons */}
       <div style={{
-        flex: '0 0 40%',
+        flex: 1,
+        minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
-        padding: '16px 20px',
-        paddingBottom: 'max(20px, env(safe-area-inset-bottom))',
-        overflowY: 'auto',
         backgroundColor: COLORS.black,
       }}>
+        {/* Scrollable inner — status header + info + actions all scroll together */}
+        <div style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          padding: '16px 20px',
+          paddingBottom: 'max(20px, env(safe-area-inset-bottom))',
+          WebkitOverflowScrolling: 'touch',
+        }}>
         {/* Status header */}
         <div style={{
           display: 'flex',
@@ -1504,7 +1595,7 @@ export default function ActiveRideClient({
         </div>
 
         {/* Itinerary — pickup → stops → dropoff */}
-        {(pickupAddress || dropoffAddress) && (
+        {(pickupAddress || dropoffAddress || ride.pickupAddress || ride.dropoffAddress) && (
           <div style={{
             backgroundColor: COLORS.card,
             borderRadius: 12,
@@ -1513,12 +1604,49 @@ export default function ActiveRideClient({
             fontSize: 13,
             color: COLORS.grayLight,
           }}>
-            {pickupAddress && (
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
-                <span style={{ color: COLORS.green, fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>PICKUP</span>
-                <span>{pickupAddress}</span>
-              </div>
+            {/* Pickup row */}
+            {(pickupAddress || ride.pickupAddress) && (
+              editingAddress === 'pickup' ? (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.green, marginBottom: 6 }}>UPDATE PICKUP</div>
+                  <AddressAutocomplete
+                    label=""
+                    placeholder="Search new pickup address..."
+                    onSelect={async (addr) => {
+                      setAddressUpdateSent(true);
+                      try {
+                        await fetch(`/api/rides/${rideId}/update-address`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ addressType: 'pickup', address: addr.address || addr.name, latitude: addr.latitude, longitude: addr.longitude }),
+                        });
+                      } catch { setError('Failed to send address update'); setAddressUpdateSent(false); }
+                    }}
+                    onClear={() => setEditingAddress(null)}
+                  />
+                  {addressUpdateSent && (
+                    <div style={{ fontSize: 11, color: COLORS.orange, marginTop: 6, textAlign: 'center' }}>Waiting for driver to confirm...</div>
+                  )}
+                  <button onClick={() => { setEditingAddress(null); setAddressUpdateSent(false); }}
+                    style={{ marginTop: 6, width: '100%', padding: 6, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: COLORS.gray, fontSize: 12, cursor: 'pointer', fontFamily: FONTS.body }}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                  <span style={{ color: COLORS.green, fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>PICKUP</span>
+                  <span style={{ flex: 1 }}>{pickupAddress || ride.pickupAddress}</span>
+                  {/* Edit button — rider only, matched + post-COO only */}
+                  {!isDriver && ride.status === 'matched' && ride.cooAt && (
+                    <button onClick={() => setEditingAddress('pickup')}
+                      style={{ background: 'none', border: 'none', color: COLORS.orange, fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0, padding: '0 2px', fontFamily: FONTS.body }}>
+                      Edit
+                    </button>
+                  )}
+                </div>
+              )
             )}
+            {/* Stops */}
             {ride.stops && ride.stops.length > 0 && (ride.stops as { address?: string; reached_at?: string }[]).map((stop, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8, paddingLeft: 4 }}>
                 <span style={{ color: COLORS.orange, fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>
@@ -1529,12 +1657,100 @@ export default function ActiveRideClient({
                 </span>
               </div>
             ))}
-            {dropoffAddress && (
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                <span style={{ color: COLORS.red, fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>DROP</span>
-                <span>{dropoffAddress}</span>
-              </div>
+            {/* Dropoff row */}
+            {(dropoffAddress || ride.dropoffAddress) && (
+              editingAddress === 'dropoff' ? (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.red, marginBottom: 6 }}>UPDATE DROP-OFF</div>
+                  <AddressAutocomplete
+                    label=""
+                    placeholder="Search new drop-off address..."
+                    onSelect={async (addr) => {
+                      setAddressUpdateSent(true);
+                      try {
+                        await fetch(`/api/rides/${rideId}/update-address`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ addressType: 'dropoff', address: addr.address || addr.name, latitude: addr.latitude, longitude: addr.longitude }),
+                        });
+                      } catch { setError('Failed to send address update'); setAddressUpdateSent(false); }
+                    }}
+                    onClear={() => setEditingAddress(null)}
+                  />
+                  {addressUpdateSent && (
+                    <div style={{ fontSize: 11, color: COLORS.orange, marginTop: 6, textAlign: 'center' }}>Waiting for driver to confirm...</div>
+                  )}
+                  <button onClick={() => { setEditingAddress(null); setAddressUpdateSent(false); }}
+                    style={{ marginTop: 6, width: '100%', padding: 6, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: COLORS.gray, fontSize: 12, cursor: 'pointer', fontFamily: FONTS.body }}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  <span style={{ color: COLORS.red, fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>DROP</span>
+                  <span style={{ flex: 1 }}>{dropoffAddress || ride.dropoffAddress}</span>
+                  {/* Edit button — rider only, matched + post-COO only */}
+                  {!isDriver && ride.status === 'matched' && ride.cooAt && (
+                    <button onClick={() => setEditingAddress('dropoff')}
+                      style={{ background: 'none', border: 'none', color: COLORS.orange, fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0, padding: '0 2px', fontFamily: FONTS.body }}>
+                      Edit
+                    </button>
+                  )}
+                </div>
+              )
             )}
+          </div>
+        )}
+
+        {/* Driver: pending address update from rider */}
+        {isDriver && pendingAddressUpdate && (
+          <div style={{
+            background: 'rgba(255,145,0,0.1)', border: '1px solid rgba(255,145,0,0.25)',
+            borderRadius: 14, padding: '14px 16px', marginBottom: 12,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.orange, marginBottom: 4 }}>
+              Rider wants to update {pendingAddressUpdate.type}
+            </div>
+            <div style={{ fontSize: 14, color: COLORS.white, marginBottom: 10, lineHeight: 1.4 }}>
+              {pendingAddressUpdate.address}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={async () => {
+                  await fetch(`/api/rides/${rideId}/update-address`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'confirm' }),
+                  }).catch(() => {});
+                  setPendingAddressUpdate(null);
+                }}
+                style={{
+                  flex: 1, padding: 12, borderRadius: 100, border: 'none',
+                  background: COLORS.green, color: COLORS.black,
+                  fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: FONTS.body,
+                }}
+              >
+                Confirm
+              </button>
+              <button
+                onClick={async () => {
+                  await fetch(`/api/rides/${rideId}/update-address`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'reject' }),
+                  }).catch(() => {});
+                  setPendingAddressUpdate(null);
+                }}
+                style={{
+                  flex: 1, padding: 12, borderRadius: 100,
+                  border: '1px solid rgba(255,82,82,0.3)', background: 'transparent',
+                  color: COLORS.red, fontSize: 14, fontWeight: 600,
+                  cursor: 'pointer', fontFamily: FONTS.body,
+                }}
+              >
+                Keep Original
+              </button>
+            </div>
           </div>
         )}
 
@@ -1631,9 +1847,10 @@ export default function ActiveRideClient({
         )}
 
         {/* Dynamic content based on status and role */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', minHeight: 0 }}>
           {renderStatusContent()}
         </div>
+        </div>{/* end scrollable inner */}
       </div>
 
       {/* Chat bubble — visible from OTW through ride end */}
