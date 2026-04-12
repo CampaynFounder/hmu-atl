@@ -182,6 +182,7 @@ export default function ActiveRideClient({
     riderName?: string;
   } | null>(null);
   const [addressUpdateSent, setAddressUpdateSent] = useState(false);
+  const [timingCollapsed, setTimingCollapsed] = useState(false);
   const [notification, setNotification] = useState<{
     message: string;
     emoji: string;
@@ -198,7 +199,7 @@ export default function ActiveRideClient({
   const dropoffMarkerRef = useRef<any | null>(null);
 
   // GPS tracking for driver during active ride phases
-  const shouldTrackGps = isDriver && ['otw', 'here', 'confirming', 'active'].includes(ride.status);
+  const shouldTrackGps = isDriver && ['matched', 'otw', 'here', 'confirming', 'active'].includes(ride.status);
   const geo = useGeolocation({ rideId, enabled: shouldTrackGps });
 
   // Ably real-time subscription
@@ -1969,6 +1970,16 @@ export default function ActiveRideClient({
           return ride.cooAt ? (
             <>
               <StatusMessage text="Rider is ready!" />
+              <PickupTimingCard
+                driverLat={geo.lat}
+                driverLng={geo.lng}
+                pickupLat={ride.pickupLat}
+                pickupLng={ride.pickupLng}
+                agreementSummary={ride.agreementSummary}
+                isDriver={true}
+                collapsed={timingCollapsed}
+                onToggle={() => setTimingCollapsed(prev => !prev)}
+              />
               <TappableAddresses ride={ride} />
               {/* Update price option for driver */}
               {!ride.proposedPrice && !priceEditorOpen && (
@@ -2066,6 +2077,16 @@ export default function ActiveRideClient({
                 ? `Waiting for ${ride.riderHandle ? '@' + ride.riderHandle : ride.riderName || 'rider'} to confirm cash ride details...`
                 : `Waiting for rider to verify $${Number(ride.agreedPrice || 0).toFixed(0)} payment...`
               } />
+              <PickupTimingCard
+                driverLat={geo.lat}
+                driverLng={geo.lng}
+                pickupLat={ride.pickupLat}
+                pickupLng={ride.pickupLng}
+                agreementSummary={ride.agreementSummary}
+                isDriver={true}
+                collapsed={timingCollapsed}
+                onToggle={() => setTimingCollapsed(prev => !prev)}
+              />
               {/* Update price — available even before Pull Up */}
               {!ride.proposedPrice && !priceEditorOpen && (
                 <div style={{ marginTop: 8 }}>
@@ -2601,6 +2622,16 @@ export default function ActiveRideClient({
       case 'matched':
         return ride.cooAt ? (
           <>
+            <PickupTimingCard
+              driverLat={driverLocation?.lat ?? null}
+              driverLng={driverLocation?.lng ?? null}
+              pickupLat={ride.pickupLat}
+              pickupLng={ride.pickupLng}
+              agreementSummary={ride.agreementSummary}
+              isDriver={false}
+              collapsed={timingCollapsed}
+              onToggle={() => setTimingCollapsed(prev => !prev)}
+            />
             {ride.proposedPrice ? (
               <div style={{
                 background: 'rgba(255,145,0,0.1)', border: '1px solid rgba(255,145,0,0.25)',
@@ -3592,6 +3623,159 @@ function PulloffButtons({
       >
         Leave without charging
       </button>
+    </div>
+  );
+}
+
+// ── Pickup timing card — shows drive time, rider's requested time, and leave-by ──
+function PickupTimingCard({
+  driverLat,
+  driverLng,
+  pickupLat,
+  pickupLng,
+  agreementSummary,
+  isDriver,
+  collapsed,
+  onToggle,
+}: {
+  driverLat: number | null;
+  driverLng: number | null;
+  pickupLat: number | null;
+  pickupLng: number | null;
+  agreementSummary: Record<string, unknown> | null;
+  isDriver: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  // Drive time calc
+  const hasDriveData = driverLat && driverLng && pickupLat && pickupLng;
+  const miles = hasDriveData ? haversineDistance(driverLat, driverLng, pickupLat, pickupLng) : null;
+  // ~25 mph avg in Atlanta metro with traffic
+  const driveMinutes = miles !== null ? Math.max(Math.round((miles / 25) * 60), 1) : null;
+
+  // Rider's requested time
+  const timeDisplay = (agreementSummary?.timeDisplay as string) || null;
+  const resolvedTime = (agreementSummary?.resolvedTime as string) || null;
+  const timeRaw = (agreementSummary?.time as string) || null;
+  const isAsap = !resolvedTime || (timeRaw && /^(now|asap|right now)$/i.test(timeRaw.trim()));
+
+  // Leave-by calculation for scheduled rides
+  let leaveByLabel: string | null = null;
+  if (!isAsap && resolvedTime && driveMinutes !== null) {
+    const pickupTime = new Date(resolvedTime);
+    if (!isNaN(pickupTime.getTime())) {
+      const leaveBy = new Date(pickupTime.getTime() - (driveMinutes + 10) * 60000);
+      const now = new Date();
+      if (leaveBy > now) {
+        leaveByLabel = leaveBy.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      }
+    }
+  }
+
+  // Nothing to show
+  if (!hasDriveData && !timeDisplay && isAsap) return null;
+
+  // Collapsed = compact single-line summary
+  if (collapsed) {
+    const parts: string[] = [];
+    if (driveMinutes !== null && miles !== null) parts.push(`${driveMinutes} min (${miles.toFixed(1)} mi)`);
+    if (timeDisplay && !isAsap) parts.push(timeDisplay);
+    if (isAsap && hasDriveData) parts.push('ASAP');
+    if (!parts.length) return null;
+
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '8px 12px', borderRadius: 10,
+          background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+          marginBottom: 8, cursor: 'pointer',
+        }}
+      >
+        <span style={{ fontSize: 12, color: COLORS.grayLight, fontFamily: FONTS.mono }}>
+          {isDriver ? '🚗' : '📍'} {parts.join(' · ')}
+        </span>
+        <span style={{ fontSize: 10, color: COLORS.gray }}>▼</span>
+      </button>
+    );
+  }
+
+  return (
+    <div style={{
+      backgroundColor: COLORS.card, borderRadius: 12,
+      padding: '12px 14px', marginBottom: 8,
+      border: '1px solid rgba(255,255,255,0.08)',
+    }}>
+      {/* Header with collapse toggle */}
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: 'none', border: 'none', padding: 0, cursor: 'pointer', marginBottom: 8,
+        }}
+      >
+        <span style={{ fontSize: 11, color: COLORS.gray, textTransform: 'uppercase', letterSpacing: 1, fontFamily: FONTS.mono }}>
+          {isDriver ? 'Drive to Pickup' : 'Pickup Info'}
+        </span>
+        <span style={{ fontSize: 10, color: COLORS.gray }}>▲</span>
+      </button>
+
+      {/* Drive time + distance */}
+      {driveMinutes !== null && miles !== null && (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+          <span style={{ fontFamily: FONTS.display, fontSize: 26, color: COLORS.white, lineHeight: 1 }}>
+            {driveMinutes}
+          </span>
+          <span style={{ fontSize: 12, color: COLORS.grayLight }}>
+            min · {miles.toFixed(1)} mi to pickup
+          </span>
+        </div>
+      )}
+
+      {/* Rider's requested time */}
+      {timeDisplay && !isAsap && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '6px 0',
+          borderTop: driveMinutes !== null ? '1px solid rgba(255,255,255,0.06)' : 'none',
+        }}>
+          <span style={{ fontSize: 12, color: COLORS.gray, flexShrink: 0 }}>
+            {isDriver ? 'Rider needs you' : 'Your pickup'}
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: COLORS.orange, fontFamily: FONTS.mono }}>
+            {timeDisplay}
+          </span>
+        </div>
+      )}
+
+      {/* Leave-by suggestion (driver only, scheduled rides) */}
+      {isDriver && leaveByLabel && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '6px 0',
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+        }}>
+          <span style={{ fontSize: 12, color: COLORS.gray, flexShrink: 0 }}>Leave by</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: COLORS.green, fontFamily: FONTS.mono }}>
+            {leaveByLabel}
+          </span>
+          <span style={{ fontSize: 10, color: COLORS.gray }}>(+10 min buffer)</span>
+        </div>
+      )}
+
+      {/* ASAP nudge */}
+      {isAsap && hasDriveData && (
+        <div style={{
+          padding: '6px 0',
+          borderTop: driveMinutes !== null ? '1px solid rgba(255,255,255,0.06)' : 'none',
+          fontSize: 12, color: COLORS.orange,
+        }}>
+          {isDriver ? 'Rider is waiting — head out when ready' : 'Your driver will head out soon'}
+        </div>
+      )}
     </div>
   );
 }
