@@ -1,10 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
+import { checkRateLimit } from '@/lib/rate-limit/check';
 
 const ACCESS_CODE = process.env.DATA_ROOM_ACCESS_CODE || 'atlhmu82';
 
 export async function POST(request: NextRequest) {
   try {
+    const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown';
+
+    const rl = await checkRateLimit({
+      key: `data-room:consent:${ip}`,
+      limit: 5,
+      windowSeconds: 300,
+    });
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: 'Too many attempts. Try again shortly.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      );
+    }
+
     const { fullName, email, phone, company, title, accessCode, ndaVersion } = await request.json();
 
     if (!accessCode || accessCode.toLowerCase() !== ACCESS_CODE.toLowerCase()) {
@@ -25,7 +40,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Please enter a valid 10-digit US phone number' }, { status: 400 });
     }
 
-    const ip = request.headers.get('x-forwarded-for') || request.headers.get('cf-connecting-ip') || 'unknown';
     const userAgent = request.headers.get('user-agent') || 'unknown';
 
     const result = await sql`

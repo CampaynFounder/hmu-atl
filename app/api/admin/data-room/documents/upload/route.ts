@@ -1,24 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
+import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 
 const R2_PUBLIC_URL = 'https://pub-649c30e78a62433eb6ed9cb1209d112a.r2.dev';
+const VALID_CATEGORIES = ['pitch_deck', 'financials', 'one_pager', 'legal', 'other'];
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
   try {
-    // Admin-only
-    const { userId: clerkId } = await auth();
-    if (!clerkId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const adminUser = await sql`
-      SELECT id, is_admin FROM users WHERE clerk_id = ${clerkId}
-    `;
-    if (adminUser.length === 0 || !adminUser[0].is_admin) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
-    }
+    const admin = await requireAdmin();
+    if (!admin) return unauthorizedResponse();
 
     const formData = await request.formData();
     const file = formData.get('file') as File;
@@ -31,19 +23,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'File, name, and category are required' }, { status: 400 });
     }
 
-    const validCategories = ['pitch_deck', 'financials', 'one_pager', 'legal', 'other'];
-    if (!validCategories.includes(category)) {
+    if (!VALID_CATEGORIES.includes(category)) {
       return NextResponse.json({ error: 'Invalid category' }, { status: 400 });
     }
 
-    if (file.size > 100 * 1024 * 1024) {
+    if (file.size > MAX_FILE_BYTES) {
       return NextResponse.json({ error: 'File too large. Maximum 100MB.' }, { status: 400 });
     }
 
-    // Determine version
     let version = 1;
     if (replaceId) {
-      // Deactivate old version and bump version number
       const oldDoc = await sql`
         SELECT version FROM data_room_documents WHERE id = ${replaceId}
       `;
@@ -56,7 +45,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Upload to R2
     const timestamp = Date.now();
     const ext = file.name.split('.').pop() || 'bin';
     const fileKey = `data-room/${category}/${timestamp}-v${version}.${ext}`;
@@ -65,7 +53,7 @@ export async function POST(request: NextRequest) {
 
     try {
       const { env } = await getCloudflareContext();
-      const bucket = (env as any).MEDIA_BUCKET;
+      const bucket = (env as unknown as { MEDIA_BUCKET?: { put: (key: string, value: ArrayBuffer, opts?: { httpMetadata?: { contentType?: string } }) => Promise<unknown> } }).MEDIA_BUCKET;
       if (bucket) {
         await bucket.put(fileKey, arrayBuffer, {
           httpMetadata: { contentType: file.type },
@@ -76,17 +64,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'File upload failed' }, { status: 500 });
     }
 
-    // Save metadata
     const result = await sql`
       INSERT INTO data_room_documents (
         name, description, category, file_key, file_name,
         file_type, file_size_bytes, version, uploaded_by
       ) VALUES (
         ${name}, ${description || null}, ${category}, ${fileKey}, ${file.name},
-        ${file.type}, ${file.size}, ${version}, ${clerkId}
+        ${file.type}, ${file.size}, ${version}, ${admin.clerk_id}
       )
       RETURNING id, name, version, created_at
     `;
+
+    await logAdminAction(admin.id, replaceId ? 'data_room.document.replace' : 'data_room.document.upload', 'data_room_document', result[0].id, {
+      name, category, version, file_name: file.name, replaceId,
+    });
 
     return NextResponse.json({
       document: result[0],

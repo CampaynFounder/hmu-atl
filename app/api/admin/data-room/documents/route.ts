@@ -1,17 +1,20 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 
 export async function GET() {
   try {
-    const { userId: clerkId } = await auth();
-    if (!clerkId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const admin = await requireAdmin();
+    if (!admin) return unauthorizedResponse();
 
     const documents = await sql`
-      SELECT * FROM data_room_documents
-      ORDER BY is_active DESC, updated_at DESC
+      SELECT
+        d.*,
+        COUNT(l.id)::int AS access_count
+      FROM data_room_documents d
+      LEFT JOIN data_room_access_logs l ON l.document_id = d.id
+      GROUP BY d.id
+      ORDER BY d.is_active DESC, d.updated_at DESC
     `;
 
     return NextResponse.json({ documents });
