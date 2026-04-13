@@ -479,13 +479,27 @@ export default function AdminVideosPage() {
                 How long each title card and caption stays on screen, plus the intro/end card text.
               </p>
 
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                 <Field label="Intro (sec)" value={String(selected.intro_sec)} type="number" onChange={v => setSelected({ ...selected, intro_sec: Number(v) })} />
                 <Field label="Title card (sec)" value={String(selected.title_card_duration_sec)} type="number" onChange={v => setSelected({ ...selected, title_card_duration_sec: Number(v) })} />
                 <Field label="Caption (sec)" value={String(selected.caption_duration_sec)} type="number" onChange={v => setSelected({ ...selected, caption_duration_sec: Number(v) })} />
                 <Field label="End card (sec)" value={String(selected.end_sec)} type="number" onChange={v => setSelected({ ...selected, end_sec: Number(v) })} />
-                <Field label="Phone width (px)" value={String(Number(selected.phone_width) || 480)} type="number" onChange={v => setSelected({ ...selected, phone_width: Number(v) })} />
-                <Field label="Phone height (px)" value={String(Number(selected.phone_height) || 1036)} type="number" onChange={v => setSelected({ ...selected, phone_height: Number(v) })} />
+                <div>
+                  <label className="text-[10px] text-neutral-500 block mb-1 font-medium uppercase tracking-wider">Phone size</label>
+                  <select
+                    value={`${Number(selected.phone_width) || 480}x${Number(selected.phone_height) || 1036}`}
+                    onChange={e => {
+                      const [w, h] = e.target.value.split('x').map(Number);
+                      setSelected({ ...selected, phone_width: w, phone_height: h });
+                    }}
+                    className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="480x1036">Default (480 × 1036)</option>
+                    <option value="540x1166">Prominent (540 × 1166)</option>
+                    <option value="620x1340">Large (620 × 1340)</option>
+                    <option value="700x1512">Full (700 × 1512)</option>
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-neutral-800">
