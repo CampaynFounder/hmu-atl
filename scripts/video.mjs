@@ -189,7 +189,11 @@ async function cmdPreview(compositionId) {
   console.log(`   Studio will open with ${compositionId} selected.\n`);
 
   // Set REMOTION_COMPOSITION so Root.tsx puts this composition first
-  const studio = spawn("npx", ["remotion", "studio"], {
+  // Pass --props so Studio uses the saved config from Neon (not hardcoded defaults)
+  const studio = spawn("npx", [
+    "remotion", "studio",
+    "--props", `props/${compositionId}.json`,
+  ], {
     cwd: VIDEOS_DIR,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, REMOTION_COMPOSITION: compositionId },
