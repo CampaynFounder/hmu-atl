@@ -23,6 +23,8 @@ interface VideoConfig {
   end_tagline: string;
   end_cta: string;
   steps: Step[];
+  phone_width: number;
+  phone_height: number;
   is_active: boolean;
   updated_at: string;
 }
@@ -216,6 +218,8 @@ export default function AdminVideosPage() {
         endTagline: selected.end_tagline,
         endCta: selected.end_cta,
         steps: selected.steps,
+        phoneWidth: selected.phone_width,
+        phoneHeight: selected.phone_height,
       }),
     });
     if (res.ok) {
@@ -475,11 +479,13 @@ export default function AdminVideosPage() {
                 How long each title card and caption stays on screen, plus the intro/end card text.
               </p>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 <Field label="Intro (sec)" value={String(selected.intro_sec)} type="number" onChange={v => setSelected({ ...selected, intro_sec: Number(v) })} />
                 <Field label="Title card (sec)" value={String(selected.title_card_duration_sec)} type="number" onChange={v => setSelected({ ...selected, title_card_duration_sec: Number(v) })} />
                 <Field label="Caption (sec)" value={String(selected.caption_duration_sec)} type="number" onChange={v => setSelected({ ...selected, caption_duration_sec: Number(v) })} />
                 <Field label="End card (sec)" value={String(selected.end_sec)} type="number" onChange={v => setSelected({ ...selected, end_sec: Number(v) })} />
+                <Field label="Phone width (px)" value={String(Number(selected.phone_width) || 480)} type="number" onChange={v => setSelected({ ...selected, phone_width: Number(v) })} />
+                <Field label="Phone height (px)" value={String(Number(selected.phone_height) || 1036)} type="number" onChange={v => setSelected({ ...selected, phone_height: Number(v) })} />
               </div>
 
               <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-neutral-800">

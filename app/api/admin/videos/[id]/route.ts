@@ -49,6 +49,8 @@ export async function PUT(
     endCta,
     steps,
     isActive,
+    phoneWidth,
+    phoneHeight,
   } = body;
 
   const stepsJson = steps ? JSON.stringify(steps) : null;
@@ -66,6 +68,8 @@ export async function PUT(
       end_cta = COALESCE(${endCta ?? null}, end_cta),
       steps = COALESCE(${stepsJson}::jsonb, steps),
       is_active = COALESCE(${isActive ?? null}, is_active),
+      phone_width = COALESCE(${phoneWidth ?? null}, phone_width),
+      phone_height = COALESCE(${phoneHeight ?? null}, phone_height),
       updated_at = NOW()
     WHERE id = ${id}
     RETURNING *

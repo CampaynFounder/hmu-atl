@@ -62,6 +62,8 @@ interface RideFlowProps {
   captionDurationSec?: number;
   endTagline?: string;
   endCta?: string;
+  phoneWidth?: number;
+  phoneHeight?: number;
 }
 
 // ── Main composition ──
@@ -77,6 +79,8 @@ export const RideFlow: React.FC<RideFlowProps> = ({
   captionDurationSec = 5,
   endTagline = "Your city. Your ride. Your rules.",
   endCta = "HMU ATL",
+  phoneWidth = 480,
+  phoneHeight = 1036,
 }) => {
   const { fps } = useVideoConfig();
 
@@ -116,6 +120,8 @@ export const RideFlow: React.FC<RideFlowProps> = ({
             steps={steps}
             titleCardDurationSec={titleCardDurationSec}
             recordingFile={recordingFile}
+            phoneWidth={phoneWidth}
+            phoneHeight={phoneHeight}
           />
 
           {/* Progress bar at top */}
@@ -180,7 +186,9 @@ const PhoneWithEffects: React.FC<{
   steps: RideFlowStep[];
   titleCardDurationSec: number;
   recordingFile: string;
-}> = ({ steps, titleCardDurationSec, recordingFile }) => {
+  phoneWidth: number;
+  phoneHeight: number;
+}> = ({ steps, titleCardDurationSec, recordingFile, phoneWidth, phoneHeight }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -287,8 +295,8 @@ const PhoneWithEffects: React.FC<{
     >
       <div
         style={{
-          width: 380,
-          height: 820,
+          width: phoneWidth,
+          height: phoneHeight,
           borderRadius: 48,
           border: `4px solid rgba(255,255,255,${0.15 + borderGlow * 0.3})`,
           overflow: "hidden",

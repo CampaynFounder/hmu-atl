@@ -36,6 +36,8 @@ const compositions = [
       captionDurationSec: 5,
       endTagline: "You're live. Atlanta's waiting.",
       endCta: "START DRIVING",
+      phoneWidth: 480,
+      phoneHeight: 1036,
     },
   },
   {
@@ -62,6 +64,8 @@ const compositions = [
       captionDurationSec: 5,
       endTagline: "Your city. Your ride. Your rules.",
       endCta: "HMU ATL",
+      phoneWidth: 480,
+      phoneHeight: 1036,
     },
   },
 ];

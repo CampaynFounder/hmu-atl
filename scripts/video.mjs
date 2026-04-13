@@ -95,6 +95,8 @@ function buildProps(config) {
     captionDurationSec: Number(config.caption_duration_sec),
     endTagline: config.end_tagline,
     endCta: config.end_cta,
+    phoneWidth: Number(config.phone_width) || 480,
+    phoneHeight: Number(config.phone_height) || 1036,
   };
 }
 

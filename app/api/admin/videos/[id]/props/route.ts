@@ -28,6 +28,8 @@ export async function GET(
     captionDurationSec: Number(c.caption_duration_sec),
     endTagline: c.end_tagline,
     endCta: c.end_cta,
+    phoneWidth: Number(c.phone_width) || 480,
+    phoneHeight: Number(c.phone_height) || 1036,
   };
 
   return NextResponse.json(props);

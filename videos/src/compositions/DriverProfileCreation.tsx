@@ -50,6 +50,8 @@ interface DriverProfileProps {
   captionDurationSec?: number;
   endTagline?: string;
   endCta?: string;
+  phoneWidth?: number;
+  phoneHeight?: number;
 }
 
 const DEFAULT_STEPS: StepDef[] = [
@@ -74,6 +76,8 @@ export const DriverProfileCreation: React.FC<DriverProfileProps> = ({
   captionDurationSec = 5,
   endTagline = "You're live. Atlanta's waiting.",
   endCta = "START DRIVING",
+  phoneWidth = 480,
+  phoneHeight = 1036,
 }) => {
   const { fps } = useVideoConfig();
 
@@ -109,7 +113,7 @@ export const DriverProfileCreation: React.FC<DriverProfileProps> = ({
           />
 
           {/* Phone playing continuously */}
-          <PhoneWithEffects steps={steps} titleCardDurationSec={titleCardDurationSec} recordingFile={recordingFile} />
+          <PhoneWithEffects steps={steps} titleCardDurationSec={titleCardDurationSec} recordingFile={recordingFile} phoneWidth={phoneWidth} phoneHeight={phoneHeight} />
 
           {/* Progress bar at top */}
           <ProgressBar steps={steps} titleCardDurationSec={titleCardDurationSec} />
@@ -163,7 +167,9 @@ const PhoneWithEffects: React.FC<{
   steps: StepDef[];
   titleCardDurationSec: number;
   recordingFile: string;
-}> = ({ steps, titleCardDurationSec, recordingFile }) => {
+  phoneWidth: number;
+  phoneHeight: number;
+}> = ({ steps, titleCardDurationSec, recordingFile, phoneWidth, phoneHeight }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -263,8 +269,8 @@ const PhoneWithEffects: React.FC<{
     >
       <div
         style={{
-          width: 380,
-          height: 820,
+          width: phoneWidth,
+          height: phoneHeight,
           borderRadius: 48,
           border: `4px solid rgba(255,255,255,${0.15 + borderGlow * 0.3})`,
           overflow: "hidden",
