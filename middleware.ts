@@ -32,7 +32,7 @@ const isMaintenanceExempt = createRouteMatcher([
   '/guide/(.*)',
   '/data-room(.*)',
   '/api/data-room(.*)',
-  '/pitch',
+  '/pitch(.*)',
   '/d/(.*)',
   '/api/og/(.*)',
   '/api/webhooks(.*)',
@@ -78,7 +78,7 @@ const isPublicRoute = createRouteMatcher([
   '/guide/(.*)',
   '/data-room(.*)',
   '/api/data-room(.*)',
-  '/pitch',
+  '/pitch(.*)',
   '/admin(.*)',
   '/api/admin(.*)',
   '/maintenance',
@@ -124,7 +124,7 @@ export default clerkMiddleware(async (auth, req) => {
 export const config = {
   matcher: [
     // Skip Next.js internals, static files, and .well-known
-    '/((?!_next|\\.well-known|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    '/((?!_next|\\.well-known|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest|mp4|mov|webm|ogg|mp3|wav)).*)',
     // Always run for API routes
     '/(api|trpc)(.*)',
   ],

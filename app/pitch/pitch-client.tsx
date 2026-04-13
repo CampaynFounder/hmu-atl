@@ -67,12 +67,11 @@ const CHAPTERS: Chapter[] = [
   },
   {
     id: 'chapter-4',
-    kicker: 'Chapter 04',
-    title: 'Ride. Upsell. Complete.',
-    hook: 'Every ride is a storefront. Add-ons turn trips into revenue.',
-    steps: ['R · In Car', 'R · Add Ons', 'D · End Ride'],
-    src: '/pitch/04-ride-upsell-complete.mp4',
-    poster: '/pitch/04-ride-upsell-complete-poster.jpg',
+    kicker: 'Cash Ride',
+    title: 'Pullup. Ride. Drop Off.',
+    hook: 'OTW to curb. Ride active. End ride. Driver gets paid.',
+    steps: ['D · OTW', 'D · Here', 'R · In Car', 'D · End Ride', 'D · Get Paid'],
+    src: '/pitch/ride-flow.mp4',
   },
 ];
 
