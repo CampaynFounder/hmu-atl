@@ -3,8 +3,9 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser } from '@/lib/rides/state-machine';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
-import { cancelPaymentHold } from '@/lib/payments/escrow';
+import { cancelPaymentHold, partialCaptureDeposit } from '@/lib/payments/escrow';
 import { cancelRideBooking } from '@/lib/schedule/conflicts';
+import { getHoldPolicy, calculateCancelSplit } from '@/lib/payments/hold-policy';
 
 export async function POST(
   req: NextRequest,
@@ -74,9 +75,51 @@ export async function POST(
         return NextResponse.json({ error: 'Cannot cancel at this stage' }, { status: 400 });
       }
 
-      await sql`UPDATE rides SET status = 'cancelled', updated_at = NOW() WHERE id = ${rideId}`;
+      const wasAfterOtw = ['otw', 'here'].includes(status);
+      const visibleDeposit = Number(ride.visible_deposit ?? ride.final_agreed_price ?? 0);
 
-      // Release Stripe hold
+      if (wasAfterOtw && visibleDeposit > 0) {
+        // After OTW: apply hold policy split — driver gets their share of the deposit
+        const driverTierRows = await sql`SELECT tier FROM users WHERE id = ${ride.driver_id} LIMIT 1`;
+        const driverTier = ((driverTierRows[0] as Record<string, unknown>)?.tier as string) || 'free';
+        const holdPolicy = await getHoldPolicy(driverTier);
+        const split = calculateCancelSplit(visibleDeposit, 'after_otw', holdPolicy);
+
+        if (split.riderCharged > 0) {
+          // Partial capture of the deposit amount
+          await partialCaptureDeposit(rideId, split.driverReceives, split.platformReceives).catch(e =>
+            console.error('Deposit capture failed on cancel:', e)
+          );
+        } else {
+          await cancelPaymentHold(rideId, 'Cancelled by agreement — no charge').catch(e =>
+            console.error('Hold release failed:', e)
+          );
+        }
+
+        await sql`UPDATE rides SET status = 'cancelled', updated_at = NOW() WHERE id = ${rideId}`;
+        cancelRideBooking(rideId).catch(() => {});
+
+        if (ride.hmu_post_id) {
+          await sql`
+            UPDATE hmu_posts SET status = 'active', expires_at = NOW() + INTERVAL '2 hours'
+            WHERE id = ${ride.hmu_post_id}
+          `;
+        }
+
+        const msg = split.driverReceives > 0
+          ? `Cancelled after OTW. Driver gets $${split.driverReceives.toFixed(2)} (gas compensation from deposit).`
+          : 'Ride cancelled by agreement — no charge.';
+
+        await publishRideUpdate(rideId, 'status_change', { status: 'cancelled', message: msg, cancelSplit: split }).catch(() => {});
+        await notifyUser(ride.rider_id as string, 'ride_update', {
+          rideId, status: 'cancelled', message: msg,
+        }).catch(() => {});
+
+        return NextResponse.json({ status: 'cancelled', cancelSplit: split });
+      }
+
+      // Before OTW or no deposit: full release
+      await sql`UPDATE rides SET status = 'cancelled', updated_at = NOW() WHERE id = ${rideId}`;
       cancelPaymentHold(rideId, 'Cancelled by agreement').catch(e => console.error('Hold release failed:', e));
       cancelRideBooking(rideId).catch(() => {});
 

@@ -292,6 +292,71 @@ export async function cancelPaymentHold(rideId: string, reason: string): Promise
 }
 
 /**
+ * Partial capture for voluntary cancellation after OTW.
+ * Captures only the deposit split (driver share + platform share).
+ * Remainder of the authorization is automatically released by Stripe.
+ */
+export async function partialCaptureDeposit(
+  rideId: string,
+  driverAmount: number,
+  platformAmount: number
+): Promise<void> {
+  const rideRows = await sql`
+    SELECT payment_intent_id, rider_id, driver_id, visible_deposit
+    FROM rides WHERE id = ${rideId} LIMIT 1
+  `;
+  if (!rideRows.length) throw new Error('Ride not found');
+  const ride = rideRows[0] as Record<string, unknown>;
+
+  const captureTotal = driverAmount + platformAmount;
+  if (captureTotal <= 0) return;
+
+  const driverRows = await sql`
+    SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1
+  `;
+  const driverStripeId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string;
+
+  if (!isMock && ride.payment_intent_id && driverStripeId) {
+    const captureAmountCents = Math.round(captureTotal * 100);
+    const applicationFeeCents = Math.round(platformAmount * 100);
+
+    await stripe.paymentIntents.capture(
+      ride.payment_intent_id as string,
+      {
+        amount_to_capture: captureAmountCents,
+        application_fee_amount: applicationFeeCents,
+      },
+      {
+        stripeAccount: driverStripeId,
+        idempotencyKey: `cancel_deposit_${rideId}`,
+      }
+    );
+  }
+
+  await sql`
+    UPDATE rides SET
+      payment_captured = true,
+      payment_captured_at = NOW(),
+      platform_fee_amount = ${platformAmount},
+      driver_payout_amount = ${driverAmount},
+      funds_held = false
+    WHERE id = ${rideId}
+  `;
+
+  const piId = ride.payment_intent_id as string;
+  const deposit = Number(ride.visible_deposit || captureTotal);
+  const riderRefunded = Math.max(0, deposit - captureTotal);
+  await insertLedger(rideId, ride.rider_id as string, 'rider', 'cancel_charge', captureTotal, 'debit', `Cancellation fee from deposit ($${captureTotal.toFixed(2)})`, piId);
+  if (riderRefunded > 0) {
+    await insertLedger(rideId, ride.rider_id as string, 'rider', 'cancel_refund', riderRefunded, 'credit', `Partial deposit refund ($${riderRefunded.toFixed(2)})`, piId);
+  }
+  await insertLedger(rideId, ride.driver_id as string, 'driver', 'cancel_compensation', driverAmount, 'credit', `Cancellation compensation — gas money ($${driverAmount.toFixed(2)})`, piId);
+  if (platformAmount > 0) {
+    await insertLedger(rideId, ride.driver_id as string, 'platform', 'cancel_platform_fee', platformAmount, 'credit', 'Platform cancellation fee', piId);
+  }
+}
+
+/**
  * Refund rider — either release hold (if not captured) or full refund (if captured).
  */
 export async function refundRider(rideId: string, reason: string): Promise<void> {

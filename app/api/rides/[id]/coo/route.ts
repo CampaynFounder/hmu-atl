@@ -5,6 +5,7 @@ import { getRideForUser } from '@/lib/rides/state-machine';
 import { holdRiderPayment } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 import { getDriverMenuForRider } from '@/lib/db/service-menu';
+import { getHoldPolicy, calculateDepositAmount } from '@/lib/payments/hold-policy';
 
 export async function POST(
   req: NextRequest,
@@ -41,6 +42,9 @@ export async function POST(
 
     // ── Skip payment hold for cash rides ──
     const isCashRide = !!(ride.is_cash);
+    let visibleDeposit: number | null = null;
+    let holdMode: string | null = null;
+    let cooAgreedPrice = Number(ride.final_agreed_price || ride.amount || 0);
 
     if (!isCashRide) {
     // ── Payment hold: authorize the agreed amount on rider's card ──
@@ -82,9 +86,18 @@ export async function POST(
       // Non-critical — proceed without reserve
     }
 
-    // Hold the payment (base + add-on reserve)
+    // Look up hold policy for the driver's tier to calculate visible deposit
+    const driverTierRows = await sql`SELECT tier FROM users WHERE id = ${ride.driver_id} LIMIT 1`;
+    const driverTier = ((driverTierRows[0] as Record<string, unknown>)?.tier as string) || 'free';
+    const holdPolicy = await getHoldPolicy(driverTier);
+    const depositCalc = calculateDepositAmount(agreedPrice, addOnReserve, holdPolicy);
+    visibleDeposit = depositCalc.visibleDeposit;
+    holdMode = depositCalc.holdMode;
+    cooAgreedPrice = agreedPrice;
+
+    // Hold the payment (Stripe always authorizes full amount for capture ability)
+    // The visible deposit is stored on the ride for cancellation cap calculations.
     // If the full hold (base + reserve) fails, retry with base only.
-    // Rider just won't have extras available — but they can still ride.
     try {
       await holdRiderPayment({
         rideId,
@@ -123,6 +136,14 @@ export async function POST(
         return NextResponse.json({ error: `Payment hold failed: ${msg}`, code: 'payment_failed' }, { status: 402 });
       }
     }
+
+    // Store the visible deposit amount on the ride for cancellation/no-show calculations
+    await sql`
+      UPDATE rides SET
+        visible_deposit = ${depositCalc.visibleDeposit},
+        hold_policy_id = ${holdPolicy.id}
+      WHERE id = ${rideId}
+    `;
     } // end if (!isCashRide)
 
     // Prepare validated stops as JSONB (with reached_at/verified fields for tracking)
@@ -192,7 +213,14 @@ export async function POST(
       }
     } catch { /* non-blocking */ }
 
-    return NextResponse.json({ status: 'coo', rideId, paymentHeld: true });
+    return NextResponse.json({
+      status: 'coo',
+      rideId,
+      paymentHeld: !isCashRide,
+      visibleDeposit,
+      holdMode,
+      ridePrice: cooAgreedPrice,
+    });
   } catch (error) {
     console.error('COO error:', error);
     return NextResponse.json(

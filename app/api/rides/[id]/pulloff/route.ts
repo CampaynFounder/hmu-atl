@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/client';
 import { getRideForUser } from '@/lib/rides/state-machine';
 import { partialCaptureNoShow, cancelPaymentHold } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { getHoldPolicy, calculateNoShowSplit } from '@/lib/payments/hold-policy';
 
 /**
  * Driver pulls off / marks rider as no-show.
@@ -79,18 +80,39 @@ export async function POST(
     `;
 
     let result = { captured: 0, driverReceives: 0, platformReceives: 0, riderRefunded: 0, addOnRefunded: 0 };
+    let noShowSplit = null;
 
     if (chargePercent === 0) {
       // Full cancel — release hold
       await cancelPaymentHold(rideId, 'Driver pulled off — no charge');
     } else {
-      // Partial capture for no-show
-      result = await partialCaptureNoShow(rideId, chargePercent as 25 | 50);
+      // Use hold policy progressive tiers for no-show split
+      const driverTierRows = await sql`SELECT tier FROM users WHERE id = ${ride.driver_id} LIMIT 1`;
+      const driverTier = ((driverTierRows[0] as Record<string, unknown>)?.tier as string) || 'free';
+      const holdPolicy = await getHoldPolicy(driverTier);
+
+      if (holdPolicy.noShowPlatformTiers?.length > 0) {
+        // Progressive no-show: charge full ride, platform takes tiered cut
+        const ridePrice = Number(ride.final_agreed_price || ride.amount || 0);
+        noShowSplit = calculateNoShowSplit(ridePrice, holdPolicy);
+
+        // Use partialCaptureNoShow with the policy-calculated amounts
+        // chargePercent still controls whether it's 25% or 50% of the base fare for Stripe capture
+        result = await partialCaptureNoShow(rideId, chargePercent as 25 | 50);
+
+        // Override result with progressive split if the no-show charges the full amount
+        // The partialCaptureNoShow handles Stripe; we augment the response with policy info
+        result.platformReceives = noShowSplit.platformReceives;
+        result.driverReceives = noShowSplit.driverReceives;
+      } else {
+        // Fallback: old hardcoded 25/50 split
+        result = await partialCaptureNoShow(rideId, chargePercent as 25 | 50);
+      }
     }
 
     const message = chargePercent === 0
       ? 'Driver pulled off — ride cancelled, no charge.'
-      : `No-show: ${chargePercent}% fee charged. Driver earned $${result.driverReceives.toFixed(2)}.`;
+      : `No-show: Driver earned $${result.driverReceives.toFixed(2)}. Platform: $${result.platformReceives.toFixed(2)}.`;
 
     await publishRideUpdate(rideId, 'ride_ended', {
       status: chargePercent === 0 ? 'cancelled' : 'ended',
@@ -126,6 +148,7 @@ export async function POST(
       status: chargePercent === 0 ? 'cancelled' : 'ended',
       chargePercent,
       ...result,
+      ...(noShowSplit ? { noShowBreakdown: noShowSplit.tierBreakdown, effectiveRate: noShowSplit.effectiveRate } : {}),
     });
   } catch (error) {
     console.error('Pulloff error:', error);
