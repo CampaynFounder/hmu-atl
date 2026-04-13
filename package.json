@@ -15,7 +15,9 @@
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "video": "node scripts/video.mjs",
-    "video:list": "node scripts/video.mjs list"
+    "video:list": "node scripts/video.mjs list",
+    "docs": "tsx scripts/generate-api-docs.ts && tsx scripts/combine-docs.ts",
+    "docs:api": "tsx scripts/generate-api-docs.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
