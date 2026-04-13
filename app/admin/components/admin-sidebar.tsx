@@ -40,6 +40,7 @@ const navSections = [
     label: 'RAISE',
     items: [
       { href: '/admin/data-room', label: 'Data Room', icon: '🔒' },
+      { href: '/admin/videos', label: 'Videos', icon: '🎥' },
     ],
   },
 ];

@@ -1,0 +1,516 @@
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+
+interface Step {
+  sec: number;
+  label: string;
+  caption: string;
+  effect: string;
+}
+
+interface VideoConfig {
+  id: string;
+  composition_id: string;
+  title: string;
+  recording_file: string;
+  intro_title: string;
+  intro_sec: number;
+  video_sec: number;
+  end_sec: number;
+  title_card_duration_sec: number;
+  caption_duration_sec: number;
+  end_tagline: string;
+  end_cta: string;
+  steps: Step[];
+  is_active: boolean;
+  updated_at: string;
+}
+
+const EFFECTS = [
+  'slide-up-bounce',
+  'slide-right-pulse',
+  'scale-blur',
+  'slide-left-parallax',
+  'rotate-pulse',
+  'slide-right-bounce',
+  'zoom-glow',
+];
+
+function Hint({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2 text-xs text-neutral-500 bg-neutral-800/40 border border-neutral-800 rounded-lg px-3 py-2">
+      <span className="text-[#00E676] shrink-0 mt-px">tip</span>
+      <span>{children}</span>
+    </div>
+  );
+}
+
+function CopyBlock({ label, command }: { label: string; command: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <div>
+      <p className="text-[10px] text-neutral-500 mb-1 font-medium uppercase tracking-wider">{label}</p>
+      <button
+        onClick={copy}
+        className="w-full text-left bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-xs font-mono text-neutral-300 hover:border-neutral-600 transition-colors group relative"
+      >
+        <span className="break-all">{command}</span>
+        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-neutral-600 group-hover:text-neutral-400 transition-colors">
+          {copied ? 'copied' : 'click to copy'}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+export default function AdminVideosPage() {
+  const [configs, setConfigs] = useState<VideoConfig[]>([]);
+  const [selected, setSelected] = useState<VideoConfig | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState('');
+
+  const fetchConfigs = useCallback(async () => {
+    const res = await fetch('/api/admin/videos');
+    if (res.ok) setConfigs(await res.json());
+  }, []);
+
+  useEffect(() => { fetchConfigs(); }, [fetchConfigs]);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(''), 3000);
+  };
+
+  const save = async () => {
+    if (!selected) return;
+    setSaving(true);
+    const res = await fetch(`/api/admin/videos/${selected.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: selected.title,
+        recordingFile: selected.recording_file,
+        introTitle: selected.intro_title,
+        introSec: selected.intro_sec,
+        videoSec: selected.video_sec,
+        endSec: selected.end_sec,
+        titleCardDurationSec: selected.title_card_duration_sec,
+        captionDurationSec: selected.caption_duration_sec,
+        endTagline: selected.end_tagline,
+        endCta: selected.end_cta,
+        steps: selected.steps,
+      }),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setConfigs(prev => prev.map(c => c.id === updated.id ? updated : c));
+      setSelected(updated);
+      showToast('Saved');
+    }
+    setSaving(false);
+  };
+
+  const updateStep = (idx: number, field: keyof Step, value: string | number) => {
+    if (!selected) return;
+    const newSteps = [...selected.steps];
+    newSteps[idx] = { ...newSteps[idx], [field]: value };
+    setSelected({ ...selected, steps: newSteps });
+  };
+
+  const addStep = () => {
+    if (!selected) return;
+    const lastSec = selected.steps.length > 0
+      ? selected.steps[selected.steps.length - 1].sec + 10
+      : 0;
+    setSelected({
+      ...selected,
+      steps: [
+        ...selected.steps,
+        { sec: lastSec, label: 'NEW STEP', caption: 'Description here.', effect: 'slide-up-bounce' },
+      ],
+    });
+  };
+
+  const removeStep = (idx: number) => {
+    if (!selected) return;
+    setSelected({
+      ...selected,
+      steps: selected.steps.filter((_, i) => i !== idx),
+    });
+  };
+
+  const moveStep = (idx: number, dir: -1 | 1) => {
+    if (!selected) return;
+    const newSteps = [...selected.steps];
+    const target = idx + dir;
+    if (target < 0 || target >= newSteps.length) return;
+    [newSteps[idx], newSteps[target]] = [newSteps[target], newSteps[idx]];
+    setSelected({ ...selected, steps: newSteps });
+  };
+
+  const outFileName = selected
+    ? selected.composition_id.replace(/([A-Z])/g, '-$1').toLowerCase().slice(1)
+    : '';
+
+  const totalDuration = selected
+    ? selected.intro_sec + selected.video_sec + selected.end_sec
+    : 0;
+
+  return (
+    <div className="p-6 max-w-6xl">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold">Videos</h1>
+        <p className="text-sm text-neutral-500 mt-1">
+          Manage video compositions — edit timestamps, labels, and captions, then render locally.
+        </p>
+      </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 bg-[#00E676] text-black px-4 py-2 rounded-lg text-sm font-bold shadow-lg animate-in fade-in">
+          {toast}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
+        {/* Video list */}
+        <div className="space-y-2">
+          {configs.map(config => (
+            <button
+              key={config.id}
+              onClick={() => setSelected(config)}
+              className={`w-full text-left p-4 rounded-xl border transition-colors ${
+                selected?.id === config.id
+                  ? 'bg-white/10 border-[#00E676]/30'
+                  : 'bg-neutral-900 border-neutral-800 hover:border-neutral-700'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-sm">{config.title}</h3>
+                {config.is_active && (
+                  <span className="text-[9px] bg-[#00E676]/20 text-[#00E676] px-2 py-0.5 rounded-full font-bold">
+                    ACTIVE
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-neutral-500 mt-1">
+                {config.steps.length} steps &middot; {config.recording_file}
+              </p>
+              <p className="text-[10px] text-neutral-600 mt-1 font-mono">
+                {config.composition_id}
+              </p>
+            </button>
+          ))}
+        </div>
+
+        {/* Editor */}
+        {selected ? (
+          <div className="space-y-6">
+            {/* ── SECTION 1: Recording source ── */}
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-mono text-[#00E676] font-bold bg-[#00E676]/10 px-2 py-0.5 rounded">STEP 1</span>
+                <h2 className="text-sm font-bold">Screen Recording</h2>
+              </div>
+              <p className="text-xs text-neutral-500 mb-4">
+                Drop your .mp4 or .mov screen recording into the recordings folder, then set the filename and total duration below.
+              </p>
+
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="col-span-2 md:col-span-1">
+                  <Field label="Recording file" value={selected.recording_file} onChange={v => setSelected({ ...selected, recording_file: v })} />
+                </div>
+                <Field label="Video length (sec)" value={String(selected.video_sec)} type="number" onChange={v => setSelected({ ...selected, video_sec: Number(v) })} />
+                <Field label="Title" value={selected.title} onChange={v => setSelected({ ...selected, title: v })} />
+              </div>
+
+              <div className="mt-3">
+                <CopyBlock
+                  label="Place your file here"
+                  command={`cp ~/your-recording.mp4 videos/public/recordings/${selected.recording_file}`}
+                />
+              </div>
+            </div>
+
+            {/* ── SECTION 2: Timestamps / Steps ── */}
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-mono text-[#00E676] font-bold bg-[#00E676]/10 px-2 py-0.5 rounded">STEP 2</span>
+                <h3 className="text-sm font-bold">
+                  Timestamp Labels
+                  <span className="text-neutral-500 font-normal ml-2">
+                    ({selected.steps.length})
+                  </span>
+                </h3>
+              </div>
+              <p className="text-xs text-neutral-500 mb-4">
+                Watch your recording, note the second each moment happens, and enter it below.
+                Each step shows a full-screen title card at that timestamp, then a caption overlay after.
+              </p>
+
+              <div className="space-y-3">
+                {selected.steps.map((step, idx) => (
+                  <div
+                    key={idx}
+                    className="bg-neutral-800/50 border border-neutral-700/50 rounded-xl p-4"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono text-[#00E676] font-bold bg-[#00E676]/10 px-2 py-0.5 rounded">
+                          {String(idx + 1).padStart(2, '0')}
+                        </span>
+                        <span className="text-xs text-neutral-500 font-mono">
+                          @ {step.sec}s
+                          <span className="text-neutral-600 ml-1">
+                            ({Math.floor(step.sec / 60)}:{String(Math.round(step.sec % 60)).padStart(2, '0')})
+                          </span>
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => moveStep(idx, -1)}
+                          disabled={idx === 0}
+                          className="p-1 text-neutral-500 hover:text-white disabled:opacity-20 text-xs"
+                        >
+                          ▲
+                        </button>
+                        <button
+                          onClick={() => moveStep(idx, 1)}
+                          disabled={idx === selected.steps.length - 1}
+                          className="p-1 text-neutral-500 hover:text-white disabled:opacity-20 text-xs"
+                        >
+                          ▼
+                        </button>
+                        <button
+                          onClick={() => removeStep(idx)}
+                          className="p-1 text-red-400/50 hover:text-red-400 text-xs ml-2"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-[80px_1fr_1fr_160px] gap-3">
+                      <div>
+                        <label className="text-[10px] text-neutral-500 block mb-1">Time (s)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={step.sec}
+                          onChange={e => updateStep(idx, 'sec', parseFloat(e.target.value) || 0)}
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-sm font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-neutral-500 block mb-1">Label</label>
+                        <input
+                          type="text"
+                          value={step.label}
+                          onChange={e => updateStep(idx, 'label', e.target.value)}
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-neutral-500 block mb-1">Caption</label>
+                        <input
+                          type="text"
+                          value={step.caption}
+                          onChange={e => updateStep(idx, 'caption', e.target.value)}
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-neutral-500 block mb-1">Effect</label>
+                        <select
+                          value={step.effect}
+                          onChange={e => updateStep(idx, 'effect', e.target.value)}
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-sm"
+                        >
+                          {EFFECTS.map(e => (
+                            <option key={e} value={e}>{e}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={addStep}
+                className="mt-3 w-full py-2.5 bg-white/5 hover:bg-white/10 rounded-lg text-xs font-medium transition-colors border border-dashed border-neutral-700"
+              >
+                + Add step
+              </button>
+            </div>
+
+            {/* ── Overlay timing + end card ── */}
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
+              <h3 className="text-sm font-bold mb-1">Overlay Timing &amp; End Card</h3>
+              <p className="text-xs text-neutral-500 mb-4">
+                How long each title card and caption stays on screen, plus the intro/end card text.
+              </p>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Field label="Intro (sec)" value={String(selected.intro_sec)} type="number" onChange={v => setSelected({ ...selected, intro_sec: Number(v) })} />
+                <Field label="Title card (sec)" value={String(selected.title_card_duration_sec)} type="number" onChange={v => setSelected({ ...selected, title_card_duration_sec: Number(v) })} />
+                <Field label="Caption (sec)" value={String(selected.caption_duration_sec)} type="number" onChange={v => setSelected({ ...selected, caption_duration_sec: Number(v) })} />
+                <Field label="End card (sec)" value={String(selected.end_sec)} type="number" onChange={v => setSelected({ ...selected, end_sec: Number(v) })} />
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-neutral-800">
+                <Field label="Intro title" value={selected.intro_title} onChange={v => setSelected({ ...selected, intro_title: v })} />
+                <Field label="End tagline" value={selected.end_tagline} onChange={v => setSelected({ ...selected, end_tagline: v })} />
+                <Field label="End CTA" value={selected.end_cta} onChange={v => setSelected({ ...selected, end_cta: v })} />
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-neutral-800 flex items-center gap-4">
+                <div>
+                  <p className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider">Total duration</p>
+                  <p className="text-lg font-bold text-[#00E676] font-mono">
+                    {Math.floor(totalDuration / 60)}:{String(Math.round(totalDuration % 60)).padStart(2, '0')}
+                  </p>
+                </div>
+                <p className="text-[10px] text-neutral-600">
+                  = {selected.intro_sec}s intro + {selected.video_sec}s video + {selected.end_sec}s end
+                </p>
+              </div>
+            </div>
+
+            {/* ── SAVE ── */}
+            <div className="flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+              <p className="text-xs text-neutral-500">
+                Last saved: {new Date(selected.updated_at).toLocaleString()}
+              </p>
+              <button
+                onClick={save}
+                disabled={saving}
+                className="px-6 py-2.5 bg-[#00E676] text-black font-bold rounded-lg text-sm hover:bg-[#00E676]/90 transition-colors disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+
+            {/* ── SECTION 3: Preview & Render ── */}
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-mono text-[#00E676] font-bold bg-[#00E676]/10 px-2 py-0.5 rounded">STEP 3</span>
+                <h3 className="text-sm font-bold">Preview</h3>
+              </div>
+              <p className="text-xs text-neutral-500 mb-3">
+                Open Remotion Studio to scrub through the video and verify your timestamp overlays line up with the recording.
+              </p>
+              <CopyBlock label="Open Remotion Studio" command="cd videos && npm run dev" />
+              <Hint>
+                Remotion Studio opens at localhost:3000. Select <strong>{selected.composition_id}</strong> from the composition dropdown to preview.
+                The main Next.js app must be stopped first if it&apos;s using port 3000, or Remotion will use the next available port.
+              </Hint>
+            </div>
+
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-mono text-[#00E676] font-bold bg-[#00E676]/10 px-2 py-0.5 rounded">STEP 4</span>
+                <h3 className="text-sm font-bold">Render</h3>
+              </div>
+              <p className="text-xs text-neutral-500 mb-3">
+                Once the preview looks right, render the final MP4. The script pulls your saved config from the database and passes it to Remotion.
+              </p>
+
+              <div className="space-y-3">
+                <CopyBlock
+                  label={`Render just this video`}
+                  command={`cd videos && node scripts/sync-and-render.mjs ${selected.composition_id}`}
+                />
+                <CopyBlock
+                  label="Or render all active videos"
+                  command="cd videos && node scripts/sync-and-render.mjs"
+                />
+              </div>
+
+              <div className="mt-3">
+                <Hint>
+                  Your Next.js dev server must be running (<code className="bg-neutral-800 px-1 rounded text-[10px]">npm run dev</code> in the project root) so the render script can fetch configs from the API.
+                  Output lands in <code className="bg-neutral-800 px-1 rounded text-[10px]">videos/out/{outFileName}.mp4</code>
+                </Hint>
+              </div>
+            </div>
+
+            {/* ── SECTION 5: Upload ── */}
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-mono text-[#00E676] font-bold bg-[#00E676]/10 px-2 py-0.5 rounded">STEP 5</span>
+                <h3 className="text-sm font-bold">Upload</h3>
+              </div>
+              <p className="text-xs text-neutral-500 mb-3">
+                Move the rendered MP4 to where you need it.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="bg-neutral-800/50 border border-neutral-700/50 rounded-lg p-3">
+                  <p className="text-xs font-medium mb-1">Investor Data Room</p>
+                  <p className="text-[11px] text-neutral-500 mb-2">
+                    Upload via Admin &rarr; Data Room &rarr; Documents
+                  </p>
+                  <a
+                    href="/admin/data-room"
+                    className="text-[11px] text-[#00E676] hover:underline"
+                  >
+                    Go to Data Room &rarr;
+                  </a>
+                </div>
+                <div className="bg-neutral-800/50 border border-neutral-700/50 rounded-lg p-3">
+                  <p className="text-xs font-medium mb-1">Public Demo Page</p>
+                  <p className="text-[11px] text-neutral-500 mb-2">
+                    Copy the MP4 into the public pitch folder
+                  </p>
+                  <CopyBlock
+                    label=""
+                    command={`cp videos/out/${outFileName}.mp4 public/pitch/`}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-64 text-neutral-600 text-sm gap-2">
+            <span className="text-2xl">&#127909;</span>
+            Select a video to edit its timestamps and render settings
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  type = 'text',
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+}) {
+  return (
+    <div>
+      <label className="text-[10px] text-neutral-500 block mb-1 font-medium uppercase tracking-wider">
+        {label}
+      </label>
+      <input
+        type={type}
+        step={type === 'number' ? '0.1' : undefined}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+      />
+    </div>
+  );
+}

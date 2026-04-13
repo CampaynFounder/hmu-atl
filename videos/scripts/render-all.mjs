@@ -2,6 +2,8 @@ import { execSync } from "child_process";
 import { mkdirSync } from "fs";
 
 const compositions = [
+  "DriverProfileCreation",
+  "RideFlow",
   "DriverOnboarding",
   "PassengerBooking",
   "RideExperience",

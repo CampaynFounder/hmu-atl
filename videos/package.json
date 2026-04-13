@@ -12,7 +12,10 @@
     "render:ride-experience": "npx remotion render src/index.ts RideExperience out/ride-experience.mp4",
     "render:add-ons": "npx remotion render src/index.ts InRideAddOns out/in-ride-add-ons.mp4",
     "render:chat-booking": "npx remotion render src/index.ts ChatBooking out/chat-booking.mp4",
-    "render:driver-earnings": "npx remotion render src/index.ts DriverEarnings out/driver-earnings.mp4"
+    "render:driver-earnings": "npx remotion render src/index.ts DriverEarnings out/driver-earnings.mp4",
+    "render:ride-flow": "npx remotion render src/index.ts RideFlow out/ride-flow.mp4",
+    "sync-render": "node scripts/sync-and-render.mjs",
+    "sync-render:one": "node scripts/sync-and-render.mjs"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.0",
