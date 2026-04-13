@@ -79,6 +79,7 @@ const isPublicRoute = createRouteMatcher([
   '/data-room(.*)',
   '/api/data-room(.*)',
   '/pitch(.*)',
+  '/api/pitch-videos',
   '/admin(.*)',
   '/api/admin(.*)',
   '/maintenance',

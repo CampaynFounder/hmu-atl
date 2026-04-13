@@ -242,9 +242,11 @@ const SECTION_IDS: SectionId[] = ['driver', 'rider', 'platform'];
 function SectionCarousel({
   section,
   isActiveSection,
+  videoUrls,
 }: {
   section: Section;
   isActiveSection: boolean;
+  videoUrls: Record<string, string>;
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [videoReady, setVideoReady] = useState<Record<string, boolean>>({});
@@ -343,7 +345,11 @@ function SectionCarousel({
           role="region"
           aria-label={`${section.label} video carousel`}
         >
-          {section.chapters.map((chapter, i) => (
+          {section.chapters.map((chapter, i) => {
+            // Resolve video: R2 URL from API > hardcoded videoSrc > null
+            const resolvedSrc = videoUrls[chapter.id] || chapter.videoSrc;
+
+            return (
             <article
               key={chapter.id}
               id={chapter.id}
@@ -365,14 +371,14 @@ function SectionCarousel({
                   className={styles.phoneBezel}
                   data-ready={videoReady[chapter.id] ? 'true' : 'false'}
                 >
-                  {chapter.videoSrc ? (
+                  {resolvedSrc ? (
                     <>
                       <video
                         ref={(el) => {
                           videoRefs.current[i] = el;
                         }}
                         className={styles.video}
-                        src={chapter.videoSrc}
+                        src={resolvedSrc}
                         poster={chapter.poster}
                         muted
                         playsInline
@@ -383,7 +389,7 @@ function SectionCarousel({
                       />
                       <div className={styles.framePlaceholder} aria-hidden>
                         <span className={styles.frameLabel}>DROP VIDEO</span>
-                        <code className={styles.frameCode}>{chapter.videoSrc}</code>
+                        <code className={styles.frameCode}>{resolvedSrc}</code>
                         <span className={styles.frameHint}>9:16 &middot; MP4 &middot; H.264</span>
                       </div>
                     </>
@@ -408,7 +414,8 @@ function SectionCarousel({
                 ))}
               </ul>
             </article>
-          ))}
+            );
+          })}
         </div>
 
         {/* Dot nav */}
@@ -438,11 +445,20 @@ function SectionCarousel({
 
 export default function PitchClient() {
   const [activeSectionId, setActiveSectionId] = useState<SectionId>('driver');
+  const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
   const sectionRefs = useRef<Record<SectionId, HTMLElement | null>>({
     driver: null,
     rider: null,
     platform: null,
   });
+
+  // Fetch available pitch videos from R2
+  useEffect(() => {
+    fetch('/api/pitch-videos')
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((data: Record<string, string>) => setVideoUrls(data))
+      .catch(() => {});
+  }, []);
 
   // Vertical IntersectionObserver — which section is in viewport
   useEffect(() => {
@@ -575,6 +591,7 @@ export default function PitchClient() {
           key={section.id}
           section={section}
           isActiveSection={activeSectionId === section.id}
+          videoUrls={videoUrls}
         />
       ))}
 

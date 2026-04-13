@@ -41,6 +41,7 @@ const navSections = [
     label: 'RAISE',
     items: [
       { href: '/admin/data-room', label: 'Data Room', icon: '🔒' },
+      { href: '/admin/pitch-videos', label: 'Pitch Videos', icon: '📱' },
       { href: '/admin/videos', label: 'Videos', icon: '🎥' },
     ],
   },
