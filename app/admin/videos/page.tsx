@@ -75,6 +75,8 @@ export default function AdminVideosPage() {
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState('');
+  const [terminalLines, setTerminalLines] = useState<{ type: string; text: string }[]>([]);
+  const [rendering, setRendering] = useState(false);
 
   const fetchConfigs = useCallback(async () => {
     const res = await fetch('/api/admin/videos');
@@ -123,6 +125,39 @@ export default function AdminVideosPage() {
       setSelected(null);
       showToast('Deleted');
     }
+  };
+
+  const runAction = (action: 'render' | 'preview') => {
+    if (!selected || rendering) return;
+    setRendering(true);
+    setTerminalLines([]);
+
+    const es = new EventSource(`/api/admin/videos/${selected.id}/render?action=${action}`);
+
+    es.addEventListener('status', (e) => {
+      setTerminalLines(prev => [...prev, { type: 'status', text: JSON.parse(e.data) }]);
+    });
+    es.addEventListener('stdout', (e) => {
+      setTerminalLines(prev => [...prev, { type: 'stdout', text: JSON.parse(e.data) }]);
+    });
+    es.addEventListener('stderr', (e) => {
+      setTerminalLines(prev => [...prev, { type: 'stderr', text: JSON.parse(e.data) }]);
+    });
+    es.addEventListener('done', (e) => {
+      setTerminalLines(prev => [...prev, { type: 'done', text: JSON.parse(e.data) }]);
+      setRendering(false);
+      es.close();
+      showToast(action === 'render' ? 'Render complete' : 'Studio started');
+    });
+    es.addEventListener('error', (e) => {
+      if (e instanceof MessageEvent) {
+        setTerminalLines(prev => [...prev, { type: 'error', text: JSON.parse(e.data) }]);
+      } else {
+        setTerminalLines(prev => [...prev, { type: 'error', text: 'Connection lost' }]);
+      }
+      setRendering(false);
+      es.close();
+    });
   };
 
   const save = async () => {
@@ -454,43 +489,78 @@ export default function AdminVideosPage() {
             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-[10px] font-mono text-[#00E676] font-bold bg-[#00E676]/10 px-2 py-0.5 rounded">STEP 3</span>
-                <h3 className="text-sm font-bold">Preview</h3>
+                <h3 className="text-sm font-bold">Preview &amp; Render</h3>
               </div>
-              <p className="text-xs text-neutral-500 mb-3">
-                Open Remotion Studio to scrub through the video and verify your timestamp overlays line up with the recording.
+              <p className="text-xs text-neutral-500 mb-4">
+                Preview in Remotion Studio to check timing, then render the final MP4. Both run locally via your terminal.
               </p>
-              <CopyBlock label="Open Remotion Studio" command="cd videos && npm run dev" />
+
+              <div className="flex gap-3 mb-4">
+                <button
+                  onClick={() => runAction('preview')}
+                  disabled={rendering}
+                  className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 border border-neutral-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  {rendering ? 'Running...' : 'Open Remotion Studio'}
+                </button>
+                <button
+                  onClick={() => runAction('render')}
+                  disabled={rendering}
+                  className="flex-1 py-2.5 bg-[#00E676] hover:bg-[#00E676]/90 text-black font-bold rounded-lg text-sm transition-colors disabled:opacity-50"
+                >
+                  {rendering ? 'Rendering...' : `Render ${selected.composition_id}`}
+                </button>
+              </div>
+
               <Hint>
-                Remotion Studio opens at localhost:3000. Select <strong>{selected.composition_id}</strong> from the composition dropdown to preview.
-                The main Next.js app must be stopped first if it&apos;s using port 3000, or Remotion will use the next available port.
+                These buttons run Remotion commands on your local machine via the dev server.
+                Output will appear below. The rendered file lands in <code className="bg-neutral-800 px-1 rounded text-[10px]">videos/out/{outFileName}.mp4</code>
               </Hint>
-            </div>
 
-            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] font-mono text-[#00E676] font-bold bg-[#00E676]/10 px-2 py-0.5 rounded">STEP 4</span>
-                <h3 className="text-sm font-bold">Render</h3>
-              </div>
-              <p className="text-xs text-neutral-500 mb-3">
-                Once the preview looks right, render the final MP4. The script pulls your saved config from the database and passes it to Remotion.
-              </p>
+              {/* Terminal output */}
+              {terminalLines.length > 0 && (
+                <div className="mt-4 bg-black border border-neutral-800 rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 bg-neutral-900/80 border-b border-neutral-800">
+                    <div className="flex items-center gap-2">
+                      <div className="flex gap-1.5">
+                        <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
+                        <div className={`w-2.5 h-2.5 rounded-full ${rendering ? 'bg-green-500 animate-pulse' : 'bg-green-500/60'}`} />
+                      </div>
+                      <span className="text-[10px] text-neutral-500 font-mono">
+                        {rendering ? 'running...' : 'done'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setTerminalLines([])}
+                      className="text-[10px] text-neutral-600 hover:text-neutral-400 transition-colors"
+                    >
+                      clear
+                    </button>
+                  </div>
+                  <div className="p-3 max-h-80 overflow-y-auto font-mono text-xs space-y-0.5">
+                    {terminalLines.map((line, i) => (
+                      <div
+                        key={i}
+                        className={
+                          line.type === 'error' ? 'text-red-400' :
+                          line.type === 'done' ? 'text-[#00E676] font-bold' :
+                          line.type === 'status' ? 'text-blue-400' :
+                          line.type === 'stderr' ? 'text-yellow-400/80' :
+                          'text-neutral-300'
+                        }
+                      >
+                        {line.text}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-              <div className="space-y-3">
-                <CopyBlock
-                  label={`Render just this video`}
-                  command={`cd videos && node scripts/sync-and-render.mjs ${selected.composition_id}`}
-                />
-                <CopyBlock
-                  label="Or render all active videos"
-                  command="cd videos && node scripts/sync-and-render.mjs"
-                />
-              </div>
-
-              <div className="mt-3">
-                <Hint>
-                  Your Next.js dev server must be running (<code className="bg-neutral-800 px-1 rounded text-[10px]">npm run dev</code> in the project root) so the render script can fetch configs from the API.
-                  Output lands in <code className="bg-neutral-800 px-1 rounded text-[10px]">videos/out/{outFileName}.mp4</code>
-                </Hint>
+              <div className="mt-3 space-y-2">
+                <p className="text-[10px] text-neutral-600">Or run manually:</p>
+                <CopyBlock label="Preview" command="cd videos && npm run dev" />
+                <CopyBlock label="Render" command={`cd videos && node scripts/sync-and-render.mjs ${selected.composition_id}`} />
               </div>
             </div>
 
