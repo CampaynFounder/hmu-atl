@@ -11,19 +11,15 @@ import {
   OffthreadVideo,
   staticFile,
 } from "remotion";
+import { adjustedSec, computeRecordingFrame, totalVideoFrames } from "../lib/timing";
 import "../styles.css";
 
 /**
  * VIDEO: Ride Flow — Pickup to Drop-off
  * Continuous screen recording with timestamp-based overlay labels.
  *
- * TIMESTAMP HANDLING:
- * The user enters timestamps based on their raw recording (e.g. "OTW at 9s").
- * Each title card inserts `titleCardDurationSec` of dead time into the composition.
- * This file auto-adjusts all positions so timestamps stay accurate:
- *   - Overlay positions shift forward by cumulative title card time
- *   - The recording freezes during each title card via <Freeze>
- *   - The total composition duration grows by (numSteps * titleCardDurationSec)
+ * User enters raw recording timestamps. Timing adjustments (title card
+ * shifts + video freeze) are handled by shared helpers in lib/timing.ts.
  *
  * Place your recording in /public/recordings/ride-flow.mp4
  */
@@ -68,41 +64,6 @@ interface RideFlowProps {
   endCta?: string;
 }
 
-// ── Timing helpers ──
-
-/**
- * Adjusted composition time for step i.
- * Each previous step's title card pushes this step forward.
- */
-function adjustedSec(stepIndex: number, rawSec: number, titleDur: number): number {
-  return rawSec + stepIndex * titleDur;
-}
-
-/**
- * Maps a composition frame to the recording frame that should be displayed.
- * During title cards the recording freezes; between them it plays 1:1.
- */
-function computeRecordingFrame(
-  compositionFrame: number,
-  fps: number,
-  steps: { sec: number }[],
-  titleDur: number,
-): number {
-  const compSec = compositionFrame / fps;
-  let pauseAccum = 0;
-
-  for (let i = 0; i < steps.length; i++) {
-    const cardStart = steps[i].sec + i * titleDur;
-    const cardEnd = cardStart + titleDur;
-
-    if (compSec < cardStart) break;
-    if (compSec < cardEnd) return Math.round(steps[i].sec * fps);
-    pauseAccum += titleDur;
-  }
-
-  return Math.round((compSec - pauseAccum) * fps);
-}
-
 // ── Main composition ──
 
 export const RideFlow: React.FC<RideFlowProps> = ({
@@ -120,8 +81,7 @@ export const RideFlow: React.FC<RideFlowProps> = ({
   const { fps } = useVideoConfig();
 
   const INTRO_F = Math.round(introSec * fps);
-  // Video section includes time for all title card pauses
-  const VIDEO_F = Math.round((videoSec + steps.length * titleCardDurationSec) * fps);
+  const VIDEO_F = totalVideoFrames(videoSec, steps.length, titleCardDurationSec, fps);
   const END_F = Math.round(endSec * fps);
   const TITLE_F = Math.round(titleCardDurationSec * fps);
   const CAPTION_F = Math.round(captionDurationSec * fps);

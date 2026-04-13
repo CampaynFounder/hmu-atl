@@ -11,18 +11,15 @@ import {
   OffthreadVideo,
   staticFile,
 } from "remotion";
+import { adjustedSec, computeRecordingFrame, totalVideoFrames } from "../lib/timing";
 import "../styles.css";
 
 /**
  * VIDEO: Driver Profile Creation — Full walkthrough with overlay transitions
  * Source: driver-profile-creation.mp4 (163s @ 576x960)
  *
- * TIMESTAMP HANDLING:
- * User enters timestamps from the raw recording. Each title card inserts
- * TITLE_CARD_DURATION_SEC of dead time. The composition auto-adjusts:
- *   - Overlay positions shift forward by cumulative title card time
- *   - Recording freezes during title cards via <Freeze>
- *   - Total duration grows by (numSteps * titleCardDurationSec)
+ * User enters raw recording timestamps. Timing adjustments (title card
+ * shifts + video freeze) are handled by shared helpers in lib/timing.ts.
  *
  * Timestamps (seconds into recording):
  *   2.28   → Driver Details
@@ -57,36 +54,12 @@ const END_SEC = 5;
 const TITLE_CARD_DURATION_SEC = 2; // how long each title card shows
 const CAPTION_DURATION_SEC = 5; // how long each caption lingers
 
-/** Adjusted composition time for step i (each previous title card pushes it forward). */
-function adjustedSec(stepIndex: number, rawSec: number): number {
-  return rawSec + stepIndex * TITLE_CARD_DURATION_SEC;
-}
-
-/** Maps composition frame → recording frame. Freezes during title cards. */
-function computeRecordingFrame(
-  compositionFrame: number,
-  fps: number,
-  steps: { sec: number }[],
-): number {
-  const compSec = compositionFrame / fps;
-  let pauseAccum = 0;
-  for (let i = 0; i < steps.length; i++) {
-    const cardStart = steps[i].sec + i * TITLE_CARD_DURATION_SEC;
-    const cardEnd = cardStart + TITLE_CARD_DURATION_SEC;
-    if (compSec < cardStart) break;
-    if (compSec < cardEnd) return Math.round(steps[i].sec * fps);
-    pauseAccum += TITLE_CARD_DURATION_SEC;
-  }
-  return Math.round((compSec - pauseAccum) * fps);
-}
-
 // ── Main composition ──
 export const DriverProfileCreation: React.FC<{ title: string }> = () => {
   const { fps } = useVideoConfig();
 
   const INTRO_F = Math.round(INTRO_SEC * fps);
-  // Video section includes time for all title card pauses
-  const VIDEO_F = Math.round((VIDEO_SEC + STEPS.length * TITLE_CARD_DURATION_SEC) * fps);
+  const VIDEO_F = totalVideoFrames(VIDEO_SEC, STEPS.length, TITLE_CARD_DURATION_SEC, fps);
   const END_F = Math.round(END_SEC * fps);
   const TITLE_F = Math.round(TITLE_CARD_DURATION_SEC * fps);
   const CAPTION_F = Math.round(CAPTION_DURATION_SEC * fps);
@@ -124,7 +97,7 @@ export const DriverProfileCreation: React.FC<{ title: string }> = () => {
 
           {/* Layer 3: Title card overlays at adjusted timestamps */}
           {STEPS.map((step, i) => {
-            const overlayFrom = Math.round(adjustedSec(i, step.sec) * fps);
+            const overlayFrom = Math.round(adjustedSec(i, step.sec, TITLE_CARD_DURATION_SEC) * fps);
             return (
               <Sequence
                 key={i}
@@ -143,7 +116,7 @@ export const DriverProfileCreation: React.FC<{ title: string }> = () => {
 
           {/* Layer 4: Caption overlays (appear after title card fades) */}
           {STEPS.map((step, i) => {
-            const captionFrom = Math.round((adjustedSec(i, step.sec) + TITLE_CARD_DURATION_SEC) * fps);
+            const captionFrom = Math.round((adjustedSec(i, step.sec, TITLE_CARD_DURATION_SEC) + TITLE_CARD_DURATION_SEC) * fps);
             return (
               <Sequence
                 key={`cap-${i}`}
@@ -177,7 +150,7 @@ const PhoneWithEffects: React.FC<{
   const currentSec = frame / fps;
 
   // Compute which recording frame to display (freezes during title cards)
-  const recordingFrame = computeRecordingFrame(frame, fps, steps);
+  const recordingFrame = computeRecordingFrame(frame, fps, steps, TITLE_CARD_DURATION_SEC);
 
   // Find which step we're in using adjusted times
   let activeEffect: FlyEffect = "slide-up-bounce";
@@ -185,7 +158,7 @@ const PhoneWithEffects: React.FC<{
   let borderGlow = 0;
 
   for (let i = steps.length - 1; i >= 0; i--) {
-    const stepStart = adjustedSec(i, steps[i].sec);
+    const stepStart = adjustedSec(i, steps[i].sec, titleCardDurationSec);
     const titleEnd = stepStart + titleCardDurationSec;
     if (currentSec >= stepStart) {
       activeEffect = steps[i].effect;
@@ -503,7 +476,7 @@ const ProgressBar: React.FC<{
   // Find current step using adjusted times
   let currentStep = 0;
   for (let i = steps.length - 1; i >= 0; i--) {
-    if (currentSec >= adjustedSec(i, steps[i].sec)) {
+    if (currentSec >= adjustedSec(i, steps[i].sec, TITLE_CARD_DURATION_SEC)) {
       currentStep = i + 1;
       break;
     }
