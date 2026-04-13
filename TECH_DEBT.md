@@ -27,7 +27,6 @@ Last updated: 2026-03-23
 
 - [ ] **Legacy landing components**: `components/landing/` directory has unused pre-consolidated components (cta-section, footer, hero-section, etc.) — can be deleted
 - [ ] **Stash cleanup**: 10 git stashes from agent branches exist locally — stash@{7} (notifications) was saved, rest are superseded
-- [ ] **Remote default HEAD**: GitHub default branch was set to `main` by user, but `origin/HEAD` may still point to `agent/11-payout` locally — run `git remote set-head origin main`
 - [ ] **Dots API integration**: Aspirational payout method (Cash App, Venmo, Zelle, PayPal) — blocked on $999/mo API tier. Currently only Stripe Connect for bank/debit payouts.
 - [ ] **Price auto-calculator**: `lib/payments/price-calculator.ts` needed for Turf.js distance-based pricing
 - [ ] **Real-time financial UI via Ably**: Push payment events to ride channel during active rides

@@ -1,0 +1,63 @@
+{
+  "title": "THE HMU RIDE",
+  "steps": [
+    {
+      "sec": 0,
+      "label": "DRIVER ON THE WAY",
+      "effect": "slide-up-bounce",
+      "caption": "Your Driver is on the Way"
+    },
+    {
+      "sec": 8,
+      "label": "TURN BY TURN INTEGRATION",
+      "effect": "slide-right-pulse",
+      "caption": "Driver Easily Navigates Turn-By-Turn With 1-Click Using Google Maps"
+    },
+    {
+      "sec": 18,
+      "label": "DRIVER IS GETTING CLOSE",
+      "effect": "scale-blur",
+      "caption": "Driver is Arriving at the Apartment Complex to Pick Up Rider"
+    },
+    {
+      "sec": 36,
+      "label": "DRIVER ARRIVES",
+      "effect": "zoom-glow",
+      "caption": "Driver Lets Rider Know They are Here With 1-Click. 10-min countdown begins. "
+    },
+    {
+      "sec": 44,
+      "label": "RIDER ENTERS CAR AND DRIVER STARTS RIDE",
+      "effect": "slide-left-parallax",
+      "caption": "Rider Confirms They are In the Car and Ride begins"
+    },
+    {
+      "sec": 47,
+      "label": "THE DROP OFF",
+      "effect": "rotate-pulse",
+      "caption": "Relax, We'll be there in no time. "
+    },
+    {
+      "sec": 62,
+      "label": "1-CLICK TURN-BY-TURN NAVIGATION",
+      "effect": "slide-right-bounce",
+      "caption": "HMU perfected pickup faciliation and leverages Google with 1 click for Turn By Turn Real Time Navigation"
+    },
+    {
+      "sec": 98,
+      "label": "WE'RE HERE",
+      "effect": "slide-up-bounce",
+      "caption": "Rate Your Rider - Keep It Real"
+    }
+  ],
+  "recordingFile": "ride-flow.mp4",
+  "introSec": 3,
+  "videoSec": 112,
+  "endSec": 5,
+  "titleCardDurationSec": 2,
+  "captionDurationSec": 5,
+  "endTagline": "Your city. Your ride. Your rules.",
+  "endCta": "HMU ATL",
+  "phoneWidth": 700,
+  "phoneHeight": 1512
+}

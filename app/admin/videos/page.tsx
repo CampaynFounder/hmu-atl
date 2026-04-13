@@ -663,7 +663,7 @@ export default function AdminVideosPage() {
                 Move the rendered MP4 to where you need it.
               </p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="bg-neutral-800/50 border border-neutral-700/50 rounded-lg p-3">
                   <p className="text-xs font-medium mb-1">Investor Data Room</p>
                   <p className="text-[11px] text-neutral-500 mb-2">
@@ -685,6 +685,23 @@ export default function AdminVideosPage() {
                     label=""
                     command={`cp videos/out/${outFileName}.mp4 public/pitch/`}
                   />
+                </div>
+                <div className="bg-neutral-800/50 border border-neutral-700/50 rounded-lg p-3">
+                  <p className="text-xs font-medium mb-1">View Public Pitch</p>
+                  <p className="text-[11px] text-neutral-500 mb-2">
+                    Verify your videos are visible on the live pitch page
+                  </p>
+                  <a
+                    href="/pitch"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-[#00E676] hover:underline"
+                  >
+                    Open /pitch &rarr;
+                  </a>
+                  <p className="text-[10px] text-neutral-600 mt-1">
+                    atl.hmucashride.com/pitch
+                  </p>
                 </div>
               </div>
             </div>
