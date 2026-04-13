@@ -145,19 +145,19 @@ const SECTIONS: Section[] = [
         videoSrc: null,
       },
       {
+        id: 'rider-find-driver',
+        kicker: 'Find A Driver',
+        title: 'Find A Driver',
+        hook: 'Browse the feed, filter by area, check ratings, and pick your driver.',
+        steps: ['R \u00b7 Browse Feed', 'R \u00b7 Filter By Area', 'R \u00b7 View Profile', 'R \u00b7 Request Ride'],
+        videoSrc: null,
+      },
+      {
         id: 'rider-in-ride',
         kicker: 'In-Ride',
         title: 'In-Ride Experience',
         hook: 'Track your driver, browse add-ons mid-trip, pay seamlessly.',
         steps: ['R \u00b7 Track Driver', 'R \u00b7 In Car', 'R \u00b7 Browse Add-Ons', 'R \u00b7 Pay'],
-        videoSrc: null,
-      },
-      {
-        id: 'rider-earnings',
-        kicker: 'Earnings',
-        title: 'Earnings & Cashout',
-        hook: 'OG status perks, saved payment methods, ride history.',
-        steps: ['R \u00b7 OG Status', 'R \u00b7 Saved Cards', 'R \u00b7 Ride History'],
         videoSrc: null,
       },
       {

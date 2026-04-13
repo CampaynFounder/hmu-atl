@@ -24,8 +24,8 @@ const CHAPTER_SLOTS: ChapterSlot[] = [
   // Rider
   { id: 'rider-booked-from-link', section: 'RIDER', title: 'Booked From A Link', kicker: 'Book From A Link' },
   { id: 'rider-onboarding', section: 'RIDER', title: 'Rider Onboarding', kicker: 'Onboarding' },
+  { id: 'rider-find-driver', section: 'RIDER', title: 'Find A Driver', kicker: 'Find A Driver' },
   { id: 'rider-in-ride', section: 'RIDER', title: 'In-Ride Experience', kicker: 'In-Ride' },
-  { id: 'rider-earnings', section: 'RIDER', title: 'Earnings & Cashout', kicker: 'Earnings' },
   { id: 'rider-safety', section: 'RIDER', title: 'Rider Safety', kicker: 'Safety' },
   { id: 'rider-support', section: 'RIDER', title: 'Rider Support', kicker: 'Support' },
   // Platform
