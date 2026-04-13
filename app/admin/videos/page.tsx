@@ -77,6 +77,7 @@ export default function AdminVideosPage() {
   const [toast, setToast] = useState('');
   const [terminalLines, setTerminalLines] = useState<{ type: string; text: string }[]>([]);
   const [rendering, setRendering] = useState(false);
+  const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
   const fetchConfigs = useCallback(async () => {
     const res = await fetch('/api/admin/videos');
@@ -532,27 +533,36 @@ export default function AdminVideosPage() {
                 Preview in Remotion Studio to check timing, then render the final MP4. Both run locally via your terminal.
               </p>
 
-              <div className="flex gap-3 mb-4">
-                <button
-                  onClick={() => runAction('preview')}
-                  disabled={rendering}
-                  className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 border border-neutral-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                >
-                  {rendering ? 'Running...' : 'Open Remotion Studio'}
-                </button>
-                <button
-                  onClick={() => runAction('render')}
-                  disabled={rendering}
-                  className="flex-1 py-2.5 bg-[#00E676] hover:bg-[#00E676]/90 text-black font-bold rounded-lg text-sm transition-colors disabled:opacity-50"
-                >
-                  {rendering ? 'Rendering...' : `Render ${selected.composition_id}`}
-                </button>
-              </div>
-
-              <Hint>
-                These buttons run Remotion commands on your local machine via the dev server.
-                Output will appear below. The rendered file lands in <code className="bg-neutral-800 px-1 rounded text-[10px]">videos/out/{outFileName}.mp4</code>
-              </Hint>
+              {isLocal ? (
+                <>
+                  <div className="flex gap-3 mb-4">
+                    <button
+                      onClick={() => runAction('preview')}
+                      disabled={rendering}
+                      className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 border border-neutral-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                      {rendering ? 'Running...' : 'Open Remotion Studio'}
+                    </button>
+                    <button
+                      onClick={() => runAction('render')}
+                      disabled={rendering}
+                      className="flex-1 py-2.5 bg-[#00E676] hover:bg-[#00E676]/90 text-black font-bold rounded-lg text-sm transition-colors disabled:opacity-50"
+                    >
+                      {rendering ? 'Rendering...' : `Render ${selected.composition_id}`}
+                    </button>
+                  </div>
+                  <Hint>
+                    These buttons run Remotion commands on your local machine via the dev server.
+                    Output will appear below. The rendered file lands in <code className="bg-neutral-800 px-1 rounded text-[10px]">videos/out/{outFileName}.mp4</code>
+                  </Hint>
+                </>
+              ) : (
+                <div className="mb-4 bg-neutral-800/50 border border-neutral-700/50 rounded-lg p-3">
+                  <p className="text-xs text-neutral-400">
+                    Rendering requires your local dev server. Run <code className="bg-neutral-800 px-1 rounded text-[10px]">npm run dev</code> and open <code className="bg-neutral-800 px-1 rounded text-[10px]">localhost:3000/admin/videos</code> to use the render buttons.
+                  </p>
+                </div>
+              )}
 
               {/* Terminal output */}
               {terminalLines.length > 0 && (

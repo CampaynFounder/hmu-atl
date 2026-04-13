@@ -27,7 +27,15 @@ export async function POST(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  // Guard: child_process only exists in Node.js, not Cloudflare Workers
+  // Guard: only works on localhost — Cloudflare Workers has no filesystem or child_process
+  const host = req.headers.get('host') || '';
+  if (!host.startsWith('localhost') && !host.startsWith('127.0.0.1')) {
+    return NextResponse.json(
+      { error: 'Rendering only works locally. Run `npm run dev` and use localhost:3000/admin/videos.' },
+      { status: 501 }
+    );
+  }
+
   let spawn: typeof import('child_process').spawn;
   let writeFileSync: typeof import('fs').writeFileSync;
   let mkdirSync: typeof import('fs').mkdirSync;
@@ -44,7 +52,7 @@ export async function POST(
     resolve = path.resolve;
   } catch {
     return NextResponse.json(
-      { error: 'Rendering only works locally. Run `npm run dev` on your machine and use localhost.' },
+      { error: 'Rendering only works locally. Run `npm run dev` and use localhost:3000/admin/videos.' },
       { status: 501 }
     );
   }
