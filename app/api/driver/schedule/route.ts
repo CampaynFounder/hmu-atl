@@ -33,11 +33,13 @@ export async function GET(req: NextRequest) {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
 
+    // Return ALL bookings including completed, cancelled, and no-show.
+    // Only exclude expired tentative holds (those are invisible noise).
     const bookingRows = await sql`
       SELECT id, rider_id, ride_id, booking_type, start_at, end_at, status, title, notes, recurring_group_id
       FROM driver_bookings
       WHERE driver_id = ${user.id}
-        AND status != 'cancelled'
+        AND status != 'tentative'
         AND start_at < ${weekEnd.toISOString()}
         AND end_at > ${weekStart.toISOString()}
       ORDER BY start_at

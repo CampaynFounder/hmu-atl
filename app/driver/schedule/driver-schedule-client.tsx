@@ -325,28 +325,28 @@ export default function DriverScheduleClient({ userId, timezone, marketName }: P
                       background: isWorking ? 'rgba(0,230,118,0.04)' : 'transparent',
                       position: 'relative', overflow: 'hidden',
                     }}>
-                      {dayBookings.map(b => (
-                        <div
-                          key={b.id}
-                          onClick={() => {
-                            if (b.bookingType === 'blocked' && confirm('Remove this block?')) handleUnblock(b.id);
-                            if (b.rideId) window.location.href = `/ride/${b.rideId}`;
-                          }}
-                          style={{
-                            position: 'absolute', top: 1, left: 1, right: 1, bottom: 1, borderRadius: 6,
-                            padding: '2px 4px', fontSize: 9, fontWeight: 600, cursor: 'pointer',
-                            overflow: 'hidden', lineHeight: 1.3,
-                            background: b.bookingType === 'blocked' ? 'rgba(255,82,82,0.15)' :
-                              b.bookingType === 'ride' ? 'rgba(68,138,255,0.2)' : 'rgba(255,145,0,0.15)',
-                            color: b.bookingType === 'blocked' ? COLORS.red :
-                              b.bookingType === 'ride' ? COLORS.blue : COLORS.orange,
-                            border: `1px solid ${b.bookingType === 'blocked' ? 'rgba(255,82,82,0.3)' :
-                              b.bookingType === 'ride' ? 'rgba(68,138,255,0.3)' : 'rgba(255,145,0,0.3)'}`,
-                          }}
-                        >
-                          {b.riderName || b.title || b.bookingType}
-                        </div>
-                      ))}
+                      {dayBookings.map(b => {
+                        const s = getBookingStyle(b);
+                        return (
+                          <div
+                            key={b.id}
+                            onClick={() => {
+                              if (b.bookingType === 'blocked' && b.status !== 'cancelled' && confirm('Remove this block?')) handleUnblock(b.id);
+                              if (b.rideId) window.location.href = `/ride/${b.rideId}`;
+                            }}
+                            style={{
+                              position: 'absolute', top: 1, left: 1, right: 1, bottom: 1, borderRadius: 6,
+                              padding: '2px 4px', fontSize: 9, fontWeight: 600,
+                              cursor: b.rideId || (b.bookingType === 'blocked' && b.status !== 'cancelled') ? 'pointer' : 'default',
+                              overflow: 'hidden', lineHeight: 1.3,
+                              background: s.bg, color: s.color, border: `1px solid ${s.border}`,
+                              opacity: s.opacity,
+                            }}
+                          >
+                            {s.label}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
@@ -357,12 +357,21 @@ export default function DriverScheduleClient({ userId, timezone, marketName }: P
       )}
 
       {/* Legend */}
-      <div style={{ display: 'flex', gap: 16, padding: '16px 20px', justifyContent: 'center' }}>
+      <div style={{ display: 'flex', gap: 12, padding: '16px 20px', justifyContent: 'center', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: COLORS.gray }}>
           <div style={{ width: 10, height: 10, borderRadius: 2, background: 'rgba(0,230,118,0.15)' }} /> Working
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: COLORS.gray }}>
-          <div style={{ width: 10, height: 10, borderRadius: 2, background: 'rgba(68,138,255,0.3)' }} /> Booked
+          <div style={{ width: 10, height: 10, borderRadius: 2, background: 'rgba(68,138,255,0.3)' }} /> Upcoming
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: COLORS.gray }}>
+          <div style={{ width: 10, height: 10, borderRadius: 2, background: 'rgba(68,138,255,0.5)' }} /> Active
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: COLORS.gray }}>
+          <div style={{ width: 10, height: 10, borderRadius: 2, background: 'rgba(0,230,118,0.3)' }} /> Completed
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: COLORS.gray }}>
+          <div style={{ width: 10, height: 10, borderRadius: 2, background: 'rgba(255,255,255,0.08)' }} /> Cancelled
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: COLORS.gray }}>
           <div style={{ width: 10, height: 10, borderRadius: 2, background: 'rgba(255,82,82,0.2)' }} /> Blocked
@@ -370,6 +379,35 @@ export default function DriverScheduleClient({ userId, timezone, marketName }: P
       </div>
     </div>
   );
+}
+
+function getBookingStyle(b: Booking): { bg: string; color: string; border: string; opacity: number; label: string } {
+  const name = b.riderName || b.title || b.bookingType;
+
+  // Blocked time
+  if (b.bookingType === 'blocked') {
+    if (b.status === 'cancelled') {
+      return { bg: 'rgba(255,82,82,0.05)', color: '#666', border: 'rgba(255,82,82,0.1)', opacity: 0.5, label: `${name} (removed)` };
+    }
+    return { bg: 'rgba(255,82,82,0.15)', color: '#FF5252', border: 'rgba(255,82,82,0.3)', opacity: 1, label: name };
+  }
+
+  // Ride bookings — style by status
+  switch (b.status) {
+    case 'completed':
+      return { bg: 'rgba(0,230,118,0.12)', color: '#00E676', border: 'rgba(0,230,118,0.3)', opacity: 0.8, label: `${name} ✓` };
+    case 'in_progress':
+      return { bg: 'rgba(68,138,255,0.25)', color: '#448AFF', border: 'rgba(68,138,255,0.5)', opacity: 1, label: `${name} ●` };
+    case 'cancelled':
+      return { bg: 'rgba(255,255,255,0.03)', color: '#666', border: 'rgba(255,255,255,0.08)', opacity: 0.5, label: `${name} ✗` };
+    case 'no_show':
+      return { bg: 'rgba(255,145,0,0.1)', color: '#FF9100', border: 'rgba(255,145,0,0.25)', opacity: 0.7, label: `${name} (no-show)` };
+    case 'scheduled':
+      return { bg: 'rgba(68,138,255,0.12)', color: '#448AFF', border: 'rgba(68,138,255,0.25)', opacity: 1, label: name };
+    case 'confirmed':
+    default:
+      return { bg: 'rgba(68,138,255,0.2)', color: '#448AFF', border: 'rgba(68,138,255,0.3)', opacity: 1, label: name };
+  }
 }
 
 function getWeekStart(offset: number): Date {
