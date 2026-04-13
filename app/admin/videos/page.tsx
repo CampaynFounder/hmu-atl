@@ -127,37 +127,74 @@ export default function AdminVideosPage() {
     }
   };
 
-  const runAction = (action: 'render' | 'preview') => {
+  const runAction = async (action: 'render' | 'preview') => {
     if (!selected || rendering) return;
     setRendering(true);
     setTerminalLines([]);
 
-    const es = new EventSource(`/api/admin/videos/${selected.id}/render?action=${action}`);
+    try {
+      const res = await fetch(`/api/admin/videos/${selected.id}/render?action=${action}`, {
+        method: 'POST',
+      });
 
-    es.addEventListener('status', (e) => {
-      setTerminalLines(prev => [...prev, { type: 'status', text: JSON.parse(e.data) }]);
-    });
-    es.addEventListener('stdout', (e) => {
-      setTerminalLines(prev => [...prev, { type: 'stdout', text: JSON.parse(e.data) }]);
-    });
-    es.addEventListener('stderr', (e) => {
-      setTerminalLines(prev => [...prev, { type: 'stderr', text: JSON.parse(e.data) }]);
-    });
-    es.addEventListener('done', (e) => {
-      setTerminalLines(prev => [...prev, { type: 'done', text: JSON.parse(e.data) }]);
-      setRendering(false);
-      es.close();
-      showToast(action === 'render' ? 'Render complete' : 'Studio started');
-    });
-    es.addEventListener('error', (e) => {
-      if (e instanceof MessageEvent) {
-        setTerminalLines(prev => [...prev, { type: 'error', text: JSON.parse(e.data) }]);
-      } else {
-        setTerminalLines(prev => [...prev, { type: 'error', text: 'Connection lost' }]);
+      // Non-streaming error response (auth, 404, 501, etc.)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        setTerminalLines([{ type: 'error', text: err.error || `HTTP ${res.status}` }]);
+        setRendering(false);
+        return;
       }
-      setRendering(false);
-      es.close();
-    });
+
+      // Stream NDJSON lines
+      const reader = res.body?.getReader();
+      if (!reader) {
+        setTerminalLines([{ type: 'error', text: 'No response stream' }]);
+        setRendering(false);
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const parsed = JSON.parse(line);
+            setTerminalLines(prev => [...prev, parsed]);
+            if (parsed.type === 'done') {
+              showToast(action === 'render' ? 'Render complete' : 'Studio started');
+            }
+          } catch {
+            setTerminalLines(prev => [...prev, { type: 'stdout', text: line }]);
+          }
+        }
+      }
+
+      // Process any remaining buffer
+      if (buffer.trim()) {
+        try {
+          const parsed = JSON.parse(buffer);
+          setTerminalLines(prev => [...prev, parsed]);
+        } catch {
+          setTerminalLines(prev => [...prev, { type: 'stdout', text: buffer }]);
+        }
+      }
+    } catch (err) {
+      setTerminalLines(prev => [...prev, {
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Request failed',
+      }]);
+    }
+
+    setRendering(false);
   };
 
   const save = async () => {

@@ -2,17 +2,22 @@ import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
 
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300; // 5 min for long renders
+
 /**
- * Streams Remotion render output via Server-Sent Events.
- * Only works locally — child_process is unavailable on Cloudflare Workers.
+ * POST /api/admin/videos/[id]/render?action=render|preview
  *
- * GET /api/admin/videos/[id]/render?action=render   — render the video
- * GET /api/admin/videos/[id]/render?action=preview  — start Remotion Studio
+ * Streams Remotion CLI output as newline-delimited JSON.
+ * Each line: { "type": "stdout"|"stderr"|"status"|"done"|"error", "text": "..." }
+ *
+ * Only works locally — child_process is unavailable on Cloudflare Workers.
  */
-export async function GET(
+export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth
   const { userId: clerkId } = await auth();
   if (!clerkId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -22,10 +27,11 @@ export async function GET(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  // Guard: only works locally
+  // Guard: child_process only exists in Node.js, not Cloudflare Workers
   let spawn: typeof import('child_process').spawn;
   let writeFileSync: typeof import('fs').writeFileSync;
   let mkdirSync: typeof import('fs').mkdirSync;
+  let existsSync: typeof import('fs').existsSync;
   let resolve: typeof import('path').resolve;
   try {
     const cp = await import('child_process');
@@ -34,10 +40,11 @@ export async function GET(
     spawn = cp.spawn;
     writeFileSync = fs.writeFileSync;
     mkdirSync = fs.mkdirSync;
+    existsSync = fs.existsSync;
     resolve = path.resolve;
   } catch {
     return NextResponse.json(
-      { error: 'Rendering is only available when running locally (not on Cloudflare Workers).' },
+      { error: 'Rendering only works locally. Run `npm run dev` on your machine and use localhost.' },
       { status: 501 }
     );
   }
@@ -49,13 +56,32 @@ export async function GET(
   // Fetch config
   const rows = await sql`SELECT * FROM video_configs WHERE id = ${id}`;
   if (!rows.length) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json({ error: 'Video config not found' }, { status: 404 });
   }
   const config = rows[0];
 
   const videosDir = resolve(process.cwd(), 'videos');
   const compositionId = config.composition_id;
   const outFile = compositionId.replace(/([A-Z])/g, '-$1').toLowerCase().slice(1);
+
+  // Check that videos dir exists
+  if (!existsSync(videosDir)) {
+    return NextResponse.json(
+      { error: `videos/ directory not found at ${videosDir}` },
+      { status: 500 }
+    );
+  }
+
+  // Check recording exists for render
+  if (action === 'render') {
+    const recordingPath = resolve(videosDir, 'public/recordings', config.recording_file);
+    if (!existsSync(recordingPath)) {
+      return NextResponse.json(
+        { error: `Recording not found: ${config.recording_file}. Place it in videos/public/recordings/` },
+        { status: 400 }
+      );
+    }
+  }
 
   // Write props JSON
   const propsDir = resolve(videosDir, 'props');
@@ -77,7 +103,7 @@ export async function GET(
   const propsFile = resolve(propsDir, `${compositionId}.json`);
   writeFileSync(propsFile, JSON.stringify(props, null, 2));
 
-  // Build the command
+  // Build command
   let command: string;
   let args: string[];
 
@@ -94,62 +120,67 @@ export async function GET(
     ];
   }
 
-  // Stream output as SSE
+  // Stream output as newline-delimited JSON
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
 
-      const send = (event: string, data: string) => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      const send = (type: string, text: string) => {
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify({ type, text }) + '\n'));
+        } catch {
+          // Stream already closed
+        }
       };
 
-      send('status', `Starting: ${command} ${args.join(' ')}`);
-      send('status', `Working directory: ${videosDir}`);
+      send('status', `$ ${command} ${args.join(' ')}`);
+      send('status', `cwd: ${videosDir}`);
 
-      const child = spawn(command, args, {
-        cwd: videosDir,
-        env: { ...process.env, FORCE_COLOR: '0' },
-        shell: true,
-      });
+      try {
+        const child = spawn(command, args, {
+          cwd: videosDir,
+          env: { ...process.env, FORCE_COLOR: '0' },
+          shell: true,
+        });
 
-      child.stdout?.on('data', (chunk: Buffer) => {
-        const lines = chunk.toString().split('\n').filter(Boolean);
-        for (const line of lines) {
-          send('stdout', line);
-        }
-      });
+        child.stdout?.on('data', (chunk: Buffer) => {
+          const lines = chunk.toString().split('\n').filter(Boolean);
+          for (const line of lines) send('stdout', line);
+        });
 
-      child.stderr?.on('data', (chunk: Buffer) => {
-        const lines = chunk.toString().split('\n').filter(Boolean);
-        for (const line of lines) {
-          send('stderr', line);
-        }
-      });
+        child.stderr?.on('data', (chunk: Buffer) => {
+          const lines = chunk.toString().split('\n').filter(Boolean);
+          for (const line of lines) send('stderr', line);
+        });
 
-      child.on('close', (code: number | null) => {
-        if (code === 0) {
-          send('done', action === 'preview'
-            ? 'Remotion Studio started'
-            : `Rendered successfully: videos/out/${outFile}.mp4`
-          );
-        } else {
-          send('error', `Process exited with code ${code}`);
-        }
+        child.on('close', (code: number | null) => {
+          if (code === 0) {
+            send('done', action === 'preview'
+              ? 'Remotion Studio started'
+              : `Rendered: videos/out/${outFile}.mp4`
+            );
+          } else {
+            send('error', `Process exited with code ${code}`);
+          }
+          controller.close();
+        });
+
+        child.on('error', (err: Error) => {
+          send('error', `Failed to start: ${err.message}`);
+          controller.close();
+        });
+      } catch (err) {
+        send('error', `Spawn failed: ${err instanceof Error ? err.message : String(err)}`);
         controller.close();
-      });
-
-      child.on('error', (err: Error) => {
-        send('error', err.message);
-        controller.close();
-      });
+      }
     },
   });
 
   return new Response(stream, {
     headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
+      'Content-Type': 'application/x-ndjson',
+      'Cache-Control': 'no-cache, no-store',
+      'X-Accel-Buffering': 'no',
     },
   });
 }
