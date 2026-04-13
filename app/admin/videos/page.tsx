@@ -73,6 +73,7 @@ export default function AdminVideosPage() {
   const [configs, setConfigs] = useState<VideoConfig[]>([]);
   const [selected, setSelected] = useState<VideoConfig | null>(null);
   const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState('');
 
   const fetchConfigs = useCallback(async () => {
@@ -85,6 +86,43 @@ export default function AdminVideosPage() {
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(''), 3000);
+  };
+
+  const createVideo = async () => {
+    setCreating(true);
+    const compositionId = `Video${Date.now().toString(36)}`;
+    const res = await fetch('/api/admin/videos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        compositionId,
+        title: 'New Video',
+        recordingFile: 'recording.mp4',
+        introTitle: 'NEW VIDEO',
+        videoSec: 60,
+        steps: [
+          { sec: 2, label: 'STEP ONE', caption: 'Description here.', effect: 'slide-up-bounce' },
+        ],
+      }),
+    });
+    if (res.ok) {
+      const created = await res.json();
+      setConfigs(prev => [...prev, created]);
+      setSelected(created);
+      showToast('Video created');
+    }
+    setCreating(false);
+  };
+
+  const deleteVideo = async () => {
+    if (!selected) return;
+    if (!confirm(`Delete "${selected.title}"? This cannot be undone.`)) return;
+    const res = await fetch(`/api/admin/videos/${selected.id}`, { method: 'DELETE' });
+    if (res.ok) {
+      setConfigs(prev => prev.filter(c => c.id !== selected.id));
+      setSelected(null);
+      showToast('Deleted');
+    }
   };
 
   const save = async () => {
@@ -207,6 +245,13 @@ export default function AdminVideosPage() {
               </p>
             </button>
           ))}
+          <button
+            onClick={createVideo}
+            disabled={creating}
+            className="w-full py-3 bg-white/5 hover:bg-white/10 rounded-xl text-sm font-medium transition-colors border border-dashed border-neutral-700 text-neutral-400 hover:text-white disabled:opacity-50"
+          >
+            {creating ? 'Creating...' : '+ New Video'}
+          </button>
         </div>
 
         {/* Editor */}
@@ -222,12 +267,11 @@ export default function AdminVideosPage() {
                 Drop your .mp4 or .mov screen recording into the recordings folder, then set the filename and total duration below.
               </p>
 
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="col-span-2 md:col-span-1">
-                  <Field label="Recording file" value={selected.recording_file} onChange={v => setSelected({ ...selected, recording_file: v })} />
-                </div>
-                <Field label="Video length (sec)" value={String(selected.video_sec)} type="number" onChange={v => setSelected({ ...selected, video_sec: Number(v) })} />
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <Field label="Title" value={selected.title} onChange={v => setSelected({ ...selected, title: v })} />
+                <Field label="Composition ID" value={selected.composition_id} onChange={v => setSelected({ ...selected, composition_id: v })} />
+                <Field label="Recording file" value={selected.recording_file} onChange={v => setSelected({ ...selected, recording_file: v })} />
+                <Field label="Video length (sec)" value={String(selected.video_sec)} type="number" onChange={v => setSelected({ ...selected, video_sec: Number(v) })} />
               </div>
 
               <div className="mt-3">
@@ -386,9 +430,17 @@ export default function AdminVideosPage() {
 
             {/* ── SAVE ── */}
             <div className="flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-xl p-4">
-              <p className="text-xs text-neutral-500">
-                Last saved: {new Date(selected.updated_at).toLocaleString()}
-              </p>
+              <div className="flex items-center gap-3">
+                <p className="text-xs text-neutral-500">
+                  Last saved: {new Date(selected.updated_at).toLocaleString()}
+                </p>
+                <button
+                  onClick={deleteVideo}
+                  className="text-[11px] text-red-400/50 hover:text-red-400 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
               <button
                 onClick={save}
                 disabled={saving}
