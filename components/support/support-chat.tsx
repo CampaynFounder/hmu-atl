@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 
 interface ChatMsg {
   id: string;
@@ -15,6 +15,7 @@ interface Props {
   quickActions?: string[];
 }
 
+const STORAGE_KEY = 'hmu-support-conversation-id';
 const COLORS = { green: '#00E676', black: '#080808', card: '#141414', white: '#fff', gray: '#888', red: '#FF5252', orange: '#FF9100' };
 
 export default function SupportChat({ greeting, placeholder = 'Describe your issue...', quickActions }: Props) {
@@ -22,15 +23,56 @@ export default function SupportChat({ greeting, placeholder = 'Describe your iss
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [resuming, setResuming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const initRef = useRef(false);
 
+  // Persist conversationId to sessionStorage
+  const saveConversationId = useCallback((id: string) => {
+    setConversationId(id);
+    try { sessionStorage.setItem(STORAGE_KEY, id); } catch {}
+  }, []);
+
+  // On mount: try to resume existing conversation from sessionStorage
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
-    setMessages([{ id: '0', from: 'assistant', text: greeting }]);
-    setTimeout(() => inputRef.current?.focus(), 300);
+
+    const savedId = (() => { try { return sessionStorage.getItem(STORAGE_KEY); } catch { return null; } })();
+
+    if (savedId) {
+      // Try to load conversation from DB
+      setResuming(true);
+      fetch('/api/chat/support?conversationId=' + savedId)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data?.found && data.messages?.length) {
+            const restored: ChatMsg[] = data.messages.map((m: { role: string; content: string }, i: number) => ({
+              id: `r-${i}`,
+              from: m.role === 'user' ? 'user' as const : 'assistant' as const,
+              text: m.content,
+            }));
+            setMessages(restored);
+            setConversationId(savedId);
+          } else {
+            // Conversation not found in DB — start fresh
+            setMessages([{ id: '0', from: 'assistant', text: greeting }]);
+            try { sessionStorage.removeItem(STORAGE_KEY); } catch {}
+          }
+        })
+        .catch(() => {
+          setMessages([{ id: '0', from: 'assistant', text: greeting }]);
+          try { sessionStorage.removeItem(STORAGE_KEY); } catch {}
+        })
+        .finally(() => {
+          setResuming(false);
+          setTimeout(() => inputRef.current?.focus(), 300);
+        });
+    } else {
+      setMessages([{ id: '0', from: 'assistant', text: greeting }]);
+      setTimeout(() => inputRef.current?.focus(), 300);
+    }
   }, [greeting]);
 
   useEffect(() => {
@@ -70,7 +112,7 @@ export default function SupportChat({ greeting, placeholder = 'Describe your iss
       }
 
       const data = await res.json();
-      if (data.conversationId) setConversationId(data.conversationId);
+      if (data.conversationId) saveConversationId(data.conversationId);
 
       if (data.reply) {
         setMessages(prev => [...prev, {
@@ -95,9 +137,40 @@ export default function SupportChat({ greeting, placeholder = 'Describe your iss
     setSending(false);
   };
 
+  const startNewConversation = () => {
+    try { sessionStorage.removeItem(STORAGE_KEY); } catch {}
+    setConversationId(null);
+    setMessages([{ id: '0', from: 'assistant', text: greeting }]);
+    setInput('');
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
+  if (resuming) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+        <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
+        <div style={{ color: COLORS.gray, fontSize: 14, animation: 'pulse 1.5s ease-in-out infinite' }}>
+          Loading your conversation...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
+
+      {/* Header with new conversation option */}
+      {conversationId && messages.length > 2 && (
+        <div style={{ padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'flex-end' }}>
+          <button onClick={startNewConversation} style={{
+            fontSize: 11, color: COLORS.gray, background: 'none', border: 'none', cursor: 'pointer',
+            textDecoration: 'underline', padding: '2px 4px',
+          }}>
+            New conversation
+          </button>
+        </div>
+      )}
 
       {/* Messages */}
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 8px' }}>

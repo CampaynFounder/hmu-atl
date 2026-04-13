@@ -90,6 +90,29 @@ const RIDER_TOOLS = [
   },
 ];
 
+// GET — load existing conversation for resume after page refresh
+export async function GET(req: NextRequest) {
+  try {
+    const { userId: clerkId } = await auth();
+    if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const convId = req.nextUrl.searchParams.get('conversationId');
+    if (!convId) return NextResponse.json({ error: 'conversationId required' }, { status: 400 });
+
+    const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const userId = (userRows[0] as { id: string }).id;
+
+    const msgs = await loadConversation(convId, userId);
+    if (!msgs) return NextResponse.json({ messages: [], found: false });
+
+    return NextResponse.json({ messages: msgs, found: true, conversationId: convId });
+  } catch (error) {
+    console.error('Load conversation error:', error);
+    return NextResponse.json({ error: 'Failed to load conversation' }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { userId: clerkId } = await auth();
@@ -127,9 +150,11 @@ export async function POST(req: NextRequest) {
     const tools = isDriver ? DRIVER_TOOLS : RIDER_TOOLS;
     const systemPrompt = buildSupportPrompt(isDriver, userName as string, user);
 
+    // Truncate long conversations to prevent token overflow and keep latency low
+    const trimmedMessages = truncateHistory(messages.map(m => ({ role: m.role, content: m.content })));
     const fullMessages = [
       { role: 'system' as const, content: systemPrompt },
-      ...messages.map(m => ({ role: m.role, content: m.content })),
+      ...trimmedMessages,
     ];
 
     // Call GPT
@@ -276,19 +301,20 @@ export async function POST(req: NextRequest) {
       // Check if a ticket was created
       const ticketResult = toolResults.find(tr => tr.name === 'create_ticket');
 
-      // Save conversation
-      await saveConversation(userId, isDriver ? 'driver' : 'rider', marketId, messages, followUpContent, conversationId, ticketResult?.result?.category as string);
+      // Save conversation — always returns a conversationId
+      const savedId = await saveConversation(userId, isDriver ? 'driver' : 'rider', marketId, messages, followUpContent, conversationId, ticketResult?.result?.category as string);
 
       return NextResponse.json({
         reply: followUpContent,
+        conversationId: savedId,
         ticketCreated: ticketResult ? ticketResult.result : null,
       });
     }
 
-    // No tool calls
-    await saveConversation(userId, isDriver ? 'driver' : 'rider', marketId, messages, message?.content || '', conversationId);
+    // No tool calls — save and always return conversationId
+    const savedId = await saveConversation(userId, isDriver ? 'driver' : 'rider', marketId, messages, message?.content || '', conversationId);
 
-    return NextResponse.json({ reply: message?.content || 'How can I help?' });
+    return NextResponse.json({ reply: message?.content || 'How can I help?', conversationId: savedId });
   } catch (error) {
     console.error('Support chat error:', error);
     return NextResponse.json({ error: 'Failed', detail: error instanceof Error ? error.message : 'unknown' }, { status: 500 });
@@ -303,21 +329,76 @@ async function saveConversation(
   const allMessages = [...messages.map(m => ({ role: m.role, content: m.content, at: new Date().toISOString() })),
     { role: 'assistant', content: lastReply, at: new Date().toISOString() }];
 
-  if (existingId) {
-    await sql`
-      UPDATE support_conversations SET messages = ${JSON.stringify(allMessages)}::jsonb, updated_at = NOW()
-        ${category ? sql`, category = ${category}` : sql``}
-      WHERE id = ${existingId}
-    `;
-    return existingId;
-  }
+  try {
+    if (existingId) {
+      if (category) {
+        await sql`
+          UPDATE support_conversations SET messages = ${JSON.stringify(allMessages)}::jsonb, category = ${category}, updated_at = NOW()
+          WHERE id = ${existingId}
+        `;
+      } else {
+        await sql`
+          UPDATE support_conversations SET messages = ${JSON.stringify(allMessages)}::jsonb, updated_at = NOW()
+          WHERE id = ${existingId}
+        `;
+      }
+      return existingId;
+    }
 
-  const rows = await sql`
-    INSERT INTO support_conversations (user_id, user_role, market_id, messages, category)
-    VALUES (${userId}, ${role}, ${marketId}, ${JSON.stringify(allMessages)}::jsonb, ${category || null})
-    RETURNING id
-  `;
-  return (rows[0] as { id: string }).id;
+    const rows = await sql`
+      INSERT INTO support_conversations (user_id, user_role, market_id, messages, category)
+      VALUES (${userId}, ${role}, ${marketId}, ${JSON.stringify(allMessages)}::jsonb, ${category || null})
+      RETURNING id
+    `;
+    return (rows[0] as { id: string }).id;
+  } catch (err) {
+    console.error('Failed to save support conversation:', err);
+    // Retry once on failure
+    try {
+      if (existingId) {
+        await sql`UPDATE support_conversations SET messages = ${JSON.stringify(allMessages)}::jsonb, updated_at = NOW() WHERE id = ${existingId}`;
+        return existingId;
+      }
+      const rows = await sql`
+        INSERT INTO support_conversations (user_id, user_role, market_id, messages, category)
+        VALUES (${userId}, ${role}, ${marketId}, ${JSON.stringify(allMessages)}::jsonb, ${category || null})
+        RETURNING id
+      `;
+      return (rows[0] as { id: string }).id;
+    } catch (retryErr) {
+      console.error('Retry save also failed:', retryErr);
+      return existingId || 'save_failed';
+    }
+  }
+}
+
+/**
+ * Load existing conversation from DB so user can resume after page refresh.
+ */
+async function loadConversation(conversationId: string, userId: string): Promise<{ role: string; content: string }[] | null> {
+  try {
+    const rows = await sql`
+      SELECT messages FROM support_conversations
+      WHERE id = ${conversationId} AND user_id = ${userId} LIMIT 1
+    `;
+    if (!rows.length) return null;
+    const msgs = (rows[0] as Record<string, unknown>).messages;
+    if (!Array.isArray(msgs)) return null;
+    return (msgs as { role: string; content: string }[]).map(m => ({ role: m.role, content: m.content }));
+  } catch { return null; }
+}
+
+/**
+ * Truncate conversation history to fit within token budget.
+ * GPT-4o-mini has 128K context, but we cap at ~50 messages to keep latency low.
+ * Always keep: system prompt + first message + last N messages.
+ */
+function truncateHistory(messages: { role: string; content: string }[], maxMessages = 40): { role: string; content: string }[] {
+  if (messages.length <= maxMessages) return messages;
+  // Keep first 2 messages (greeting context) + last (maxMessages - 2)
+  const head = messages.slice(0, 2);
+  const tail = messages.slice(-(maxMessages - 2));
+  return [...head, { role: 'system', content: '[Earlier messages omitted for brevity]' }, ...tail];
 }
 
 function buildSupportPrompt(isDriver: boolean, userName: string, user: Record<string, unknown>): string {
