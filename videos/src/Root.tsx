@@ -7,13 +7,17 @@ const VERTICAL_WIDTH = 1080;
 const VERTICAL_HEIGHT = 1920;
 const FPS = 30;
 
+// Duration = intro + recording + (numSteps * titleCardDuration) + end
+// DriverProfileCreation: 3 + 148 + (7 * 2) + 5 = 170s
+// RideFlow: 3 + 115 + (8 * 2) + 5 = 139s
+
 export const RemotionRoot: React.FC = () => {
   return (
     <>
       <Composition
         id="DriverProfileCreation"
         component={DriverProfileCreation}
-        durationInFrames={156 * FPS}
+        durationInFrames={170 * FPS}
         fps={FPS}
         width={VERTICAL_WIDTH}
         height={VERTICAL_HEIGHT}
@@ -24,7 +28,7 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="RideFlow"
         component={RideFlow}
-        durationInFrames={123 * FPS}
+        durationInFrames={139 * FPS}
         fps={FPS}
         width={VERTICAL_WIDTH}
         height={VERTICAL_HEIGHT}

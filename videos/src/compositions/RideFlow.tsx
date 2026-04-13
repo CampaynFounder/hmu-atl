@@ -1,6 +1,7 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Freeze,
   Sequence,
   useVideoConfig,
   useCurrentFrame,
@@ -16,8 +17,15 @@ import "../styles.css";
  * VIDEO: Ride Flow — Pickup to Drop-off
  * Continuous screen recording with timestamp-based overlay labels.
  *
+ * TIMESTAMP HANDLING:
+ * The user enters timestamps based on their raw recording (e.g. "OTW at 9s").
+ * Each title card inserts `titleCardDurationSec` of dead time into the composition.
+ * This file auto-adjusts all positions so timestamps stay accurate:
+ *   - Overlay positions shift forward by cumulative title card time
+ *   - The recording freezes during each title card via <Freeze>
+ *   - The total composition duration grows by (numSteps * titleCardDurationSec)
+ *
  * Place your recording in /public/recordings/ride-flow.mp4
- * Then adjust the STEPS timestamps to match your recording.
  */
 
 type FlyEffect =
@@ -36,7 +44,6 @@ export interface RideFlowStep {
   effect: FlyEffect;
 }
 
-// Default steps — adjust timestamps to match your recording
 const DEFAULT_STEPS: RideFlowStep[] = [
   { sec: 2, label: "BOOKING CONFIRMED", caption: "Your ride is locked in. Driver's about to move.", effect: "slide-up-bounce" },
   { sec: 15, label: "OTW", caption: "They tapped OTW. Track them in real time.", effect: "slide-right-pulse" },
@@ -61,6 +68,43 @@ interface RideFlowProps {
   endCta?: string;
 }
 
+// ── Timing helpers ──
+
+/**
+ * Adjusted composition time for step i.
+ * Each previous step's title card pushes this step forward.
+ */
+function adjustedSec(stepIndex: number, rawSec: number, titleDur: number): number {
+  return rawSec + stepIndex * titleDur;
+}
+
+/**
+ * Maps a composition frame to the recording frame that should be displayed.
+ * During title cards the recording freezes; between them it plays 1:1.
+ */
+function computeRecordingFrame(
+  compositionFrame: number,
+  fps: number,
+  steps: { sec: number }[],
+  titleDur: number,
+): number {
+  const compSec = compositionFrame / fps;
+  let pauseAccum = 0;
+
+  for (let i = 0; i < steps.length; i++) {
+    const cardStart = steps[i].sec + i * titleDur;
+    const cardEnd = cardStart + titleDur;
+
+    if (compSec < cardStart) break;
+    if (compSec < cardEnd) return Math.round(steps[i].sec * fps);
+    pauseAccum += titleDur;
+  }
+
+  return Math.round((compSec - pauseAccum) * fps);
+}
+
+// ── Main composition ──
+
 export const RideFlow: React.FC<RideFlowProps> = ({
   title = "THE RIDE",
   steps = DEFAULT_STEPS,
@@ -76,7 +120,8 @@ export const RideFlow: React.FC<RideFlowProps> = ({
   const { fps } = useVideoConfig();
 
   const INTRO_F = Math.round(introSec * fps);
-  const VIDEO_F = Math.round(videoSec * fps);
+  // Video section includes time for all title card pauses
+  const VIDEO_F = Math.round((videoSec + steps.length * titleCardDurationSec) * fps);
   const END_F = Math.round(endSec * fps);
   const TITLE_F = Math.round(titleCardDurationSec * fps);
   const CAPTION_F = Math.round(captionDurationSec * fps);
@@ -106,7 +151,7 @@ export const RideFlow: React.FC<RideFlowProps> = ({
             }}
           />
 
-          {/* Phone playing continuously */}
+          {/* Phone with recording (freezes during title cards) */}
           <PhoneWithEffects
             steps={steps}
             titleCardDurationSec={titleCardDurationSec}
@@ -114,11 +159,14 @@ export const RideFlow: React.FC<RideFlowProps> = ({
           />
 
           {/* Progress bar at top */}
-          <ProgressBar steps={steps} videoSec={videoSec} />
+          <ProgressBar
+            steps={steps}
+            titleCardDurationSec={titleCardDurationSec}
+          />
 
-          {/* Layer 3: Title card overlays at exact timestamps */}
+          {/* Layer 3: Title card overlays at adjusted timestamps */}
           {steps.map((step, i) => {
-            const overlayFrom = Math.round(step.sec * fps);
+            const overlayFrom = Math.round(adjustedSec(i, step.sec, titleCardDurationSec) * fps);
             return (
               <Sequence
                 key={i}
@@ -138,7 +186,7 @@ export const RideFlow: React.FC<RideFlowProps> = ({
           {/* Layer 4: Caption overlays (appear after title card fades) */}
           {steps.map((step, i) => {
             const captionFrom = Math.round(
-              (step.sec + titleCardDurationSec) * fps
+              (adjustedSec(i, step.sec, titleCardDurationSec) + titleCardDurationSec) * fps
             );
             return (
               <Sequence
@@ -167,7 +215,7 @@ export const RideFlow: React.FC<RideFlowProps> = ({
   );
 };
 
-// ── Phone with fly-in effects per step ──
+// ── Phone with fly-in effects + frozen video during title cards ──
 const PhoneWithEffects: React.FC<{
   steps: RideFlowStep[];
   titleCardDurationSec: number;
@@ -178,13 +226,18 @@ const PhoneWithEffects: React.FC<{
 
   const currentSec = frame / fps;
 
+  // Compute which recording frame to display (freezes during title cards)
+  const recordingFrame = computeRecordingFrame(frame, fps, steps, titleCardDurationSec);
+
+  // Find which step we're in using adjusted times
   let activeEffect: FlyEffect = "slide-up-bounce";
   let transitionProgress = 1;
   let borderGlow = 0;
 
   for (let i = steps.length - 1; i >= 0; i--) {
-    const titleEnd = steps[i].sec + titleCardDurationSec;
-    if (currentSec >= steps[i].sec) {
+    const stepStart = adjustedSec(i, steps[i].sec, titleCardDurationSec);
+    const titleEnd = stepStart + titleCardDurationSec;
+    if (currentSec >= stepStart) {
       activeEffect = steps[i].effect;
       if (currentSec < titleEnd) {
         transitionProgress = 0;
@@ -310,14 +363,17 @@ const PhoneWithEffects: React.FC<{
             backgroundColor: "#000000",
           }}
         >
-          <OffthreadVideo
-            src={staticFile(`recordings/${recordingFile}`)}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "contain",
-            }}
-          />
+          {/* Freeze the video at the computed recording frame */}
+          <Freeze frame={recordingFrame}>
+            <OffthreadVideo
+              src={staticFile(`recordings/${recordingFile}`)}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+              }}
+            />
+          </Freeze>
         </div>
       </div>
     </div>
@@ -499,16 +555,17 @@ const CaptionOverlay: React.FC<{
 // ── Progress bar ──
 const ProgressBar: React.FC<{
   steps: RideFlowStep[];
-  videoSec: number;
-}> = ({ steps, videoSec }) => {
+  titleCardDurationSec: number;
+}> = ({ steps, titleCardDurationSec }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
   const currentSec = frame / fps;
 
+  // Find current step using adjusted times
   let currentStep = 0;
   for (let i = steps.length - 1; i >= 0; i--) {
-    if (currentSec >= steps[i].sec) {
+    if (currentSec >= adjustedSec(i, steps[i].sec, titleCardDurationSec)) {
       currentStep = i + 1;
       break;
     }

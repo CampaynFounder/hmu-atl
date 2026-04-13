@@ -250,8 +250,9 @@ export default function AdminVideosPage() {
                 </h3>
               </div>
               <p className="text-xs text-neutral-500 mb-4">
-                Watch your recording, note the second each moment happens, and enter it below.
-                Each step shows a full-screen title card at that timestamp, then a caption overlay after.
+                Watch your raw recording and note the second each moment happens.
+                Enter those exact timestamps below — the composition automatically shifts
+                overlay positions and freezes the video during title cards so everything stays in sync.
               </p>
 
               <div className="space-y-3">
