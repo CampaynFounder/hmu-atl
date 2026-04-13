@@ -34,7 +34,7 @@ interface Props {
   driver: DriverData;
   open: boolean;
   onClose: () => void;
-  prefill?: { price?: string; pickup?: string; dropoff?: string; time?: string; resolvedTime?: string; timeDisplay?: string; stops?: string; roundTrip?: boolean; isCash?: boolean; driverMinimum?: number } | null;
+  prefill?: { price?: string; pickup?: string; dropoff?: string; time?: string; resolvedTime?: string; timeDisplay?: string; stops?: string; roundTrip?: boolean; isCash?: boolean; driverMinimum?: number; estimatedRideMinutes?: number } | null;
 }
 
 type DrawerState = 'form' | 'pending' | 'accepted' | 'expired' | 'error';
@@ -117,6 +117,7 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
             timeDisplay: (prefill as Record<string, unknown>)?.timeDisplay || null,
             stops: prefill?.stops || '',
             round_trip: prefill?.roundTrip || false,
+            estimated_minutes: prefill?.estimatedRideMinutes || undefined,
           },
           is_cash: prefill?.isCash || false,
         }),

@@ -52,7 +52,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
   // HMU button opens the chat or shows the soft blocker modal.
   const [viewerProfile, setViewerProfile] = useState<{ profileType: string; driverHandle: string | null } | null>(null);
   const [blockerVariant, setBlockerVariant] = useState<'own' | 'other' | null>(null);
-  const [prefillData, setPrefillData] = useState<{ price?: string; pickup?: string; dropoff?: string; time?: string; resolvedTime?: string; timeDisplay?: string; stops?: string; roundTrip?: boolean; isCash?: boolean; driverMinimum?: number } | null>(null);
+  const [prefillData, setPrefillData] = useState<{ price?: string; pickup?: string; dropoff?: string; time?: string; resolvedTime?: string; timeDisplay?: string; stops?: string; roundTrip?: boolean; isCash?: boolean; driverMinimum?: number; estimatedRideMinutes?: number } | null>(null);
   const [videoMuted, setVideoMuted] = useState(true);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
 
@@ -117,6 +117,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
     roundTrip: (data.roundTrip as boolean) || false,
     isCash: (data.isCash as boolean) || false,
     driverMinimum: data.driverMinimum ? Number(data.driverMinimum) : undefined,
+    estimatedRideMinutes: data.estimatedRideMinutes ? Number(data.estimatedRideMinutes) : undefined,
   });
 
   // Auto-open booking form if rider just completed signup+onboarding (returned with bookingOpen=1)
@@ -194,6 +195,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
           roundTrip: (detail.roundTrip as boolean) || false,
           isCash: (detail.isCash as boolean) || false,
           driverMinimum: detail.driverMinimum ? Number(detail.driverMinimum) : undefined,
+          estimatedRideMinutes: detail.estimatedRideMinutes ? Number(detail.estimatedRideMinutes) : undefined,
         });
       }
       setDrawerOpen(false);

@@ -5,6 +5,14 @@ import { checkDriverAvailability } from '@/lib/schedule/conflicts';
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 import { logSuspectEvent } from '@/lib/admin/suspect-events';
+import {
+  BookingDraft,
+  mergeExtract,
+  computeBookingWindow,
+  isComplete,
+  missingSlots,
+  priceValid,
+} from '@/lib/chat/booking-draft';
 
 // Rate-limit ceiling for chat messages. Booking rate limits live on
 // /api/drivers/[handle]/book where they actually fire on real submissions.
@@ -49,21 +57,7 @@ const TOOLS = [
           driverMinimum: { type: 'number', description: 'The driver\'s minimum ride price' },
           isCash: { type: 'boolean', description: 'Whether this should be a cash ride' },
         },
-        required: ['destination'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'check_availability',
-      description: 'Check if the driver is available at the requested time. Call this before confirming a booking.',
-      parameters: {
-        type: 'object',
-        properties: {
-          proposedTime: { type: 'string', description: 'ISO 8601 timestamp to check. Resolve relative dates yourself: "next Friday 3pm" → "2026-04-11T15:00:00". Use today\'s date as reference.' },
-        },
-        required: ['proposedTime'],
+        required: ['dropoff'],
       },
     },
   },
@@ -298,33 +292,6 @@ ${getStepInstructions(step, driver)}`;
             result = { extracted: true, ...args };
             break;
 
-          case 'check_availability': {
-            // Fail closed: any error in the parse / DB check means we cannot
-            // confirm the slot is free, so we must report unavailable. This
-            // is load-bearing for the confirm_details gate below — a false
-            // "available: true" here would allow the chat to proceed to
-            // booking summary without real verification.
-            try {
-              const proposedStart = parseTimeToISO(args.proposedTime);
-              const proposedEnd = new Date(new Date(proposedStart).getTime() + 45 * 60000).toISOString();
-              const avail = await checkDriverAvailability(driver.user_id as string, proposedStart, proposedEnd);
-              result = {
-                available: avail.available,
-                isWorkingHours: avail.isWorkingHours,
-                conflict: avail.conflict ? 'Driver has another booking at this time' : null,
-                checkedStart: proposedStart,
-              };
-            } catch (e) {
-              console.error('check_availability failed:', e);
-              result = {
-                available: false,
-                isWorkingHours: false,
-                error: 'Could not verify availability — please try again in a moment',
-              };
-            }
-            break;
-          }
-
           case 'calculate_route': {
             try {
               const routeData = await getMapboxRoute(args.pickup, args.dropoff, args.stops);
@@ -341,33 +308,52 @@ ${getStepInstructions(step, driver)}`;
           }
 
           case 'confirm_details': {
-            // NOTE: booking-conversion rate limits used to fire here, but
-            // confirm_details is just "GPT has extracted enough info to
-            // summarize" — not an actual booking submission. The real
-            // limits live on /api/drivers/[handle]/book.
+            // Deterministic gate: merge GPT's args into the canonical draft,
+            // re-resolve time via parseNaturalTime (never trust the model's
+            // ISO string), compute a round-trip-aware availability window
+            // with a driver buffer, then enforce completeness + working
+            // hours + no conflict. GPT calling confirm_details is only a
+            // SIGNAL that it thinks we're done — the server decides.
+            const mergedForConfirm: BookingDraft = mergeExtract(
+              mergeExtract({ driverMinimum: Number(pricing.minimum) || undefined } as BookingDraft, (extractedSoFar || {}) as Record<string, unknown>),
+              args as Record<string, unknown>
+            );
 
-            // Resolve the time to a concrete ISO timestamp + display string
-            const timeInput = args.resolvedTime || args.time || '';
-            const parsed = parseNaturalTime(timeInput);
-            args.resolvedTime = parsed.iso;
-            args.timeDisplay = parsed.display;
-            args.isNow = parsed.isNow;
+            const still = missingSlots(mergedForConfirm);
+            if (still.length) {
+              result = {
+                action: 'incomplete',
+                missing: still,
+                error: `Still need: ${still.join(', ')}`,
+                draft: mergedForConfirm,
+              };
+              break;
+            }
 
-            // Fail-closed availability gate: the GPT tool loop is untrusted
-            // for safety-critical checks, so we run one inline here every
-            // time confirm_details is called. If the slot is not available,
-            // we refuse to return details_confirmed — the client can't
-            // advance to the booking form.
+            const window = computeBookingWindow(mergedForConfirm);
+            if (!window) {
+              result = {
+                action: 'incomplete',
+                missing: ['time'],
+                error: 'Could not resolve the ride time — try something like "tomorrow at 3pm"',
+                draft: mergedForConfirm,
+              };
+              break;
+            }
+
             let availabilityOk = true;
             let availabilityError: string | null = null;
             try {
-              const proposedEnd = new Date(new Date(parsed.iso).getTime() + 45 * 60000).toISOString();
-              const avail = await checkDriverAvailability(driver.user_id as string, parsed.iso, proposedEnd);
+              const avail = await checkDriverAvailability(
+                driver.user_id as string,
+                window.checkStart,
+                window.checkEnd
+              );
               if (!avail.available) {
                 availabilityOk = false;
                 availabilityError = avail.conflict
-                  ? 'Driver already has a booking at that time. Pick a different time?'
-                  : 'Driver isn\'t scheduled to work at that time. Pick a different time?';
+                  ? 'Driver already has a booking around that time. Pick a different time?'
+                  : "Driver isn't scheduled to work at that time. Pick a different time?";
               }
             } catch (e) {
               console.error('confirm_details availability gate failed:', e);
@@ -379,15 +365,41 @@ ${getStepInstructions(step, driver)}`;
               result = {
                 action: 'unavailable',
                 error: availabilityError,
-                resolvedTimeDisplay: parsed.display,
+                resolvedTimeDisplay: mergedForConfirm.timeDisplay,
+                draft: mergedForConfirm,
               };
               break;
             }
 
+            // All gates passed — hand the client a fully-resolved booking
+            // payload shaped the way the existing client + book route expect.
+            const bookingOut: Record<string, unknown> = {
+              pickup: mergedForConfirm.pickup,
+              dropoff: mergedForConfirm.dropoff,
+              stops: mergedForConfirm.stops,
+              roundTrip: mergedForConfirm.roundTrip,
+              time: mergedForConfirm.timeRaw,
+              resolvedTime: mergedForConfirm.timeIso,
+              timeDisplay: mergedForConfirm.timeDisplay,
+              isNow: mergedForConfirm.isNow,
+              riderPrice: mergedForConfirm.riderPrice,
+              price: mergedForConfirm.riderPrice,
+              suggestedPrice: mergedForConfirm.suggestedPrice,
+              driverMinimum: mergedForConfirm.driverMinimum,
+              isCash: mergedForConfirm.isCash,
+              estimatedRideMinutes:
+                new Date(window.endAt).getTime() - new Date(window.startAt).getTime() > 0
+                  ? Math.round(
+                      (new Date(window.endAt).getTime() - new Date(window.startAt).getTime()) / 60000
+                    )
+                  : undefined,
+            };
+
             result = {
               action: 'details_confirmed',
-              booking: args,
-              resolvedTimeDisplay: parsed.display,
+              booking: bookingOut,
+              resolvedTimeDisplay: mergedForConfirm.timeDisplay,
+              window,
             };
             break;
           }
@@ -423,6 +435,35 @@ ${getStepInstructions(step, driver)}`;
       const confirmAction = toolResults.find(tr => tr.name === 'confirm_details');
       if (confirmAction) {
         const confirmResult = confirmAction.result as Record<string, unknown>;
+
+        // Deterministic gate blocked the advance because the draft is still
+        // missing required slots. Walk back to the right step and tell GPT
+        // to paraphrase a question for the first missing field.
+        if (confirmResult.action === 'incomplete') {
+          const missing = (confirmResult.missing as string[]) || [];
+          const finalRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body: JSON.stringify({ model: 'gpt-4o-mini', messages: toolMessages, temperature: 0.7, max_tokens: 200 }),
+          });
+          const finalData = await finalRes.json();
+          const finalMessage =
+            finalData.choices?.[0]?.message?.content ||
+            `Almost there — I still need ${missing.join(' and ')}. Fill me in?`;
+          const walkBackStep =
+            missing.includes('pickup') || missing.includes('dropoff') || missing.includes('time')
+              ? 'trip_details'
+              : missing.includes('price')
+              ? 'quote'
+              : 'trip_details';
+          return NextResponse.json({
+            reply: finalMessage,
+            action: 'incomplete',
+            missing,
+            draft: confirmResult.draft || null,
+            nextStep: walkBackStep,
+          });
+        }
 
         // Availability gate failed — surface the reason, do NOT mark as
         // details_confirmed. Client stays in the chat step so the rider
@@ -603,11 +644,6 @@ OUTPUT: The app will show sign-up/booking buttons — your job is done.`;
     default:
       return 'Ask the rider where they want to go.';
   }
-}
-
-/** Parse natural language time to ISO — delegates to shared parser */
-function parseTimeToISO(timeStr: string): string {
-  return parseNaturalTime(timeStr).iso;
 }
 
 /**

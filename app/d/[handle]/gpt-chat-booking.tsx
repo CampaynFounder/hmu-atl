@@ -147,11 +147,17 @@ export default function GptChatBooking({ driver, open, onClose }: Props) {
       // those two stores diverged because saveChatProgress received the
       // pre-booking newExtracted, overwriting the flat save with a wrapped
       // shape that lacked pickup/dropoff/price.
-      const newExtracted = data.extracted ? { ...extractedSoFar, ...data.extracted } : extractedSoFar;
+      // When the server returns a canonical `draft` (deterministic gate),
+      // fold it in so the client mirrors server truth across turns.
+      const newExtracted = {
+        ...extractedSoFar,
+        ...(data.draft || {}),
+        ...(data.extracted || {}),
+      };
       const finalExtracted = data.action === 'details_confirmed' && data.booking
         ? { ...newExtracted, ...data.booking }
         : newExtracted;
-      if (data.extracted || data.booking) setExtractedSoFar(finalExtracted);
+      if (data.extracted || data.booking || data.draft) setExtractedSoFar(finalExtracted);
       const nextStep = data.nextStep || currentStep;
       if (data.nextStep) setCurrentStep(nextStep);
 

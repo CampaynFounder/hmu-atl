@@ -154,7 +154,21 @@ export async function POST(
   // "now" and future so two riders can't race on the same slot before the
   // ride record exists. Strict for non-cash (held card → chargebacks if we
   // double-book), loose for cash (only an actively running ride blocks).
-  const window = resolveBookingWindow(timeWindow || {});
+  //
+  // Duration resolution order:
+  //  1) explicit estimated_minutes from the chat flow (round-trip aware,
+  //     Mapbox-backed)
+  //  2) round_trip flag with a 90-min fallback
+  //  3) resolveBookingWindow's 45-min default for one-way
+  const tw = (timeWindow || {}) as Record<string, unknown>;
+  const rawMinutes = Number(tw.estimated_minutes);
+  const isRoundTrip = !!tw.round_trip;
+  const estimatedMinutes = Number.isFinite(rawMinutes) && rawMinutes > 0
+    ? Math.round(rawMinutes)
+    : isRoundTrip
+    ? 90
+    : undefined;
+  const window = resolveBookingWindow(tw, estimatedMinutes);
   const avail = await checkDriverAvailability(
     driverUserId,
     window.startAt,
@@ -178,9 +192,11 @@ export async function POST(
   });
 
   // Always create a tentative hold — "now" bookings need the same
-  // double-book protection during the 15-min acceptance window.
+  // double-book protection during the 15-min acceptance window. Pass the
+  // resolved duration so round-trip and Mapbox-backed estimates from the
+  // chat flow land on the calendar row instead of defaulting to 45 min.
   try {
-    await createTentativeBooking(driverUserId, rider.id, post.id, window.startAt, null);
+    await createTentativeBooking(driverUserId, rider.id, post.id, window.startAt, null, estimatedMinutes);
   } catch (e) {
     console.error('Tentative booking failed:', e);
   }
