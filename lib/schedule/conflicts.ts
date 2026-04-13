@@ -344,12 +344,41 @@ export async function syncBookingFromRide(
       return;
   }
 
-  await sql`
+  const updated = await sql`
     UPDATE driver_bookings
     SET status = ${target}, updated_at = NOW()
     WHERE ride_id = ${rideId}
       AND status = ANY(${ACTIVE_BOOKING_STATUSES as unknown as string[]})
+    RETURNING id
   `;
+
+  // Safety net: if no booking row exists for this ride, create one now.
+  // This handles rides where the initial createRideBooking call failed silently.
+  if (!updated.length) {
+    try {
+      const rideRows = await sql`
+        SELECT driver_id, rider_id, created_at, started_at, ended_at, completed_at
+        FROM rides WHERE id = ${rideId} LIMIT 1
+      `;
+      if (rideRows.length) {
+        const r = rideRows[0] as Record<string, unknown>;
+        const driverId = r.driver_id as string;
+        if (driverId) {
+          const userRows = await sql`SELECT market_id FROM users WHERE id = ${driverId} LIMIT 1`;
+          const marketId = (userRows[0] as Record<string, unknown>)?.market_id as string || null;
+          const startAt = (r.started_at || r.created_at) as string;
+          const endAt = (r.completed_at || r.ended_at || new Date(new Date(startAt).getTime() + 45 * 60000).toISOString()) as string;
+          await sql`
+            INSERT INTO driver_bookings (driver_id, rider_id, ride_id, booking_type, start_at, end_at, status, market_id)
+            VALUES (${driverId}, ${r.rider_id as string}, ${rideId}, 'ride', ${startAt}, ${endAt}, ${target}, ${marketId})
+            ON CONFLICT DO NOTHING
+          `;
+        }
+      }
+    } catch (e) {
+      console.error('Safety net booking creation failed:', e);
+    }
+  }
 }
 
 /**
