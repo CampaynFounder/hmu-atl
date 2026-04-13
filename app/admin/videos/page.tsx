@@ -557,10 +557,27 @@ export default function AdminVideosPage() {
                   </Hint>
                 </>
               ) : (
-                <div className="mb-4 bg-neutral-800/50 border border-neutral-700/50 rounded-lg p-3">
-                  <p className="text-xs text-neutral-400">
-                    Rendering requires your local dev server. Run <code className="bg-neutral-800 px-1 rounded text-[10px]">npm run dev</code> and open <code className="bg-neutral-800 px-1 rounded text-[10px]">localhost:3000/admin/videos</code> to use the render buttons.
-                  </p>
+                <div className="mb-4 space-y-3">
+                  <div className="bg-neutral-800/50 border border-neutral-700/50 rounded-lg p-4">
+                    <p className="text-xs font-medium text-white mb-3">Rendering runs locally via your terminal. Open a terminal and run:</p>
+                    <div className="space-y-2">
+                      <CopyBlock
+                        label="Preview in Remotion Studio"
+                        command={`npm run video -- preview ${selected.composition_id}`}
+                      />
+                      <CopyBlock
+                        label="Render to MP4"
+                        command={`npm run video -- render ${selected.composition_id}`}
+                      />
+                      <CopyBlock
+                        label="List all videos"
+                        command="npm run video -- list"
+                      />
+                    </div>
+                    <p className="text-[10px] text-neutral-600 mt-3">
+                      Output: <code className="bg-neutral-800 px-1 rounded">videos/out/{outFileName}.mp4</code>
+                    </p>
+                  </div>
                 </div>
               )}
 
