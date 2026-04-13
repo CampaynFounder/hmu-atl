@@ -1,2 +1,61 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+
+/* ── Admin Theme Variables ── */
+/* Dark theme (default) */
+.admin-theme[data-theme="dark"] {
+  --admin-bg: #0a0a0a;
+  --admin-bg-elevated: #171717;
+  --admin-bg-card: #171717;
+  --admin-bg-input: #0a0a0a;
+  --admin-bg-hover: rgba(255, 255, 255, 0.05);
+  --admin-bg-active: rgba(255, 255, 255, 0.1);
+  --admin-border: #262626;
+  --admin-border-subtle: #1a1a1a;
+  --admin-text: #ffffff;
+  --admin-text-secondary: #a3a3a3;
+  --admin-text-muted: #737373;
+  --admin-text-faint: #525252;
+  --admin-accent: #448AFF;
+  --admin-accent-bg: rgba(68, 138, 255, 0.1);
+  --admin-accent-border: rgba(68, 138, 255, 0.3);
+  --admin-success: #34d399;
+  --admin-success-bg: rgba(52, 211, 153, 0.1);
+  --admin-danger: #f87171;
+  --admin-danger-bg: rgba(248, 113, 113, 0.1);
+  --admin-warning: #fbbf24;
+  --admin-warning-bg: rgba(251, 191, 36, 0.1);
+  color-scheme: dark;
+}
+
+/* Light theme */
+.admin-theme[data-theme="light"] {
+  --admin-bg: #ffffff;
+  --admin-bg-elevated: #f5f5f5;
+  --admin-bg-card: #ffffff;
+  --admin-bg-input: #fafafa;
+  --admin-bg-hover: rgba(0, 0, 0, 0.04);
+  --admin-bg-active: rgba(0, 0, 0, 0.08);
+  --admin-border: #e5e5e5;
+  --admin-border-subtle: #f0f0f0;
+  --admin-text: #171717;
+  --admin-text-secondary: #525252;
+  --admin-text-muted: #737373;
+  --admin-text-faint: #a3a3a3;
+  --admin-accent: #2563eb;
+  --admin-accent-bg: rgba(37, 99, 235, 0.08);
+  --admin-accent-border: rgba(37, 99, 235, 0.25);
+  --admin-success: #059669;
+  --admin-success-bg: rgba(5, 150, 105, 0.08);
+  --admin-danger: #dc2626;
+  --admin-danger-bg: rgba(220, 38, 38, 0.08);
+  --admin-warning: #d97706;
+  --admin-warning-bg: rgba(217, 119, 6, 0.08);
+  color-scheme: light;
+}
+
+/* Apply theme variables to admin elements */
+.admin-theme {
+  background-color: var(--admin-bg);
+  color: var(--admin-text);
+}

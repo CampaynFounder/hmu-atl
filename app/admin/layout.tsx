@@ -5,6 +5,7 @@ import { AdminSidebar } from './components/admin-sidebar';
 import { AdminMain } from './components/admin-main';
 import { MarketProvider } from './components/market-context';
 import { SidebarProvider } from './components/sidebar-context';
+import { AdminThemeProvider } from './components/theme-context';
 
 export const metadata = {
   title: 'HMU Admin',
@@ -28,10 +29,12 @@ export default async function AdminLayout({
   return (
     <MarketProvider>
       <SidebarProvider>
-        <div className="min-h-screen bg-neutral-950 text-white flex">
-          <AdminSidebar />
-          <AdminMain>{children}</AdminMain>
-        </div>
+        <AdminThemeProvider>
+          <div className="min-h-screen flex" style={{ background: 'var(--admin-bg)', color: 'var(--admin-text)' }}>
+            <AdminSidebar />
+            <AdminMain>{children}</AdminMain>
+          </div>
+        </AdminThemeProvider>
       </SidebarProvider>
     </MarketProvider>
   );

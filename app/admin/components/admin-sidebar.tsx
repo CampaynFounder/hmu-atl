@@ -7,6 +7,7 @@ import { useClerk } from '@clerk/nextjs';
 import { useAbly } from '@/hooks/use-ably';
 import { useMarket } from './market-context';
 import { useSidebar } from './sidebar-context';
+import { useAdminTheme } from './theme-context';
 
 const navSections = [
   {
@@ -51,6 +52,7 @@ const navSections = [
 export function AdminSidebar() {
   const pathname = usePathname();
   const { collapsed, toggle } = useSidebar();
+  const { theme, toggle: toggleTheme } = useAdminTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const { markets, selectedMarketId, setSelectedMarketId } = useMarket();
@@ -82,24 +84,38 @@ export function AdminSidebar() {
   return (
     <>
       {/* ── Mobile top bar ── */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-neutral-900 border-b border-neutral-800 px-4 py-3 flex items-center justify-between">
+      <div
+        className="lg:hidden fixed top-0 left-0 right-0 z-50 px-4 py-3 flex items-center justify-between"
+        style={{ background: 'var(--admin-bg-elevated)', borderBottom: '1px solid var(--admin-border)' }}
+      >
         <button
           onClick={() => setMobileOpen(!mobileOpen)}
-          className="text-neutral-400 hover:text-white p-1 -ml-1"
+          className="p-1 -ml-1"
+          style={{ color: 'var(--admin-text-secondary)' }}
         >
           {mobileOpen ? '✕' : '☰'}
         </button>
-        <span className="font-bold text-sm tracking-wide">HMU ADMIN</span>
-        {/* Current page indicator */}
-        <span className="text-xs text-neutral-500 truncate max-w-[120px]">
-          {navSections.flatMap(s => s.items).find(i => isActive(i.href))?.label || ''}
-        </span>
+        <span className="font-bold text-sm tracking-wide" style={{ color: 'var(--admin-text)' }}>HMU ADMIN</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleTheme}
+            className="text-xs p-1 rounded"
+            style={{ color: 'var(--admin-text-muted)' }}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? '☀' : '☾'}
+          </button>
+          <span className="text-xs truncate max-w-[100px]" style={{ color: 'var(--admin-text-muted)' }}>
+            {navSections.flatMap(s => s.items).find(i => isActive(i.href))?.label || ''}
+          </span>
+        </div>
       </div>
 
       {/* ── Mobile overlay ── */}
       {mobileOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+          className="lg:hidden fixed inset-0 z-40 backdrop-blur-sm"
+          style={{ background: theme === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.3)' }}
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -107,16 +123,17 @@ export function AdminSidebar() {
       {/* ── Sidebar ── */}
       <aside
         className={`
-          fixed top-0 left-0 z-50 h-full bg-neutral-900 border-r border-neutral-800
+          fixed top-0 left-0 z-50 h-full
           flex flex-col transition-all duration-200 ease-in-out
           ${collapsed ? 'lg:w-16' : 'lg:w-64'}
           w-64
           lg:translate-x-0
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
+        style={{ background: 'var(--admin-bg-elevated)', borderRight: '1px solid var(--admin-border)' }}
       >
         {/* Header */}
-        <div className={`border-b border-neutral-800 ${collapsed ? 'lg:p-3' : 'p-6'}`}>
+        <div className={collapsed ? 'lg:p-3' : 'p-6'} style={{ borderBottom: '1px solid var(--admin-border)' }}>
           {/* Full header — hidden when collapsed on desktop */}
           <div className={collapsed ? 'lg:hidden' : ''}>
             <h1 className="text-lg font-bold tracking-wide">HMU ADMIN</h1>
@@ -154,11 +171,11 @@ export function AdminSidebar() {
           {navSections.map((section) => (
             <div key={section.label}>
               {/* Section label — hidden when collapsed */}
-              <p className={`px-3 mb-2 text-[10px] font-bold tracking-[3px] text-neutral-600 ${collapsed ? 'lg:hidden' : ''}`}>
+              <p className={`px-3 mb-2 text-[10px] font-bold tracking-[3px] ${collapsed ? 'lg:hidden' : ''}`} style={{ color: 'var(--admin-text-faint)' }}>
                 {section.label}
               </p>
               {/* Collapsed divider — visible only when collapsed */}
-              <div className={collapsed ? 'hidden lg:block mb-2 mx-2 border-t border-neutral-800' : 'hidden'} />
+              <div className={collapsed ? 'hidden lg:block mb-2 mx-2' : 'hidden'} style={{ borderTop: '1px solid var(--admin-border)' }} />
 
               <div className="space-y-0.5">
                 {section.items.map((item) => (
@@ -170,10 +187,11 @@ export function AdminSidebar() {
                     className={`
                       flex items-center rounded-lg text-sm font-medium transition-colors relative
                       ${collapsed ? 'lg:justify-center lg:px-0 lg:py-2.5 gap-0 px-3 py-2.5 gap-3' : 'gap-3 px-3 py-2.5'}
-                      ${isActive(item.href)
-                        ? 'bg-white/10 text-white'
-                        : 'text-neutral-400 hover:text-white hover:bg-white/5'}
                     `}
+                    style={{
+                      background: isActive(item.href) ? 'var(--admin-bg-active)' : undefined,
+                      color: isActive(item.href) ? 'var(--admin-text)' : 'var(--admin-text-secondary)',
+                    }}
                   >
                     <span className={`text-base ${collapsed ? 'lg:text-lg' : ''}`}>{item.icon}</span>
                     <span className={`flex-1 ${collapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
@@ -193,15 +211,30 @@ export function AdminSidebar() {
         </nav>
 
         {/* Footer */}
-        <div className={`border-t border-neutral-800 space-y-1 ${collapsed ? 'lg:p-2 p-4' : 'p-4'}`}>
+        <div className={`space-y-1 ${collapsed ? 'lg:p-2 p-4' : 'p-4'}`} style={{ borderTop: '1px solid var(--admin-border)' }}>
+          {/* Theme toggle */}
+          <button
+            onClick={toggleTheme}
+            title={collapsed ? (theme === 'dark' ? 'Light mode' : 'Dark mode') : undefined}
+            className={`
+              w-full flex items-center rounded-lg text-xs transition-colors
+              ${collapsed ? 'lg:justify-center lg:px-0 lg:py-2 gap-0 px-3 py-2 gap-2' : 'gap-2 px-3 py-2'}
+            `}
+            style={{ color: 'var(--admin-text-secondary)' }}
+          >
+            <span>{theme === 'dark' ? '☀' : '☾'}</span>
+            <span className={collapsed ? 'lg:hidden' : ''}>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+          </button>
+
           <Link
             href="/driver/home"
             onClick={() => setMobileOpen(false)}
             title={collapsed ? 'Driver Dashboard' : undefined}
             className={`
-              flex items-center rounded-lg text-xs text-neutral-400 hover:text-white hover:bg-white/5 transition-colors
+              flex items-center rounded-lg text-xs transition-colors
               ${collapsed ? 'lg:justify-center lg:px-0 lg:py-2 gap-0 px-3 py-2 gap-2' : 'gap-2 px-3 py-2'}
             `}
+            style={{ color: 'var(--admin-text-secondary)' }}
           >
             <span>🚗</span>
             <span className={collapsed ? 'lg:hidden' : ''}>Driver Dashboard</span>
@@ -210,9 +243,10 @@ export function AdminSidebar() {
             onClick={() => signOut({ redirectUrl: '/' })}
             title={collapsed ? 'Log Out' : undefined}
             className={`
-              w-full text-left rounded-lg text-xs text-red-400/70 hover:text-red-400 hover:bg-white/5 transition-colors
+              w-full text-left rounded-lg text-xs transition-colors
               ${collapsed ? 'lg:text-center lg:px-0 lg:py-2 px-3 py-2' : 'px-3 py-2'}
             `}
+            style={{ color: 'var(--admin-danger)' }}
           >
             <span className={collapsed ? 'lg:hidden' : ''}>Log Out</span>
             <span className={collapsed ? 'hidden lg:inline' : 'hidden'}>✕</span>
@@ -221,7 +255,8 @@ export function AdminSidebar() {
           {/* Collapse toggle — desktop only */}
           <button
             onClick={toggle}
-            className="hidden lg:flex w-full items-center justify-center gap-2 px-3 py-2 mt-1 rounded-lg text-xs text-neutral-500 hover:text-white hover:bg-white/5 transition-colors"
+            className="hidden lg:flex w-full items-center justify-center gap-2 px-3 py-2 mt-1 rounded-lg text-xs transition-colors"
+            style={{ color: 'var(--admin-text-muted)' }}
           >
             <span style={{ transform: collapsed ? 'rotate(180deg)' : undefined, transition: 'transform 200ms' }}>
               ◀
@@ -231,8 +266,7 @@ export function AdminSidebar() {
         </div>
       </aside>
 
-      {/* Mobile spacer */}
-      <div className="lg:hidden h-14" />
+      {/* Mobile spacer handled by AdminMain pt-16 */}
     </>
   );
 }
