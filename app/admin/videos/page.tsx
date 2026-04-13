@@ -159,7 +159,7 @@ export default function AdminVideosPage() {
     : '';
 
   const totalDuration = selected
-    ? selected.intro_sec + selected.video_sec + selected.end_sec
+    ? Number(selected.intro_sec) + Number(selected.video_sec) + (selected.steps.length * Number(selected.title_card_duration_sec)) + Number(selected.end_sec)
     : 0;
 
   return (
@@ -379,7 +379,7 @@ export default function AdminVideosPage() {
                   </p>
                 </div>
                 <p className="text-[10px] text-neutral-600">
-                  = {selected.intro_sec}s intro + {selected.video_sec}s video + {selected.end_sec}s end
+                  = {Number(selected.intro_sec)}s intro + {Number(selected.video_sec)}s video + {selected.steps.length} &times; {Number(selected.title_card_duration_sec)}s cards + {Number(selected.end_sec)}s end
                 </p>
               </div>
             </div>
