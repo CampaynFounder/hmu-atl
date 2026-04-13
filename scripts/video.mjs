@@ -186,38 +186,18 @@ async function cmdPreview(compositionId) {
   );
 
   console.log(`\n🎬 Starting Remotion Studio → ${compositionId}`);
-  console.log(`   Opening browser when ready...\n`);
+  console.log(`   Studio will open with ${compositionId} selected.\n`);
 
+  // Set REMOTION_COMPOSITION so Root.tsx puts this composition first
   const studio = spawn("npx", ["remotion", "studio"], {
     cwd: VIDEOS_DIR,
     stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, REMOTION_COMPOSITION: compositionId },
     shell: true,
   });
 
-  let opened = false;
-
-  const tryOpen = (data) => {
-    const text = data.toString();
-    process.stdout.write(text);
-
-    if (!opened) {
-      // Remotion Studio prints the URL when ready
-      const urlMatch = text.match(/https?:\/\/localhost:\d+/);
-      if (urlMatch) {
-        opened = true;
-        const studioUrl = `${urlMatch[0]}/?composition=${compositionId}`;
-        console.log(`\n🌐 Opening: ${studioUrl}\n`);
-        try {
-          execSync(`open "${studioUrl}"`, { stdio: "ignore" });
-        } catch {
-          console.log(`   Open manually: ${studioUrl}`);
-        }
-      }
-    }
-  };
-
-  studio.stdout.on("data", tryOpen);
-  studio.stderr.on("data", tryOpen);
+  studio.stdout.on("data", (d) => process.stdout.write(d));
+  studio.stderr.on("data", (d) => process.stderr.write(d));
 
   studio.on("close", (code) => {
     console.log(`\nStudio exited (code ${code})`);
