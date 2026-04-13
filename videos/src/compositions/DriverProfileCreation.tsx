@@ -32,12 +32,27 @@ import "../styles.css";
 
 type FlyEffect = "slide-up-bounce" | "slide-right-pulse" | "scale-blur" | "slide-left-parallax" | "rotate-pulse" | "slide-right-bounce" | "zoom-glow";
 
-const STEPS: Array<{
+interface StepDef {
   sec: number;
   label: string;
   caption: string;
   effect: FlyEffect;
-}> = [
+}
+
+interface DriverProfileProps {
+  title?: string;
+  steps?: StepDef[];
+  recordingFile?: string;
+  introSec?: number;
+  videoSec?: number;
+  endSec?: number;
+  titleCardDurationSec?: number;
+  captionDurationSec?: number;
+  endTagline?: string;
+  endCta?: string;
+}
+
+const DEFAULT_STEPS: StepDef[] = [
   { sec: 0.28, label: "DRIVER DETAILS", caption: "Tell us who you are. Name, number, the basics.", effect: "slide-up-bounce" },
   { sec: 22.22, label: "CAR DETAILS", caption: "Your whip, your plate. Riders want to know what they're getting into.", effect: "slide-right-pulse" },
   { sec: 57.02, label: "PROFILE VIDEO", caption: "Five seconds. Let riders see the real you.", effect: "scale-blur" },
@@ -47,28 +62,32 @@ const STEPS: Array<{
   { sec: 138.51, label: "PROFILE CREATED", caption: "You're set. Time to go live.", effect: "zoom-glow" },
 ];
 
-const INTRO_SEC = 3;
-const VIDEO_SEC = 148;
-const END_SEC = 5;
-
-const TITLE_CARD_DURATION_SEC = 2; // how long each title card shows
-const CAPTION_DURATION_SEC = 5; // how long each caption lingers
-
 // ── Main composition ──
-export const DriverProfileCreation: React.FC<{ title: string }> = () => {
+export const DriverProfileCreation: React.FC<DriverProfileProps> = ({
+  title = "CREATE YOUR DRIVER PROFILE",
+  steps = DEFAULT_STEPS,
+  recordingFile = "driversignup.mov",
+  introSec = 3,
+  videoSec = 148,
+  endSec = 5,
+  titleCardDurationSec = 2,
+  captionDurationSec = 5,
+  endTagline = "You're live. Atlanta's waiting.",
+  endCta = "START DRIVING",
+}) => {
   const { fps } = useVideoConfig();
 
-  const INTRO_F = Math.round(INTRO_SEC * fps);
-  const VIDEO_F = totalVideoFrames(VIDEO_SEC, STEPS.length, TITLE_CARD_DURATION_SEC, fps);
-  const END_F = Math.round(END_SEC * fps);
-  const TITLE_F = Math.round(TITLE_CARD_DURATION_SEC * fps);
-  const CAPTION_F = Math.round(CAPTION_DURATION_SEC * fps);
+  const INTRO_F = Math.round(introSec * fps);
+  const VIDEO_F = totalVideoFrames(videoSec, steps.length, titleCardDurationSec, fps);
+  const END_F = Math.round(endSec * fps);
+  const TITLE_F = Math.round(titleCardDurationSec * fps);
+  const CAPTION_F = Math.round(captionDurationSec * fps);
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#080808" }}>
       {/* Layer 1: Logo intro */}
       <Sequence from={0} durationInFrames={INTRO_F}>
-        <LogoIntro />
+        <LogoIntro title={title} />
       </Sequence>
 
       {/* Layer 2: Continuous video in phone frame */}
@@ -90,14 +109,14 @@ export const DriverProfileCreation: React.FC<{ title: string }> = () => {
           />
 
           {/* Phone playing continuously */}
-          <PhoneWithEffects steps={STEPS} titleCardDurationSec={TITLE_CARD_DURATION_SEC} />
+          <PhoneWithEffects steps={steps} titleCardDurationSec={titleCardDurationSec} recordingFile={recordingFile} />
 
           {/* Progress bar at top */}
-          <ProgressBar steps={STEPS} />
+          <ProgressBar steps={steps} titleCardDurationSec={titleCardDurationSec} />
 
           {/* Layer 3: Title card overlays at adjusted timestamps */}
-          {STEPS.map((step, i) => {
-            const overlayFrom = Math.round(adjustedSec(i, step.sec, TITLE_CARD_DURATION_SEC) * fps);
+          {steps.map((step, i) => {
+            const overlayFrom = Math.round(adjustedSec(i, step.sec, titleCardDurationSec) * fps);
             return (
               <Sequence
                 key={i}
@@ -108,15 +127,15 @@ export const DriverProfileCreation: React.FC<{ title: string }> = () => {
                 <TitleCardOverlay
                   step={String(i + 1).padStart(2, "0")}
                   label={step.label}
-                  totalSteps={STEPS.length}
+                  totalSteps={steps.length}
                 />
               </Sequence>
             );
           })}
 
           {/* Layer 4: Caption overlays (appear after title card fades) */}
-          {STEPS.map((step, i) => {
-            const captionFrom = Math.round((adjustedSec(i, step.sec, TITLE_CARD_DURATION_SEC) + TITLE_CARD_DURATION_SEC) * fps);
+          {steps.map((step, i) => {
+            const captionFrom = Math.round((adjustedSec(i, step.sec, titleCardDurationSec) + titleCardDurationSec) * fps);
             return (
               <Sequence
                 key={`cap-${i}`}
@@ -133,7 +152,7 @@ export const DriverProfileCreation: React.FC<{ title: string }> = () => {
 
       {/* Layer 5: End card */}
       <Sequence from={INTRO_F + VIDEO_F} durationInFrames={END_F}>
-        <EndCardInline />
+        <EndCardInline tagline={endTagline} cta={endCta} />
       </Sequence>
     </AbsoluteFill>
   );
@@ -141,16 +160,17 @@ export const DriverProfileCreation: React.FC<{ title: string }> = () => {
 
 // ── Phone with fly-in effects per step ──
 const PhoneWithEffects: React.FC<{
-  steps: typeof STEPS;
+  steps: StepDef[];
   titleCardDurationSec: number;
-}> = ({ steps, titleCardDurationSec }) => {
+  recordingFile: string;
+}> = ({ steps, titleCardDurationSec, recordingFile }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
   const currentSec = frame / fps;
 
   // Compute which recording frame to display (freezes during title cards)
-  const recordingFrame = computeRecordingFrame(frame, fps, steps, TITLE_CARD_DURATION_SEC);
+  const recordingFrame = computeRecordingFrame(frame, fps, steps, titleCardDurationSec);
 
   // Find which step we're in using adjusted times
   let activeEffect: FlyEffect = "slide-up-bounce";
@@ -281,7 +301,7 @@ const PhoneWithEffects: React.FC<{
         >
           <Freeze frame={recordingFrame}>
             <OffthreadVideo
-              src={staticFile("recordings/driversignup.mov")}
+              src={staticFile(`recordings/${recordingFile}`)}
               style={{
                 width: "100%",
                 height: "100%",
@@ -466,8 +486,9 @@ const CaptionOverlay: React.FC<{ text: string; enterFrom?: "bottom" | "right" }>
 
 // ── Progress bar ──
 const ProgressBar: React.FC<{
-  steps: typeof STEPS;
-}> = ({ steps }) => {
+  steps: StepDef[];
+  titleCardDurationSec: number;
+}> = ({ steps, titleCardDurationSec }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -476,7 +497,7 @@ const ProgressBar: React.FC<{
   // Find current step using adjusted times
   let currentStep = 0;
   for (let i = steps.length - 1; i >= 0; i--) {
-    if (currentSec >= adjustedSec(i, steps[i].sec, TITLE_CARD_DURATION_SEC)) {
+    if (currentSec >= adjustedSec(i, steps[i].sec, titleCardDurationSec)) {
       currentStep = i + 1;
       break;
     }
@@ -540,7 +561,7 @@ const ProgressBar: React.FC<{
 };
 
 // ── Logo intro ──
-const LogoIntro: React.FC = () => {
+const LogoIntro: React.FC<{ title: string }> = ({ title }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -645,7 +666,7 @@ const LogoIntro: React.FC = () => {
             textAlign: "center",
           }}
         >
-          CREATE YOUR DRIVER PROFILE
+          {title}
         </div>
       </div>
     </AbsoluteFill>
@@ -653,7 +674,7 @@ const LogoIntro: React.FC = () => {
 };
 
 // ── End card ──
-const EndCardInline: React.FC = () => {
+const EndCardInline: React.FC<{ tagline: string; cta: string }> = ({ tagline, cta }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -739,7 +760,7 @@ const EndCardInline: React.FC = () => {
           transform: `translateY(${interpolate(taglineSpring, [0, 1], [20, 0])}px)`,
         }}
       >
-        You're live. Atlanta's waiting.
+        {tagline}
       </div>
 
       <div
@@ -756,7 +777,7 @@ const EndCardInline: React.FC = () => {
           boxShadow: "0 0 30px rgba(0,230,118,0.3)",
         }}
       >
-        START DRIVING
+        {cta}
       </div>
     </AbsoluteFill>
   );
