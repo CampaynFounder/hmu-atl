@@ -568,6 +568,10 @@ export default function AdminVideosPage() {
                     <p className="text-xs font-medium text-white mb-3">Rendering runs locally via your terminal. Open a terminal and run:</p>
                     <div className="space-y-2">
                       <CopyBlock
+                        label="Clear Remotion cache (run first if changes aren't showing)"
+                        command="rm -rf videos/.cache videos/node_modules/.cache"
+                      />
+                      <CopyBlock
                         label="Preview in Remotion Studio"
                         command={`npm run video -- preview ${selected.composition_id}`}
                       />
@@ -629,8 +633,9 @@ export default function AdminVideosPage() {
 
               <div className="mt-3 space-y-2">
                 <p className="text-[10px] text-neutral-600">Or run manually:</p>
-                <CopyBlock label="Preview" command="cd videos && npm run dev" />
-                <CopyBlock label="Render" command={`cd videos && node scripts/sync-and-render.mjs ${selected.composition_id}`} />
+                <CopyBlock label="Clear Remotion cache" command="rm -rf videos/.cache videos/node_modules/.cache" />
+                <CopyBlock label="Preview" command={`npm run video -- preview ${selected.composition_id}`} />
+                <CopyBlock label="Render" command={`npm run video -- render ${selected.composition_id}`} />
               </div>
             </div>
 
