@@ -3526,20 +3526,32 @@ export default function ActiveRideClient({
         <div style={{ fontSize: 11, color: COLORS.gray, textTransform: 'uppercase', letterSpacing: 1, fontFamily: FONTS.mono, marginBottom: 8 }}>
           {isDriver ? 'Rider Add-Ons' : 'Add-Ons'}
         </div>
-        {visible.map(a => {
-          const badge = statusLabel(a.status);
-          return (
-            <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 14, color: COLORS.grayLight, opacity: badge ? 0.7 : 1 }}>
-              <span>
-                {a.name}{a.quantity > 1 ? ` \u00D7${a.quantity}` : ''}
-                {badge && <span style={{ fontSize: 10, color: badge.color, marginLeft: 6 }}>({badge.text})</span>}
-              </span>
-              <span style={{ fontFamily: FONTS.mono, color: (a.status === 'confirmed' || a.status === 'adjusted') ? COLORS.green : COLORS.gray }}>
-                ${Number(a.subtotal || 0).toFixed(2)}
-              </span>
-            </div>
-          );
-        })}
+        {(() => {
+          const groups: { name: string; status: string; totalQty: number; totalSub: number }[] = [];
+          for (const a of visible) {
+            const existing = groups.find(g => g.name === a.name && g.status === a.status);
+            if (existing) {
+              existing.totalQty += (a.quantity || 1);
+              existing.totalSub += Number(a.subtotal || 0);
+            } else {
+              groups.push({ name: a.name, status: a.status, totalQty: a.quantity || 1, totalSub: Number(a.subtotal || 0) });
+            }
+          }
+          return groups.map((g, i) => {
+            const badge = statusLabel(g.status);
+            return (
+              <div key={`${g.name}-${g.status}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 14, color: COLORS.grayLight, opacity: badge ? 0.7 : 1 }}>
+                <span>
+                  {g.name}{g.totalQty > 1 ? ` \u00D7${g.totalQty}` : ''}
+                  {badge && <span style={{ fontSize: 10, color: badge.color, marginLeft: 6 }}>({badge.text})</span>}
+                </span>
+                <span style={{ fontFamily: FONTS.mono, color: (g.status === 'confirmed' || g.status === 'adjusted') ? COLORS.green : COLORS.gray }}>
+                  ${g.totalSub.toFixed(2)}
+                </span>
+              </div>
+            );
+          });
+        })()}
         <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <span style={{ fontSize: 12, color: COLORS.gray }}>Base ride</span>
           <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.white }}>${Number(ride.agreedPrice || 0).toFixed(2)}</span>
