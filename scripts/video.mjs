@@ -64,15 +64,27 @@ function getDb() {
 async function fetchConfigs(compositionId) {
   const db = await getDb();
   if (compositionId) {
-    const rows = await db`SELECT * FROM video_configs WHERE composition_id = ${compositionId}`;
-    if (!rows.length) {
-      console.error(`❌ No video config found for: ${compositionId}`);
-      const all = await db`SELECT composition_id, title FROM video_configs ORDER BY created_at`;
-      console.error("\nAvailable compositions:");
-      for (const r of all) console.error(`  - ${r.composition_id} (${r.title})`);
-      process.exit(1);
+    // Try exact match first
+    let rows = await db`SELECT * FROM video_configs WHERE composition_id = ${compositionId}`;
+    if (rows.length) return rows;
+
+    // Try case-insensitive match
+    const all = await db`SELECT * FROM video_configs ORDER BY created_at`;
+    const lower = compositionId.toLowerCase();
+    const match = all.find(r =>
+      r.composition_id.toLowerCase() === lower ||
+      r.recording_file?.toLowerCase().replace(/\.[^.]+$/, '') === lower ||
+      r.title?.toLowerCase().includes(lower)
+    );
+    if (match) {
+      console.log(`  (matched "${compositionId}" → ${match.composition_id})\n`);
+      return [match];
     }
-    return rows;
+
+    console.error(`❌ No video config found for: ${compositionId}`);
+    console.error("\nAvailable compositions:");
+    for (const r of all) console.error(`  - ${r.composition_id} (${r.title}) [${r.recording_file}]`);
+    process.exit(1);
   }
   return db`SELECT * FROM video_configs WHERE is_active = true ORDER BY created_at`;
 }
