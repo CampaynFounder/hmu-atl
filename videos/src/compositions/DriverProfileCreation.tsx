@@ -52,6 +52,7 @@ interface DriverProfileProps {
   endCta?: string;
   phoneWidth?: number;
   phoneHeight?: number;
+  muted?: boolean;
 }
 
 const DEFAULT_STEPS: StepDef[] = [
@@ -78,6 +79,7 @@ export const DriverProfileCreation: React.FC<DriverProfileProps> = ({
   endCta = "START DRIVING",
   phoneWidth = 480,
   phoneHeight = 1036,
+  muted = false,
 }) => {
   const { fps } = useVideoConfig();
 
@@ -113,7 +115,7 @@ export const DriverProfileCreation: React.FC<DriverProfileProps> = ({
           />
 
           {/* Phone playing continuously */}
-          <PhoneWithEffects steps={steps} titleCardDurationSec={titleCardDurationSec} recordingFile={recordingFile} phoneWidth={phoneWidth} phoneHeight={phoneHeight} />
+          <PhoneWithEffects steps={steps} titleCardDurationSec={titleCardDurationSec} recordingFile={recordingFile} phoneWidth={phoneWidth} phoneHeight={phoneHeight} muted={muted} />
 
           {/* Progress bar at top */}
           <ProgressBar steps={steps} titleCardDurationSec={titleCardDurationSec} />
@@ -169,7 +171,8 @@ const PhoneWithEffects: React.FC<{
   recordingFile: string;
   phoneWidth: number;
   phoneHeight: number;
-}> = ({ steps, titleCardDurationSec, recordingFile, phoneWidth, phoneHeight }) => {
+  muted?: boolean;
+}> = ({ steps, titleCardDurationSec, recordingFile, phoneWidth, phoneHeight, muted = false }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -308,6 +311,7 @@ const PhoneWithEffects: React.FC<{
           <Freeze frame={recordingFrame}>
             <OffthreadVideo
               src={staticFile(`recordings/${recordingFile}`)}
+              muted={muted}
               style={{
                 width: "100%",
                 height: "100%",

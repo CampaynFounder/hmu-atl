@@ -107,6 +107,7 @@ export async function POST(
     captionDurationSec: Number(config.caption_duration_sec),
     endTagline: config.end_tagline,
     endCta: config.end_cta,
+    muted: !!config.muted,
   };
   const propsFile = resolve(propsDir, `${compositionId}.json`);
   writeFileSync(propsFile, JSON.stringify(props, null, 2));
@@ -125,6 +126,7 @@ export async function POST(
       'src/index.ts', compositionId,
       `out/${outFile}.mp4`,
       '--props', `props/${compositionId}.json`,
+      ...(config.muted ? ['--muted'] : []),
     ];
   }
 

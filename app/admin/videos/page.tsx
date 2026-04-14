@@ -25,6 +25,7 @@ interface VideoConfig {
   steps: Step[];
   phone_width: number;
   phone_height: number;
+  muted: boolean;
   is_active: boolean;
   updated_at: string;
 }
@@ -506,6 +507,35 @@ export default function AdminVideosPage() {
                 <Field label="Intro title" value={selected.intro_title} onChange={v => setSelected({ ...selected, intro_title: v })} />
                 <Field label="End tagline" value={selected.end_tagline} onChange={v => setSelected({ ...selected, end_tagline: v })} />
                 <Field label="End CTA" value={selected.end_cta} onChange={v => setSelected({ ...selected, end_cta: v })} />
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-neutral-800">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <div
+                    onClick={() => setSelected({ ...selected, muted: !selected.muted })}
+                    className="relative"
+                    style={{
+                      width: 40, height: 22, borderRadius: 11,
+                      background: selected.muted ? 'rgba(255,82,82,0.3)' : 'rgba(0,230,118,0.3)',
+                      transition: 'background 0.2s',
+                    }}
+                  >
+                    <div style={{
+                      position: 'absolute', top: 2, width: 18, height: 18, borderRadius: 9,
+                      background: selected.muted ? '#FF5252' : '#00E676',
+                      left: selected.muted ? 20 : 2,
+                      transition: 'left 0.2s, background 0.2s',
+                    }} />
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium">{selected.muted ? 'Audio muted' : 'Audio on'}</span>
+                    <p className="text-[10px] text-neutral-500">
+                      {selected.muted
+                        ? 'Recording audio will be stripped from the rendered video.'
+                        : 'Recording audio will be included in the rendered video.'}
+                    </p>
+                  </div>
+                </label>
               </div>
 
               <div className="mt-4 pt-4 border-t border-neutral-800 flex items-center gap-4">
