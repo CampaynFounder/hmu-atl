@@ -168,6 +168,7 @@ export default function ActiveRideClient({
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [menuSheetOpen, setMenuSheetOpen] = useState(false);
+  const addOnPanelRef = useRef<HTMLDivElement>(null);
   const [pendingStop, setPendingStop] = useState<{ address: string; latitude?: number; longitude?: number } | null>(null);
   const [cancelRequest, setCancelRequest] = useState<{ message: string; reason: string } | null>(null);
   const [endRideConfirm, setEndRideConfirm] = useState<{ show: boolean; reason: string; notes: string }>({ show: false, reason: '', notes: '' });
@@ -487,8 +488,10 @@ export default function ActiveRideClient({
             addOnTotal,
           }));
           if (isDriver) {
-            showNotification(`Rider wants to add: ${addOn.name}`, '🛒', COLORS.orange, `$${Number(addOn.subtotal || 0).toFixed(2)} — tap to confirm`);
+            showNotification(`Rider wants to add: ${addOn.name}`, '🛒', COLORS.orange, `$${Number(addOn.subtotal || 0).toFixed(2)} — scroll down to approve`);
             if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+            // Auto-scroll to approval panel
+            setTimeout(() => addOnPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
           }
         }
         break;
@@ -516,8 +519,9 @@ export default function ActiveRideClient({
         }).catch(() => {});
         if (isDriver) {
           const aon = data.addOn as { name: string; subtotal: number } | undefined;
-          showNotification(`Rider wants to remove: ${aon?.name || 'an add-on'}`, '🗑️', COLORS.orange, `−$${Number(aon?.subtotal || 0).toFixed(2)} — tap to confirm`);
+          showNotification(`Rider wants to remove: ${aon?.name || 'an add-on'}`, '🗑️', COLORS.orange, `−$${Number(aon?.subtotal || 0).toFixed(2)} — scroll down to approve`);
           if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+          setTimeout(() => addOnPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
         }
         break;
       }
@@ -2274,6 +2278,7 @@ export default function ActiveRideClient({
         case 'matched':
           return ride.cooAt ? (
             <>
+              {renderPendingAddOnAlert()}
               <StatusMessage text="Rider is ready!" />
               <PickupTimingCard
                 driverLat={geo.lat}
@@ -2459,6 +2464,7 @@ export default function ActiveRideClient({
         case 'otw':
           return (
             <>
+              {renderPendingAddOnAlert()}
               {eta && (
                 <div style={{
                   textAlign: 'center', padding: '8px 0', fontSize: 13,
@@ -2532,6 +2538,7 @@ export default function ActiveRideClient({
           const emergencyIsNoShow = extensionsGranted > 0;
           return (
             <>
+              {renderPendingAddOnAlert()}
               {/* ETA to dropoff preview */}
               {eta && ride.dropoffLat && ride.dropoffLng && (
                 <div style={{
@@ -2789,6 +2796,7 @@ export default function ActiveRideClient({
         case 'active':
           return (
             <>
+            {renderPendingAddOnAlert()}
             {/* ETA to dropoff */}
             {eta && (
               <div style={{
@@ -3553,12 +3561,40 @@ export default function ActiveRideClient({
     if (!isDriver) return null;
     if (ride.addOns.length === 0) return null;
     return (
-      <DriverAddOnApproval
-        rideId={rideId}
-        addOns={ride.addOns}
-        agreedPrice={Number(ride.agreedPrice || 0)}
-        onUpdated={(addOns, total) => setRide(prev => ({ ...prev, addOns, addOnTotal: total }))}
-      />
+      <div ref={addOnPanelRef}>
+        <DriverAddOnApproval
+          rideId={rideId}
+          addOns={ride.addOns}
+          agreedPrice={Number(ride.agreedPrice || 0)}
+          onUpdated={(addOns, total) => setRide(prev => ({ ...prev, addOns, addOnTotal: total }))}
+        />
+      </div>
+    );
+  }
+
+  /** Persistent alert shown at top of driver view when items need approval */
+  function renderPendingAddOnAlert() {
+    if (!isDriver) return null;
+    const pending = ride.addOns.filter(a => a.status === 'pending_driver');
+    const removalPending = ride.addOns.filter(a => a.status === 'removal_pending');
+    const count = pending.length + removalPending.length;
+    if (count === 0) return null;
+
+    return (
+      <button
+        onClick={() => addOnPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+        style={{
+          width: '100%', padding: '10px 14px', borderRadius: 12, marginBottom: 8,
+          background: 'rgba(255,145,0,0.12)', border: '1px solid rgba(255,145,0,0.3)',
+          color: COLORS.orange, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+          fontFamily: FONTS.body, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          animation: 'pulse 2s ease-in-out infinite',
+        }}
+      >
+        <span style={{ fontSize: 16 }}>🛒</span>
+        {count} extra{count > 1 ? 's' : ''} need{count === 1 ? 's' : ''} your approval
+        <span style={{ fontSize: 11, color: COLORS.grayLight }}>↓</span>
+      </button>
     );
   }
 
