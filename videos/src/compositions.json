@@ -1,0 +1,218 @@
+[
+  {
+    "id": "DriverProfileCreation",
+    "props": {
+      "title": "CREATE YOUR DRIVER PROFILE",
+      "steps": [
+        {
+          "sec": 0.28,
+          "label": "DRIVER DETAILS",
+          "effect": "slide-up-bounce",
+          "caption": "Tell us who you are. Name, number, the basics."
+        },
+        {
+          "sec": 22.22,
+          "label": "CAR DETAILS",
+          "effect": "slide-right-pulse",
+          "caption": "Your whip, your plate. Riders want to know what they're getting into."
+        },
+        {
+          "sec": 57.02,
+          "label": "PROFILE VIDEO",
+          "effect": "scale-blur",
+          "caption": "Five seconds. Let riders see the real you."
+        },
+        {
+          "sec": 94.73,
+          "label": "RIDER PREFERENCES",
+          "effect": "slide-left-parallax",
+          "caption": "Set your rules. Your ride, your terms."
+        },
+        {
+          "sec": 125.24,
+          "label": "HOW RATINGS WORK",
+          "effect": "rotate-pulse",
+          "caption": "Riders rate you after every ride. Stay chill, stay booked."
+        },
+        {
+          "sec": 133.68,
+          "label": "LOCATION & ETA",
+          "effect": "slide-right-bounce",
+          "caption": "Pick your zones and set your availability."
+        },
+        {
+          "sec": 138.51,
+          "label": "PROFILE CREATED",
+          "effect": "zoom-glow",
+          "caption": "You're set. Time to go live."
+        }
+      ],
+      "recordingFile": "driversignup.mov",
+      "introSec": 3,
+      "videoSec": 148,
+      "endSec": 5,
+      "titleCardDurationSec": 2,
+      "captionDurationSec": 5,
+      "endTagline": "Your city. Your ride. Your rules.",
+      "endCta": "HMU ATL",
+      "phoneWidth": 480,
+      "phoneHeight": 1036,
+      "muted": false
+    },
+    "duration": 170
+  },
+  {
+    "id": "RideFlow",
+    "props": {
+      "title": "THE HMU RIDE",
+      "steps": [
+        {
+          "sec": 0,
+          "label": "DRIVER ON THE WAY",
+          "effect": "slide-up-bounce",
+          "caption": "Your Driver is on the Way"
+        },
+        {
+          "sec": 8,
+          "label": "TURN BY TURN INTEGRATION",
+          "effect": "slide-right-pulse",
+          "caption": "Driver Easily Navigates Turn-By-Turn With 1-Click Using Google Maps"
+        },
+        {
+          "sec": 18,
+          "label": "DRIVER IS GETTING CLOSE",
+          "effect": "scale-blur",
+          "caption": "Driver is Arriving at the Apartment Complex to Pick Up Rider"
+        },
+        {
+          "sec": 36,
+          "label": "DRIVER ARRIVES",
+          "effect": "zoom-glow",
+          "caption": "Driver Lets Rider Know They are Here With 1-Click. 10-min countdown begins. "
+        },
+        {
+          "sec": 44,
+          "label": "RIDER ENTERS CAR AND DRIVER STARTS RIDE",
+          "effect": "slide-left-parallax",
+          "caption": "Rider Confirms They are In the Car and Ride begins"
+        },
+        {
+          "sec": 47,
+          "label": "THE DROP OFF",
+          "effect": "rotate-pulse",
+          "caption": "Relax, We'll be there in no time. "
+        },
+        {
+          "sec": 62,
+          "label": "1-CLICK TURN-BY-TURN NAVIGATION",
+          "effect": "slide-right-bounce",
+          "caption": "HMU perfected pickup faciliation and leverages Google with 1 click for Turn By Turn Real Time Navigation"
+        },
+        {
+          "sec": 98,
+          "label": "WE'RE HERE",
+          "effect": "slide-up-bounce",
+          "caption": "Rate Your Rider - Keep It Real"
+        }
+      ],
+      "recordingFile": "ride-flow.mp4",
+      "introSec": 3,
+      "videoSec": 112,
+      "endSec": 5,
+      "titleCardDurationSec": 2,
+      "captionDurationSec": 5,
+      "endTagline": "Your city. Your ride. Your rules.",
+      "endCta": "HMU ATL",
+      "phoneWidth": 700,
+      "phoneHeight": 1512,
+      "muted": false
+    },
+    "duration": 136
+  },
+  {
+    "id": "BookFromHMULink",
+    "props": {
+      "title": "HMU BOOKING AGENT",
+      "steps": [
+        {
+          "sec": 0,
+          "label": "HMU AGENTIC BOOKING",
+          "effect": "zoom-glow",
+          "caption": "HMU Riders Can Book With an AI Agent"
+        },
+        {
+          "sec": 5,
+          "label": "VIEW DRIVER PRICING",
+          "effect": "slide-right-pulse",
+          "caption": "Riders View Prices for Rides & Extras"
+        },
+        {
+          "sec": 22,
+          "label": "AGENTIC BOOKING",
+          "effect": "slide-left-parallax",
+          "caption": "Drivers RAG Powered Agent looks up ride details,  knows drivers availability, pricing -negotiates and books rides"
+        },
+        {
+          "sec": 40,
+          "label": "HMU EXPRESS RIDER ONBOARDING",
+          "effect": "slide-left-parallax",
+          "caption": "Rider Securely Signs Up or In w/ Cell Phone + OTP"
+        },
+        {
+          "sec": 51,
+          "label": "CONFIRM RIDE REQUEST",
+          "effect": "slide-right-bounce",
+          "caption": "Agent Provides Booking Details For Final Confirmation"
+        },
+        {
+          "sec": 56,
+          "label": "RIDE REQUEST ACCEPTED",
+          "effect": "slide-up-bounce",
+          "caption": "Rider Receives Notification That Driver Accepted Ride"
+        },
+        {
+          "sec": 59,
+          "label": "CONFIRM RIDE DETAILS",
+          "effect": "scale-blur",
+          "caption": "Rider Confirms Specific Ride Details"
+        },
+        {
+          "sec": 67,
+          "label": "REQUEST DRIVER PULL UP",
+          "effect": "slide-up-bounce",
+          "caption": "Once all Details Are confirmed Rider Tells Driver to Pull Up"
+        },
+        {
+          "sec": 70,
+          "label": "PRICE ADJUSTMENT",
+          "effect": "slide-left-parallax",
+          "caption": "Driver Realizes Price is too low requests adjustment"
+        },
+        {
+          "sec": 74,
+          "label": "REQUESTS EXTRAS",
+          "effect": "scale-blur",
+          "caption": "Rider Realizes They Need to make a few stops and need driver to wait"
+        },
+        {
+          "sec": 79,
+          "label": "VIEW FINAL RIDE DETAILS",
+          "effect": "slide-up-bounce",
+          "caption": "Total Price is Updated. Driver Approved Extras"
+        }
+      ],
+      "recordingFile": "hmulinkbook.mp4",
+      "introSec": 2,
+      "videoSec": 79,
+      "endSec": 2,
+      "titleCardDurationSec": 2,
+      "captionDurationSec": 3,
+      "endTagline": "Your city. Your ride. Your rules.",
+      "endCta": "HMU ATL",
+      "phoneWidth": 700,
+      "phoneHeight": 1512,
+      "muted": false
+    },
+    "duration": 105
+  }
+]

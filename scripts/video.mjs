@@ -113,7 +113,28 @@ function buildProps(config) {
   };
 }
 
-// Compositions are now dynamically registered from props/ files — no manual list needed.
+/**
+ * Write a compositions.json manifest that Root.tsx imports statically.
+ * This avoids using Node.js fs/path in Root.tsx (which webpack can't bundle).
+ * Called every time we write props so the manifest stays in sync.
+ */
+async function writeManifest() {
+  const db = await getDb();
+  const all = await db`SELECT * FROM video_configs WHERE is_active = true ORDER BY created_at`;
+  const manifest = all.map(config => ({
+    id: config.composition_id,
+    props: buildProps(config),
+    duration: Math.ceil(
+      Number(config.intro_sec) +
+      Number(config.video_sec) +
+      (config.steps.length * Number(config.title_card_duration_sec)) +
+      Number(config.end_sec)
+    ),
+  }));
+  const manifestPath = resolve(VIDEOS_DIR, "src", "compositions.json");
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  console.log(`  📋 Manifest: ${manifest.length} composition(s) → videos/src/compositions.json`);
+}
 
 function outFileName(compositionId) {
   return compositionId.replace(/([A-Z])/g, "-$1").toLowerCase().slice(1);
@@ -141,6 +162,9 @@ async function cmdRender(compositionId) {
 
   mkdirSync(resolve(VIDEOS_DIR, "props"), { recursive: true });
   mkdirSync(resolve(VIDEOS_DIR, "out"), { recursive: true });
+
+  // Write manifest so Root.tsx registers all compositions
+  await writeManifest();
 
   let ok = 0, fail = 0;
 
@@ -197,12 +221,17 @@ async function cmdPreview(compositionId) {
 
   // Write props so Studio can use them
   const configs = await fetchConfigs(compositionId);
-  const props = buildProps(configs[0]);
+  const config = configs[0];
+  compositionId = config.composition_id; // Use the actual ID from DB (fuzzy match may have changed it)
+  const props = buildProps(config);
   mkdirSync(resolve(VIDEOS_DIR, "props"), { recursive: true });
   writeFileSync(
     resolve(VIDEOS_DIR, "props", `${compositionId}.json`),
     JSON.stringify(props, null, 2)
   );
+
+  // Write manifest so Root.tsx can register all compositions
+  await writeManifest();
 
   console.log(`\n🎬 Starting Remotion Studio → ${compositionId}`);
   console.log(`   Studio will open with ${compositionId} selected.\n`);
