@@ -3050,6 +3050,8 @@ export default function ActiveRideClient({
             ) : (
               <StatusMessage text="Pull Up sent — waiting for driver to go OTW..." />
             )}
+            {ride.addOns && ride.addOns.length > 0 && renderAddOnSummary()}
+            {renderAddServicesButton()}
             <CancelButton rideId={rideId} label="Cancel Ride" onCancelled={() => setRide(prev => ({ ...prev, status: 'cancelled' }))} />
           </>
         ) : (
@@ -3093,6 +3095,8 @@ export default function ActiveRideClient({
                 stops: stops || prev.stops,
               }));
             }} />
+            {ride.addOns && ride.addOns.length > 0 && renderAddOnSummary()}
+            {renderAddServicesButton()}
             <CancelButton rideId={rideId} label="Cancel" onCancelled={() => setRide(prev => ({ ...prev, status: 'cancelled' }))} />
           </>
         );
