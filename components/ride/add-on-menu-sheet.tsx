@@ -130,7 +130,7 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
             <div style={{ fontSize: 18, fontWeight: 700, color: C.white }}>Driver Menu</div>
             <div style={{ fontSize: 11, color: C.gray }}>
               {activeAddOns.length > 0
-                ? `${activeAddOns.length} item${activeAddOns.length > 1 ? 's' : ''} selected`
+                ? `${activeAddOns.reduce((s, a) => s + (a.quantity || 1), 0)} item${activeAddOns.reduce((s, a) => s + (a.quantity || 1), 0) > 1 ? 's' : ''} selected`
                 : 'Add extras to your ride'}
             </div>
           </div>
@@ -156,50 +156,64 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
             }}>{error}</div>
           )}
 
-          {/* Your selections */}
-          {activeAddOns.length > 0 && (
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 10, color: C.gray, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6 }}>
-                Your Selections
-              </div>
-              {activeAddOns.map(a => {
-                const isPending = a.status === 'pending_driver';
-                const isConfirmed = a.status === 'confirmed';
-                const isRemovalPending = a.status === 'removal_pending';
-                const canRemove = (isPending || isConfirmed) && removing !== a.id;
+          {/* Your selections — grouped by name */}
+          {activeAddOns.length > 0 && (() => {
+            const groups: { name: string; totalQty: number; totalSub: number; status: string; ids: string[] }[] = [];
+            for (const a of activeAddOns) {
+              const existing = groups.find(g => g.name === a.name && g.status === a.status);
+              if (existing) {
+                existing.totalQty += (a.quantity || 1);
+                existing.totalSub += Number(a.subtotal || 0);
+                existing.ids.push(a.id);
+              } else {
+                groups.push({ name: a.name, totalQty: a.quantity || 1, totalSub: Number(a.subtotal || 0), status: a.status, ids: [a.id] });
+              }
+            }
+            return (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: C.gray, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6 }}>
+                  Your Selections
+                </div>
+                {groups.map(g => {
+                  const isPending = g.status === 'pending_driver';
+                  const isConfirmed = g.status === 'confirmed';
+                  const isRemovalPending = g.status === 'removal_pending';
+                  const canRemove = (isPending || isConfirmed);
+                  const lastId = g.ids[g.ids.length - 1];
 
-                return (
-                  <div key={a.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
-                    borderBottom: '1px solid rgba(255,255,255,0.04)',
-                    opacity: isRemovalPending ? 0.4 : 1,
-                  }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ fontSize: 13, color: C.white }}>{a.name}</span>
-                      {a.quantity > 1 && <span style={{ fontSize: 11, color: C.orange, marginLeft: 4 }}>x{a.quantity}</span>}
-                      <span style={{ fontSize: 11, color: isPending ? C.orange : isConfirmed ? C.green : C.gray, marginLeft: 6 }}>
-                        {isPending ? '(pending)' : isConfirmed ? '✓' : isRemovalPending ? '(removing...)' : ''}
+                  return (
+                    <div key={g.ids.join(',')} style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
+                      borderBottom: '1px solid rgba(255,255,255,0.04)',
+                      opacity: isRemovalPending ? 0.4 : 1,
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ fontSize: 13, color: C.white }}>{g.name}</span>
+                        {g.totalQty > 1 && <span style={{ fontSize: 11, color: C.orange, marginLeft: 4 }}>x{g.totalQty}</span>}
+                        <span style={{ fontSize: 11, color: isPending ? C.orange : isConfirmed ? C.green : C.gray, marginLeft: 6 }}>
+                          {isPending ? '(pending)' : isConfirmed ? '✓' : isRemovalPending ? '(removing...)' : ''}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: 12, color: isConfirmed ? C.green : C.gray, fontWeight: 600, flexShrink: 0 }}>
+                        ${g.totalSub.toFixed(2)}
                       </span>
+                      {canRemove && (
+                        <button
+                          onClick={() => handleRemove({ id: lastId, name: g.name, unitPrice: 0, quantity: 1, subtotal: g.totalSub / g.totalQty, status: g.status, addedBy: 'rider' })}
+                          style={{
+                            background: 'none', border: 'none', color: C.red,
+                            fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '2px 6px', flexShrink: 0,
+                          }}
+                        >
+                          {removing === lastId ? '...' : '✕'}
+                        </button>
+                      )}
                     </div>
-                    <span style={{ fontSize: 12, color: isConfirmed ? C.green : C.gray, fontWeight: 600, flexShrink: 0 }}>
-                      ${Number(a.subtotal || 0).toFixed(2)}
-                    </span>
-                    {canRemove && (
-                      <button
-                        onClick={() => handleRemove(a)}
-                        style={{
-                          background: 'none', border: 'none', color: C.red,
-                          fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '2px 6px', flexShrink: 0,
-                        }}
-                      >
-                        {removing === a.id ? '...' : '✕'}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           {/* Budget indicator */}
           {!isCash && reserve > 0 && (
