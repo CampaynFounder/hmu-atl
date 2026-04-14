@@ -517,6 +517,9 @@ export default function AdminVideosPage() {
                     <option value="540x1166">Prominent (540 × 1166)</option>
                     <option value="620x1340">Large (620 × 1340)</option>
                     <option value="700x1512">Full (700 × 1512)</option>
+                    <option value="840x1816">XL (840 × 1816)</option>
+                    <option value="940x1820">Max (940 × 1820)</option>
+                    <option value="1080x1920">Borderless (fills canvas)</option>
                   </select>
                 </div>
               </div>

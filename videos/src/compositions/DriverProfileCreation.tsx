@@ -285,29 +285,31 @@ const PhoneWithEffects: React.FC<{
         style={{
           width: phoneWidth,
           height: phoneHeight,
-          borderRadius: 48,
-          border: `4px solid rgba(255,255,255,${0.15 + borderGlow * 0.3})`,
+          borderRadius: phoneWidth >= 1080 ? 0 : 48,
+          border: phoneWidth >= 1080 ? "none" : `4px solid rgba(255,255,255,${0.15 + borderGlow * 0.3})`,
           overflow: "hidden",
           backgroundColor: "#000000",
-          boxShadow: glowShadow,
+          boxShadow: phoneWidth >= 1080 ? "none" : glowShadow,
           position: "relative",
         }}
       >
-        {/* Notch */}
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: "50%",
-            transform: "translateX(-50%)",
-            width: 150,
-            height: 34,
-            backgroundColor: "#000000",
-            borderBottomLeftRadius: 20,
-            borderBottomRightRadius: 20,
-            zIndex: 10,
-          }}
-        />
+        {/* Notch — hidden in borderless mode */}
+        {phoneWidth < 1080 && (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: 150,
+              height: 34,
+              backgroundColor: "#000000",
+              borderBottomLeftRadius: 20,
+              borderBottomRightRadius: 20,
+              zIndex: 10,
+            }}
+          />
+        )}
         <div
           style={{
             width: "100%",
