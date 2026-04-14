@@ -11,6 +11,7 @@ import DriverProfileOverlay from '@/components/driver/driver-profile-overlay';
 import { AddressAutocomplete } from '@/components/ride/address-autocomplete';
 import type { ValidatedAddress, ValidatedStop } from '@/lib/db/types';
 import AddOnMenuSheet from '@/components/ride/add-on-menu-sheet';
+import DriverAddOnApproval from '@/components/ride/driver-add-on-approval';
 import dynamic from 'next/dynamic';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
@@ -2358,6 +2359,7 @@ export default function ActiveRideClient({
                   </div>
                 </div>
               )}
+              {renderDriverAddOnPanel()}
               {ride.proposedPrice && (
                 <div style={{
                   padding: '10px 14px', borderRadius: 12, marginBottom: 8,
@@ -2441,6 +2443,7 @@ export default function ActiveRideClient({
                   </div>
                 </div>
               )}
+              {renderDriverAddOnPanel()}
               {ride.proposedPrice && (
                 <div style={{
                   padding: '10px 14px', borderRadius: 12, marginTop: 8,
@@ -2465,7 +2468,7 @@ export default function ActiveRideClient({
                 </div>
               )}
               <StatusMessage text="Heading to rider..." />
-              {ride.addOns.length > 0 && renderAddOnSummary()}
+              {renderDriverAddOnPanel()}
               {/* Request rider's live GPS */}
               {!locationRequested ? (
                 <button
@@ -2702,8 +2705,8 @@ export default function ActiveRideClient({
                 </div>
               )}
 
-              {/* 4. Add-ons */}
-              {ride.addOns.length > 0 && renderAddOnSummary()}
+              {/* 4. Add-ons — driver approval panel */}
+              {renderDriverAddOnPanel()}
               {showPulloff && (
                 <PulloffButtons
                   rideId={rideId}
@@ -2835,7 +2838,7 @@ export default function ActiveRideClient({
                 </div>
               </div>
             )}
-            {ride.addOns.length > 0 && renderAddOnSummary()}
+            {renderDriverAddOnPanel()}
 
             {/* End ride reason picker (shown when far from dropoff) */}
             {endRideConfirm.show && (
@@ -3546,6 +3549,19 @@ export default function ActiveRideClient({
   }
 
   // ── Add Services button (rider only, during active ride states) ──
+  function renderDriverAddOnPanel() {
+    if (!isDriver) return null;
+    if (ride.addOns.length === 0) return null;
+    return (
+      <DriverAddOnApproval
+        rideId={rideId}
+        addOns={ride.addOns}
+        agreedPrice={Number(ride.agreedPrice || 0)}
+        onUpdated={(addOns, total) => setRide(prev => ({ ...prev, addOns, addOnTotal: total }))}
+      />
+    );
+  }
+
   function renderAddServicesButton() {
     if (isDriver) return null;
     return (

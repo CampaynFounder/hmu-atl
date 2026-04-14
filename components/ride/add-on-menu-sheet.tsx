@@ -32,23 +32,7 @@ interface Props {
   onRemoved: (addOnId: string, total: number) => void;
 }
 
-const COLORS = {
-  green: '#00E676',
-  black: '#080808',
-  card: '#141414',
-  card2: '#1a1a1a',
-  white: '#FFFFFF',
-  gray: '#888888',
-  grayLight: '#AAAAAA',
-  red: '#FF5252',
-  orange: '#FF9100',
-};
-
-const FONTS = {
-  display: "'Bebas Neue', sans-serif",
-  body: "'DM Sans', sans-serif",
-  mono: "'Space Mono', monospace",
-};
+const C = { green: '#00E676', black: '#080808', card: '#141414', card2: '#1a1a1a', white: '#fff', gray: '#888', grayLight: '#aaa', red: '#FF5252', orange: '#FF9100' };
 
 export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, addOns, onAdded, onRemoved }: Props) {
   const [menu, setMenu] = useState<MenuItem[]>([]);
@@ -76,35 +60,14 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
   }, [open, rideId]);
 
   const activeAddOns = addOns.filter(a => !['removed', 'rejected'].includes(a.status));
-  // Only confirmed items count toward the charged total
-  const confirmedTotal = addOns.filter(a => a.status === 'confirmed' || a.status === 'adjusted').reduce((sum, a) => sum + Number(a.subtotal || 0), 0);
-  const extrasTotal = confirmedTotal;
-
-  // Group add-ons by name for display
-  const groupedAddOns = activeAddOns.reduce<{ name: string; unitPrice: number; totalQty: number; totalSubtotal: number; ids: string[] }[]>((groups, a) => {
-    const sub = Number(a.subtotal || 0);
-    const qty = Number(a.quantity) || 1;
-    const up = Number(a.unitPrice || 0);
-    const existing = groups.find(g => g.name === a.name);
-    if (existing) {
-      existing.totalQty += qty;
-      existing.totalSubtotal += sub;
-      existing.ids.push(a.id);
-    } else {
-      groups.push({ name: a.name, unitPrice: up, totalQty: qty, totalSubtotal: sub, ids: [a.id] });
-    }
-    return groups;
-  }, []);
-  const safeAgreedPrice = Number(agreedPrice || 0);
-  const rideTotal = safeAgreedPrice + extrasTotal;
-  const remaining = Math.max(0, reserve - extrasTotal);
-  const budgetUsedPct = reserve > 0 ? Math.min(100, (extrasTotal / reserve) * 100) : 0;
+  const confirmedTotal = addOns.filter(a => a.status === 'confirmed' || a.status === 'adjusted').reduce((s, a) => s + Number(a.subtotal || 0), 0);
+  const safePrice = Number(agreedPrice || 0);
+  const remaining = Math.max(0, reserve - confirmedTotal);
 
   const handleAdd = async (item: MenuItem) => {
     if (adding) return;
     setAdding(item.id);
     setError(null);
-
     try {
       const res = await fetch(`/api/rides/${rideId}/add-ons`, {
         method: 'POST',
@@ -112,54 +75,33 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
         body: JSON.stringify({ menu_item_id: item.id, quantity: 1 }),
       });
       const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.message || data.error || 'Failed to add');
-        return;
-      }
-
+      if (!res.ok) { setError(data.message || data.error || 'Failed to add'); return; }
       onAdded({
-        id: data.addOn.id,
-        name: data.addOn.name,
+        id: data.addOn.id, name: data.addOn.name,
         unitPrice: Number(data.addOn.unit_price ?? item.price),
         quantity: Number(data.addOn.quantity ?? 1),
         subtotal: Number(data.addOn.subtotal ?? item.price),
-        status: 'pending_driver',
-        addedBy: 'rider',
+        status: 'pending_driver', addedBy: 'rider',
       }, data.total);
-    } catch {
-      setError('Network error');
-    } finally {
-      setAdding(null);
-    }
+    } catch { setError('Network error'); }
+    finally { setAdding(null); }
   };
 
   const handleRemove = async (addOn: AddOn) => {
     if (removing) return;
     setRemoving(addOn.id);
     setError(null);
-
     try {
-      // Use 'remove' action — the API will decide whether it's direct removal
-      // (pre-ride) or request_removal (post-ride) based on ride status
       const res = await fetch(`/api/rides/${rideId}/add-ons`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ add_on_id: addOn.id, action: 'remove' }),
       });
       const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || 'Failed to remove');
-        return;
-      }
-
+      if (!res.ok) { setError(data.error || 'Failed'); return; }
       onRemoved(addOn.id, data.total);
-    } catch {
-      setError('Network error');
-    } finally {
-      setRemoving(null);
-    }
+    } catch { setError('Network error'); }
+    finally { setRemoving(null); }
   };
 
   if (!open) return null;
@@ -167,351 +109,207 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
   return (
     <>
       {/* Backdrop */}
-      <div
-        onClick={onClose}
-        style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-          zIndex: 100, transition: 'opacity 0.2s',
-        }}
-      />
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100 }} />
 
-      {/* Sheet */}
+      {/* Sheet — fixed layout: header + scrollable body + fixed footer */}
       <div style={{
         position: 'fixed', bottom: 0, left: 0, right: 0,
-        background: COLORS.card, borderRadius: '20px 20px 0 0',
-        maxHeight: '80vh', overflowY: 'auto',
-        zIndex: 101, padding: '20px 20px 32px',
-        animation: 'slideUp 0.25s ease-out',
+        background: C.card, borderRadius: '20px 20px 0 0',
+        zIndex: 101, display: 'flex', flexDirection: 'column',
+        maxHeight: '85vh',
+        animation: 'addOnSlideUp 0.25s ease-out',
       }}>
-        <style>{`
-          @keyframes slideUp {
-            from { transform: translateY(100%); }
-            to { transform: translateY(0); }
-          }
-        `}</style>
+        <style>{`@keyframes addOnSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
 
-        {/* Handle */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
-          <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.15)' }} />
-        </div>
-
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        {/* ── Fixed header ── */}
+        <div style={{
+          padding: '16px 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0,
+        }}>
           <div>
-            <div style={{ fontFamily: FONTS.display, fontSize: 24, color: COLORS.white }}>
-              Driver Menu
-            </div>
-            <div style={{ fontSize: 12, color: COLORS.gray }}>
-              Add extras to your ride
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.white }}>Driver Menu</div>
+            <div style={{ fontSize: 11, color: C.gray }}>
+              {activeAddOns.length > 0
+                ? `${activeAddOns.length} item${activeAddOns.length > 1 ? 's' : ''} selected`
+                : 'Add extras to your ride'}
             </div>
           </div>
           <button
             onClick={onClose}
             style={{
-              background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '50%',
-              width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: COLORS.grayLight, fontSize: 18, cursor: 'pointer',
+              background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%',
+              width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: C.white, fontSize: 16, cursor: 'pointer', fontWeight: 700, flexShrink: 0,
             }}
           >
-            &times;
+            ✕
           </button>
         </div>
 
-        {/* ── Your Order ── */}
-        <div style={{
-          background: COLORS.card2, border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: 16, padding: '14px 16px', marginBottom: 16,
-        }}>
-          {/* Base fare */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 8 }}>
-            <span style={{ fontSize: 13, color: COLORS.grayLight }}>Base ride</span>
-            <span style={{ fontFamily: FONTS.mono, fontSize: 14, fontWeight: 700, color: COLORS.white }}>
-              ${safeAgreedPrice.toFixed(2)}
-            </span>
-          </div>
+        {/* ── Scrollable body ── */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 20px', minHeight: 0 }}>
+          {/* Error */}
+          {error && (
+            <div style={{
+              background: 'rgba(255,82,82,0.1)', border: '1px solid rgba(255,82,82,0.2)',
+              borderRadius: 10, padding: '8px 12px', marginBottom: 10, fontSize: 12, color: C.red,
+            }}>{error}</div>
+          )}
 
-          {/* Active add-ons */}
+          {/* Your selections */}
           {activeAddOns.length > 0 && (
-            <>
-              <div style={{
-                borderTop: '1px solid rgba(255,255,255,0.06)',
-                paddingTop: 8, marginTop: 0,
-              }}>
-                <div style={{
-                  fontSize: 10, color: COLORS.gray, textTransform: 'uppercase',
-                  letterSpacing: 1.5, fontFamily: FONTS.mono, marginBottom: 6,
-                }}>
-                  Extras
-                </div>
-                {activeAddOns.map(a => {
-                  const isRemoving = removing === a.id;
-                  const isPending = a.status === 'pending_driver';
-                  const isRemovalPending = a.status === 'removal_pending';
-                  const isDisputed = a.status === 'disputed';
-                  const isConfirmed = a.status === 'confirmed';
-                  const canRemove = (isConfirmed || isPending) && !isRemoving;
-
-                  return (
-                    <div key={a.id} style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '5px 0', gap: 8,
-                      opacity: isPending || isRemovalPending ? 0.6 : 1,
-                    }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ fontSize: 13, color: COLORS.white }}>
-                          {a.name}
-                        </span>
-                        {a.quantity > 1 && (
-                          <span style={{
-                            fontSize: 11, color: COLORS.orange, fontFamily: FONTS.mono,
-                            marginLeft: 6,
-                          }}>
-                            &times;{a.quantity}
-                          </span>
-                        )}
-                        {isPending && (
-                          <div style={{ fontSize: 10, color: COLORS.orange, marginTop: 2 }}>
-                            Waiting for driver...
-                          </div>
-                        )}
-                        {isRemovalPending && (
-                          <div style={{ fontSize: 10, color: COLORS.orange, marginTop: 2 }}>
-                            Removal pending driver...
-                          </div>
-                        )}
-                        {isDisputed && (
-                          <div style={{ fontSize: 10, color: COLORS.red, marginTop: 2 }}>
-                            Disputed
-                          </div>
-                        )}
-                      </div>
-                      <span style={{
-                        fontFamily: FONTS.mono, fontSize: 13, flexShrink: 0,
-                        color: isConfirmed ? COLORS.green : COLORS.gray,
-                      }}>
-                        {isConfirmed ? '' : isPending ? '~' : ''}${Number(a.subtotal || 0).toFixed(2)}
-                      </span>
-                      {canRemove && (
-                        <button
-                          onClick={() => handleRemove(a)}
-                          disabled={isRemoving}
-                          style={{
-                            background: 'rgba(255,82,82,0.12)', border: 'none',
-                            borderRadius: 8, padding: '4px 10px',
-                            color: COLORS.red, fontSize: 11, fontWeight: 700,
-                            cursor: 'pointer',
-                            fontFamily: FONTS.body, flexShrink: 0,
-                            opacity: isRemoving ? 0.5 : 1,
-                          }}
-                        >
-                          {isRemoving ? '...' : 'Remove'}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, color: C.gray, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6 }}>
+                Your Selections
               </div>
-
-              {/* Extras subtotal */}
-              <div style={{
-                display: 'flex', justifyContent: 'space-between',
-                paddingTop: 8, marginTop: 4,
-                borderTop: '1px dashed rgba(255,255,255,0.06)',
-                fontSize: 12, color: COLORS.gray,
-              }}>
-                <span>Extras subtotal</span>
-                <span style={{ fontFamily: FONTS.mono, color: COLORS.green }}>
-                  +${extrasTotal.toFixed(2)}
-                </span>
-              </div>
-            </>
-          )}
-
-          {activeAddOns.length === 0 && (
-            <div style={{
-              borderTop: '1px solid rgba(255,255,255,0.06)',
-              paddingTop: 8, textAlign: 'center',
-              fontSize: 12, color: COLORS.gray,
-            }}>
-              No extras added yet
-            </div>
-          )}
-
-          {/* Total */}
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            paddingTop: 10, marginTop: 8,
-            borderTop: '1px solid rgba(255,255,255,0.1)',
-          }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: COLORS.white }}>
-              Ride total
-            </span>
-            <span style={{
-              fontFamily: FONTS.mono, fontSize: 20, fontWeight: 700,
-              color: COLORS.green,
-            }}>
-              ${rideTotal.toFixed(2)}
-            </span>
-          </div>
-        </div>
-
-        {/* Payment hold + extras budget */}
-        {!isCash && reserve > 0 && (
-          <div style={{
-            background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: 12, padding: '12px 14px', marginBottom: 16,
-          }}>
-            <div style={{ fontSize: 11, color: COLORS.gray, marginBottom: 8 }}>
-              We held <span style={{ color: COLORS.white, fontFamily: FONTS.mono, fontWeight: 700 }}>${(agreedPrice + reserve).toFixed(2)}</span> on your card — ${safeAgreedPrice.toFixed(2)} ride + ${reserve.toFixed(2)} for extras
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <span style={{ fontSize: 11, color: COLORS.gray }}>Extras budget</span>
-              <span style={{ fontFamily: FONTS.mono, fontSize: 12, color: remaining > 0 ? COLORS.green : COLORS.orange }}>
-                ${remaining.toFixed(2)} left of ${reserve.toFixed(2)}
-              </span>
-            </div>
-            <div style={{
-              height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)', overflow: 'hidden',
-            }}>
-              <div style={{
-                height: '100%', borderRadius: 2,
-                width: `${budgetUsedPct}%`,
-                background: budgetUsedPct >= 90 ? COLORS.orange : COLORS.green,
-                transition: 'width 0.3s ease',
-              }} />
-            </div>
-            {remaining <= 0 && (
-              <div style={{ fontSize: 11, color: COLORS.orange, marginTop: 6 }}>
-                Extras budget used — remove an item to add something else
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* No extras budget — card only covered the ride */}
-        {!isCash && reserve === 0 && !loading && menu.length > 0 && (
-          <div style={{
-            background: 'rgba(255,145,0,0.08)', border: '1px solid rgba(255,145,0,0.15)',
-            borderRadius: 12, padding: '10px 14px', marginBottom: 16,
-            fontSize: 12, color: COLORS.orange,
-          }}>
-            Your card was only authorized for the ${safeAgreedPrice.toFixed(2)} ride — extras aren't available for this trip. You can browse the menu for next time.
-          </div>
-        )}
-
-        {/* Error */}
-        {error && (
-          <div style={{
-            background: 'rgba(255,82,82,0.1)', border: '1px solid rgba(255,82,82,0.2)',
-            borderRadius: 12, padding: '10px 14px', marginBottom: 16,
-            fontSize: 13, color: COLORS.red,
-          }}>
-            {error}
-          </div>
-        )}
-
-        {/* Loading */}
-        {loading && (
-          <div style={{ textAlign: 'center', padding: '40px 0', color: COLORS.gray, fontSize: 14 }}>
-            Loading menu...
-          </div>
-        )}
-
-        {/* Empty menu */}
-        {!loading && menu.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '40px 0', color: COLORS.gray, fontSize: 14 }}>
-            This driver has no menu items
-          </div>
-        )}
-
-        {/* ── Available Menu Items ── */}
-        {!loading && menu.length > 0 && (
-          <>
-            <div style={{
-              fontSize: 10, color: COLORS.gray, textTransform: 'uppercase',
-              letterSpacing: 1.5, fontFamily: FONTS.mono, marginBottom: 10,
-            }}>
-              Available
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {menu.map(item => {
-                const isAdding = adding === item.id;
-                // Count how many of this item are already added
-                const existingCount = activeAddOns.filter(a => a.name === item.name).reduce((sum, a) => sum + a.quantity, 0);
+              {activeAddOns.map(a => {
+                const isPending = a.status === 'pending_driver';
+                const isConfirmed = a.status === 'confirmed';
+                const isRemovalPending = a.status === 'removal_pending';
+                const canRemove = (isPending || isConfirmed) && removing !== a.id;
 
                 return (
-                  <div
-                    key={item.id}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      background: COLORS.card2, border: '1px solid rgba(255,255,255,0.06)',
-                      borderRadius: 14, padding: '12px 14px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-                      <span style={{ fontSize: 22, flexShrink: 0 }}>{item.icon || '+'}</span>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 14, color: COLORS.white, fontWeight: 500 }}>
-                          {item.name}
-                          {existingCount > 0 && (
-                            <span style={{
-                              fontSize: 11, color: COLORS.orange, fontFamily: FONTS.mono,
-                              marginLeft: 6, fontWeight: 700,
-                            }}>
-                              ({existingCount} added)
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: 12, color: COLORS.gray, fontFamily: FONTS.mono }}>
-                          ${Number(item.price).toFixed(2)}
-                          {item.pricing_type === 'per_unit' && item.unit_label ? `/${item.unit_label}` : ''}
-                          {item.pricing_type === 'per_minute' ? '/min' : ''}
-                        </div>
-                      </div>
+                  <div key={a.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
+                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    opacity: isRemovalPending ? 0.4 : 1,
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontSize: 13, color: C.white }}>{a.name}</span>
+                      {a.quantity > 1 && <span style={{ fontSize: 11, color: C.orange, marginLeft: 4 }}>x{a.quantity}</span>}
+                      <span style={{ fontSize: 11, color: isPending ? C.orange : isConfirmed ? C.green : C.gray, marginLeft: 6 }}>
+                        {isPending ? '(pending)' : isConfirmed ? '✓' : isRemovalPending ? '(removing...)' : ''}
+                      </span>
                     </div>
-
-                    {(() => {
-                      const noReserveDigital = !isCash && reserve === 0;
-                      const overBudget = !isCash && reserve > 0 && Number(item.price) > remaining;
-                      const disabled = isAdding || noReserveDigital || overBudget;
-                      return (
-                        <button
-                          onClick={() => handleAdd(item)}
-                          disabled={disabled}
-                          style={{
-                            background: isAdding ? 'rgba(0,230,118,0.15)' : disabled ? 'rgba(255,255,255,0.06)' : COLORS.green,
-                            color: isAdding ? COLORS.green : disabled ? COLORS.gray : COLORS.black,
-                            border: 'none', borderRadius: 100,
-                            padding: '8px 18px', fontSize: 13, fontWeight: 700,
-                            cursor: disabled ? 'not-allowed' : 'pointer',
-                            fontFamily: FONTS.body,
-                            minWidth: 60, textAlign: 'center',
-                          }}
-                        >
-                          {isAdding ? '...' : existingCount > 0 ? '+1' : 'Add'}
-                        </button>
-                      );
-                    })()}
+                    <span style={{ fontSize: 12, color: isConfirmed ? C.green : C.gray, fontWeight: 600, flexShrink: 0 }}>
+                      ${Number(a.subtotal || 0).toFixed(2)}
+                    </span>
+                    {canRemove && (
+                      <button
+                        onClick={() => handleRemove(a)}
+                        style={{
+                          background: 'none', border: 'none', color: C.red,
+                          fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '2px 6px', flexShrink: 0,
+                        }}
+                      >
+                        {removing === a.id ? '...' : '✕'}
+                      </button>
+                    )}
                   </div>
                 );
               })}
             </div>
-          </>
-        )}
+          )}
 
-        {/* Done button */}
-        <button
-          onClick={onClose}
-          style={{
-            width: '100%', marginTop: 20,
-            padding: '14px', borderRadius: 100,
-            background: COLORS.green, border: 'none',
-            color: COLORS.black, fontSize: 15, fontWeight: 700,
-            cursor: 'pointer', fontFamily: FONTS.body,
-          }}
-        >
-          Done — ${rideTotal.toFixed(2)} total
-        </button>
+          {/* Budget indicator */}
+          {!isCash && reserve > 0 && (
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '6px 0 10px', fontSize: 11, color: C.gray,
+            }}>
+              <span>Extras budget</span>
+              <span style={{ color: remaining > 0 ? C.green : C.orange, fontWeight: 600 }}>
+                ${remaining.toFixed(2)} left
+              </span>
+            </div>
+          )}
+
+          {/* Loading */}
+          {loading && <div style={{ textAlign: 'center', padding: '30px 0', color: C.gray, fontSize: 13 }}>Loading menu...</div>}
+
+          {/* Empty */}
+          {!loading && menu.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '30px 0', color: C.gray, fontSize: 13 }}>This driver has no menu items</div>
+          )}
+
+          {/* Available items — compact rows */}
+          {!loading && menu.length > 0 && (
+            <>
+              <div style={{ fontSize: 10, color: C.gray, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6 }}>
+                Available
+              </div>
+              {menu.map(item => {
+                const isAdding = adding === item.id;
+                const existingCount = activeAddOns.filter(a => a.name === item.name).reduce((s, a) => s + a.quantity, 0);
+                const noReserve = !isCash && reserve === 0;
+                const overBudget = !isCash && reserve > 0 && Number(item.price) > remaining;
+                const disabled = isAdding || noReserve || overBudget;
+
+                return (
+                  <div key={item.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  }}>
+                    <span style={{ fontSize: 18, flexShrink: 0, width: 24, textAlign: 'center' }}>{item.icon || '+'}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: C.white }}>
+                        {item.name}
+                        {existingCount > 0 && <span style={{ fontSize: 10, color: C.orange, marginLeft: 4 }}>({existingCount})</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.gray }}>
+                        ${Number(item.price).toFixed(2)}
+                        {item.pricing_type === 'per_unit' && item.unit_label ? `/${item.unit_label}` : ''}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleAdd(item)}
+                      disabled={disabled}
+                      style={{
+                        background: disabled ? 'rgba(255,255,255,0.06)' : C.green,
+                        color: disabled ? C.gray : C.black,
+                        border: 'none', borderRadius: 100, padding: '6px 14px',
+                        fontSize: 12, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer',
+                        flexShrink: 0, minWidth: 44,
+                      }}
+                    >
+                      {isAdding ? '...' : 'Add'}
+                    </button>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+
+        {/* ── Fixed footer ── */}
+        <div style={{
+          padding: '12px 20px 24px', borderTop: '1px solid rgba(255,255,255,0.08)',
+          flexShrink: 0, background: C.card,
+        }}>
+          {/* Total */}
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10,
+          }}>
+            <span style={{ fontSize: 13, color: C.grayLight }}>Ride total</span>
+            <span style={{ fontSize: 18, fontWeight: 700, color: C.green }}>
+              ${(safePrice + confirmedTotal).toFixed(2)}
+            </span>
+          </div>
+
+          {/* Buttons */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={onClose}
+              style={{
+                flex: 1, padding: '12px', borderRadius: 100,
+                border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
+                color: C.grayLight, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                flex: 1, padding: '12px', borderRadius: 100,
+                border: 'none', background: C.green, color: C.black,
+                fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              {activeAddOns.length > 0 ? 'Request Extras' : 'Done'}
+            </button>
+          </div>
+        </div>
       </div>
     </>
   );
