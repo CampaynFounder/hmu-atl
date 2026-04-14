@@ -62,6 +62,44 @@ export function computeRecordingFrame(
 }
 
 /**
+ * Compute audio segments that stay in sync with the frozen video.
+ * Each segment plays a slice of the recording audio between title cards.
+ * During title cards, audio is silent (no segment covers that time).
+ *
+ * Returns array of { compositionStartFrame, durationFrames, recordingStartFrame }
+ * to use as: <Audio startFrom={recordingStartFrame} /> inside
+ *            <Sequence from={compositionStartFrame} durationInFrames={durationFrames}>
+ */
+export function computeAudioSegments(
+  fps: number,
+  steps: { sec: number }[],
+  titleDur: number,
+  totalRecordingSec: number,
+): { compositionStartFrame: number; durationFrames: number; recordingStartFrame: number }[] {
+  const segments: { compositionStartFrame: number; durationFrames: number; recordingStartFrame: number }[] = [];
+
+  for (let i = 0; i <= steps.length; i++) {
+    // Recording start = end of previous step's timestamp (or 0 for first segment)
+    const recStart = i === 0 ? 0 : steps[i - 1].sec;
+    // Recording end = this step's timestamp (or end of recording for last segment)
+    const recEnd = i < steps.length ? steps[i].sec : totalRecordingSec;
+    const recDuration = recEnd - recStart;
+    if (recDuration <= 0) continue;
+
+    // Composition start = recording start + accumulated title card time before this segment
+    const compStart = recStart + i * titleDur;
+
+    segments.push({
+      compositionStartFrame: Math.round(compStart * fps),
+      durationFrames: Math.round(recDuration * fps),
+      recordingStartFrame: Math.round(recStart * fps),
+    });
+  }
+
+  return segments;
+}
+
+/**
  * Computes total video section duration including title card pauses.
  * Use this for the video Sequence's durationInFrames and for Root.tsx.
  *

@@ -12,7 +12,7 @@ import {
   OffthreadVideo,
   staticFile,
 } from "remotion";
-import { adjustedSec, computeRecordingFrame, totalVideoFrames } from "../lib/timing";
+import { adjustedSec, computeRecordingFrame, computeAudioSegments, totalVideoFrames } from "../lib/timing";
 import "../styles.css";
 
 /**
@@ -97,12 +97,15 @@ export const DriverProfileCreation: React.FC<DriverProfileProps> = ({
         <LogoIntro title={title} />
       </Sequence>
 
-      {/* Audio track — plays recording audio independently of frozen video frames */}
-      {!muted && (
-        <Sequence from={INTRO_F} durationInFrames={VIDEO_F}>
-          <Audio src={staticFile(`recordings/${recordingFile}`)} />
-        </Sequence>
-      )}
+      {/* Audio track — segmented to stay in sync with frozen video during title cards */}
+      {!muted && (() => {
+        const segments = computeAudioSegments(fps, steps, titleCardDurationSec, videoSec);
+        return segments.map((seg, i) => (
+          <Sequence key={`audio-${i}`} from={INTRO_F + seg.compositionStartFrame} durationInFrames={seg.durationFrames}>
+            <Audio src={staticFile(`recordings/${recordingFile}`)} startFrom={seg.recordingStartFrame} />
+          </Sequence>
+        ));
+      })()}
 
       {/* Layer 2: Continuous video in phone frame */}
       <Sequence from={INTRO_F} durationInFrames={VIDEO_F}>
