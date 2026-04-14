@@ -630,6 +630,10 @@ export default function AdminVideosPage() {
                     <p className="text-xs font-medium text-white mb-3">Rendering runs locally via your terminal. Open a terminal and run:</p>
                     <div className="space-y-2">
                       <CopyBlock
+                        label="Kill existing Remotion Studio (if port 3000 is in use)"
+                        command="lsof -ti:3000 | xargs kill -9"
+                      />
+                      <CopyBlock
                         label="Clear Remotion cache (run first if changes aren't showing)"
                         command="rm -rf videos/.cache videos/node_modules/.cache"
                       />
@@ -695,6 +699,7 @@ export default function AdminVideosPage() {
 
               <div className="mt-3 space-y-2">
                 <p className="text-[10px] text-neutral-600">Or run manually:</p>
+                <CopyBlock label="Kill Remotion Studio (port 3000)" command="lsof -ti:3000 | xargs kill -9" />
                 <CopyBlock label="Clear Remotion cache" command="rm -rf videos/.cache videos/node_modules/.cache" />
                 <CopyBlock label="Preview" command={`npm run video -- preview ${selected.composition_id}`} />
                 <CopyBlock label="Render" command={`npm run video -- render ${selected.composition_id}`} />
