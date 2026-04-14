@@ -1,6 +1,7 @@
 import { Composition } from "remotion";
-import { DriverProfileCreation } from "./compositions/DriverProfileCreation";
 import { RideFlow } from "./compositions/RideFlow";
+import { readdirSync, readFileSync } from "fs";
+import { resolve } from "path";
 
 // 9:16 vertical (1080x1920) at 30fps
 const VERTICAL_WIDTH = 1080;
@@ -8,109 +9,92 @@ const VERTICAL_HEIGHT = 1920;
 const FPS = 30;
 
 /**
- * Full defaultProps for each composition.
- * Remotion needs the complete prop shape here so --props from CLI
- * can properly override them. Without this, input props get ignored.
+ * Default props shape — used when no props file exists.
+ * Every field must be declared here so Remotion allows --props overrides.
  */
-const compositions = [
-  {
-    id: "DriverProfileCreation",
-    component: DriverProfileCreation,
-    durationInFrames: 170 * FPS,
-    defaultProps: {
-      title: "CREATE YOUR DRIVER PROFILE",
-      steps: [
-        { sec: 0.28, label: "DRIVER DETAILS", caption: "Tell us who you are. Name, number, the basics.", effect: "slide-up-bounce" as const },
-        { sec: 22.22, label: "CAR DETAILS", caption: "Your whip, your plate. Riders want to know what they're getting into.", effect: "slide-right-pulse" as const },
-        { sec: 57.02, label: "PROFILE VIDEO", caption: "Five seconds. Let riders see the real you.", effect: "scale-blur" as const },
-        { sec: 94.73, label: "RIDER PREFERENCES", caption: "Set your rules. Your ride, your terms.", effect: "slide-left-parallax" as const },
-        { sec: 125.24, label: "HOW RATINGS WORK", caption: "Riders rate you after every ride. Stay chill, stay booked.", effect: "rotate-pulse" as const },
-        { sec: 133.68, label: "LOCATION & ETA", caption: "Pick your zones and set your availability.", effect: "slide-right-bounce" as const },
-        { sec: 138.51, label: "PROFILE CREATED", caption: "You're set. Time to go live.", effect: "zoom-glow" as const },
-      ],
-      recordingFile: "driversignup.mov",
-      introSec: 3,
-      videoSec: 148,
-      endSec: 5,
-      titleCardDurationSec: 2,
-      captionDurationSec: 5,
-      endTagline: "You're live. Atlanta's waiting.",
-      endCta: "START DRIVING",
-      phoneWidth: 480,
-      phoneHeight: 1036,
-      muted: false,
-    },
-  },
-  {
-    id: "RideFlow",
-    component: RideFlow,
-    durationInFrames: 139 * FPS,
-    defaultProps: {
-      title: "THE RIDE",
-      steps: [
-        { sec: 2, label: "BOOKING CONFIRMED", caption: "Your ride is locked in. Driver's about to move.", effect: "slide-up-bounce" as const },
-        { sec: 15, label: "OTW", caption: "They tapped OTW. Track them in real time.", effect: "slide-right-pulse" as const },
-        { sec: 30, label: "HERE", caption: "They're here. Head to the car.", effect: "scale-blur" as const },
-        { sec: 42, label: "BET", caption: "You tapped BET. Ride's active.", effect: "zoom-glow" as const },
-        { sec: 55, label: "RIDE ACTIVE", caption: "Live map, live tracking. You're moving.", effect: "slide-left-parallax" as const },
-        { sec: 75, label: "DROP OFF", caption: "You made it. Ride's wrapping up.", effect: "rotate-pulse" as const },
-        { sec: 88, label: "END RIDE", caption: "See what you paid, what your driver kept. All transparent.", effect: "slide-right-bounce" as const },
-        { sec: 100, label: "RATE YOUR DRIVER", caption: "Keep it real. CHILL, Cool AF, or let us know.", effect: "slide-up-bounce" as const },
-      ],
-      recordingFile: "ride-flow.mp4",
-      introSec: 3,
-      videoSec: 115,
-      endSec: 5,
-      titleCardDurationSec: 2,
-      captionDurationSec: 5,
-      endTagline: "Your city. Your ride. Your rules.",
-      endCta: "HMU ATL",
-      phoneWidth: 480,
-      phoneHeight: 1036,
-      muted: false,
-    },
-  },
-  {
-    id: "Videomnyj4rnw",
-    component: RideFlow,
-    durationInFrames: 110 * FPS,
-    defaultProps: {
-      title: "BOOK FROM HMU LINK",
-      steps: [
-        { sec: 0, label: "HMU AGENTIC BOOKING", caption: "HMU Riders Can Book With an AI Agent", effect: "zoom-glow" as const },
-        { sec: 5, label: "VIEW DRIVER PRICING", caption: "Riders View Prices for Rides & Extras", effect: "slide-right-pulse" as const },
-        { sec: 22, label: "AGENTIC BOOKING", caption: "Driver's RAG-powered agent books rides", effect: "slide-left-parallax" as const },
-        { sec: 40, label: "EXPRESS ONBOARDING", caption: "Sign up with cell phone + OTP", effect: "slide-left-parallax" as const },
-        { sec: 51, label: "CONFIRM RIDE REQUEST", caption: "Agent provides booking details for confirmation", effect: "slide-right-bounce" as const },
-        { sec: 56, label: "RIDE ACCEPTED", caption: "Driver accepted the ride", effect: "slide-up-bounce" as const },
-        { sec: 59, label: "CONFIRM DETAILS", caption: "Rider confirms specific ride details", effect: "scale-blur" as const },
-        { sec: 67, label: "REQUEST PULL UP", caption: "Rider tells driver to pull up", effect: "slide-up-bounce" as const },
-        { sec: 70, label: "PRICE ADJUSTMENT", caption: "Driver requests price adjustment", effect: "slide-left-parallax" as const },
-        { sec: 74, label: "REQUESTS EXTRAS", caption: "Rider adds stops and extras", effect: "scale-blur" as const },
-        { sec: 79, label: "FINAL RIDE DETAILS", caption: "Total updated. Driver approved extras.", effect: "slide-up-bounce" as const },
-      ],
-      recordingFile: "hmulinkbook.mp4",
-      introSec: 2,
-      videoSec: 79,
-      endSec: 2,
-      titleCardDurationSec: 2,
-      captionDurationSec: 5,
-      endTagline: "Your city. Your ride. Your rules.",
-      endCta: "HMU ATL",
-      phoneWidth: 480,
-      phoneHeight: 1036,
-      muted: false,
-    },
-  },
+const DEFAULT_PROPS = {
+  title: "HMU VIDEO",
+  steps: [
+    { sec: 2, label: "STEP ONE", caption: "Description here.", effect: "slide-up-bounce" as const },
+  ],
+  recordingFile: "recording.mp4",
+  introSec: 3,
+  videoSec: 60,
+  endSec: 5,
+  titleCardDurationSec: 2,
+  captionDurationSec: 5,
+  endTagline: "Your city. Your ride. Your rules.",
+  endCta: "HMU ATL",
+  phoneWidth: 480,
+  phoneHeight: 1036,
+  muted: false,
+};
+
+/**
+ * Dynamically register compositions from props/ directory.
+ *
+ * Workflow:
+ *   1. Admin creates video config in portal (custom Composition ID + recording + steps)
+ *   2. Run: npm run video -- preview MyVideo
+ *   3. CLI fetches config from Neon, writes props/MyVideo.json
+ *   4. Root.tsx reads that file, registers "MyVideo" as a Composition
+ *   5. Remotion renders it using the RideFlow template with those props
+ *
+ * All compositions use the same RideFlow component — the props make each unique.
+ * No code changes needed to add new videos.
+ */
+function loadDynamicCompositions(): { id: string; props: typeof DEFAULT_PROPS; duration: number }[] {
+  const compositions: { id: string; props: typeof DEFAULT_PROPS; duration: number }[] = [];
+
+  try {
+    const propsDir = resolve(__dirname, "..", "props");
+    const files = readdirSync(propsDir).filter(f => f.endsWith(".json"));
+
+    for (const file of files) {
+      try {
+        const id = file.replace(/\.json$/, "");
+        const raw = JSON.parse(readFileSync(resolve(propsDir, file), "utf-8"));
+        const props = { ...DEFAULT_PROPS, ...raw };
+
+        // Calculate duration from props
+        const stepCards = (props.steps?.length || 0) * (props.titleCardDurationSec || 2);
+        const totalSec = (props.introSec || 3) + (props.videoSec || 60) + stepCards + (props.endSec || 5);
+
+        compositions.push({ id, props, duration: Math.ceil(totalSec) });
+      } catch {
+        // Skip malformed files
+      }
+    }
+  } catch {
+    // props/ directory doesn't exist yet — that's fine
+  }
+
+  return compositions;
+}
+
+// Load from props files
+const dynamic = loadDynamicCompositions();
+
+// IDs already loaded from files
+const dynamicIds = new Set(dynamic.map(c => c.id));
+
+// Hardcoded fallbacks for compositions that might not have props files yet
+const FALLBACKS = [
+  { id: "DriverProfileCreation", duration: 170, props: { ...DEFAULT_PROPS, title: "CREATE YOUR DRIVER PROFILE", recordingFile: "driversignup.mov", videoSec: 148 } },
+  { id: "RideFlow", duration: 139, props: { ...DEFAULT_PROPS, title: "THE RIDE", recordingFile: "ride-flow.mp4", videoSec: 115 } },
+];
+
+// Merge: dynamic props files take priority, fallbacks fill gaps
+const all = [
+  ...dynamic,
+  ...FALLBACKS.filter(f => !dynamicIds.has(f.id)),
 ];
 
 // REMOTION_COMPOSITION env var controls which composition loads first in Studio.
 const preferred = process.env.REMOTION_COMPOSITION;
 const sorted = preferred
-  ? [...compositions].sort((a, b) =>
-      a.id === preferred ? -1 : b.id === preferred ? 1 : 0
-    )
-  : compositions;
+  ? [...all].sort((a, b) => (a.id === preferred ? -1 : b.id === preferred ? 1 : 0))
+  : all;
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -119,12 +103,12 @@ export const RemotionRoot: React.FC = () => {
         <Composition
           key={comp.id}
           id={comp.id}
-          component={comp.component}
-          durationInFrames={comp.durationInFrames}
+          component={RideFlow}
+          durationInFrames={comp.duration * FPS}
           fps={FPS}
           width={VERTICAL_WIDTH}
           height={VERTICAL_HEIGHT}
-          defaultProps={comp.defaultProps}
+          defaultProps={comp.props}
         />
       ))}
     </>

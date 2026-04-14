@@ -128,7 +128,7 @@ export default function AdminVideosPage() {
       const created = await res.json();
       setConfigs(prev => [...prev, created]);
       setSelected(created);
-      showToast(`Video "${cleanId}" created — register it in videos/src/Root.tsx before rendering`);
+      showToast(`Video "${cleanId}" created — add your recording and configure steps`);
     } else {
       const err = await res.json().catch(() => ({}));
       showToast(err.error || 'Failed to create');
