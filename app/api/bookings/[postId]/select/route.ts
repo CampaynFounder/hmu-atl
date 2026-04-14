@@ -7,6 +7,7 @@ import { generateRefCode } from '@/lib/rides/ref-code';
 import {
   checkDriverAvailability,
   confirmTentativeBooking,
+  createRideBooking,
   cancelOtherTentativeHoldsForPost,
   resolveBookingWindow,
 } from '@/lib/schedule/conflicts';
@@ -179,18 +180,24 @@ export async function POST(
       }
     } catch { /* non-blocking */ }
 
-    // Promote the selected driver's tentative hold (if any) to a real
-    // booking, and explicitly cancel every OTHER interested driver's hold
-    // for this post so those calendar slots free up immediately instead of
-    // waiting for expireStaleTentativeHolds to sweep them.
-    confirmTentativeBooking(
-      driverUserId,
-      riderId,
-      rideId,
-      postId,
-      selectWindow.startAt,
-      (post.market_id as string) || null
-    ).catch(e => console.error('Calendar booking failed:', e));
+    // Block the driver's calendar — must not be fire-and-forget.
+    // If confirmTentativeBooking fails, fall back to direct createRideBooking.
+    try {
+      await confirmTentativeBooking(
+        driverUserId, riderId, rideId, postId,
+        selectWindow.startAt, (post.market_id as string) || null
+      );
+    } catch (e) {
+      console.error('confirmTentativeBooking failed, creating directly:', e);
+      try {
+        await createRideBooking(
+          driverUserId, riderId, rideId,
+          selectWindow.startAt, (post.market_id as string) || null
+        );
+      } catch (e2) {
+        console.error('createRideBooking also failed:', e2);
+      }
+    }
     cancelOtherTentativeHoldsForPost(postId, driverUserId).catch(e =>
       console.error('Rival hold cancel failed:', e)
     );

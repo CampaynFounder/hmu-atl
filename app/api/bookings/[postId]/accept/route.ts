@@ -6,6 +6,7 @@ import { notifyRiderBookingAccepted } from '@/lib/sms/textbee';
 import {
   checkDriverAvailability,
   confirmTentativeBooking,
+  createRideBooking,
   resolveBookingWindow,
 } from '@/lib/schedule/conflicts';
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
@@ -263,9 +264,17 @@ export async function POST(
       }
     } catch { /* non-blocking */ }
 
-    // Promote tentative hold to confirmed/scheduled, or create fresh booking.
-    confirmTentativeBooking(driverUserId, riderId, rideId, postId, directWindow.startAt, post.market_id as string || null)
-      .catch(e => console.error('Calendar booking failed:', e));
+    // Block the driver's calendar — must not be fire-and-forget.
+    try {
+      await confirmTentativeBooking(driverUserId, riderId, rideId, postId, directWindow.startAt, post.market_id as string || null);
+    } catch (e) {
+      console.error('confirmTentativeBooking failed, creating directly:', e);
+      try {
+        await createRideBooking(driverUserId, riderId, rideId, directWindow.startAt, post.market_id as string || null);
+      } catch (e2) {
+        console.error('createRideBooking also failed:', e2);
+      }
+    }
 
     return NextResponse.json({ status: 'matched', rideId });
   } catch (error) {
