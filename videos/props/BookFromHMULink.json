@@ -1,0 +1,81 @@
+{
+  "title": "HMU BOOKING AGENT",
+  "steps": [
+    {
+      "sec": 0,
+      "label": "HMU AGENTIC BOOKING",
+      "effect": "zoom-glow",
+      "caption": "HMU Riders Can Book With an AI Agent"
+    },
+    {
+      "sec": 5,
+      "label": "VIEW DRIVER PRICING",
+      "effect": "slide-right-pulse",
+      "caption": "Riders View Prices for Rides & Extras"
+    },
+    {
+      "sec": 22,
+      "label": "AGENTIC BOOKING",
+      "effect": "slide-left-parallax",
+      "caption": "Drivers RAG Powered Agent looks up ride details,  knows drivers availability, pricing -negotiates and books rides"
+    },
+    {
+      "sec": 40,
+      "label": "HMU EXPRESS RIDER ONBOARDING",
+      "effect": "slide-left-parallax",
+      "caption": "Rider Securely Signs Up or In w/ Cell Phone + OTP"
+    },
+    {
+      "sec": 51,
+      "label": "CONFIRM RIDE REQUEST",
+      "effect": "slide-right-bounce",
+      "caption": "Agent Provides Booking Details For Final Confirmation"
+    },
+    {
+      "sec": 56,
+      "label": "RIDE REQUEST ACCEPTED",
+      "effect": "slide-up-bounce",
+      "caption": "Rider Receives Notification That Driver Accepted Ride"
+    },
+    {
+      "sec": 59,
+      "label": "CONFIRM RIDE DETAILS",
+      "effect": "scale-blur",
+      "caption": "Rider Confirms Specific Ride Details"
+    },
+    {
+      "sec": 67,
+      "label": "REQUEST DRIVER PULL UP",
+      "effect": "slide-up-bounce",
+      "caption": "Once all Details Are confirmed Rider Tells Driver to Pull Up"
+    },
+    {
+      "sec": 70,
+      "label": "PRICE ADJUSTMENT",
+      "effect": "slide-left-parallax",
+      "caption": "Driver Realizes Price is too low requests adjustment"
+    },
+    {
+      "sec": 74,
+      "label": "REQUESTS EXTRAS",
+      "effect": "scale-blur",
+      "caption": "Rider Realizes They Need to make a few stops and need driver to wait"
+    },
+    {
+      "sec": 79,
+      "label": "VIEW FINAL RIDE DETAILS",
+      "effect": "slide-up-bounce",
+      "caption": "Total Price is Updated. Driver Approved Extras"
+    }
+  ],
+  "recordingFile": "hmulinkbook.mp4",
+  "introSec": 2,
+  "videoSec": 79,
+  "endSec": 2,
+  "titleCardDurationSec": 2,
+  "captionDurationSec": 3,
+  "endTagline": "Your city. Your ride. Your rules.",
+  "endCta": "HMU ATL",
+  "phoneWidth": 700,
+  "phoneHeight": 1512
+}
