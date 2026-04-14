@@ -140,10 +140,12 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
     setError(null);
 
     try {
+      // Use 'remove' action — the API will decide whether it's direct removal
+      // (pre-ride) or request_removal (post-ride) based on ride status
       const res = await fetch(`/api/rides/${rideId}/add-ons`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ add_on_id: addOn.id, action: 'request_removal' }),
+        body: JSON.stringify({ add_on_id: addOn.id, action: 'remove' }),
       });
       const data = await res.json();
 
@@ -247,7 +249,7 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
                   const isRemovalPending = a.status === 'removal_pending';
                   const isDisputed = a.status === 'disputed';
                   const isConfirmed = a.status === 'confirmed';
-                  const canRemove = isConfirmed && !isRemoving;
+                  const canRemove = (isConfirmed || isPending) && !isRemoving;
 
                   return (
                     <div key={a.id} style={{

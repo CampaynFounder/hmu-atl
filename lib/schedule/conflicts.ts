@@ -354,10 +354,12 @@ export async function syncBookingFromRide(
 
   // Safety net: if no booking row exists for this ride, create one now.
   // This handles rides where the initial createRideBooking call failed silently.
+  // Uses the scheduled pickup time (resolvedTime) if available, not created_at.
   if (!updated.length) {
     try {
       const rideRows = await sql`
-        SELECT driver_id, rider_id, created_at, started_at, ended_at, completed_at
+        SELECT driver_id, rider_id, created_at, started_at, ended_at, completed_at,
+               agreement_summary->>'resolvedTime' as resolved_time
         FROM rides WHERE id = ${rideId} LIMIT 1
       `;
       if (rideRows.length) {
@@ -366,7 +368,8 @@ export async function syncBookingFromRide(
         if (driverId) {
           const userRows = await sql`SELECT market_id FROM users WHERE id = ${driverId} LIMIT 1`;
           const marketId = (userRows[0] as Record<string, unknown>)?.market_id as string || null;
-          const startAt = (r.started_at || r.created_at) as string;
+          // Priority: resolved pickup time > actual start > created_at
+          const startAt = (r.resolved_time || r.started_at || r.created_at) as string;
           const endAt = (r.completed_at || r.ended_at || new Date(new Date(startAt).getTime() + 45 * 60000).toISOString()) as string;
           await sql`
             INSERT INTO driver_bookings (driver_id, rider_id, ride_id, booking_type, start_at, end_at, status, market_id)

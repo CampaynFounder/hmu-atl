@@ -13,11 +13,12 @@ ALTER TABLE driver_bookings ADD CONSTRAINT driver_bookings_booking_type_check
   CHECK (booking_type IN ('ride', 'recurring_ride', 'blocked', 'break', 'hold'));
 
 -- Backfill driver_bookings from existing rides that never got calendar entries
+-- Use resolvedTime (scheduled pickup) when available, not created_at
 INSERT INTO driver_bookings (driver_id, rider_id, ride_id, booking_type, start_at, end_at, status, market_id)
 SELECT
   r.driver_id, r.rider_id, r.id, 'ride',
-  COALESCE(r.started_at, r.created_at),
-  COALESCE(r.completed_at, r.ended_at, r.created_at + INTERVAL '45 minutes'),
+  COALESCE((r.agreement_summary->>'resolvedTime')::timestamptz, r.started_at, r.created_at),
+  COALESCE(r.completed_at, r.ended_at, COALESCE((r.agreement_summary->>'resolvedTime')::timestamptz, r.created_at) + INTERVAL '45 minutes'),
   CASE
     WHEN r.status = 'completed' THEN 'completed'
     WHEN r.status IN ('cancelled', 'refunded') THEN 'cancelled'
