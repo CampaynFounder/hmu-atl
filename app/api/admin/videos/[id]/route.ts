@@ -37,6 +37,7 @@ export async function PUT(
   const { id } = await params;
   const body = await req.json();
   const {
+    compositionId,
     title,
     recordingFile,
     introTitle,
@@ -51,11 +52,13 @@ export async function PUT(
     isActive,
     phoneWidth,
     phoneHeight,
+    muted,
   } = body;
 
   const stepsJson = steps ? JSON.stringify(steps) : null;
   const rows = await sql`
     UPDATE video_configs SET
+      composition_id = COALESCE(${compositionId ?? null}, composition_id),
       title = COALESCE(${title ?? null}, title),
       recording_file = COALESCE(${recordingFile ?? null}, recording_file),
       intro_title = COALESCE(${introTitle ?? null}, intro_title),
@@ -70,6 +73,7 @@ export async function PUT(
       is_active = COALESCE(${isActive ?? null}, is_active),
       phone_width = COALESCE(${phoneWidth ?? null}, phone_width),
       phone_height = COALESCE(${phoneHeight ?? null}, phone_height),
+      muted = COALESCE(${muted ?? null}, muted),
       updated_at = NOW()
     WHERE id = ${id}
     RETURNING *

@@ -95,16 +95,29 @@ export default function AdminVideosPage() {
   };
 
   const createVideo = async () => {
+    const compositionId = prompt(
+      'Enter a Composition ID for this video.\n\n' +
+      'Use PascalCase (e.g. RiderOnboarding, DriverEarnings).\n' +
+      'This must match a registered Remotion composition in videos/src/Root.tsx.\n\n' +
+      'Existing: ' + configs.map(c => c.composition_id).join(', ')
+    );
+    if (!compositionId || !compositionId.trim()) return;
+
+    const cleanId = compositionId.trim();
+    if (configs.some(c => c.composition_id === cleanId)) {
+      showToast('A video with that Composition ID already exists');
+      return;
+    }
+
     setCreating(true);
-    const compositionId = `Video${Date.now().toString(36)}`;
     const res = await fetch('/api/admin/videos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        compositionId,
+        compositionId: cleanId,
         title: 'New Video',
         recordingFile: 'recording.mp4',
-        introTitle: 'NEW VIDEO',
+        introTitle: cleanId.replace(/([A-Z])/g, ' $1').trim().toUpperCase(),
         videoSec: 60,
         steps: [
           { sec: 2, label: 'STEP ONE', caption: 'Description here.', effect: 'slide-up-bounce' },
@@ -115,7 +128,10 @@ export default function AdminVideosPage() {
       const created = await res.json();
       setConfigs(prev => [...prev, created]);
       setSelected(created);
-      showToast('Video created');
+      showToast(`Video "${cleanId}" created — register it in videos/src/Root.tsx before rendering`);
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || 'Failed to create');
     }
     setCreating(false);
   };
@@ -208,6 +224,7 @@ export default function AdminVideosPage() {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        compositionId: selected.composition_id,
         title: selected.title,
         recordingFile: selected.recording_file,
         introTitle: selected.intro_title,
@@ -221,6 +238,7 @@ export default function AdminVideosPage() {
         steps: selected.steps,
         phoneWidth: selected.phone_width,
         phoneHeight: selected.phone_height,
+        muted: selected.muted,
       }),
     });
     if (res.ok) {
