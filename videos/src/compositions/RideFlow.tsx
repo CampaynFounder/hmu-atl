@@ -1,6 +1,7 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Audio,
   Freeze,
   Sequence,
   useVideoConfig,
@@ -98,6 +99,13 @@ export const RideFlow: React.FC<RideFlowProps> = ({
       <Sequence from={0} durationInFrames={INTRO_F}>
         <LogoIntro title={title} />
       </Sequence>
+
+      {/* Audio track — plays recording audio independently of frozen video frames */}
+      {!muted && (
+        <Sequence from={INTRO_F} durationInFrames={VIDEO_F}>
+          <Audio src={staticFile(`recordings/${recordingFile}`)} />
+        </Sequence>
+      )}
 
       {/* Layer 2: Continuous video in phone frame */}
       <Sequence from={INTRO_F} durationInFrames={VIDEO_F}>
@@ -339,7 +347,7 @@ const PhoneWithEffects: React.FC<{
           <Freeze frame={recordingFrame}>
             <OffthreadVideo
               src={staticFile(`recordings/${recordingFile}`)}
-              muted={muted}
+              muted
               style={{
                 width: "100%",
                 height: "100%",
