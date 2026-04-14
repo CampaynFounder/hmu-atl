@@ -97,8 +97,12 @@ function buildProps(config) {
     endCta: config.end_cta,
     phoneWidth: Number(config.phone_width) || 480,
     phoneHeight: Number(config.phone_height) || 1036,
+    muted: !!config.muted,
   };
 }
+
+// Registered Remotion compositions — composition_id in DB must match one of these
+const REGISTERED_COMPOSITIONS = ["DriverProfileCreation", "RideFlow", "Videomnyj4rnw"];
 
 function outFileName(compositionId) {
   return compositionId.replace(/([A-Z])/g, "-$1").toLowerCase().slice(1);
@@ -147,14 +151,25 @@ async function cmdRender(compositionId) {
     const propsFile = resolve(VIDEOS_DIR, "props", `${id}.json`);
     writeFileSync(propsFile, JSON.stringify(props, null, 2));
 
+    // Warn if composition isn't registered in Root.tsx
+    if (!REGISTERED_COMPOSITIONS.includes(id)) {
+      console.warn(`⚠️  ${id} is not a registered Remotion composition.`);
+      console.warn(`   Registered: ${REGISTERED_COMPOSITIONS.join(", ")}`);
+      console.warn(`   Update the composition_id in the admin portal or register it in videos/src/Root.tsx\n`);
+      fail++;
+      continue;
+    }
+
     console.log(`▶ ${id}`);
     console.log(`  recording: ${config.recording_file}`);
     console.log(`  steps:     ${config.steps.length}`);
+    console.log(`  muted:     ${props.muted ? "yes" : "no"}`);
     console.log(`  output:    videos/out/${out}.mp4`);
 
+    const mutedFlag = props.muted ? " --muted" : "";
     try {
       execSync(
-        `npx remotion render src/index.ts ${id} out/${out}.mp4 --props props/${id}.json`,
+        `npx remotion render src/index.ts ${id} out/${out}.mp4 --props props/${id}.json${mutedFlag}`,
         { stdio: "inherit", cwd: VIDEOS_DIR }
       );
       console.log(`  ✅ Done\n`);
