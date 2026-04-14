@@ -227,6 +227,7 @@ export async function removeRideAddOn(addOnId: string, rideId: string): Promise<
     UPDATE ride_add_ons
     SET status = 'removed', final_amount = 0
     WHERE id = ${addOnId} AND ride_id = ${rideId}
+      AND status IN ('pending_driver', 'confirmed', 'pre_selected')
   `;
 }
 

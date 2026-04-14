@@ -228,21 +228,40 @@ export async function PATCH(
 
     // ── RIDER ACTIONS ──
     if (isRider) {
-      if (action === 'request_removal' && add_on_id) {
-        // Rider requests removal of a confirmed item → driver must approve
-        const result = await requestAddOnRemoval(add_on_id, rideId);
-        if (!result) {
-          return NextResponse.json({ error: 'Can only request removal of confirmed add-ons' }, { status: 400 });
+      if ((action === 'remove' || action === 'request_removal') && add_on_id) {
+        // Check ride status to determine removal rules:
+        // Before ride starts (matched/otw/here) → rider can remove directly, no approval needed
+        // After ride starts (active/in_progress/ended) → must request driver approval
+        const rideStatusRows = await sql`SELECT status FROM rides WHERE id = ${rideId} LIMIT 1`;
+        const rideStatus = (rideStatusRows[0] as Record<string, unknown>)?.status as string;
+        const preRideStatuses = ['pending', 'accepted', 'matched', 'otw', 'here', 'confirming'];
+        const isPreRide = preRideStatuses.includes(rideStatus);
+
+        if (isPreRide) {
+          // Pre-ride: remove directly — no driver approval needed
+          // Can remove pending_driver OR confirmed items
+          await removeRideAddOn(add_on_id, rideId);
+          publishRideUpdate(rideId, 'add_on_removed', { addOnId: add_on_id }).catch(() => {});
+          notifyUser(otherPartyId, 'ride_update', {
+            rideId, type: 'add_on_removed',
+            message: 'Rider removed an add-on',
+          }).catch(() => {});
+        } else {
+          // Post-ride-start: request removal — driver must approve
+          const result = await requestAddOnRemoval(add_on_id, rideId);
+          if (!result) {
+            return NextResponse.json({ error: 'Can only request removal of confirmed add-ons' }, { status: 400 });
+          }
+          publishRideUpdate(rideId, 'removal_requested', {
+            addOnId: add_on_id,
+            addOn: { id: result.id, name: result.name, subtotal: result.subtotal },
+          }).catch(() => {});
+          notifyUser(otherPartyId, 'ride_update', {
+            rideId, type: 'removal_requested',
+            addOn: { id: result.id, name: result.name, subtotal: result.subtotal },
+            message: `Rider wants to remove: ${result.name} (-$${Number(result.subtotal || 0).toFixed(2)}) — tap to confirm`,
+          }).catch(() => {});
         }
-        publishRideUpdate(rideId, 'removal_requested', {
-          addOnId: add_on_id,
-          addOn: { id: result.id, name: result.name, subtotal: result.subtotal },
-        }).catch(() => {});
-        notifyUser(otherPartyId, 'ride_update', {
-          rideId, type: 'removal_requested',
-          addOn: { id: result.id, name: result.name, subtotal: result.subtotal },
-          message: `Rider wants to remove: ${result.name} (-$${Number(result.subtotal || 0).toFixed(2)}) — tap to confirm`,
-        }).catch(() => {});
 
       } else if (action === 'disputed' && add_on_id) {
         // Rider disputes an add-on (e.g. after driver rejects their removal)
