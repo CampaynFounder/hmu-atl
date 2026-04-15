@@ -161,11 +161,12 @@ export async function POST(req: Request) {
         stripeAccountId,
       });
 
-      // Fire-and-forget admin SMS notification
+      // Await admin SMS — fire-and-forget doesn't work on Cloudflare Workers
+      // because the execution context is killed once the Response is returned.
       const displayName = `${first_name || ''} ${last_name || ''}`.trim() || verifiedPhone;
       const notifType = profileType === 'driver' ? 'new_driver_signup' : 'new_rider_signup';
       const emoji = profileType === 'driver' ? '🚗' : '🧑';
-      notifyAdminSms(
+      await notifyAdminSms(
         notifType,
         `${emoji} New ${profileType} signup: ${displayName} (${verifiedPhone}) via ${signupSource}`,
         { clerkId: id },
@@ -241,7 +242,7 @@ export async function POST(req: Request) {
           const name = profile.name || 'User';
           const phone = profile.phone || '';
           const emoji = user.profile_type === 'driver' ? '🚗' : '🧑';
-          notifyAdminSms(
+          await notifyAdminSms(
             notifType,
             `${emoji} First return: ${name} (${phone}) — ${user.profile_type} signed in for the first time since signup`,
             { clerkId, userId: user.id },

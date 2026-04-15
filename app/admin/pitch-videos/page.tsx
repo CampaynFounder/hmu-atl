@@ -55,6 +55,7 @@ export default function AdminPitchVideosPage() {
   const ffmpegRef = useRef<{ terminate: () => void } | null>(null);
   const [targetChapter, setTargetChapter] = useState<string | null>(null);
   const [converting, setConverting] = useState(false);
+  const [compressPath, setCompressPath] = useState('');
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -305,6 +306,36 @@ export default function AdminPitchVideosPage() {
             View Live Pitch Page
           </a>
         </div>
+      </div>
+
+      {/* Compress Tool */}
+      <div className="mb-6 bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+        <h3 className="text-xs font-bold tracking-[2px] text-neutral-400 mb-3">COMPRESS VIDEO</h3>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder="/path/to/video.mp4"
+            value={compressPath}
+            onChange={(e) => setCompressPath(e.target.value)}
+            className="flex-1 bg-black border border-neutral-700 rounded-lg px-3 py-2 text-sm font-mono text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#00E676]/50"
+          />
+          <button
+            onClick={() => {
+              if (!compressPath.trim()) return;
+              const name = compressPath.trim();
+              const out = name.replace(/(\.[^.]+)$/, '-compressed.mp4');
+              const cmd = `ffmpeg -i "${name}" -vcodec libx264 -crf 28 -preset fast -acodec aac -b:a 128k -movflags +faststart "${out}"`;
+              navigator.clipboard.writeText(cmd);
+              showToast('Copied compress command');
+            }}
+            className="px-4 py-2 text-xs font-bold rounded-lg bg-[#00E676]/10 text-[#00E676] border border-[#00E676]/30 hover:bg-[#00E676]/20 transition-colors whitespace-nowrap"
+          >
+            Copy Command
+          </button>
+        </div>
+        <p className="text-[10px] text-neutral-600 mt-2">
+          Paste file path, click Copy, run in Terminal. Output will be under 100MB.
+        </p>
       </div>
 
       {/* Sections */}
