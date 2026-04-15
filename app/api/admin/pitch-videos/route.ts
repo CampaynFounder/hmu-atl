@@ -63,14 +63,14 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'Missing chapterId' }, { status: 400 });
   }
 
-  if (!request.body) {
+  const body = await request.arrayBuffer();
+  if (!body || body.byteLength === 0) {
     return NextResponse.json({ error: 'Missing video body' }, { status: 400 });
   }
 
   const key = `${R2_PREFIX}${chapterId}.mp4`;
 
-  // Stream the body directly to R2 — never buffered in Worker memory
-  await bucket.put(key, request.body, {
+  await bucket.put(key, body, {
     httpMetadata: { contentType: 'video/mp4' },
     customMetadata: {
       chapterId,
@@ -80,7 +80,7 @@ export async function PUT(request: NextRequest) {
   });
 
   const url = `${R2_PUBLIC_URL}/${key}`;
-  return NextResponse.json({ success: true, chapterId, url });
+  return NextResponse.json({ success: true, chapterId, url, size: body.byteLength });
 }
 
 // DELETE — remove a pitch video
