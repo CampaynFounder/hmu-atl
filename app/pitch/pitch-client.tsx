@@ -130,8 +130,8 @@ const SECTIONS: Section[] = [
     chapters: [
       {
         id: 'rider-booked-from-link',
-        kicker: 'Book From A Link',
-        title: 'Booked From A Link',
+        kicker: 'HMU Link Requests',
+        title: 'You Tryna Link?',
         hook: 'Tap a shared link, sign up, add details, request a ride.',
         steps: ['R \u00b7 Tap Link', 'R \u00b7 Sign Up', 'R \u00b7 Add Details', 'R \u00b7 Request Ride', 'D \u00b7 Match'],
         videoSrc: null,
