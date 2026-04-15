@@ -272,11 +272,15 @@ function SectionCarousel({
     (chapterId: string) => {
       const idx = section.chapters.findIndex((c) => c.id === chapterId);
       if (idx >= 0) {
-        // Small delay to ensure DOM is ready after vertical scroll
-        setTimeout(() => scrollToIndex(idx), 300);
+        // Use direct DOM scroll for reliability — offsetLeft depends on layout being settled
+        const el = slideRefs.current[idx];
+        if (el && trackRef.current) {
+          trackRef.current.scrollTo({ left: el.offsetLeft, behavior: 'instant' as ScrollBehavior });
+          setActiveIndex(idx);
+        }
       }
     },
-    [section.chapters, scrollToIndex],
+    [section.chapters],
   );
 
   useEffect(() => {
@@ -533,8 +537,12 @@ export default function PitchClient() {
           const sectionEl = document.getElementById(section.id);
           const scrollFn = chapterScrollRegistry[section.id];
           if (sectionEl && scrollFn) {
-            sectionEl.scrollIntoView({ behavior: 'smooth' });
-            scrollFn(hash);
+            // Instant vertical scroll so layout is settled before carousel scrolls
+            sectionEl.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+            // Give the browser one frame to finalize layout, then scroll carousel
+            requestAnimationFrame(() => {
+              scrollFn(hash);
+            });
             return true;
           }
           return false;
