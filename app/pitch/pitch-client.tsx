@@ -243,10 +243,12 @@ function SectionCarousel({
   section,
   isActiveSection,
   videoUrls,
+  onReady,
 }: {
   section: Section;
   isActiveSection: boolean;
   videoUrls: Record<string, string>;
+  onReady?: (scrollTo: (chapterId: string) => void) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [videoReady, setVideoReady] = useState<Record<string, boolean>>({});
@@ -267,26 +269,26 @@ function SectionCarousel({
     }
   }, []);
 
-  // Register scrollToChapter in shared registry for hash routing
+  // Called by parent to jump to a chapter on hash nav
   const scrollToChapter = useCallback(
     (chapterId: string) => {
       const idx = section.chapters.findIndex((c) => c.id === chapterId);
       if (idx >= 0) {
-        // Use direct DOM scroll for reliability — offsetLeft depends on layout being settled
+        setActiveIndex(idx);
+        // Direct DOM: scroll the track so the slide is visible
         const el = slideRefs.current[idx];
-        if (el && trackRef.current) {
-          trackRef.current.scrollTo({ left: el.offsetLeft, behavior: 'instant' as ScrollBehavior });
-          setActiveIndex(idx);
+        if (el) {
+          el.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'center', inline: 'center' });
         }
       }
     },
     [section.chapters],
   );
 
+  // Notify parent that this carousel is ready for hash navigation
   useEffect(() => {
-    chapterScrollRegistry[section.id] = scrollToChapter;
-    return () => { delete chapterScrollRegistry[section.id]; };
-  }, [section.id, scrollToChapter]);
+    onReady?.(scrollToChapter);
+  }, [onReady, scrollToChapter]);
 
   // Horizontal IntersectionObserver scoped to this track
   useEffect(() => {
@@ -450,19 +452,23 @@ function SectionCarousel({
         {/* Dot nav */}
         <nav className={styles.dots} aria-label={`${section.label} chapter navigation`}>
           {section.chapters.map((c, i) => (
-            <button
+            <a
               key={c.id}
-              type="button"
+              href={`#${c.id}`}
               className={styles.dot}
               data-active={i === activeIndex}
-              onClick={() => scrollToIndex(i)}
+              onClick={(e) => {
+                e.preventDefault();
+                scrollToIndex(i);
+                history.replaceState(null, '', `#${c.id}`);
+              }}
               aria-label={`Go to ${c.title}`}
             >
               <span className={styles.dotIndex}>
                 {String(i + 1).padStart(2, '0')}
               </span>
               <span className={styles.dotTitle}>{c.title}</span>
-            </button>
+            </a>
           ))}
         </nav>
       </div>
@@ -472,9 +478,6 @@ function SectionCarousel({
 
 /* ─── PitchClient ─── */
 
-// Registry for carousel scroll functions — avoids DOM mutation timing issues
-const chapterScrollRegistry: Record<string, (chapterId: string) => void> = {};
-
 export default function PitchClient() {
   const [activeSectionId, setActiveSectionId] = useState<SectionId>('driver');
   const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
@@ -483,6 +486,10 @@ export default function PitchClient() {
     rider: null,
     platform: null,
   });
+  const pendingHash = useRef(
+    typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '',
+  );
+  const carouselScrollers = useRef<Record<string, (id: string) => void>>({});
 
   // Fetch available pitch videos from R2
   useEffect(() => {
@@ -519,48 +526,31 @@ export default function PitchClient() {
     return () => io.disconnect();
   }, []);
 
-  // Hash routing — runs on mount and retries until registry is ready
-  useEffect(() => {
-    const hash = window.location.hash.replace('#', '');
-    if (!hash) return;
+  // When a carousel reports ready, check if we have a pending hash for it
+  const handleCarouselReady = useCallback(
+    (sectionId: SectionId, scrollFn: (chapterId: string) => void) => {
+      carouselScrollers.current[sectionId] = scrollFn;
 
-    // Check if it's a section id
-    if (SECTION_IDS.includes(hash as SectionId)) {
-      document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth' });
-      return;
-    }
+      const hash = pendingHash.current;
+      if (!hash) return;
 
-    // Check if it's a chapter id — find its parent section and scroll
-    const navigateToChapter = () => {
-      for (const section of SECTIONS) {
-        if (section.chapters.some((c) => c.id === hash)) {
-          const sectionEl = document.getElementById(section.id);
-          const scrollFn = chapterScrollRegistry[section.id];
-          if (sectionEl && scrollFn) {
-            // Instant vertical scroll so layout is settled before carousel scrolls
-            sectionEl.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
-            // Give the browser one frame to finalize layout, then scroll carousel
-            requestAnimationFrame(() => {
-              scrollFn(hash);
-            });
-            return true;
-          }
-          return false;
-        }
+      const section = SECTIONS.find((s) => s.id === sectionId);
+      if (section?.chapters.some((c) => c.id === hash)) {
+        pendingHash.current = ''; // consume it
+        // Let the DOM settle one frame then scroll
+        requestAnimationFrame(() => scrollFn(hash));
       }
-      return false;
-    };
+    },
+    [],
+  );
 
-    // Try immediately, then retry a few times for registry to populate
-    if (!navigateToChapter()) {
-      let attempts = 0;
-      const interval = setInterval(() => {
-        attempts++;
-        if (navigateToChapter() || attempts >= 10) {
-          clearInterval(interval);
-        }
-      }, 200);
-      return () => clearInterval(interval);
+  // Also handle section-level hashes on mount
+  useEffect(() => {
+    const hash = pendingHash.current;
+    if (!hash) return;
+    if (SECTION_IDS.includes(hash as SectionId)) {
+      pendingHash.current = '';
+      document.getElementById(hash)?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
     }
   }, []);
 
@@ -631,6 +621,7 @@ export default function PitchClient() {
           section={section}
           isActiveSection={activeSectionId === section.id}
           videoUrls={videoUrls}
+          onReady={(scrollFn) => handleCarouselReady(section.id, scrollFn)}
         />
       ))}
 
