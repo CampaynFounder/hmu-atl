@@ -51,7 +51,10 @@ export default function AdminPitchVideosPage() {
   const [toast, setToast] = useState('');
   const [progress, setProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const ffmpegRef = useRef<{ terminate: () => void } | null>(null);
   const [targetChapter, setTargetChapter] = useState<string | null>(null);
+  const [converting, setConverting] = useState(false);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -82,11 +85,13 @@ export default function AdminPitchVideosPage() {
 
     // Auto-convert non-MP4 files (e.g. .mov) to MP4 in the browser
     if (!isMp4) {
+      setConverting(true);
       showToast(`Converting ${file.name.split('.').pop()?.toUpperCase()} to MP4...`);
       try {
         const { FFmpeg } = await import('@ffmpeg/ffmpeg');
         const { fetchFile } = await import('@ffmpeg/util');
         const ffmpeg = new FFmpeg();
+        ffmpegRef.current = ffmpeg;
         ffmpeg.on('progress', ({ progress }) => {
           setProgress(Math.round(progress * 50)); // 0-50% for conversion
         });
@@ -97,8 +102,14 @@ export default function AdminPitchVideosPage() {
         const data = await ffmpeg.readFile('output.mp4');
         const blob = new Blob([data as BlobPart], { type: 'video/mp4' });
         uploadFile = new File([blob], targetChapter + '.mp4', { type: 'video/mp4' });
+        ffmpegRef.current = null;
+        setConverting(false);
         showToast(`Converted to MP4 (${(uploadFile.size / 1024 / 1024).toFixed(1)}MB) — uploading...`);
       } catch (err) {
+        ffmpegRef.current = null;
+        setConverting(false);
+        // If cancelled, state is already reset by handleCancel
+        if (!uploading) return;
         console.error('Conversion failed:', err);
         showToast(`Conversion failed — convert manually: ffmpeg -i "${file.name}" -vcodec libx264 -crf 28 -acodec aac -b:a 128k output.mp4`);
         setUploading(null);
@@ -115,6 +126,7 @@ export default function AdminPitchVideosPage() {
     try {
       // Use XMLHttpRequest for upload progress
       const xhr = new XMLHttpRequest();
+      xhrRef.current = xhr;
       const result = await new Promise<{ success: boolean; url?: string; error?: string }>((resolve, reject) => {
         xhr.upload.onprogress = (evt) => {
           if (evt.lengthComputable) {
@@ -125,10 +137,18 @@ export default function AdminPitchVideosPage() {
           }
         };
         xhr.onload = () => {
+          xhrRef.current = null;
           try { resolve(JSON.parse(xhr.responseText)); }
           catch { reject(new Error('Invalid response')); }
         };
-        xhr.onerror = () => reject(new Error('Upload failed'));
+        xhr.onerror = () => {
+          xhrRef.current = null;
+          reject(new Error('Upload failed'));
+        };
+        xhr.onabort = () => {
+          xhrRef.current = null;
+          resolve({ success: false, error: 'cancelled' });
+        };
         xhr.open('POST', '/api/admin/pitch-videos');
         xhr.send(formData);
       });
@@ -136,7 +156,7 @@ export default function AdminPitchVideosPage() {
       if (result.success) {
         showToast(`Uploaded to ${targetChapter}`);
         await fetchVideos();
-      } else {
+      } else if (result.error !== 'cancelled') {
         showToast(result.error || 'Upload failed');
       }
     } catch (err) {
@@ -165,6 +185,23 @@ export default function AdminPitchVideosPage() {
       await fetchVideos();
     }
     setDeleting(null);
+  };
+
+  const handleCancel = () => {
+    if (ffmpegRef.current) {
+      try { ffmpegRef.current.terminate(); } catch {}
+      ffmpegRef.current = null;
+    }
+    if (xhrRef.current) {
+      xhrRef.current.abort();
+      xhrRef.current = null;
+    }
+    setUploading(null);
+    setConverting(false);
+    setProgress(0);
+    setTargetChapter(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    showToast('Upload cancelled');
   };
 
   const uploadedCount = Object.keys(videos).length;
@@ -277,6 +314,9 @@ export default function AdminPitchVideosPage() {
                       {/* Upload progress overlay */}
                       {isUploading && (
                         <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-3">
+                          <span className="text-[10px] text-neutral-400 font-medium">
+                            {converting ? 'Converting...' : 'Uploading...'}
+                          </span>
                           <div className="w-24 h-1.5 bg-neutral-700 rounded-full overflow-hidden">
                             <div
                               className="h-full bg-[#00E676] rounded-full transition-all"
@@ -286,6 +326,12 @@ export default function AdminPitchVideosPage() {
                           <span className="text-xs text-[#00E676] font-mono">
                             {progress}%
                           </span>
+                          <button
+                            onClick={handleCancel}
+                            className="mt-1 px-3 py-1 text-[10px] text-red-400 border border-red-400/30 rounded-md hover:bg-red-400/10 transition-colors"
+                          >
+                            Cancel
+                          </button>
                         </div>
                       )}
 
