@@ -388,6 +388,16 @@ function SectionCarousel({
                         preload="metadata"
                         onLoadedData={() => markReady(chapter.id)}
                         onError={() => markMissing(chapter.id)}
+                        onClick={(e) => {
+                          const v = e.currentTarget;
+                          // iOS Safari doesn't support standard fullscreen on <video>
+                          if ('webkitEnterFullscreen' in v) {
+                            (v as HTMLVideoElement & { webkitEnterFullscreen: () => void }).webkitEnterFullscreen();
+                          } else if (v.requestFullscreen) {
+                            v.requestFullscreen();
+                          }
+                        }}
+                        style={{ cursor: 'pointer' }}
                       />
                       {/* Sound toggle */}
                       <button
@@ -507,13 +517,17 @@ export default function PitchClient() {
     return () => io.disconnect();
   }, []);
 
-  // Hash routing on mount
+  // Hash routing — runs on mount and again once videoUrls load
+  const hashHandled = useRef(false);
   useEffect(() => {
     const hash = window.location.hash.replace('#', '');
     if (!hash) return;
+    // Only handle once after videoUrls are available (or on mount for section-only hashes)
+    if (hashHandled.current) return;
 
     // Check if it's a section id
     if (SECTION_IDS.includes(hash as SectionId)) {
+      hashHandled.current = true;
       document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth' });
       return;
     }
@@ -524,26 +538,19 @@ export default function PitchClient() {
       if (chapterIdx >= 0) {
         const sectionEl = document.getElementById(section.id);
         if (sectionEl) {
-          sectionEl.scrollIntoView({ behavior: 'smooth' });
-          // Scroll to the specific chapter within the carousel
           const typed = sectionEl as HTMLElement & {
             scrollToChapter?: (id: string) => void;
           };
-          if (typed.scrollToChapter) {
-            typed.scrollToChapter(hash);
-          } else {
-            setTimeout(() => {
-              const retried = document.getElementById(section.id) as HTMLElement & {
-                scrollToChapter?: (id: string) => void;
-              };
-              retried?.scrollToChapter?.(hash);
-            }, 500);
-          }
+          // Wait until scrollToChapter is attached (set via useEffect in SectionCarousel)
+          if (!typed.scrollToChapter) return; // will retry when videoUrls updates
+          hashHandled.current = true;
+          sectionEl.scrollIntoView({ behavior: 'smooth' });
+          typed.scrollToChapter(hash);
         }
         return;
       }
     }
-  }, []);
+  }, [videoUrls]);
 
   const scrollToSection = useCallback((id: SectionId) => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
