@@ -25,7 +25,7 @@ export async function GET(
         u.signup_source, u.referred_by_driver_id,
         u.last_sign_in_at, u.sign_in_count, u.first_return_at,
         dp.first_name as driver_first, dp.last_name as driver_last,
-        dp.display_name as driver_display, dp.handle, dp.stripe_connect_id,
+        dp.display_name as driver_display, dp.handle, dp.stripe_account_id,
         dp.video_url, dp.thumbnail_url as driver_thumbnail, dp.areas as driver_areas, dp.vehicle_info, dp.phone as driver_phone,
         rp.first_name as rider_first, rp.last_name as rider_last,
         rp.display_name as rider_display, rp.stripe_customer_id, rp.phone as rider_phone,
@@ -101,7 +101,7 @@ export async function GET(
           ? `${u.rider_display || u.rider_first || ''} ${u.rider_last || ''}`.trim()
           : 'No name',
       handle: u.handle,
-      stripeConnectId: u.stripe_connect_id,
+      stripeConnectId: u.stripe_account_id,
       stripeCustomerId: u.stripe_customer_id,
       videoUrl: u.video_url,
       driverAreas: u.driver_areas,
