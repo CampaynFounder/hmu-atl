@@ -70,6 +70,7 @@ function fmt(n: number): string {
 export function UserProfile({ userId, onBack }: { userId: string; onBack: () => void }) {
   const [data, setData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [smsText, setSmsText] = useState('');
@@ -78,10 +79,17 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
 
   const fetchUser = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch(`/api/admin/users/${userId}`);
-      if (res.ok) setData(await res.json());
+      if (res.ok) {
+        setData(await res.json());
+      } else {
+        const text = await res.text().catch(() => '');
+        setError(`Failed to load user (${res.status}): ${text.slice(0, 200)}`);
+      }
     } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error');
       console.error('Failed to fetch user:', err);
     } finally {
       setLoading(false);
@@ -114,7 +122,7 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
     }
   };
 
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="space-y-4">
         {Array.from({ length: 3 }).map((_, i) => (
@@ -124,7 +132,17 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
     );
   }
 
-  const { user, rides, ratings, disputes, activity } = data;
+  if (error || !data) {
+    return (
+      <div className="bg-neutral-900 border border-red-500/30 rounded-xl p-6 space-y-3">
+        <h3 className="text-red-400 font-bold">Failed to load user</h3>
+        <p className="text-xs text-neutral-400 font-mono break-all">{error || 'No data returned'}</p>
+        <button onClick={fetchUser} className="text-xs text-[#00E676] hover:underline">Retry</button>
+      </div>
+    );
+  }
+
+  const { user, rides, ratings, disputes, activity = [] } = data;
 
   const ratingCounts = ratings.filter((r) => r.direction === 'received').reduce(
     (acc, r) => { acc[r.type] = (acc[r.type] ?? 0) + 1; return acc; },

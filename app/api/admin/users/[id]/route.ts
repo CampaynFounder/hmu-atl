@@ -14,6 +14,7 @@ export async function GET(
 
   const { id } = await params;
 
+  try {
   const [userRows, rideRows, ratingRows, disputeRows, activityRows] = await Promise.all([
     sql`
       SELECT
@@ -145,6 +146,10 @@ export async function GET(
       createdAt: d.created_at,
     })),
   });
+  } catch (err) {
+    console.error('[admin/users/[id]] GET error:', err);
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal error' }, { status: 500 });
+  }
 }
 
 export async function PATCH(
