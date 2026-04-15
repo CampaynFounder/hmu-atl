@@ -328,7 +328,7 @@ const PhoneWithEffects: React.FC<{
               style={{
                 width: "100%",
                 height: "100%",
-                objectFit: "contain",
+                objectFit: phoneWidth >= 1080 ? "cover" : "contain",
               }}
             />
           </Freeze>
