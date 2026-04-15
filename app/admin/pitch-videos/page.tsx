@@ -74,6 +74,14 @@ export default function AdminPitchVideosPage() {
     const file = e.target.files?.[0];
     if (!file || !targetChapter) return;
 
+    // Reject non-MP4 files with clear guidance
+    const isMp4 = file.type === 'video/mp4' || file.name.toLowerCase().endsWith('.mp4');
+    if (!isMp4) {
+      showToast(`${file.name.split('.').pop()?.toUpperCase()} not supported — convert to MP4 first: ffmpeg -i "${file.name}" -vcodec libx264 -crf 28 -acodec aac -b:a 128k output.mp4`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     setUploading(targetChapter);
     setProgress(0);
 
@@ -143,7 +151,7 @@ export default function AdminPitchVideosPage() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="video/mp4,video/quicktime,video/webm,video/*"
+        accept="video/mp4,.mp4"
         className="hidden"
         onChange={handleFileSelected}
       />
