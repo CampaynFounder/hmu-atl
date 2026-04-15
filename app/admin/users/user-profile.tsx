@@ -20,6 +20,7 @@ interface UserData {
     stripeConnectId: string;
     stripeCustomerId: string;
     videoUrl: string;
+    avatarUrl: string | null;
     driverAreas: Record<string, unknown>;
     vehicleInfo: Record<string, unknown>;
     phone: string;
@@ -152,25 +153,53 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-lg font-bold">{user.displayName}</h2>
-          {user.handle && <p className="text-sm text-neutral-500">@{user.handle}</p>}
-        </div>
-        <div className="flex items-center gap-2">
-          {user.isAdmin && (
-            <span className="text-[10px] px-2 py-1 rounded bg-purple-500/20 text-purple-400 font-medium">ADMIN</span>
+      <div className="flex items-start gap-4">
+        {/* Avatar */}
+        {user.avatarUrl ? (
+          <img
+            src={user.avatarUrl}
+            alt={user.displayName}
+            className="w-14 h-14 rounded-full object-cover border-2 border-neutral-700 shrink-0"
+          />
+        ) : (
+          <div className="w-14 h-14 rounded-full bg-neutral-800 border-2 border-neutral-700 flex items-center justify-center text-neutral-500 text-lg font-bold shrink-0">
+            {user.displayName?.[0]?.toUpperCase() || '?'}
+          </div>
+        )}
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-lg font-bold">{user.displayName}</h2>
+            {user.isAdmin && (
+              <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/20 text-purple-400 font-medium">ADMIN</span>
+            )}
+            {weirdo3x && (
+              <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-400 font-medium">WEIRDO x3+</span>
+            )}
+            <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${
+              user.accountStatus === 'active' ? 'bg-green-500/20 text-green-400' :
+              user.accountStatus === 'suspended' ? 'bg-red-500/20 text-red-400' :
+              'bg-yellow-500/20 text-yellow-400'
+            }`}>
+              {user.accountStatus}
+            </span>
+          </div>
+          {user.handle && (
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-sm text-neutral-500">@{user.handle}</span>
+              {user.profileType === 'driver' && (
+                <a
+                  href={`https://atl.hmucashride.com/d/${user.handle}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] text-[#00E676] hover:underline font-medium"
+                >
+                  View HMU Page
+                </a>
+              )}
+            </div>
           )}
-          {weirdo3x && (
-            <span className="text-[10px] px-2 py-1 rounded bg-red-500/20 text-red-400 font-medium">WEIRDO x3+</span>
-          )}
-          <span className={`text-xs px-2 py-1 rounded font-medium ${
-            user.accountStatus === 'active' ? 'bg-green-500/20 text-green-400' :
-            user.accountStatus === 'suspended' ? 'bg-red-500/20 text-red-400' :
-            'bg-yellow-500/20 text-yellow-400'
-          }`}>
-            {user.accountStatus}
-          </span>
+          <p className="text-xs text-neutral-500 capitalize mt-0.5">{user.profileType}</p>
         </div>
       </div>
 

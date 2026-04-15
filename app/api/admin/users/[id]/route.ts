@@ -26,9 +26,10 @@ export async function GET(
         u.last_sign_in_at, u.sign_in_count, u.first_return_at,
         dp.first_name as driver_first, dp.last_name as driver_last,
         dp.display_name as driver_display, dp.handle, dp.stripe_connect_id,
-        dp.video_url, dp.areas as driver_areas, dp.vehicle_info, dp.phone as driver_phone,
+        dp.video_url, dp.thumbnail_url as driver_thumbnail, dp.areas as driver_areas, dp.vehicle_info, dp.phone as driver_phone,
         rp.first_name as rider_first, rp.last_name as rider_last,
         rp.display_name as rider_display, rp.stripe_customer_id, rp.phone as rider_phone,
+        rp.avatar_url as rider_avatar, rp.thumbnail_url as rider_thumbnail,
         -- Referring driver name
         ref_dp.display_name as ref_driver_name, ref_dp.handle as ref_driver_handle
       FROM users u
@@ -106,6 +107,7 @@ export async function GET(
       driverAreas: u.driver_areas,
       vehicleInfo: u.vehicle_info,
       phone: u.driver_phone || u.rider_phone,
+      avatarUrl: u.rider_avatar || u.driver_thumbnail || u.video_url,
       signupSource: u.signup_source,
       referredByDriverId: u.referred_by_driver_id,
       refDriverName: u.ref_driver_name,
