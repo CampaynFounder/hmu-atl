@@ -250,6 +250,7 @@ function SectionCarousel({
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [videoReady, setVideoReady] = useState<Record<string, boolean>>({});
+  const [audioOn, setAudioOn] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
   const slideRefs = useRef<Array<HTMLElement | null>>([]);
   const videoRefs = useRef<Array<HTMLVideoElement | null>>([]);
@@ -312,13 +313,14 @@ function SectionCarousel({
     videoRefs.current.forEach((v, i) => {
       if (!v) return;
       if (isActiveSection && i === activeIndex) {
+        v.muted = !audioOn;
         v.play().catch(() => {});
       } else {
         v.pause();
         v.currentTime = 0;
       }
     });
-  }, [activeIndex, isActiveSection]);
+  }, [activeIndex, isActiveSection, audioOn]);
 
   // Update hash when active chapter changes
   useEffect(() => {
@@ -380,13 +382,31 @@ function SectionCarousel({
                         className={styles.video}
                         src={resolvedSrc}
                         poster={chapter.poster}
-                        muted
+                        muted={!audioOn}
                         playsInline
                         loop
                         preload="metadata"
                         onLoadedData={() => markReady(chapter.id)}
                         onError={() => markMissing(chapter.id)}
                       />
+                      {/* Sound toggle */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAudioOn(prev => !prev);
+                        }}
+                        aria-label={audioOn ? 'Mute' : 'Unmute'}
+                        style={{
+                          position: 'absolute', bottom: 12, right: 12, zIndex: 20,
+                          width: 36, height: 36, borderRadius: '50%',
+                          background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)',
+                          color: '#fff', fontSize: 16, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          backdropFilter: 'blur(8px)',
+                        }}
+                      >
+                        {audioOn ? '\u{1F50A}' : '\u{1F507}'}
+                      </button>
                       <div className={styles.framePlaceholder} aria-hidden>
                         <span className={styles.frameLabel}>DROP VIDEO</span>
                         <code className={styles.frameCode}>{resolvedSrc}</code>

@@ -70,8 +70,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Only video files allowed' }, { status: 400 });
   }
 
-  if (file.size > 50 * 1024 * 1024) {
-    return NextResponse.json({ error: 'File too large. Maximum 50MB.' }, { status: 400 });
+  if (file.size > 100 * 1024 * 1024) {
+    return NextResponse.json({ error: 'File too large. Maximum 100MB.' }, { status: 400 });
   }
 
   const key = `${R2_PREFIX}${chapterId}.mp4`;
