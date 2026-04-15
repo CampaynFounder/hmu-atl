@@ -267,7 +267,7 @@ function SectionCarousel({
     }
   }, []);
 
-  // Expose scrollToIndex for hash routing
+  // Register scrollToChapter in shared registry for hash routing
   const scrollToChapter = useCallback(
     (chapterId: string) => {
       const idx = section.chapters.findIndex((c) => c.id === chapterId);
@@ -279,15 +279,10 @@ function SectionCarousel({
     [section.chapters, scrollToIndex],
   );
 
-  // Store scrollToChapter on the section DOM element for parent access
-  const sectionRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    const el = sectionRef.current;
-    if (el) {
-      (el as HTMLElement & { scrollToChapter?: (id: string) => void }).scrollToChapter =
-        scrollToChapter;
-    }
-  }, [scrollToChapter]);
+    chapterScrollRegistry[section.id] = scrollToChapter;
+    return () => { delete chapterScrollRegistry[section.id]; };
+  }, [section.id, scrollToChapter]);
 
   // Horizontal IntersectionObserver scoped to this track
   useEffect(() => {
@@ -331,7 +326,7 @@ function SectionCarousel({
   }, [activeIndex, isActiveSection, section.chapters]);
 
   return (
-    <section className={styles.section} id={section.id} ref={sectionRef}>
+    <section className={styles.section} id={section.id}>
       {/* Section header */}
       <div className={styles.sectionHeader}>
         <div className={styles.sectionDivider} />
@@ -473,6 +468,9 @@ function SectionCarousel({
 
 /* ─── PitchClient ─── */
 
+// Registry for carousel scroll functions — avoids DOM mutation timing issues
+const chapterScrollRegistry: Record<string, (chapterId: string) => void> = {};
+
 export default function PitchClient() {
   const [activeSectionId, setActiveSectionId] = useState<SectionId>('driver');
   const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
@@ -517,40 +515,46 @@ export default function PitchClient() {
     return () => io.disconnect();
   }, []);
 
-  // Hash routing — runs on mount and again once videoUrls load
-  const hashHandled = useRef(false);
+  // Hash routing — runs on mount and retries until registry is ready
   useEffect(() => {
     const hash = window.location.hash.replace('#', '');
     if (!hash) return;
-    // Only handle once after videoUrls are available (or on mount for section-only hashes)
-    if (hashHandled.current) return;
 
     // Check if it's a section id
     if (SECTION_IDS.includes(hash as SectionId)) {
-      hashHandled.current = true;
       document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth' });
       return;
     }
 
-    // Check if it's a chapter id — find its parent section
-    for (const section of SECTIONS) {
-      const chapterIdx = section.chapters.findIndex((c) => c.id === hash);
-      if (chapterIdx >= 0) {
-        const sectionEl = document.getElementById(section.id);
-        if (sectionEl) {
-          const typed = sectionEl as HTMLElement & {
-            scrollToChapter?: (id: string) => void;
-          };
-          // Wait until scrollToChapter is attached (set via useEffect in SectionCarousel)
-          if (!typed.scrollToChapter) return; // will retry when videoUrls updates
-          hashHandled.current = true;
-          sectionEl.scrollIntoView({ behavior: 'smooth' });
-          typed.scrollToChapter(hash);
+    // Check if it's a chapter id — find its parent section and scroll
+    const navigateToChapter = () => {
+      for (const section of SECTIONS) {
+        if (section.chapters.some((c) => c.id === hash)) {
+          const sectionEl = document.getElementById(section.id);
+          const scrollFn = chapterScrollRegistry[section.id];
+          if (sectionEl && scrollFn) {
+            sectionEl.scrollIntoView({ behavior: 'smooth' });
+            scrollFn(hash);
+            return true;
+          }
+          return false;
         }
-        return;
       }
+      return false;
+    };
+
+    // Try immediately, then retry a few times for registry to populate
+    if (!navigateToChapter()) {
+      let attempts = 0;
+      const interval = setInterval(() => {
+        attempts++;
+        if (navigateToChapter() || attempts >= 10) {
+          clearInterval(interval);
+        }
+      }, 200);
+      return () => clearInterval(interval);
     }
-  }, [videoUrls]);
+  }, []);
 
   const scrollToSection = useCallback((id: SectionId) => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
