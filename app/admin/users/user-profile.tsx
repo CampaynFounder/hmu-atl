@@ -23,6 +23,13 @@ interface UserData {
     driverAreas: Record<string, unknown>;
     vehicleInfo: Record<string, unknown>;
     phone: string;
+    signupSource: string;
+    referredByDriverId: string | null;
+    refDriverName: string | null;
+    refDriverHandle: string | null;
+    lastSignInAt: string | null;
+    signInCount: number;
+    firstReturnAt: string | null;
   };
   rides: {
     id: string;
@@ -47,6 +54,11 @@ interface UserData {
     rideId: string;
     status: string;
     reason: string;
+    createdAt: string;
+  }[];
+  activity: {
+    event: string;
+    properties: Record<string, unknown> | null;
     createdAt: string;
   }[];
 }
@@ -112,7 +124,7 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
     );
   }
 
-  const { user, rides, ratings, disputes } = data;
+  const { user, rides, ratings, disputes, activity } = data;
 
   const ratingCounts = ratings.filter((r) => r.direction === 'received').reduce(
     (acc, r) => { acc[r.type] = (acc[r.type] ?? 0) + 1; return acc; },
@@ -144,10 +156,55 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
         </div>
       </div>
 
-      {/* Account Info */}
+      {/* Quick Contact */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
-        <h3 className="text-sm font-semibold mb-3">Account Info</h3>
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold">Quick Contact</h3>
+          {user.phone && (
+            <button
+              onClick={() => navigator.clipboard.writeText(user.phone)}
+              className="text-[10px] text-[#00E676] hover:underline font-mono"
+            >
+              {user.phone}
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          <div>
+            <p className="text-neutral-500">Signed Up</p>
+            <p className="text-white">{new Date(user.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+            <p className="text-neutral-400">{new Date(user.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</p>
+          </div>
+          <div>
+            <p className="text-neutral-500">How They Joined</p>
+            <p className="text-white">{
+              user.signupSource === 'hmu_chat' ? 'Chat Booking' :
+              user.signupSource === 'homepage_lead' ? 'Homepage Lead' :
+              user.signupSource === 'direct' ? 'Direct' : user.signupSource || 'Unknown'
+            }</p>
+          </div>
+          {user.refDriverName && (
+            <div>
+              <p className="text-neutral-500">Referred By Driver</p>
+              <p className="text-[#00E676]">{user.refDriverName}</p>
+              {user.refDriverHandle && <p className="text-neutral-400 font-mono">@{user.refDriverHandle}</p>}
+            </div>
+          )}
+          <div>
+            <p className="text-neutral-500">Last Sign In</p>
+            {user.lastSignInAt ? (
+              <>
+                <p className="text-white">{new Date(user.lastSignInAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
+                <p className="text-neutral-400">{new Date(user.lastSignInAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</p>
+              </>
+            ) : (
+              <p className="text-red-400">Never returned</p>
+            )}
+          </div>
+          <div>
+            <p className="text-neutral-500">Sign-in Count</p>
+            <p className="text-white">{user.signInCount}</p>
+          </div>
           <div>
             <p className="text-neutral-500">Profile Type</p>
             <p className="text-white capitalize">{user.profileType}</p>
@@ -157,23 +214,78 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             <p className={user.tier === 'hmu_first' ? 'text-blue-400' : 'text-white'}>{user.tier === 'hmu_first' ? 'HMU First' : 'Free'}</p>
           </div>
           <div>
-            <p className="text-neutral-500">Chill Score</p>
-            <p className="text-white">{user.chillScore}%</p>
+            <p className="text-neutral-500">Status</p>
+            <p className={`capitalize ${
+              user.accountStatus === 'active' ? 'text-green-400' :
+              user.accountStatus === 'suspended' ? 'text-red-400' :
+              'text-yellow-400'
+            }`}>{user.accountStatus.replace('_', ' ')}</p>
           </div>
+        </div>
+      </div>
+
+      {/* Engagement Summary */}
+      <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+        <h3 className="text-sm font-semibold mb-3">Engagement</h3>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
           <div>
             <p className="text-neutral-500">Completed Rides</p>
-            <p className="text-white">{user.completedRides}</p>
+            <p className="text-white text-lg font-bold">{user.completedRides}</p>
           </div>
           <div>
             <p className="text-neutral-500">Disputes</p>
-            <p className={user.disputeCount > 0 ? 'text-red-400' : 'text-white'}>{user.disputeCount}</p>
+            <p className={`text-lg font-bold ${user.disputeCount > 0 ? 'text-red-400' : 'text-white'}`}>{user.disputeCount}</p>
+          </div>
+          <div>
+            <p className="text-neutral-500">Chill Score</p>
+            <p className="text-white text-lg font-bold">{user.chillScore}%</p>
           </div>
           <div>
             <p className="text-neutral-500">OG Status</p>
-            <p className={user.ogStatus ? 'text-yellow-400' : 'text-neutral-500'}>{user.ogStatus ? 'OG' : 'No'}</p>
+            <p className={`text-lg font-bold ${user.ogStatus ? 'text-yellow-400' : 'text-neutral-600'}`}>{user.ogStatus ? 'OG' : 'No'}</p>
           </div>
+        </div>
+        {/* Last activity / abandon point */}
+        {activity && activity.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-neutral-800">
+            <p className="text-neutral-500 text-xs mb-1">Last Action</p>
+            <p className="text-white text-sm font-medium">{activity[0].event.replace(/_/g, ' ')}</p>
+            <p className="text-neutral-400 text-[10px]">
+              {new Date(activity[0].createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at {new Date(activity[0].createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+            </p>
+          </div>
+        )}
+        {(!activity || activity.length === 0) && user.completedRides === 0 && (
+          <div className="mt-4 pt-3 border-t border-neutral-800">
+            <p className="text-red-400 text-xs font-medium">Abandoned — never completed onboarding</p>
+          </div>
+        )}
+      </div>
+
+      {/* Activity Timeline */}
+      {activity && activity.length > 0 && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+          <h3 className="text-sm font-semibold mb-3">Activity Timeline</h3>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {activity.map((a, i) => (
+              <div key={i} className="flex items-center gap-3 text-xs">
+                <div className="w-1.5 h-1.5 rounded-full bg-[#00E676]/50 shrink-0" />
+                <span className="text-white font-medium">{a.event.replace(/_/g, ' ')}</span>
+                <span className="text-neutral-600 ml-auto shrink-0">
+                  {new Date(a.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} {new Date(a.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* IDs & Integrations */}
+      <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+        <h3 className="text-sm font-semibold mb-3">IDs</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 text-xs">
           <div>
-            <p className="text-neutral-500">Clerk ID</p>
+            <p className="text-neutral-500">Clerk</p>
             <p className="text-white font-mono text-[10px]">{user.clerkId}</p>
           </div>
           {user.stripeConnectId && (
@@ -188,10 +300,6 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
               <p className="text-white font-mono text-[10px]">{user.stripeCustomerId}</p>
             </div>
           )}
-          <div>
-            <p className="text-neutral-500">Member Since</p>
-            <p className="text-white">{new Date(user.createdAt).toLocaleDateString()}</p>
-          </div>
         </div>
       </div>
 

@@ -14,21 +14,26 @@ export async function GET(
 
   const { id } = await params;
 
-  const [userRows, rideRows, ratingRows, disputeRows] = await Promise.all([
+  const [userRows, rideRows, ratingRows, disputeRows, activityRows] = await Promise.all([
     sql`
       SELECT
         u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
         u.og_status, u.chill_score, u.is_admin, COALESCE(u.completed_rides, 0) as completed_rides,
         (SELECT COUNT(*) FROM disputes WHERE filed_by = u.id) as dispute_count,
         u.created_at, u.updated_at,
+        u.signup_source, u.referred_by_driver_id,
+        u.last_sign_in_at, u.sign_in_count, u.first_return_at,
         dp.first_name as driver_first, dp.last_name as driver_last,
         dp.display_name as driver_display, dp.handle, dp.stripe_connect_id,
         dp.video_url, dp.areas as driver_areas, dp.vehicle_info, dp.phone as driver_phone,
         rp.first_name as rider_first, rp.last_name as rider_last,
-        rp.display_name as rider_display, rp.stripe_customer_id
+        rp.display_name as rider_display, rp.stripe_customer_id, rp.phone as rider_phone,
+        -- Referring driver name
+        ref_dp.display_name as ref_driver_name, ref_dp.handle as ref_driver_handle
       FROM users u
       LEFT JOIN driver_profiles dp ON dp.user_id = u.id
       LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+      LEFT JOIN driver_profiles ref_dp ON ref_dp.user_id = u.referred_by_driver_id
       WHERE u.id = ${id}
       LIMIT 1
     `,
@@ -58,6 +63,13 @@ export async function GET(
          OR ride_id IN (SELECT id FROM rides WHERE driver_id = ${id} OR rider_id = ${id})
       ORDER BY created_at DESC
       LIMIT 10
+    `,
+    sql`
+      SELECT event_name, properties, created_at
+      FROM user_activity
+      WHERE user_id = ${id}
+      ORDER BY created_at DESC
+      LIMIT 30
     `,
   ]);
 
@@ -92,8 +104,20 @@ export async function GET(
       videoUrl: u.video_url,
       driverAreas: u.driver_areas,
       vehicleInfo: u.vehicle_info,
-      phone: u.driver_phone,
+      phone: u.driver_phone || u.rider_phone,
+      signupSource: u.signup_source,
+      referredByDriverId: u.referred_by_driver_id,
+      refDriverName: u.ref_driver_name,
+      refDriverHandle: u.ref_driver_handle,
+      lastSignInAt: u.last_sign_in_at,
+      signInCount: Number(u.sign_in_count ?? 0),
+      firstReturnAt: u.first_return_at,
     },
+    activity: activityRows.map((a: Record<string, unknown>) => ({
+      event: a.event_name,
+      properties: a.properties,
+      createdAt: a.created_at,
+    })),
     rides: rideRows.map((r: Record<string, unknown>) => ({
       id: r.id,
       status: r.status,
