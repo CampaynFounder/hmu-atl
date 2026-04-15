@@ -138,12 +138,22 @@ export default function AdminPitchVideosPage() {
         };
         xhr.onload = () => {
           xhrRef.current = null;
-          try { resolve(JSON.parse(xhr.responseText)); }
-          catch { reject(new Error('Invalid response')); }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try { resolve(JSON.parse(xhr.responseText)); }
+            catch { resolve({ success: true }); }
+          } else {
+            // Server returned an error — try to parse JSON, fall back to status text
+            try {
+              const parsed = JSON.parse(xhr.responseText);
+              resolve({ success: false, error: parsed.error || `Server error ${xhr.status}` });
+            } catch {
+              resolve({ success: false, error: `Upload failed (${xhr.status} ${xhr.statusText})` });
+            }
+          }
         };
         xhr.onerror = () => {
           xhrRef.current = null;
-          reject(new Error('Upload failed'));
+          reject(new Error('Network error — check connection and try again'));
         };
         xhr.onabort = () => {
           xhrRef.current = null;
