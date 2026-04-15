@@ -73,9 +73,18 @@ export default function AdminPitchVideosPage() {
     fileInputRef.current?.click();
   };
 
+  const [compressHint, setCompressHint] = useState<{ fileName: string; chapterId: string } | null>(null);
+
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !targetChapter) return;
+
+    const MAX_UPLOAD_MB = 100;
+    if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+      setCompressHint({ fileName: file.name, chapterId: targetChapter });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
 
     setUploading(targetChapter);
     setProgress(0);
@@ -228,6 +237,44 @@ export default function AdminPitchVideosPage() {
       {toast && (
         <div className="fixed top-4 right-4 z-50 bg-[#00E676] text-black px-4 py-2 rounded-lg text-sm font-bold shadow-lg animate-in fade-in">
           {toast}
+        </div>
+      )}
+
+      {/* Compress hint modal */}
+      {compressHint && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-neutral-900 border border-red-500/30 rounded-2xl p-6 max-w-md w-full space-y-4">
+            <h3 className="text-lg font-bold text-red-400">File Too Large</h3>
+            <p className="text-sm text-neutral-300">
+              <span className="font-mono text-white">{compressHint.fileName}</span> is over 100MB.
+              Compress it first with this command:
+            </p>
+            <div className="relative">
+              <pre className="bg-black rounded-lg p-3 text-xs text-[#00E676] font-mono overflow-x-auto whitespace-pre-wrap break-all">
+{`ffmpeg -i "${compressHint.fileName}" -vcodec libx264 -crf 28 -preset fast -acodec aac -b:a 128k -movflags +faststart "${compressHint.chapterId}.mp4"`}
+              </pre>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(
+                    `ffmpeg -i "${compressHint.fileName}" -vcodec libx264 -crf 28 -preset fast -acodec aac -b:a 128k -movflags +faststart "${compressHint.chapterId}.mp4"`
+                  );
+                  showToast('Copied to clipboard');
+                }}
+                className="absolute top-2 right-2 px-2 py-1 text-[10px] bg-white/10 hover:bg-white/20 rounded text-white transition-colors"
+              >
+                Copy
+              </button>
+            </div>
+            <p className="text-xs text-neutral-500">
+              Run this in Terminal, then upload the compressed file.
+            </p>
+            <button
+              onClick={() => setCompressHint(null)}
+              className="w-full py-2 text-sm font-medium rounded-lg bg-white/5 hover:bg-white/10 border border-neutral-700 transition-colors"
+            >
+              Got it
+            </button>
+          </div>
         </div>
       )}
 
