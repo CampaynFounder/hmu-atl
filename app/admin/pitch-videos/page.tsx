@@ -74,19 +74,42 @@ export default function AdminPitchVideosPage() {
     const file = e.target.files?.[0];
     if (!file || !targetChapter) return;
 
-    // Reject non-MP4 files with clear guidance
-    const isMp4 = file.type === 'video/mp4' || file.name.toLowerCase().endsWith('.mp4');
-    if (!isMp4) {
-      showToast(`${file.name.split('.').pop()?.toUpperCase()} not supported — convert to MP4 first: ffmpeg -i "${file.name}" -vcodec libx264 -crf 28 -acodec aac -b:a 128k output.mp4`);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
-
     setUploading(targetChapter);
     setProgress(0);
 
+    let uploadFile = file;
+    const isMp4 = file.type === 'video/mp4' || file.name.toLowerCase().endsWith('.mp4');
+
+    // Auto-convert non-MP4 files (e.g. .mov) to MP4 in the browser
+    if (!isMp4) {
+      showToast(`Converting ${file.name.split('.').pop()?.toUpperCase()} to MP4...`);
+      try {
+        const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+        const { fetchFile } = await import('@ffmpeg/util');
+        const ffmpeg = new FFmpeg();
+        ffmpeg.on('progress', ({ progress }) => {
+          setProgress(Math.round(progress * 50)); // 0-50% for conversion
+        });
+        await ffmpeg.load();
+        const inputName = 'input' + file.name.substring(file.name.lastIndexOf('.'));
+        await ffmpeg.writeFile(inputName, await fetchFile(file));
+        await ffmpeg.exec(['-i', inputName, '-vcodec', 'libx264', '-crf', '28', '-acodec', 'aac', '-b:a', '128k', '-movflags', '+faststart', 'output.mp4']);
+        const data = await ffmpeg.readFile('output.mp4');
+        const blob = new Blob([data as BlobPart], { type: 'video/mp4' });
+        uploadFile = new File([blob], targetChapter + '.mp4', { type: 'video/mp4' });
+        showToast(`Converted to MP4 (${(uploadFile.size / 1024 / 1024).toFixed(1)}MB) — uploading...`);
+      } catch (err) {
+        console.error('Conversion failed:', err);
+        showToast(`Conversion failed — convert manually: ffmpeg -i "${file.name}" -vcodec libx264 -crf 28 -acodec aac -b:a 128k output.mp4`);
+        setUploading(null);
+        setProgress(0);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+    }
+
     const formData = new FormData();
-    formData.append('video', file);
+    formData.append('video', uploadFile);
     formData.append('chapterId', targetChapter);
 
     try {
@@ -95,7 +118,10 @@ export default function AdminPitchVideosPage() {
       const result = await new Promise<{ success: boolean; url?: string; error?: string }>((resolve, reject) => {
         xhr.upload.onprogress = (evt) => {
           if (evt.lengthComputable) {
-            setProgress(Math.round((evt.loaded / evt.total) * 100));
+            // If file was converted, upload progress is 50-100%. Otherwise 0-100%.
+            const base = isMp4 ? 0 : 50;
+            const range = isMp4 ? 100 : 50;
+            setProgress(base + Math.round((evt.loaded / evt.total) * range));
           }
         };
         xhr.onload = () => {
@@ -151,7 +177,7 @@ export default function AdminPitchVideosPage() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="video/mp4,.mp4"
+        accept="video/*,.mp4,.mov,.webm"
         className="hidden"
         onChange={handleFileSelected}
       />
