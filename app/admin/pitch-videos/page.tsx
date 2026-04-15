@@ -82,21 +82,25 @@ export default function AdminPitchVideosPage() {
 
     let uploadFile = file;
     const isMp4 = file.type === 'video/mp4' || file.name.toLowerCase().endsWith('.mp4');
+    const COMPRESS_THRESHOLD = 20 * 1024 * 1024; // 20MB — compress anything larger
+    const needsCompression = !isMp4 || file.size > COMPRESS_THRESHOLD;
 
-    // Auto-convert non-MP4 files (e.g. .mov) to MP4 in the browser
-    if (!isMp4) {
+    // Compress/convert via FFmpeg WASM: non-MP4 files always, large MP4s for size reduction
+    if (needsCompression) {
       setConverting(true);
-      showToast(`Converting ${file.name.split('.').pop()?.toUpperCase()} to MP4...`);
+      const reason = isMp4 ? `Compressing (${(file.size / 1024 / 1024).toFixed(0)}MB)...` : `Converting ${file.name.split('.').pop()?.toUpperCase()} to MP4...`;
+      showToast(reason);
       try {
         const { FFmpeg } = await import('@ffmpeg/ffmpeg');
         const { fetchFile } = await import('@ffmpeg/util');
         const ffmpeg = new FFmpeg();
         ffmpegRef.current = ffmpeg;
         ffmpeg.on('progress', ({ progress }) => {
-          setProgress(Math.round(progress * 50)); // 0-50% for conversion
+          setProgress(Math.round(progress * 50)); // 0-50% for compression
         });
         await ffmpeg.load();
-        const inputName = 'input' + file.name.substring(file.name.lastIndexOf('.'));
+        const ext = file.name.substring(file.name.lastIndexOf('.')) || '.mp4';
+        const inputName = 'input' + ext;
         await ffmpeg.writeFile(inputName, await fetchFile(file));
         await ffmpeg.exec(['-i', inputName, '-vcodec', 'libx264', '-crf', '28', '-acodec', 'aac', '-b:a', '128k', '-movflags', '+faststart', 'output.mp4']);
         const data = await ffmpeg.readFile('output.mp4');
@@ -104,18 +108,17 @@ export default function AdminPitchVideosPage() {
         uploadFile = new File([blob], targetChapter + '.mp4', { type: 'video/mp4' });
         ffmpegRef.current = null;
         setConverting(false);
-        showToast(`Converted to MP4 (${(uploadFile.size / 1024 / 1024).toFixed(1)}MB) — uploading...`);
+        const saved = file.size - uploadFile.size;
+        const savedMsg = saved > 0 ? ` (saved ${(saved / 1024 / 1024).toFixed(1)}MB)` : '';
+        showToast(`Compressed to ${(uploadFile.size / 1024 / 1024).toFixed(1)}MB${savedMsg} — uploading...`);
       } catch (err) {
         ffmpegRef.current = null;
         setConverting(false);
-        // If cancelled, state is already reset by handleCancel
         if (!uploading) return;
-        console.error('Conversion failed:', err);
-        showToast(`Conversion failed — convert manually: ffmpeg -i "${file.name}" -vcodec libx264 -crf 28 -acodec aac -b:a 128k output.mp4`);
-        setUploading(null);
-        setProgress(0);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        return;
+        console.error('Compression failed:', err);
+        // Fall back to uploading the original file uncompressed
+        showToast('Compression failed — uploading original file...');
+        uploadFile = file;
       }
     }
 
@@ -126,9 +129,9 @@ export default function AdminPitchVideosPage() {
       const result = await new Promise<{ success: boolean; url?: string; error?: string }>((resolve, reject) => {
         xhr.upload.onprogress = (evt) => {
           if (evt.lengthComputable) {
-            // If file was converted, upload progress is 50-100%. Otherwise 0-100%.
-            const base = isMp4 ? 0 : 50;
-            const range = isMp4 ? 100 : 50;
+            // If file was compressed, upload progress is 50-100%. Otherwise 0-100%.
+            const base = needsCompression ? 50 : 0;
+            const range = needsCompression ? 50 : 100;
             setProgress(base + Math.round((evt.loaded / evt.total) * range));
           }
         };
