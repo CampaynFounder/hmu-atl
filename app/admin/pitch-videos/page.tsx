@@ -119,12 +119,8 @@ export default function AdminPitchVideosPage() {
       }
     }
 
-    const formData = new FormData();
-    formData.append('video', uploadFile);
-    formData.append('chapterId', targetChapter);
-
     try {
-      // Use XMLHttpRequest for upload progress
+      // Use XMLHttpRequest with raw body (no FormData) — avoids Worker memory buffering
       const xhr = new XMLHttpRequest();
       xhrRef.current = xhr;
       const result = await new Promise<{ success: boolean; url?: string; error?: string }>((resolve, reject) => {
@@ -142,7 +138,6 @@ export default function AdminPitchVideosPage() {
             try { resolve(JSON.parse(xhr.responseText)); }
             catch { resolve({ success: true }); }
           } else {
-            // Server returned an error — try to parse JSON, fall back to status text
             try {
               const parsed = JSON.parse(xhr.responseText);
               resolve({ success: false, error: parsed.error || `Server error ${xhr.status}` });
@@ -159,8 +154,9 @@ export default function AdminPitchVideosPage() {
           xhrRef.current = null;
           resolve({ success: false, error: 'cancelled' });
         };
-        xhr.open('POST', '/api/admin/pitch-videos');
-        xhr.send(formData);
+        xhr.open('PUT', `/api/admin/pitch-videos?chapterId=${encodeURIComponent(targetChapter)}`);
+        xhr.setRequestHeader('Content-Type', 'video/mp4');
+        xhr.send(uploadFile);
       });
 
       if (result.success) {

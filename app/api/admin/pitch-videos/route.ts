@@ -9,7 +9,7 @@ type R2Object = { key: string; size: number; uploaded: string };
 type R2ListResult = { objects: R2Object[]; truncated: boolean };
 type R2Bucket = {
   list: (opts: { prefix: string }) => Promise<R2ListResult>;
-  put: (key: string, value: ArrayBuffer, opts?: Record<string, unknown>) => Promise<unknown>;
+  put: (key: string, value: ReadableStream | ArrayBuffer, opts?: Record<string, unknown>) => Promise<unknown>;
   delete: (key: string) => Promise<void>;
   head: (key: string) => Promise<R2Object | null>;
 };
@@ -48,8 +48,8 @@ export async function GET() {
   return NextResponse.json(videos);
 }
 
-// POST — upload a pitch video
-export async function POST(request: NextRequest) {
+// PUT — upload a pitch video (raw body, no FormData — avoids Worker memory buffering)
+export async function PUT(request: NextRequest) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -58,26 +58,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Storage not configured' }, { status: 500 });
   }
 
-  const formData = await request.formData();
-  const file = formData.get('video') as File;
-  const chapterId = formData.get('chapterId') as string;
-
-  if (!file || !chapterId) {
-    return NextResponse.json({ error: 'Missing video file or chapterId' }, { status: 400 });
+  const chapterId = request.nextUrl.searchParams.get('chapterId');
+  if (!chapterId) {
+    return NextResponse.json({ error: 'Missing chapterId' }, { status: 400 });
   }
 
-  if (!file.type.startsWith('video/')) {
-    return NextResponse.json({ error: 'Only video files allowed' }, { status: 400 });
-  }
-
-  if (file.size > 100 * 1024 * 1024) {
-    return NextResponse.json({ error: 'File too large. Maximum 100MB.' }, { status: 400 });
+  if (!request.body) {
+    return NextResponse.json({ error: 'Missing video body' }, { status: 400 });
   }
 
   const key = `${R2_PREFIX}${chapterId}.mp4`;
-  const arrayBuffer = await file.arrayBuffer();
 
-  await bucket.put(key, arrayBuffer, {
+  // Stream the body directly to R2 — never buffered in Worker memory
+  await bucket.put(key, request.body, {
     httpMetadata: { contentType: 'video/mp4' },
     customMetadata: {
       chapterId,
@@ -87,8 +80,7 @@ export async function POST(request: NextRequest) {
   });
 
   const url = `${R2_PUBLIC_URL}/${key}`;
-
-  return NextResponse.json({ success: true, chapterId, url, size: file.size });
+  return NextResponse.json({ success: true, chapterId, url });
 }
 
 // DELETE — remove a pitch video
