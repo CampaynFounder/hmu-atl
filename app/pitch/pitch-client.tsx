@@ -419,9 +419,7 @@ function SectionCarousel({
                         {audioOn ? '\u{1F50A}' : '\u{1F507}'}
                       </button>
                       <div className={styles.framePlaceholder} aria-hidden>
-                        <span className={styles.frameLabel}>DROP VIDEO</span>
-                        <code className={styles.frameCode}>{resolvedSrc}</code>
-                        <span className={styles.frameHint}>9:16 &middot; MP4 &middot; H.264</span>
+                        <span className={styles.frameLabel}>LOADING</span>
                       </div>
                     </>
                   ) : (
