@@ -30,6 +30,7 @@ import { useAdminAuth } from '@/app/admin/components/admin-auth-context';
 import type { SectionLayoutEntry } from '@/lib/cms/types';
 
 interface ZoneData {
+  id: string;
   zone_key: string;
   zone_type: string;
   display_name: string;
@@ -181,18 +182,11 @@ export default function SectionBuilderPage() {
     setSaving(true);
     const content = editedContent[zoneKey];
     const dbZone = zones.find((z) => z.zone_key === zoneKey);
-
-    // Find zone_id from DB zones or look it up
-    let zoneId = dbZone ? (dbZone as unknown as { id: string }).id : null;
-    if (!zoneId) {
-      // Need to find zone ID from the zones list
-      const allZones = zones as unknown as Array<{ id: string; zone_key: string }>;
-      const match = allZones.find((z) => z.zone_key === zoneKey);
-      zoneId = match?.id || null;
-    }
+    const zoneId = dbZone?.id;
 
     if (!zoneId) {
-      // Zone not seeded yet
+      console.error('[CMS] Zone not found in DB:', zoneKey);
+      alert(`Zone "${zoneKey}" not found. Try clicking "Seed Zones" on the Funnel CMS dashboard first.`);
       setSaving(false);
       return;
     }
@@ -212,28 +206,40 @@ export default function SectionBuilderPage() {
     const targetLabel = [persona, stage !== 'awareness' ? stage : null].filter(Boolean).join(' + ') || 'default';
     const saveStatus = needsApproval ? 'pending_approval' : 'published';
 
-    await fetch('/api/admin/funnel/variants', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        zone_id: zoneId,
-        market_id: selectedMarketId,
-        variant_name: variantName,
-        content,
-        utm_targets: hasTargets ? utmTargets : undefined,
-        change_summary: needsApproval ? `Submitted for approval (${targetLabel})` : `Updated for ${targetLabel}`,
-        save_status: saveStatus,
-      }),
-    });
-
-    // Clear edit state and refresh
-    setEditedContent((prev) => {
-      const next = { ...prev };
-      delete next[zoneKey];
-      return next;
-    });
-    fetchZones();
-    setSaving(false);
+    try {
+      const res = await fetch('/api/admin/funnel/variants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          zone_id: zoneId,
+          market_id: selectedMarketId,
+          variant_name: variantName,
+          content,
+          utm_targets: hasTargets ? utmTargets : undefined,
+          change_summary: needsApproval ? `Submitted for approval (${targetLabel})` : `Updated for ${targetLabel}`,
+          save_status: saveStatus,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error('[CMS] Save failed:', err);
+        alert(`Save failed: ${err.error || res.statusText}`);
+        setSaving(false);
+        return;
+      }
+      // Clear edit state and refresh
+      setEditedContent((prev) => {
+        const next = { ...prev };
+        delete next[zoneKey];
+        return next;
+      });
+      fetchZones();
+    } catch (e) {
+      console.error('[CMS] Save error:', e);
+      alert(`Save error: ${e}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Get section definition
