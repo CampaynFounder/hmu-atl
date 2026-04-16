@@ -155,7 +155,7 @@ export default function ChillConfigPage() {
 
   if (loading || !config) {
     return (
-      <div style={{ minHeight: '100vh', background: '#080808', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ minHeight: '100vh', background: 'var(--admin-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2px solid #00E676', borderTopColor: 'transparent', animation: 'spin 0.6s linear infinite' }} />
         <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
       </div>
@@ -170,7 +170,7 @@ export default function ChillConfigPage() {
 
   return (
     <div style={{
-      minHeight: '100vh', background: '#080808', color: '#fff',
+      minHeight: '100vh', background: 'var(--admin-bg)', color: 'var(--admin-text)',
       fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
       paddingTop: 56, paddingBottom: 80,
     }}>
@@ -209,7 +209,7 @@ export default function ChillConfigPage() {
       {/* Live Preview */}
       <div style={{ padding: '16px 20px' }}>
         <div style={{
-          background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+          background: 'var(--admin-bg-elevated)', border: '1px solid var(--admin-border)',
           borderRadius: 16, padding: '16px',
         }}>
           <div style={{ fontSize: 11, color: '#888', fontFamily: "var(--font-mono, monospace)", letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10 }}>
@@ -230,7 +230,7 @@ export default function ChillConfigPage() {
                 {previewRides.map(rides => {
                   const w = Math.max(config.minWeight, config.baseWeight / Math.sqrt(rides));
                   return (
-                    <tr key={rides} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <tr key={rides} style={{ borderTop: '1px solid var(--admin-border)' }}>
                       <td style={{ padding: '8px', color: '#bbb', fontFamily: "var(--font-mono, monospace)" }}>{rides}</td>
                       <td style={{ textAlign: 'right', padding: '8px', color: '#00E676', fontFamily: "var(--font-mono, monospace)" }}>+{(w * config.coolAfMultiplier).toFixed(1)}</td>
                       <td style={{ textAlign: 'right', padding: '8px', color: '#00E676', fontFamily: "var(--font-mono, monospace)" }}>+{(w * config.chillMultiplier).toFixed(1)}</td>
@@ -274,7 +274,7 @@ export default function ChillConfigPage() {
           <div style={{
             fontSize: 10, color: '#888', fontFamily: "var(--font-mono, monospace)",
             letterSpacing: 3, textTransform: 'uppercase', marginBottom: 12,
-            paddingBottom: 8, borderBottom: '1px solid rgba(255,255,255,0.06)',
+            paddingBottom: 8, borderBottom: '1px solid var(--admin-border)',
           }}>
             {group}
           </div>
@@ -284,7 +284,7 @@ export default function ChillConfigPage() {
               {/* Label row */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{field.label}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--admin-text)' }}>{field.label}</span>
                   {/* Info button */}
                   <button
                     onClick={() => setOpenTooltip(openTooltip === field.key ? null : field.key)}
@@ -315,7 +315,7 @@ export default function ChillConfigPage() {
                   <div className="tooltip-overlay" onClick={() => setOpenTooltip(null)} />
                   <div style={{
                     position: 'relative', zIndex: 100,
-                    background: '#1a1a1a', border: '1px solid rgba(0,230,118,0.2)',
+                    background: 'var(--admin-bg)', border: '1px solid rgba(0,230,118,0.2)',
                     borderRadius: 12, padding: '12px 14px', marginBottom: 10,
                     fontSize: 13, color: '#bbb', lineHeight: 1.6,
                     boxShadow: '0 4px 24px rgba(0,0,0,0.4)',

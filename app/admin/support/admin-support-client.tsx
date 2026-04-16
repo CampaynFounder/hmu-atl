@@ -32,7 +32,7 @@ const PRIORITY_COLORS: Record<string, { color: string; bg: string }> = {
   urgent: { color: '#FF5252', bg: 'rgba(255,82,82,0.12)' },
   high: { color: '#FF9100', bg: 'rgba(255,145,0,0.12)' },
   normal: { color: '#448AFF', bg: 'rgba(68,138,255,0.12)' },
-  low: { color: '#888', bg: 'rgba(255,255,255,0.05)' },
+  low: { color: '#888', bg: 'var(--admin-bg-active)' },
 };
 
 const CATEGORY_LABELS: Record<string, string> = {

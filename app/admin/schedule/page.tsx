@@ -95,7 +95,7 @@ export default function ScheduleAnalyticsPage() {
                         height: 20,
                         borderRadius: 3,
                         background: val === 0
-                          ? 'rgba(255,255,255,0.03)'
+                          ? 'var(--admin-bg-active)'
                           : `rgba(0, 230, 118, ${0.15 + intensity * 0.65})`,
                         transition: 'background 0.2s',
                         cursor: 'default',

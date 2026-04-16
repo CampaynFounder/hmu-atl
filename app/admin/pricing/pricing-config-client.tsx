@@ -150,7 +150,7 @@ export default function PricingConfigClient() {
       {/* Active Configs */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {activeConfigs.map(config => {
-          const ti = TIER_LABELS[config.tier] || { label: config.tier, color: '#fff' };
+          const ti = TIER_LABELS[config.tier] || { label: config.tier, color: 'var(--admin-text)' };
           const isEditing = editingTier === config.tier;
           return (
             <div key={config.id} className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
@@ -365,7 +365,7 @@ export default function PricingConfigClient() {
           <h2 className="text-sm font-semibold mb-3">Change History</h2>
           <div className="space-y-2">
             {history.map(config => {
-              const ti = TIER_LABELS[config.tier] || { label: config.tier, color: '#fff' };
+              const ti = TIER_LABELS[config.tier] || { label: config.tier, color: 'var(--admin-text)' };
               return (
                 <div key={config.id} className="flex items-center justify-between py-2 border-b border-neutral-800 last:border-0 text-xs">
                   <div className="flex items-center gap-2 min-w-0">

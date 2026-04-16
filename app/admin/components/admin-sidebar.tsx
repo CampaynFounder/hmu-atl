@@ -172,8 +172,8 @@ export function AdminSidebar() {
                 onChange={(e) => setSelectedMarketId(e.target.value || null)}
                 style={{
                   marginTop: 8, width: '100%', padding: '6px 10px',
-                  background: '#1a1a1a', border: '1px solid #333', borderRadius: 8,
-                  color: '#fff', fontSize: 12, fontWeight: 600,
+                  background: 'var(--admin-bg)', border: '1px solid var(--admin-border)', borderRadius: 8,
+                  color: 'var(--admin-text)', fontSize: 12, fontWeight: 600,
                   appearance: 'none', cursor: 'pointer',
                   backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\'%3E%3Cpath d=\'M0 0l5 6 5-6z\' fill=\'%23666\'/%3E%3C/svg%3E")',
                   backgroundRepeat: 'no-repeat',

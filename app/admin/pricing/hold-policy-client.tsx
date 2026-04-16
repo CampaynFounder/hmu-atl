@@ -247,7 +247,7 @@ export default function HoldPolicyClient() {
       {/* ── Active Policies ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {activePolicies.map(policy => {
-          const ti = TIER_LABELS[policy.tier] || { label: policy.tier, color: '#fff' };
+          const ti = TIER_LABELS[policy.tier] || { label: policy.tier, color: 'var(--admin-text)' };
           const isEditing = editingTier === policy.tier;
 
           return (
@@ -430,7 +430,7 @@ export default function HoldPolicyClient() {
           <h2 className="text-sm font-semibold mb-3">Policy History</h2>
           <div className="space-y-2">
             {history.map(policy => {
-              const ti = TIER_LABELS[policy.tier] || { label: policy.tier, color: '#fff' };
+              const ti = TIER_LABELS[policy.tier] || { label: policy.tier, color: 'var(--admin-text)' };
               return (
                 <div key={policy.id} className="flex items-center justify-between py-2 border-b border-neutral-800 last:border-0 text-xs">
                   <div className="flex items-center gap-2 min-w-0">

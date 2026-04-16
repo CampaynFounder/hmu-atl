@@ -280,29 +280,27 @@ export function MessageHistory() {
       {smsStats && (
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           {([
-            { key: 'outbound' as const, label: 'Outbound', value: smsStats.outbound, color: '#fff' },
-            { key: 'inbound' as const, label: 'Inbound', value: smsStats.inbound, color: '#fff' },
-            { key: 'failed' as const, label: 'Failed', value: smsStats.failed, color: smsStats.failed > 0 ? '#FF5252' : '#fff' },
+            { key: 'outbound' as const, label: 'Outbound', value: smsStats.outbound, color: 'var(--admin-text)' },
+            { key: 'inbound' as const, label: 'Inbound', value: smsStats.inbound, color: 'var(--admin-text)' },
+            { key: 'failed' as const, label: 'Failed', value: smsStats.failed, color: smsStats.failed > 0 ? '#FF5252' : 'var(--admin-text)' },
           ]).map(({ key, label, value, color }) => (
             <button
               key={key}
               onClick={() => drillFilter === key ? setDrillFilter(null) : openDrill(key)}
-              className={`bg-neutral-900 border rounded-xl p-3 text-left transition-colors cursor-pointer hover:bg-white/5 ${
-                drillFilter === key ? 'border-[#00E676]' : 'border-neutral-800'
-              }`}
+              style={{ background: 'var(--admin-bg-elevated)', border: `1px solid ${drillFilter === key ? '#00E676' : 'var(--admin-border)'}`, borderRadius: 12, padding: 12, textAlign: 'left', cursor: 'pointer' }}
             >
-              <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>{label}</div>
-              <div className="text-xl font-bold" style={{ color }}>{value}</div>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: 'var(--admin-text-muted)', textTransform: 'uppercase', fontFamily: "'Space Mono', monospace" }}>{label}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color }}>{value}</div>
             </button>
           ))}
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-            <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>Total</div>
-            <div className="text-xl font-bold text-white">{smsStats.total}</div>
+          <div style={{ background: 'var(--admin-bg-elevated)', border: '1px solid var(--admin-border)', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: 'var(--admin-text-muted)', textTransform: 'uppercase', fontFamily: "'Space Mono', monospace" }}>Total</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--admin-text)' }}>{smsStats.total}</div>
           </div>
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-            <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>SMS Spend</div>
-            <div className="text-xl font-bold" style={{ color: '#00E676', fontFamily: "'Space Mono', monospace" }}>${smsStats.cost.toFixed(2)}</div>
-            <div className="text-[10px] text-neutral-600 mt-0.5">$0.0075/msg</div>
+          <div style={{ background: 'var(--admin-bg-elevated)', border: '1px solid var(--admin-border)', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: 'var(--admin-text-muted)', textTransform: 'uppercase', fontFamily: "'Space Mono', monospace" }}>SMS Spend</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#00E676', fontFamily: "'Space Mono', monospace" }}>${smsStats.cost.toFixed(2)}</div>
+            <div style={{ fontSize: 10, color: 'var(--admin-text-muted)', marginTop: 2 }}>$0.0075/msg</div>
           </div>
         </div>
       )}
