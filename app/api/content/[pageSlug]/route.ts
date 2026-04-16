@@ -18,10 +18,11 @@ export async function GET(
   const utmSource = searchParams.get('utm_source') || undefined;
   const utmCampaign = searchParams.get('utm_campaign') || undefined;
   const utmFunnel = searchParams.get('utm_funnel') || undefined;
+  const utmPersona = searchParams.get('utm_persona') || undefined;
   const visitorId = searchParams.get('visitor_id') || undefined;
 
-  const utmParams = utmSource || utmCampaign || utmFunnel
-    ? { utm_source: utmSource, utm_campaign: utmCampaign, utm_funnel: utmFunnel }
+  const utmParams = utmSource || utmCampaign || utmFunnel || utmPersona
+    ? { utm_source: utmSource, utm_campaign: utmCampaign, utm_funnel: utmFunnel, utm_persona: utmPersona }
     : undefined;
 
   const data = await getPageContent(pageSlug, market, utmParams, visitorId);

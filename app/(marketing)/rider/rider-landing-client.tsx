@@ -131,10 +131,11 @@ function RiderLandingInner() {
     setIsSubmitting(true);
     const params = new URLSearchParams(window.location.search);
     const currentStage = params.get('utm_funnel') || 'awareness';
+    const currentPersona = params.get('utm_persona') || null;
 
     try {
       posthog.capture('lead_captured', {
-        lead_type: 'rider', funnel_stage: currentStage, audience: 'rider',
+        lead_type: 'rider', funnel_stage: currentStage, persona: currentPersona, audience: 'rider',
         source: 'rider_landing', phone: phone ? 'provided' : 'empty', email: email ? 'provided' : 'empty',
       });
     } catch (_) {
@@ -154,6 +155,7 @@ function RiderLandingInner() {
         utm_medium: params.get('utm_medium'),
         utm_campaign: params.get('utm_campaign'),
         funnel_stage: currentStage,
+        persona: currentPersona,
         audience: 'rider',
       }),
     }).catch(() => {});

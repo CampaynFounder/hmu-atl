@@ -13,7 +13,7 @@ import type { ContentMap, FlagMap, PageContentResponse, SectionLayoutEntry } fro
 export async function getPageContent(
   pageSlug: string,
   marketSlug: string = 'atl',
-  utmParams?: { utm_source?: string; utm_campaign?: string; utm_funnel?: string },
+  utmParams?: { utm_source?: string; utm_campaign?: string; utm_funnel?: string; utm_persona?: string },
   visitorId?: string,
 ): Promise<PageContentResponse> {
   const defaults = getDefaultContentMap(pageSlug);
@@ -57,7 +57,8 @@ export async function getPageContent(
       if (utmParams) {
         const utmMatch = variantList.find((v) => {
           if (!v.utm_targets) return false;
-          const { utm_source, utm_campaign, utm_funnel } = utmParams;
+          const { utm_source, utm_campaign, utm_funnel, utm_persona } = utmParams;
+          if (utm_persona && v.utm_targets.utm_persona?.includes(utm_persona)) return true;
           if (utm_funnel && v.utm_targets.utm_funnel?.includes(utm_funnel)) return true;
           if (utm_source && v.utm_targets.utm_source?.includes(utm_source)) return true;
           if (utm_campaign && v.utm_targets.utm_campaign?.includes(utm_campaign)) return true;

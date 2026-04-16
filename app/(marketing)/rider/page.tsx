@@ -33,10 +33,11 @@ export default async function RiderLandingPage({
   const utmFunnel = typeof params.utm_funnel === 'string' ? params.utm_funnel : undefined;
   const utmSource = typeof params.utm_source === 'string' ? params.utm_source : undefined;
   const utmCampaign = typeof params.utm_campaign === 'string' ? params.utm_campaign : undefined;
+  const utmPersona = typeof params.utm_persona === 'string' ? params.utm_persona : undefined;
 
   const { content, flags, sectionOrder, funnelStage } = await getPageContent(
     'rider_landing', 'atl',
-    { utm_funnel: utmFunnel, utm_source: utmSource, utm_campaign: utmCampaign },
+    { utm_funnel: utmFunnel, utm_source: utmSource, utm_campaign: utmCampaign, utm_persona: utmPersona },
   );
   return (
     <RiderLandingClient

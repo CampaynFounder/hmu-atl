@@ -4,7 +4,7 @@ import { createActionItem } from '@/lib/admin/action-items';
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, phone, lead_type, source, utm_source, utm_medium, utm_campaign, funnel_stage, audience } = await request.json();
+    const { email, phone, lead_type, source, utm_source, utm_medium, utm_campaign, funnel_stage, audience, persona } = await request.json();
 
     if (!lead_type || !['driver', 'rider'].includes(lead_type)) {
       return NextResponse.json({ error: 'Invalid lead_type' }, { status: 400 });
@@ -16,8 +16,8 @@ export async function POST(request: NextRequest) {
 
     // Upsert by email+lead_type — update phone/funnel if provided on repeat visit
     const rows = await sql`
-      INSERT INTO leads (email, phone, lead_type, source, utm_source, utm_medium, utm_campaign, funnel_stage, audience)
-      VALUES (${email || null}, ${phone || null}, ${lead_type}, ${source || 'landing_page'}, ${utm_source || null}, ${utm_medium || null}, ${utm_campaign || null}, ${funnel_stage || null}, ${audience || lead_type})
+      INSERT INTO leads (email, phone, lead_type, source, utm_source, utm_medium, utm_campaign, funnel_stage, audience, persona)
+      VALUES (${email || null}, ${phone || null}, ${lead_type}, ${source || 'landing_page'}, ${utm_source || null}, ${utm_medium || null}, ${utm_campaign || null}, ${funnel_stage || null}, ${audience || lead_type}, ${persona || null})
       ON CONFLICT (email, lead_type) WHERE email IS NOT NULL
       DO UPDATE SET
         phone = COALESCE(EXCLUDED.phone, leads.phone),
@@ -25,7 +25,8 @@ export async function POST(request: NextRequest) {
         utm_medium = COALESCE(EXCLUDED.utm_medium, leads.utm_medium),
         utm_campaign = COALESCE(EXCLUDED.utm_campaign, leads.utm_campaign),
         funnel_stage = COALESCE(EXCLUDED.funnel_stage, leads.funnel_stage),
-        audience = COALESCE(EXCLUDED.audience, leads.audience)
+        audience = COALESCE(EXCLUDED.audience, leads.audience),
+        persona = COALESCE(EXCLUDED.persona, leads.persona)
       RETURNING id
     `;
 

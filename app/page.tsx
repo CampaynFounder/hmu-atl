@@ -18,7 +18,10 @@ export default function HomePage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const utmFunnel = params.get('utm_funnel') || '';
-    const qs = utmFunnel ? `&utm_funnel=${utmFunnel}` : '';
+    const utmPersona = params.get('utm_persona') || '';
+    let qs = '';
+    if (utmFunnel) qs += `&utm_funnel=${utmFunnel}`;
+    if (utmPersona) qs += `&utm_persona=${utmPersona}`;
     fetch(`/api/content/homepage?market=atl${qs}`)
       .then((r) => r.json())
       .then((data) => {

@@ -223,11 +223,13 @@ function DriverLandingInner() {
     setIsSubmitting(true);
     const params = new URLSearchParams(window.location.search);
     const currentStage = params.get('utm_funnel') || 'awareness';
+    const currentPersona = params.get('utm_persona') || null;
 
-    // Analytics: PostHog + Meta Pixel with funnel stage
-    posthog.capture('lead_captured', { lead_type: 'driver', funnel_stage: currentStage, audience: 'driver', source: 'driver_landing', phone: phone ? 'provided' : 'empty', email: email ? 'provided' : 'empty' });
+    // Analytics: PostHog + Meta Pixel with funnel stage + persona
+    posthog.capture('lead_captured', { lead_type: 'driver', funnel_stage: currentStage, persona: currentPersona, audience: 'driver', source: 'driver_landing', phone: phone ? 'provided' : 'empty', email: email ? 'provided' : 'empty' });
     fbEvent('Lead', { content_name: 'Driver Signup Form', content_category: `driver_${currentStage}` });
-    fbCustomEvent(`FunnelLead_${currentStage}`, { audience: 'driver' });
+    fbCustomEvent(`FunnelLead_${currentStage}`, { audience: 'driver', persona: currentPersona });
+    if (currentPersona) fbCustomEvent(`PersonaLead_${currentPersona}`, { audience: 'driver', funnel_stage: currentStage });
 
     // Store lead before redirecting
     fetch('/api/leads', {
@@ -242,6 +244,7 @@ function DriverLandingInner() {
         utm_medium: params.get('utm_medium'),
         utm_campaign: params.get('utm_campaign'),
         funnel_stage: currentStage,
+        persona: currentPersona,
         audience: 'driver',
       }),
     }).catch(() => {});
