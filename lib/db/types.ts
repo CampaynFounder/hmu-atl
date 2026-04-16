@@ -2,7 +2,7 @@
 // TypeScript interfaces matching Neon database schema
 
 // Enums
-export type ProfileType = 'rider' | 'driver';
+export type ProfileType = 'rider' | 'driver' | 'admin';
 export type AccountStatus = 'pending_activation' | 'active' | 'suspended' | 'banned';
 export type Tier = 'free' | 'hmu_first';
 export type PostType = 'rider_seeking_driver' | 'driver_offering_ride' | 'direct_booking';

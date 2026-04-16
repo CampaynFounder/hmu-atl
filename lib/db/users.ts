@@ -13,7 +13,7 @@ export interface CreateUserParams {
   profile_type: ProfileType;
   phone?: string | null;
   video_intro_url?: string;
-  signup_source?: 'hmu_chat' | 'direct' | 'homepage_lead' | null;
+  signup_source?: 'hmu_chat' | 'direct' | 'homepage_lead' | 'admin_portal' | null;
   referred_by_driver_id?: string | null;
   referred_via_hmu_post_id?: string | null;
 }

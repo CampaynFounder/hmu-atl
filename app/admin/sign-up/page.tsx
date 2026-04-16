@@ -1,6 +1,6 @@
-import { SignIn } from '@clerk/nextjs';
+import { SignUp } from '@clerk/nextjs';
 
-export default function AdminLoginPage() {
+export default function AdminSignUpPage() {
   return (
     <div style={{ padding: 20, textAlign: 'center' }}>
       <div style={{
@@ -10,12 +10,16 @@ export default function AdminLoginPage() {
       }}>
         HMU ADMIN
       </div>
-      <p style={{ fontSize: 13, color: '#666', marginBottom: 24 }}>
-        Sign in to access the admin portal
+      <p style={{ fontSize: 13, color: '#666', marginBottom: 4 }}>
+        Create your admin account
       </p>
-      <SignIn
+      <p style={{ fontSize: 11, color: '#555', marginBottom: 24 }}>
+        A super admin must assign your role before you can access the portal
+      </p>
+      <SignUp
         forceRedirectUrl="/admin"
         fallbackRedirectUrl="/admin"
+        unsafeMetadata={{ intent: 'admin', signup_source: 'admin_portal' }}
         appearance={{
           variables: {
             colorPrimary: '#00E676',
@@ -44,7 +48,7 @@ export default function AdminLoginPage() {
         }}
       />
       <p style={{ fontSize: 11, color: '#444', marginTop: 16 }}>
-        Need an account? <a href="/admin/sign-up" style={{ color: '#00E676', textDecoration: 'none' }}>Create admin account</a>
+        Already have an account? <a href="/admin/login" style={{ color: '#00E676', textDecoration: 'none' }}>Sign in</a>
       </p>
     </div>
   );

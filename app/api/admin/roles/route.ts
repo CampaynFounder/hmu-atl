@@ -20,7 +20,7 @@ export async function GET() {
   const admins = await sql`
     SELECT u.id, u.clerk_id, u.profile_type,
            dp.display_name as driver_name, rp.display_name as rider_name,
-           dp.email as driver_email, rp.email as rider_email,
+           dp.email as driver_email, rp.phone as rider_phone,
            ar.slug as role_slug, ar.label as role_label
     FROM users u
     LEFT JOIN admin_roles ar ON ar.id = u.admin_role_id
@@ -46,15 +46,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'slug and label required' }, { status: 400 });
   }
 
-  const rows = await sql`
-    INSERT INTO admin_roles (slug, label, description, permissions, requires_publish_approval)
-    VALUES (${slug}, ${label}, ${description || null}, ${permissions || []}, ${requires_publish_approval || false})
-    RETURNING id
-  `;
+  const permsArray = Array.isArray(permissions) && permissions.length > 0 ? permissions : [];
+  // Neon sql template needs Postgres array literal for TEXT[]
+  const permsLiteral = `{${permsArray.map((p: string) => `"${p}"`).join(',')}}`;
 
-  await logAdminAction(admin.id, 'role_created', 'admin_role', rows[0].id as string, { slug, label, permissions });
+  try {
+    const rows = await sql`
+      INSERT INTO admin_roles (slug, label, description, permissions, requires_publish_approval)
+      VALUES (${slug}, ${label}, ${description || null}, ${permsLiteral}::TEXT[], ${requires_publish_approval || false})
+      RETURNING id
+    `;
 
-  return NextResponse.json({ id: rows[0].id });
+    await logAdminAction(admin.id, 'role_created', 'admin_role', rows[0].id as string, { slug, label, permissions });
+
+    return NextResponse.json({ id: rows[0].id });
+  } catch (error) {
+    console.error('Failed to create role:', error);
+    return NextResponse.json({ error: 'Failed to create role', details: String(error) }, { status: 500 });
+  }
 }
 
 // PATCH: Update a role

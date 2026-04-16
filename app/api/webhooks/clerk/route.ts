@@ -101,11 +101,12 @@ export async function POST(req: Request) {
       // Read attribution from unsafeMetadata (set by sign-up page).
       const meta = (unsafe_metadata || {}) as Record<string, unknown>;
       const intentRaw = (meta.intent as string) || (public_metadata?.profile_type as string) || 'rider';
-      const profileType = (['rider', 'driver'].includes(intentRaw) ? intentRaw : 'rider') as ProfileType;
+      const isAdminSignup = intentRaw === 'admin';
+      const profileType = (isAdminSignup ? 'admin' : ['rider', 'driver'].includes(intentRaw) ? intentRaw : 'rider') as ProfileType;
       const signupSourceRaw = (meta.signup_source as string) || 'direct';
-      const signupSource = (['hmu_chat', 'direct', 'homepage_lead'].includes(signupSourceRaw)
+      const signupSource = (['hmu_chat', 'direct', 'homepage_lead', 'admin_portal'].includes(signupSourceRaw)
         ? signupSourceRaw
-        : 'direct') as 'hmu_chat' | 'direct' | 'homepage_lead';
+        : 'direct') as 'hmu_chat' | 'direct' | 'homepage_lead' | 'admin_portal';
       const refHandle = (meta.ref_handle as string) || null;
 
       // Resolve referring driver from handle, if provided.
@@ -131,6 +132,12 @@ export async function POST(req: Request) {
       if (!created) {
         console.log('[WEBHOOK] user.updated - lost race, skipping Stripe provisioning:', { clerkId: id });
         return new Response('User already existed', { status: 200 });
+      }
+
+      // Skip Stripe + notifications for admin-only signups
+      if (isAdminSignup) {
+        console.log('[WEBHOOK] admin signup - skipping Stripe/notifications:', { clerkId: id });
+        return new Response('Admin user created', { status: 201 });
       }
 
       // Provision Stripe Customer + Connect account now that the user is real.
