@@ -19,7 +19,7 @@ export async function createActionItem(opts: CreateActionItemOpts): Promise<void
       INSERT INTO admin_action_items (category, item_type, reference_id, title, priority)
       VALUES (${opts.category}, ${opts.itemType}, ${opts.referenceId}, ${opts.title}, ${opts.priority || 'info'})
     `;
-    publishAdminEvent('action_item_created', { category: opts.category }).catch(() => {});
+    await publishAdminEvent('action_item_created', { category: opts.category });
   } catch (err) {
     console.error('[ActionItems] Failed to create:', err);
   }
@@ -40,7 +40,7 @@ export async function resolveActionItem(category: string, referenceId: string): 
       RETURNING id
     `;
     if (rows.length > 0) {
-      publishAdminEvent('action_item_resolved', { category }).catch(() => {});
+      await publishAdminEvent('action_item_resolved', { category });
     }
   } catch (err) {
     console.error('[ActionItems] Failed to resolve:', err);

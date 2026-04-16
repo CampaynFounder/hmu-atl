@@ -179,7 +179,7 @@ export async function POST(req: Request) {
         itemType: 'new_signup',
         referenceId: newUser.id,
         title: `New ${profileType}: ${displayName} (${verifiedPhone}) via ${signupSource}`,
-      }).catch(() => {});
+      });
 
       return new Response('User created after phone verification', { status: 201 });
     } catch (error) {

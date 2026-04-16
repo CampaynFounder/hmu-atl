@@ -202,7 +202,7 @@ export async function PATCH(
   });
 
   // Resolve action item when admin takes action on a user
-  resolveActionItem('users', id).catch(() => {});
+  await resolveActionItem('users', id);
 
   return NextResponse.json({ success: true, user: rows[0] });
 }

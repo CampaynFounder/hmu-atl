@@ -108,7 +108,7 @@ export async function PATCH(req: NextRequest) {
   });
 
   // Resolve action item when admin handles dispute
-  resolveActionItem('disputes', disputeId).catch(() => {});
+  await resolveActionItem('disputes', disputeId);
 
   return NextResponse.json({ success: true, dispute: rows[0] });
 }

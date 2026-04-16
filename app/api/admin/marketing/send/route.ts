@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
           `;
           // Resolve action item when admin contacts a user
           if (recipientId) {
-            resolveActionItem('users', recipientId).catch(() => {});
+            await resolveActionItem('users', recipientId);
           }
         } catch (auditErr) {
           console.error('[ADMIN_SMS_AUDIT] failed:', auditErr);

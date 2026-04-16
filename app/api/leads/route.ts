@@ -31,12 +31,12 @@ export async function POST(request: NextRequest) {
 
     // Create action item for admin badge
     if (leadId) {
-      createActionItem({
+      await createActionItem({
         category: 'leads',
         itemType: 'new_lead',
         referenceId: leadId as string,
         title: `New ${lead_type} lead: ${email || phone}`,
-      }).catch(() => {});
+      });
     }
 
     return NextResponse.json({ id: leadId, stored: true }, { status: 201 });
