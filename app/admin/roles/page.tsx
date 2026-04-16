@@ -201,15 +201,15 @@ export default function RolesPage() {
           <div style={{ display: 'grid', gap: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 12, color: 'var(--admin-text-muted)', width: 80 }}>Login:</span>
-              <code style={{ fontSize: 12, color: 'var(--admin-text)', background: 'var(--admin-bg)', padding: '2px 8px', borderRadius: 4 }}>
+              <a href="/admin-login" target="_blank" style={{ fontSize: 12, color: '#00E676', background: 'var(--admin-bg)', padding: '2px 8px', borderRadius: 4, fontFamily: 'monospace', textDecoration: 'none' }}>
                 atl.hmucashride.com/admin-login
-              </code>
+              </a>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 12, color: 'var(--admin-text-muted)', width: 80 }}>Sign Up:</span>
-              <code style={{ fontSize: 12, color: 'var(--admin-text)', background: 'var(--admin-bg)', padding: '2px 8px', borderRadius: 4 }}>
+              <a href="/admin-signup" target="_blank" style={{ fontSize: 12, color: '#00E676', background: 'var(--admin-bg)', padding: '2px 8px', borderRadius: 4, fontFamily: 'monospace', textDecoration: 'none' }}>
                 atl.hmucashride.com/admin-signup
-              </code>
+              </a>
             </div>
             <p style={{ fontSize: 11, color: 'var(--admin-text-faint)', marginTop: 4 }}>
               Share the sign-up link with new admins. After they create an account, assign their role below.
