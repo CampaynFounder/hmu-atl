@@ -392,6 +392,44 @@ export default function SectionBuilderPage() {
         </SortableContext>
       </DndContext>
 
+      {/* Floating Save All button — visible when any zone has unsaved edits */}
+      {Object.keys(editedContent).length > 0 && !isReadOnly && (
+        <div style={{
+          position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 100,
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '12px 24px', borderRadius: 12,
+          background: '#00E676', color: '#000',
+          boxShadow: '0 4px 20px rgba(0,230,118,0.4)',
+          fontSize: 14, fontWeight: 700,
+        }}>
+          <span>{Object.keys(editedContent).length} unsaved change{Object.keys(editedContent).length > 1 ? 's' : ''}</span>
+          <button
+            onClick={async () => {
+              for (const key of Object.keys(editedContent)) {
+                await saveZone(key);
+              }
+            }}
+            disabled={saving}
+            style={{
+              padding: '6px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+              background: '#000', color: '#00E676', border: 'none', cursor: 'pointer',
+              opacity: saving ? 0.5 : 1,
+            }}
+          >
+            {saving ? 'Saving...' : 'Save All'}
+          </button>
+          <button
+            onClick={() => setEditedContent({})}
+            style={{
+              padding: '6px 12px', borderRadius: 8, fontSize: 11,
+              background: 'transparent', color: '#000', border: '1px solid rgba(0,0,0,0.2)', cursor: 'pointer',
+            }}
+          >
+            Discard
+          </button>
+        </div>
+      )}
+
       {savingLayout && (
         <div style={{ position: 'fixed', bottom: 20, right: 20, padding: '8px 16px', borderRadius: 8, background: '#00E676', color: '#000', fontSize: 12, fontWeight: 600 }}>
           Layout saved
