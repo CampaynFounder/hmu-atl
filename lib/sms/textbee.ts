@@ -105,10 +105,13 @@ export async function sendSms(
     return { success: false, error: 'VoIP.ms not configured' };
   }
 
-  // VoIP.ms rejects messages over 160 chars with sms_toolong
-  if (message.length > 160) {
-    console.warn(`[SMS] Message is ${message.length} chars, truncating to 160`);
-    message = message.slice(0, 160);
+  // VoIP.ms rejects messages over 160 chars with sms_toolong.
+  // Some characters (smart quotes, accented chars) count as 2 bytes in GSM-7 encoding,
+  // so cap at 155 to leave headroom for encoding overhead.
+  const SMS_MAX = 155;
+  if (message.length > SMS_MAX) {
+    console.warn(`[SMS] Message is ${message.length} chars, truncating to ${SMS_MAX}`);
+    message = message.slice(0, SMS_MAX);
   }
 
   const dst = normalizePhone(to);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useAdminAuth } from '@/app/admin/components/admin-auth-context';
 
 const PERMISSION_SECTIONS = [
   { group: 'MONITOR', items: [
@@ -174,6 +175,9 @@ export default function RolesPage() {
 
   const togglePerm = (key: string) => setNewPerms((prev) => prev.includes(key) ? prev.filter((p) => p !== key) : [...prev, key]);
 
+  const { admin } = useAdminAuth();
+  const isSuperAdmin = admin?.isSuper ?? false;
+
   if (loading) return <div style={{ padding: 40, color: 'var(--admin-text-muted)', textAlign: 'center' }}>Loading...</div>;
 
   const groups = [...new Set(PERMISSION_SECTIONS.map((p) => p.group))];
@@ -181,9 +185,38 @@ export default function RolesPage() {
   return (
     <div style={{ padding: '24px', maxWidth: 900 }}>
       <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--admin-text)', marginBottom: 8 }}>Admin Roles & Users</h1>
-      <p style={{ fontSize: 13, color: 'var(--admin-text-muted)', marginBottom: 24 }}>
+      <p style={{ fontSize: 13, color: 'var(--admin-text-muted)', marginBottom: 16 }}>
         Manage roles, permissions, and admin access. Assign a role to any user to grant them admin access.
       </p>
+
+      {/* Admin Portal Links — visible to super admins */}
+      {isSuperAdmin && (
+        <div style={{
+          padding: '14px 18px', borderRadius: 10, marginBottom: 20,
+          background: 'rgba(0,230,118,0.04)', border: '1px solid rgba(0,230,118,0.15)',
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#00E676', letterSpacing: 1, marginBottom: 8, textTransform: 'uppercase' }}>
+            Admin Portal Links
+          </div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--admin-text-muted)', width: 80 }}>Login:</span>
+              <code style={{ fontSize: 12, color: 'var(--admin-text)', background: 'var(--admin-bg)', padding: '2px 8px', borderRadius: 4 }}>
+                atl.hmucashride.com/admin/login
+              </code>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--admin-text-muted)', width: 80 }}>Sign Up:</span>
+              <code style={{ fontSize: 12, color: 'var(--admin-text)', background: 'var(--admin-bg)', padding: '2px 8px', borderRadius: 4 }}>
+                atl.hmucashride.com/admin/sign-up
+              </code>
+            </div>
+            <p style={{ fontSize: 11, color: 'var(--admin-text-faint)', marginTop: 4 }}>
+              Share the sign-up link with new admins. After they create an account, assign their role below.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ═══ ADD ADMIN USER ═══ */}
       <Section title="Add Admin User" count={admins.length} defaultOpen={false}>
