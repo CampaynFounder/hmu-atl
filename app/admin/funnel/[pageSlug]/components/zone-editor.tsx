@@ -5,6 +5,8 @@
  * Renders friendly form fields based on zone_type and content structure.
  */
 
+import { useState } from 'react';
+
 interface ZoneEditorProps {
   zoneKey: string;
   zoneType: string;
@@ -41,7 +43,76 @@ export function ZoneEditor({ zoneKey, zoneType, content, constraints, onChange }
   );
 }
 
-// Text input with char counter
+// ── HTML Snippets Helper ──
+const HTML_SNIPPETS = [
+  { label: 'Bold', code: '<strong>text</strong>', preview: 'text' },
+  { label: 'Green text', code: '<span style="color:var(--green)">text</span>', preview: 'text' },
+  { label: 'Line break', code: '<br />', preview: '↵' },
+  { label: 'Strikethrough', code: '<span style="text-decoration:line-through">text</span>', preview: 'text' },
+  { label: 'Green strikethrough', code: '<span style="text-decoration:line-through;text-decoration-color:var(--green)">text</span>', preview: 'text' },
+  { label: 'Faded text', code: '<span style="opacity:0.25">text</span>', preview: 'text' },
+  { label: 'Italic', code: '<em>text</em>', preview: 'text' },
+  { label: 'Small text', code: '<span style="font-size:0.8em">text</span>', preview: 'text' },
+];
+
+function HtmlSnippets() {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const copy = (code: string) => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(code);
+      setTimeout(() => setCopied(null), 1500);
+    });
+  };
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          fontSize: 9, color: 'var(--admin-text-faint)', background: 'none', border: 'none',
+          cursor: 'pointer', textDecoration: 'underline', padding: 0,
+        }}
+      >
+        {open ? 'Hide' : 'Show'} HTML snippets
+      </button>
+      {open && (
+        <div style={{
+          marginTop: 6, padding: '10px 12px', borderRadius: 8,
+          background: 'var(--admin-bg)', border: '1px solid var(--admin-border)',
+          display: 'grid', gap: 4,
+        }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--admin-text-faint)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 2 }}>
+            Tap to copy
+          </div>
+          {HTML_SNIPPETS.map((s) => (
+            <button
+              key={s.label}
+              onClick={() => copy(s.code)}
+              style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '5px 8px', borderRadius: 4, border: 'none', cursor: 'pointer',
+                background: copied === s.code ? 'rgba(0,230,118,0.1)' : 'var(--admin-bg-active)',
+                textAlign: 'left', width: '100%',
+              }}
+            >
+              <span style={{ fontSize: 11, color: 'var(--admin-text-secondary)', fontWeight: 500 }}>{s.label}</span>
+              <code style={{
+                fontSize: 10, color: copied === s.code ? '#00E676' : 'var(--admin-text-muted)',
+                fontFamily: 'monospace', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {copied === s.code ? '✓ Copied' : s.code}
+              </code>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Text input with char counter + HTML snippets
 function TextEditor({ value, maxChars, onChange }: { value: string; maxChars?: number; onChange: (v: string) => void }) {
   return (
     <div>
@@ -51,19 +122,22 @@ function TextEditor({ value, maxChars, onChange }: { value: string; maxChars?: n
         onChange={(e) => onChange(e.target.value)}
         style={inputStyle}
       />
-      {maxChars && (
-        <div style={{
-          fontSize: 10, textAlign: 'right', marginTop: 2,
-          color: (value?.length || 0) > maxChars ? '#FF5252' : 'var(--admin-text-faint)',
-        }}>
-          {value?.length || 0} / {maxChars}
-        </div>
-      )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <HtmlSnippets />
+        {maxChars && (
+          <div style={{
+            fontSize: 10, marginTop: 4,
+            color: (value?.length || 0) > maxChars ? '#FF5252' : 'var(--admin-text-faint)',
+          }}>
+            {value?.length || 0} / {maxChars}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// Rich text textarea
+// Rich text textarea + HTML snippets
 function RichTextEditor({ value, maxChars, onChange }: { value: string; maxChars?: number; onChange: (v: string) => void }) {
   return (
     <div>
@@ -73,9 +147,13 @@ function RichTextEditor({ value, maxChars, onChange }: { value: string; maxChars
         rows={3}
         style={textareaStyle}
       />
-      <div style={{ fontSize: 9, color: 'var(--admin-text-faint)', marginTop: 2 }}>
-        Supports &lt;strong&gt;, &lt;em&gt;, &lt;br /&gt;
-        {maxChars && ` • ${value?.length || 0} / ${maxChars}`}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <HtmlSnippets />
+        {maxChars && (
+          <div style={{ fontSize: 10, color: 'var(--admin-text-faint)', marginTop: 4 }}>
+            {value?.length || 0} / {maxChars}
+          </div>
+        )}
       </div>
     </div>
   );
