@@ -20,7 +20,7 @@ export default async function AdminLayout({
 }) {
   const clerkUser = await currentUser();
 
-  if (!clerkUser) redirect('/admin/login');
+  if (!clerkUser) redirect('/admin-login');
 
   // Check is_admin flag + load role/permissions
   const rows = await sql`

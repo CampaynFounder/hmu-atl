@@ -202,13 +202,13 @@ export default function RolesPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 12, color: 'var(--admin-text-muted)', width: 80 }}>Login:</span>
               <code style={{ fontSize: 12, color: 'var(--admin-text)', background: 'var(--admin-bg)', padding: '2px 8px', borderRadius: 4 }}>
-                atl.hmucashride.com/admin/login
+                atl.hmucashride.com/admin-login
               </code>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 12, color: 'var(--admin-text-muted)', width: 80 }}>Sign Up:</span>
               <code style={{ fontSize: 12, color: 'var(--admin-text)', background: 'var(--admin-bg)', padding: '2px 8px', borderRadius: 4 }}>
-                atl.hmucashride.com/admin/sign-up
+                atl.hmucashride.com/admin-signup
               </code>
             </div>
             <p style={{ fontSize: 11, color: 'var(--admin-text-faint)', marginTop: 4 }}>

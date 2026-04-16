@@ -27,7 +27,7 @@ export function SessionTimeout() {
     }, WARNING_MS);
 
     timeoutRef.current = setTimeout(() => {
-      signOut({ redirectUrl: '/admin/login' });
+      signOut({ redirectUrl: '/admin-login' });
     }, TIMEOUT_MS);
   }, [signOut]);
 
