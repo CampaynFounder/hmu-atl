@@ -67,7 +67,17 @@ export default function FunnelCMSPage() {
             Manage marketing copy across all logged-out pages
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Link
+            href="/admin/funnel/personas"
+            style={{
+              padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+              background: 'var(--admin-bg-active)', color: 'var(--admin-text)', textDecoration: 'none',
+              border: '1px solid var(--admin-border)',
+            }}
+          >
+            Personas
+          </Link>
           <Link
             href="/admin/funnel/stages"
             style={{

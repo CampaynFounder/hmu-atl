@@ -4,11 +4,11 @@ import { SignUpTypeStore } from './type-store';
 import { InAppBrowserGate } from '@/components/auth/in-app-browser-gate';
 
 interface Props {
-  searchParams: Promise<{ type?: string; returnTo?: string; cash?: string }>;
+  searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string }>;
 }
 
 export default async function SignUpPage({ searchParams }: Props) {
-  const { type, returnTo, cash } = await searchParams;
+  const { type, returnTo, cash, persona, funnel_stage } = await searchParams;
 
   const callbackParams = new URLSearchParams();
   if (type) callbackParams.set('type', type);
@@ -33,6 +33,8 @@ export default async function SignUpPage({ searchParams }: Props) {
     signup_source: signupSource,
   };
   if (refHandle) unsafeMetadata.ref_handle = refHandle;
+  if (persona) unsafeMetadata.persona = persona;
+  if (funnel_stage) unsafeMetadata.funnel_stage = funnel_stage;
 
   return (
     <InAppBrowserGate>

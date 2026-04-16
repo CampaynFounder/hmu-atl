@@ -108,6 +108,8 @@ export async function POST(req: Request) {
         ? signupSourceRaw
         : 'direct') as 'hmu_chat' | 'direct' | 'homepage_lead' | 'admin_portal';
       const refHandle = (meta.ref_handle as string) || null;
+      const personaSlug = (meta.persona as string) || null;
+      const funnelStageAtSignup = (meta.funnel_stage as string) || null;
 
       // Resolve referring driver from handle, if provided.
       let referredByDriverId: string | null = null;
@@ -125,6 +127,15 @@ export async function POST(req: Request) {
         signup_source: signupSource,
         referred_by_driver_id: referredByDriverId,
       });
+
+      // Store persona and funnel stage on user record for lifetime segmentation
+      if (created && (personaSlug || funnelStageAtSignup)) {
+        try {
+          await sql`UPDATE users SET persona = ${personaSlug} WHERE id = ${newUser.id}`;
+        } catch (e) {
+          console.warn('[WEBHOOK] Failed to set persona on user:', e);
+        }
+      }
 
       // Only provision Stripe if THIS invocation won the create-race.
       // If we lost the race (another concurrent webhook or the onboarding fallback

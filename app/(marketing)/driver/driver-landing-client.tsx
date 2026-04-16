@@ -249,7 +249,10 @@ function DriverLandingInner() {
       }),
     }).catch(() => {});
 
-    setTimeout(() => router.push('/sign-up?type=driver'), 800);
+    const signUpParams = new URLSearchParams({ type: 'driver' });
+    if (currentPersona) signUpParams.set('persona', currentPersona);
+    if (currentStage !== 'awareness') signUpParams.set('funnel_stage', currentStage);
+    setTimeout(() => router.push(`/sign-up?${signUpParams}`), 800);
   };
 
   // Dynamic section ordering — checks if a section should render based on the layout

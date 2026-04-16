@@ -160,7 +160,10 @@ function RiderLandingInner() {
       }),
     }).catch(() => {});
 
-    setTimeout(() => router.push('/sign-up?type=rider'), 800);
+    const signUpParams = new URLSearchParams({ type: 'rider' });
+    if (currentPersona) signUpParams.set('persona', currentPersona);
+    if (currentStage !== 'awareness') signUpParams.set('funnel_stage', currentStage);
+    setTimeout(() => router.push(`/sign-up?${signUpParams}`), 800);
   };
 
   const testimonials = cmsTestimonials;

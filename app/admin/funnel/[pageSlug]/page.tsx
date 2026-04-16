@@ -52,6 +52,8 @@ export default function SectionBuilderPage() {
   const pageSections = getSectionsForPage(pageSlug);
 
   const [stage, setStage] = useState('awareness');
+  const [persona, setPersona] = useState<string | null>(null);
+  const [personas, setPersonas] = useState<Array<{ slug: string; label: string; color: string; audience: string }>>([]);
   const [layout, setLayout] = useState<SectionLayoutEntry[]>([]);
   const [zones, setZones] = useState<ZoneData[]>([]);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
@@ -64,7 +66,19 @@ export default function SectionBuilderPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  // Reset state when stage or page changes
+  // Fetch personas for this market
+  useEffect(() => {
+    if (!selectedMarketId) return;
+    // Determine audience from page slug
+    const audience = pageSlug.startsWith('driver') ? 'driver' : pageSlug.startsWith('rider') ? 'rider' : '';
+    const qs = `?market_id=${selectedMarketId}${audience ? `&audience=${audience}` : ''}`;
+    fetch(`/api/admin/funnel/personas${qs}`)
+      .then((r) => r.json())
+      .then((data) => setPersonas(data.personas || []))
+      .catch(() => {});
+  }, [selectedMarketId, pageSlug]);
+
+  // Reset state when stage, persona, or page changes
   useEffect(() => {
     const defaultLayout: SectionLayoutEntry[] = pageSections.map((s) => ({
       sectionKey: s.sectionKey,
@@ -73,7 +87,7 @@ export default function SectionBuilderPage() {
     setLayout(defaultLayout);
     setEditedContent({});
     setExpandedSection(null);
-  }, [pageSlug, stage]);
+  }, [pageSlug, stage, persona]);
 
   // Fetch existing layout for this stage
   const fetchLayout = useCallback(() => {
@@ -183,8 +197,19 @@ export default function SectionBuilderPage() {
       return;
     }
 
-    const utmTargets = stage !== 'awareness' ? { utm_funnel: [stage] } : undefined;
+    // Build utm_targets based on stage + persona selection
+    const utmTargets: Record<string, string[]> = {};
+    if (stage !== 'awareness') utmTargets.utm_funnel = [stage];
+    if (persona) utmTargets.utm_persona = [persona];
+    const hasTargets = Object.keys(utmTargets).length > 0;
 
+    // Build variant name from targeting
+    let variantName = 'control';
+    if (persona && stage !== 'awareness') variantName = `persona_${persona}_stage_${stage}`;
+    else if (persona) variantName = `persona_${persona}`;
+    else if (stage !== 'awareness') variantName = `stage_${stage}`;
+
+    const targetLabel = [persona, stage !== 'awareness' ? stage : null].filter(Boolean).join(' + ') || 'default';
     const saveStatus = needsApproval ? 'pending_approval' : 'published';
 
     await fetch('/api/admin/funnel/variants', {
@@ -193,10 +218,10 @@ export default function SectionBuilderPage() {
       body: JSON.stringify({
         zone_id: zoneId,
         market_id: selectedMarketId,
-        variant_name: stage === 'awareness' ? 'control' : `stage_${stage}`,
+        variant_name: variantName,
         content,
-        utm_targets: utmTargets,
-        change_summary: needsApproval ? `Submitted for approval (${stage} stage)` : `Updated for ${stage} stage`,
+        utm_targets: hasTargets ? utmTargets : undefined,
+        change_summary: needsApproval ? `Submitted for approval (${targetLabel})` : `Updated for ${targetLabel}`,
         save_status: saveStatus,
       }),
     });
@@ -226,9 +251,9 @@ export default function SectionBuilderPage() {
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--admin-text)' }}>
           {pageInfo?.label || pageSlug}
         </h1>
-        <a href={`${pageInfo?.path}?utm_funnel=${stage}`} target="_blank" rel="noopener noreferrer"
+        <a href={`${pageInfo?.path}?utm_funnel=${stage}${persona ? `&utm_persona=${persona}` : ''}`} target="_blank" rel="noopener noreferrer"
           style={{ fontSize: 12, color: 'var(--admin-text-muted)', textDecoration: 'underline', marginLeft: 'auto' }}>
-          Preview {stage} &rarr;
+          Preview {[stage, persona].filter(Boolean).join(' + ')} &rarr;
         </a>
       </div>
 
@@ -243,9 +268,44 @@ export default function SectionBuilderPage() {
         </div>
       )}
 
-      {/* Stage Selector */}
-      <div style={{ marginBottom: 20 }}>
-        <StageSelector selected={stage} onSelect={setStage} />
+      {/* Stage + Persona Selectors */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2, color: 'var(--admin-text-faint)', marginBottom: 4, textTransform: 'uppercase' }}>Funnel Stage</div>
+          <StageSelector selected={stage} onSelect={setStage} />
+        </div>
+        {personas.length > 0 && (
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2, color: 'var(--admin-text-faint)', marginBottom: 4, textTransform: 'uppercase' }}>Persona</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setPersona(null)}
+                style={{
+                  padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  border: !persona ? '2px solid var(--admin-text-muted)' : '2px solid var(--admin-border)',
+                  background: !persona ? 'var(--admin-bg-active)' : 'transparent',
+                  color: !persona ? 'var(--admin-text)' : 'var(--admin-text-secondary)',
+                }}
+              >
+                All (default)
+              </button>
+              {personas.map((p) => (
+                <button
+                  key={p.slug}
+                  onClick={() => setPersona(persona === p.slug ? null : p.slug)}
+                  style={{
+                    padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    border: persona === p.slug ? `2px solid ${p.color}` : '2px solid var(--admin-border)',
+                    background: persona === p.slug ? `${p.color}15` : 'transparent',
+                    color: persona === p.slug ? p.color : 'var(--admin-text-secondary)',
+                  }}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Section Builder */}
