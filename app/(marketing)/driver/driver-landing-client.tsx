@@ -44,7 +44,7 @@ function DriverLandingInner() {
     { icon: '👻', title: 'They cancel. You get nothing.', body: "They accepted, you drove over, now they ghost. Other platforms give you a small fee — eventually. HMU protects your time from jump." },
   ]);
   const howLabel = useZone('how_label', 'How It Works');
-  const howHeadline = useZone('how_headline', 'How Driverpreneurs Get Paid');
+  const howHeadline = useZone('how_headline', '<span style="color:var(--green)">How</span><br />Driverpreneurs<br />Get Paid');
   const howSub = useZone('how_subheadline', 'Post your availability. Set your price. Rider pays before you move. Done.');
   const howSteps = useZone<Array<{ num: string; title: string; body: string }>>('how_steps', [
     { num: '01', title: 'You post your HMU', body: "Tell the city you're available. Your area, your time, your minimum price. Riders in your area see your post and your rating." },
@@ -53,12 +53,16 @@ function DriverLandingInner() {
     { num: '04', title: 'End ride. Get your money.', body: "Tap End Ride. Rider has 45 minutes to dispute or payment releases automatically to your Cash App, Venmo, Zelle, or bank." },
   ]);
   const protectionBadge = useZone('protection_badge', '🔒 Driver Protection');
+  const protectionHeadline = useZone('protection_headline', 'Make Money<br /><span style="color: var(--green)">Doin Rides</span>');
+  const protectionBody = useZone('protection_body', 'We <strong>secure the payment upfront</strong> before you ever leave your block. Once you\'ve made it to the pickup, the rider needs a real reason not to pay.');
   const protectionCards = useZone<Array<{ situation: string; headline: string; result: string }>>('protection_cards', [
     { situation: 'Situation 01', headline: 'No Response', result: 'Get Paid' },
     { situation: 'Situation 02', headline: 'Still Getting Dressed', result: 'Still Gettin Paid' },
     { situation: 'Situation 03', headline: 'Wastin Your Time', result: 'Get Paid' },
   ]);
   const trackingLabel = useZone('tracking_label', 'Live Tracking');
+  const trackingHeadline = useZone('tracking_headline', 'Stop Guessing<br />Where To<br /><span style="color:var(--green)">Pull Up</span>');
+  const trackingSub = useZone('tracking_subheadline', 'See exactly where the rider is. They see exactly where you are. No more "where you at" texts. ETA updates in real-time.');
   const trackingFeatures = useZone<Array<{ icon: string; text: string }>>('tracking_features', [
     { icon: '📍', text: 'Real-time GPS — rider sees you OTW, you see their pin' },
     { icon: '⏱️', text: '10-min no-show timer starts when you tap HERE' },
@@ -67,6 +71,7 @@ function DriverLandingInner() {
     { icon: '🔐', text: 'Rider info stays private — you see display name only' },
   ]);
   const feesLabel = useZone('fees_label', 'How We Pay');
+  const feesHeadline = useZone('fees_headline', 'The Less You<br />Make, The Less<br /><span style="color:var(--green)">We Take</span>');
   const feesIntro = useZone('fees_intro', "Other apps take the same flat cut whether you did one ride or ten. <strong>We don't do that.</strong> Your first $50 every day, we only take 10%. The more you earn, the more we earn — but we never go above 25%. And once you hit your daily cap, <strong>we take zero for the rest of the day.</strong>");
   const feeTiers = useZone<Array<{ label: string; rate: string; keep: string; width: string }>>('fee_tiers', [
     { label: 'First $50 today', rate: 'We take 10%', keep: 'You keep 90%', width: '90%' },
@@ -79,7 +84,7 @@ function DriverLandingInner() {
     body: "No matter how many rides you do, <strong>HMU ATL never takes more than $40 from you in a single day.</strong> Hit your cap and every ride after that is yours — zero platform fee. Resets midnight ET every day. Weekly cap resets every Sunday.",
   });
   const payoutLabel = useZone('payout_label', 'How You Get Paid');
-  const payoutHeadline = useZone('payout_headline', 'Your Money, Your Way');
+  const payoutHeadline = useZone('payout_headline', 'Your Money,<br /><span style="color:var(--green)">Your Way</span>');
   const payoutSub = useZone('payout_subheadline', 'Pick how you want to get paid when you sign up. Switch anytime. Cash App, Venmo, Zelle, and bank transfers are always free.');
   const payoutMethods = useZone<Array<{ icon: string; name: string; speed: string; fee: string; best?: boolean; bestTag?: string; note?: string }>>('payout_methods', [
     { icon: '💸', name: 'Cash App', speed: 'Instant • Most popular in ATL', fee: 'FREE', best: true, bestTag: 'Most popular' },
@@ -343,7 +348,7 @@ function DriverLandingInner() {
       <section className={styles.section} id="how">
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>{howLabel}</p>
         <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
-          <span className={styles.green}>How</span><br />Driverpreneurs<br />Get Paid
+          <span dangerouslySetInnerHTML={{ __html: howHeadline }} />
         </h2>
         <p className={`${styles.sectionSub} ${styles.reveal}`}>{howSub}</p>
         <div className={styles.steps}>
@@ -364,13 +369,8 @@ function DriverLandingInner() {
       {isActive('protection') && showProtectionSection && (
       <section className={`${styles.section} ${styles.sectionAlt}`}>
         <div className={styles.protectionBadge}>{protectionBadge}</div>
-        <h2 className={`${styles.protectionHeadline} ${styles.reveal}`}>
-          Make Money<br /><span style={{ color: 'var(--green)' }}>Doin Rides</span>
-        </h2>
-        <p className={`${styles.protectionBody} ${styles.reveal}`}>
-          We <strong>secure the payment upfront</strong> before you ever leave your block.
-          Once you&apos;ve made it to the pickup, the rider needs a real reason not to pay.
-        </p>
+        <h2 className={`${styles.protectionHeadline} ${styles.reveal}`} dangerouslySetInnerHTML={{ __html: protectionHeadline }} />
+        <p className={`${styles.protectionBody} ${styles.reveal}`} dangerouslySetInnerHTML={{ __html: protectionBody }} />
         <div className={styles.paidCards}>
           {protectionCards.map((card, i) => (
           <div key={i} className={`${styles.paidCard} ${styles.reveal}`}>
@@ -387,12 +387,8 @@ function DriverLandingInner() {
       {isActive('tracking') && showTrackingSection && (
       <section className={styles.section}>
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>{trackingLabel}</p>
-        <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
-          Stop Guessing<br />Where To<br /><span className={styles.green}>Pull Up</span>
-        </h2>
-        <p className={`${styles.sectionSub} ${styles.reveal}`}>
-          See exactly where the rider is. They see exactly where you are. No more &ldquo;where you at&rdquo; texts. ETA updates in real-time.
-        </p>
+        <h2 className={`${styles.sectionHeadline} ${styles.reveal}`} dangerouslySetInnerHTML={{ __html: trackingHeadline }} />
+        <p className={`${styles.sectionSub} ${styles.reveal}`}>{trackingSub}</p>
 
         <div className={styles.reveal} style={{
           background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.06)',
@@ -475,9 +471,7 @@ function DriverLandingInner() {
       {isActive('fees') && showFeesSection && (
       <section className={styles.section} id="how-we-pay">
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>{feesLabel}</p>
-        <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
-          The Less You<br />Make, The Less<br /><span className={styles.green}>We Take</span>
-        </h2>
+        <h2 className={`${styles.sectionHeadline} ${styles.reveal}`} dangerouslySetInnerHTML={{ __html: feesHeadline }} />
 
         <p className={`${styles.feeIntro} ${styles.reveal}`} dangerouslySetInnerHTML={{ __html: feesIntro }} />
 
@@ -608,9 +602,7 @@ function DriverLandingInner() {
       {isActive('payout') && showPayoutSection && (
       <section className={`${styles.section} ${styles.sectionAlt}`} id="payout-methods">
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>{payoutLabel}</p>
-        <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
-          Your Money,<br /><span className={styles.green}>Your Way</span>
-        </h2>
+        <h2 className={`${styles.sectionHeadline} ${styles.reveal}`} dangerouslySetInnerHTML={{ __html: payoutHeadline }} />
         <p className={`${styles.sectionSub} ${styles.reveal}`}>
           {payoutSub}
         </p>

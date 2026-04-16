@@ -43,7 +43,7 @@ function RiderLandingInner() {
     { title: 'Random driver every time', body: 'No relationship, no trust. Just a stranger with an app and a rating that means nothing.' },
     { title: 'Money gone before the ride starts', body: 'You get charged immediately. Driver cancels? Good luck getting that refund fast.' },
   ]);
-  const howHeadline = useZone('how_headline', 'How HMU Works For Riders');
+  const howHeadline = useZone('how_headline', '<span style="color:var(--green)">How HMU</span><br />Works For<br />Riders');
   const howSub = useZone('how_subheadline', "Post what you need. Pick who you trust. Pay when it's real.");
   const howSteps = useZone<Array<{ num: string; title: string; body: string }>>('how_steps', [
     { num: '01', title: 'Post Your Ride', body: 'Drop your pickup, destination, and what you want to pay. Drivers in your area see it instantly.' },
@@ -51,6 +51,9 @@ function RiderLandingInner() {
     { num: '03', title: 'Lock In & Pay', body: "Tap Pull Up to confirm. Your payment is held in escrow — driver doesn't get paid until you arrive safe." },
     { num: '04', title: 'Ride & Rate', body: 'Track your driver in real-time. Rate them after. Build the community you trust.' },
   ]);
+  const pricingHeadline = useZone('pricing_headline', 'Real Routes.<br /><span style="color:var(--green)">Real Savings.</span>');
+  const safetyHeadline = useZone('safety_headline', 'Your Safety.<br /><span style="color:var(--green)">Our Priority.</span>');
+  const paymentHeadline = useZone('payment_headline', 'Pay <span style="color:var(--green)">Your Way</span>');
   const pricingRoutes = useZone<Array<{ route: string; hmu: string; uber: string; save: string }>>('pricing_routes', [
     { route: 'Buckhead → Airport', hmu: '$18', uber: '$45', save: 'Save 60%' },
     { route: 'Midtown → Downtown', hmu: '$8', uber: '$22', save: 'Save 64%' },
@@ -257,7 +260,7 @@ function RiderLandingInner() {
       <section className={styles.section} id="how-it-works">
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>How It Works</p>
         <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
-          <span className={styles.green}>How HMU</span><br />Works For<br />Riders
+          <span dangerouslySetInnerHTML={{ __html: howHeadline }} />
         </h2>
         <p className={`${styles.sectionSub} ${styles.reveal}`}>{howSub}</p>
         <div className={styles.steps}>
@@ -279,7 +282,7 @@ function RiderLandingInner() {
       <section className={`${styles.section} ${styles.sectionAlt}`} id="pricing">
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>Real Routes</p>
         <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
-          Real Routes.<br /><span className={styles.green}>Real Savings.</span>
+          <span dangerouslySetInnerHTML={{ __html: pricingHeadline }} />
         </h2>
         <div className={styles.pricingCards}>
           {pricingRoutes.map((route, i) => (
@@ -305,7 +308,7 @@ function RiderLandingInner() {
       <section className={styles.section}>
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>Trust & Safety</p>
         <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
-          Your Safety.<br /><span className={styles.green}>Our Priority.</span>
+          <span dangerouslySetInnerHTML={{ __html: safetyHeadline }} />
         </h2>
         <div className={styles.safetyGrid}>
           {safetyCards.map((card, i) => (
@@ -335,7 +338,7 @@ function RiderLandingInner() {
       <section className={styles.section}>
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>Payments</p>
         <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
-          Pay <span className={styles.green}>Your Way</span>
+          <span dangerouslySetInnerHTML={{ __html: paymentHeadline }} />
         </h2>
         <div className={styles.paymentGrid}>
           <div className={`${styles.paymentCard} ${styles.reveal}`}>
