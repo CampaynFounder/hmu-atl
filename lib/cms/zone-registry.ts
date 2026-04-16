@@ -151,7 +151,7 @@ export const ZONE_REGISTRY: ZoneRegistryEntry[] = [
     displayName: 'Pain Headline',
     description: 'Main pain section headline',
     sortOrder: 11,
-    defaultContent: 'Other Apps Playin in Our Face',
+    defaultContent: 'Other Apps <span style="text-decoration:line-through;text-decoration-color:var(--green)">Playin in Our Face</span>',
   },
   {
     pageSlug: 'driver_landing',

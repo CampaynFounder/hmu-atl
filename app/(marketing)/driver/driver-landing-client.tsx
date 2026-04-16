@@ -36,7 +36,7 @@ function DriverLandingInner() {
   const heroCtaSecondary = useZone('hero_cta_secondary', 'See how it works ↓');
   const heroTrust = useZone('hero_trust_text', 'Drivers live in ATL right now — <strong>try it free today</strong>');
   const painLabel = useZone('pain_label', 'The Problem');
-  const painHeadline = useZone('pain_headline', 'Other Apps Playin in Our Face');
+  const painHeadline = useZone('pain_headline', 'Other Apps <span style="text-decoration:line-through;text-decoration-color:var(--green)">Playin in Our Face</span>');
   const painBody = useZone('pain_body', "You're putting miles on your car, burning gas, blocking time — and they set your rate, take their cut no matter what, and leave you waiting when riders waste your time.");
   const painCards = useZone<Array<{ icon: string; title: string; body: string }>>('pain_cards', [
     { icon: '⏱', title: 'They set your price. You just drive.', body: "Uber, Lyft — they calculate what you make. Same flat cut whether you did 1 ride or 20. That's not a business, that's a job with worse hours." },
@@ -323,9 +323,7 @@ function DriverLandingInner() {
       {isActive('pain') && showPainSection && (
       <section className={`${styles.section} ${styles.sectionAlt}`}>
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>{painLabel}</p>
-        <h2 className={`${styles.painHeadline} ${styles.reveal}`}>
-          Other Apps <span className={styles.strike}>{painHeadline.replace('Other Apps ', '')}</span>
-        </h2>
+        <h2 className={`${styles.painHeadline} ${styles.reveal}`} dangerouslySetInnerHTML={{ __html: painHeadline }} />
         <p className={styles.reveal} style={{ fontSize: 16, color: 'var(--gray-light)', lineHeight: 1.6, marginBottom: 8 }}>
           {painBody}
         </p>
