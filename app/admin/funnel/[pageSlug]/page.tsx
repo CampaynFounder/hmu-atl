@@ -74,7 +74,7 @@ export default function SectionBuilderPage() {
     const qs = `?market_id=${selectedMarketId}${audience ? `&audience=${audience}` : ''}`;
     fetch(`/api/admin/funnel/personas${qs}`)
       .then((r) => r.json())
-      .then((data) => setPersonas(data.personas || []))
+      .then((data) => setPersonas((data.personas || []).filter((p: { is_active: boolean }) => p.is_active)))
       .catch(() => {});
   }, [selectedMarketId, pageSlug]);
 

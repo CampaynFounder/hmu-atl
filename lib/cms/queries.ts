@@ -52,13 +52,23 @@ export async function getPageContent(
       });
     }
 
+    // Load active persona slugs to validate utm_persona targeting
+    let activePersonaSlugs: Set<string> | null = null;
+    if (utmParams?.utm_persona) {
+      try {
+        const personaRows = await sql`SELECT slug FROM personas WHERE is_active = true`;
+        activePersonaSlugs = new Set(personaRows.map((r: Record<string, unknown>) => r.slug as string));
+      } catch { activePersonaSlugs = null; }
+    }
+    const isPersonaActive = (slug: string) => !activePersonaSlugs || activePersonaSlugs.has(slug);
+
     for (const [key, variantList] of Object.entries(zoneVariants)) {
       // Check for UTM-targeted variant first (including utm_funnel)
       if (utmParams) {
         const utmMatch = variantList.find((v) => {
           if (!v.utm_targets) return false;
           const { utm_source, utm_campaign, utm_funnel, utm_persona } = utmParams;
-          if (utm_persona && v.utm_targets.utm_persona?.includes(utm_persona)) return true;
+          if (utm_persona && isPersonaActive(utm_persona) && v.utm_targets.utm_persona?.includes(utm_persona)) return true;
           if (utm_funnel && v.utm_targets.utm_funnel?.includes(utm_funnel)) return true;
           if (utm_source && v.utm_targets.utm_source?.includes(utm_source)) return true;
           if (utm_campaign && v.utm_targets.utm_campaign?.includes(utm_campaign)) return true;
