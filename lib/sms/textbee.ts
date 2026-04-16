@@ -89,9 +89,10 @@ async function logSms(
 // ── Send SMS via VoIP.ms with retry ──
 export async function sendSms(
   to: string,
-  message: string,
+  rawMessage: string,
   options: SmsOptions = {}
 ): Promise<SendSmsResult> {
+  let message = rawMessage;
   const username = process.env.VOIPMS_API_USERNAME;
   const password = process.env.VOIPMS_API_PASSWORD;
   const did = getDidForMarket(options.market);
@@ -102,6 +103,12 @@ export async function sendSms(
     console.warn('[SMS] VoIP.ms not configured — skipping SMS to', to, '| username:', !!username, '| password:', !!password, '| did:', did);
     logSms(to, did || 'none', message, 'skipped', null, 'VoIP.ms not configured', 0, options).catch(() => {});
     return { success: false, error: 'VoIP.ms not configured' };
+  }
+
+  // VoIP.ms rejects messages over 160 chars with sms_toolong
+  if (message.length > 160) {
+    console.warn(`[SMS] Message is ${message.length} chars, truncating to 160`);
+    message = message.slice(0, 160);
   }
 
   const dst = normalizePhone(to);
@@ -171,16 +178,24 @@ export async function notifyDriverNewBooking(
   details?: { destination?: string; time?: string; price?: number; payoutSetup?: boolean },
   options: SmsOptions = {}
 ): Promise<SendSmsResult> {
-  let message = `HMU ATL: New ride request from ${riderName}.`;
-  if (details?.destination) message += ` Where: ${details.destination}.`;
-  if (details?.time) message += ` When: ${details.time}.`;
-  if (details?.price) message += ` Amount: $${details.price}.`;
-  message += ` Expires in 15 min.`;
-  if (details?.payoutSetup === false) {
-    message += ` Link Payout Method To Accept. atl.hmucashride.com/driver/payout-setup`;
-  } else {
-    message += ` atl.hmucashride.com/driver/home`;
+  const link = details?.payoutSetup === false
+    ? 'atl.hmucashride.com/driver/payout-setup'
+    : 'atl.hmucashride.com/driver/home';
+
+  // Build message parts, then trim to fit 160 chars
+  let message = `HMU ATL: Ride from ${riderName}.`;
+  if (details?.price) message += ` $${details.price}.`;
+  if (details?.destination) {
+    // Only add destination if it fits
+    const withDest = message + ` ${details.destination}.`;
+    if (withDest.length + link.length + 2 <= 160) message = withDest;
   }
+  if (details?.time) {
+    const withTime = message + ` ${details.time}.`;
+    if (withTime.length + link.length + 2 <= 160) message = withTime;
+  }
+  message += ` ${link}`;
+
   return sendSms(driverPhone, message, { ...options, eventType: 'new_booking' });
 }
 

@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
       `;
     } else if (filter === 'failed') {
       rows = await sql`
-        SELECT id, to_phone as phone, message, event_type, status, created_at,
+        SELECT id, to_phone as phone, message, event_type, status, error, created_at,
           'outbound' as direction
         FROM sms_log WHERE status = 'failed' ORDER BY created_at DESC LIMIT 100
       `;
@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
         direction: m.direction,
         eventType: m.event_type ?? null,
         status: m.status ?? null,
+        error: m.error ?? null,
         createdAt: m.created_at,
       })),
     });

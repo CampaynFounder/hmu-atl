@@ -47,7 +47,9 @@ export function MessageHistory() {
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
   const [drillFilter, setDrillFilter] = useState<'all' | 'inbound' | 'outbound' | 'failed' | null>(null);
-  const [drillMessages, setDrillMessages] = useState<{ id: string; phone: string; message: string; status?: string; eventType?: string; createdAt: string; direction: string }[]>([]);
+  const [drillMessages, setDrillMessages] = useState<{ id: string; phone: string; message: string; status?: string; error?: string; eventType?: string; createdAt: string; direction: string }[]>([]);
+  const [editingRetry, setEditingRetry] = useState<string | null>(null);
+  const [editedMessage, setEditedMessage] = useState('');
   const [drillLoading, setDrillLoading] = useState(false);
   const [retrying, setRetrying] = useState<Record<string, 'sending' | 'sent' | 'failed'>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -79,17 +81,24 @@ export function MessageHistory() {
     setDrillLoading(false);
   }, []);
 
-  const retrySms = useCallback(async (smsLogId: string) => {
+  const retrySms = useCallback(async (smsLogId: string, overrideMessage?: string) => {
     setRetrying(prev => ({ ...prev, [smsLogId]: 'sending' }));
     try {
+      const body: Record<string, string> = { smsLogId };
+      if (overrideMessage) body.message = overrideMessage;
       const res = await fetch('/api/admin/messages/retry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ smsLogId }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       setRetrying(prev => ({ ...prev, [smsLogId]: data.success ? 'sent' : 'failed' }));
-      if (data.success) fetchThreads();
+      if (data.success) {
+        setDrillMessages(prev => prev.filter(m => m.id !== smsLogId));
+        setSmsStats(prev => prev ? { ...prev, failed: Math.max(0, prev.failed - 1), outbound: prev.outbound + 1 } : prev);
+        setEditingRetry(null);
+        fetchThreads();
+      }
     } catch {
       setRetrying(prev => ({ ...prev, [smsLogId]: 'failed' }));
     }
@@ -315,12 +324,12 @@ export function MessageHistory() {
           ) : drillMessages.length === 0 ? (
             <div className="p-6 text-center text-neutral-500 text-sm">No {drillFilter} messages</div>
           ) : (
-            <div className="divide-y divide-neutral-800/50 max-h-80 overflow-y-auto">
+            <div className="divide-y divide-neutral-800/50 max-h-[28rem] overflow-y-auto">
               {drillMessages.map((msg, i) => (
                 <div
                   key={i}
                   className="px-4 py-3 hover:bg-white/5 cursor-pointer transition-colors"
-                  onClick={() => { setDrillFilter(null); openConversation(msg.phone); }}
+                  onClick={() => { if (editingRetry !== msg.id) { setDrillFilter(null); openConversation(msg.phone); } }}
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs font-mono text-neutral-400">{msg.phone}</span>
@@ -331,9 +340,12 @@ export function MessageHistory() {
                       {msg.status === 'failed' && (
                         <span className="text-[9px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">FAILED</span>
                       )}
-                      {msg.status === 'failed' && retrying[msg.id] !== 'sent' && (
+                      {msg.status === 'failed' && (
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded ${msg.message.length > 160 ? 'text-yellow-400 bg-yellow-500/10' : 'text-neutral-500 bg-white/5'}`}>{msg.message.length}/160</span>
+                      )}
+                      {msg.status === 'failed' && retrying[msg.id] !== 'sent' && editingRetry !== msg.id && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); retrySms(msg.id); }}
+                          onClick={(e) => { e.stopPropagation(); setEditingRetry(msg.id); setEditedMessage(msg.message.slice(0, 160)); }}
                           disabled={retrying[msg.id] === 'sending'}
                           className="text-[9px] text-[#00E676] bg-[#00E676]/10 hover:bg-[#00E676]/20 px-2 py-0.5 rounded font-medium transition-colors disabled:opacity-50"
                         >
@@ -346,7 +358,42 @@ export function MessageHistory() {
                       <span className="text-[10px] text-neutral-600">{timeAgo(msg.createdAt)}</span>
                     </div>
                   </div>
-                  <p className="text-sm text-white truncate">{msg.message}</p>
+                  {msg.error && (
+                    <p className="text-[10px] text-red-400 mb-1">{msg.error}</p>
+                  )}
+                  {editingRetry === msg.id ? (
+                    <div className="mt-2 space-y-2" onClick={(e) => e.stopPropagation()}>
+                      <textarea
+                        value={editedMessage}
+                        onChange={(e) => setEditedMessage(e.target.value.slice(0, 160))}
+                        maxLength={160}
+                        rows={3}
+                        className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 resize-none"
+                      />
+                      <div className="flex items-center justify-between">
+                        <span className={`text-[10px] ${editedMessage.length > 140 ? 'text-yellow-400' : 'text-neutral-600'}`}>
+                          {editedMessage.length}/160
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setEditingRetry(null)}
+                            className="text-[10px] text-neutral-500 hover:text-white px-2 py-1"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => retrySms(msg.id, editedMessage)}
+                            disabled={retrying[msg.id] === 'sending' || !editedMessage.trim()}
+                            className="text-[10px] text-black bg-[#00E676] hover:bg-[#00C864] disabled:bg-neutral-700 disabled:text-neutral-500 px-3 py-1 rounded-full font-semibold transition-colors"
+                          >
+                            {retrying[msg.id] === 'sending' ? 'Sending...' : 'Send'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-white truncate">{msg.message}</p>
+                  )}
                 </div>
               ))}
             </div>

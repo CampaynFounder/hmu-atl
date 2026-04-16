@@ -21,15 +21,21 @@ async function handleInbound(params: Record<string, string>, rawSource: string) 
   const fromPhone = from.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
   const toDid = to.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
 
+  // DB insert and Ably publish are separate — DB is truth, Ably is notification
   try {
     await sql`
       INSERT INTO sms_inbound (from_phone, to_did, message, voipms_id)
       VALUES (${fromPhone}, ${toDid}, ${message}, ${voipmsId || null})
     `;
-    publishAdminEvent('sms_inbound', { from: fromPhone, message }).catch(() => {});
     console.log('[VOIPMS WEBHOOK] Stored inbound from', fromPhone);
   } catch (error) {
     console.error('[VOIPMS WEBHOOK] DB insert failed:', error);
+  }
+
+  try {
+    await publishAdminEvent('sms_inbound', { from: fromPhone, message, to: toDid, timestamp: Date.now() });
+  } catch (error) {
+    console.error('[VOIPMS WEBHOOK] Ably publish failed:', error);
   }
 
   return NextResponse.json({ status: 'ok' });
