@@ -11,6 +11,43 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = req.nextUrl;
   const phone = searchParams.get('phone');
+  const filter = searchParams.get('filter'); // 'inbound', 'outbound', 'failed'
+
+  // Drill-down: return filtered message list
+  if (filter) {
+    let rows;
+    if (filter === 'inbound') {
+      rows = await sql`
+        SELECT id, from_phone as phone, message, created_at, 'inbound' as direction,
+          NULL as event_type, NULL as status
+        FROM sms_inbound ORDER BY created_at DESC LIMIT 100
+      `;
+    } else if (filter === 'failed') {
+      rows = await sql`
+        SELECT id, to_phone as phone, message, event_type, status, created_at,
+          'outbound' as direction
+        FROM sms_log WHERE status = 'failed' ORDER BY created_at DESC LIMIT 100
+      `;
+    } else {
+      rows = await sql`
+        SELECT id, to_phone as phone, message, event_type, status, created_at,
+          'outbound' as direction
+        FROM sms_log WHERE status = 'sent' ORDER BY created_at DESC LIMIT 100
+      `;
+    }
+    return NextResponse.json({
+      filter,
+      messages: rows.map((m: Record<string, unknown>) => ({
+        id: m.id,
+        phone: m.phone,
+        message: m.message,
+        direction: m.direction,
+        eventType: m.event_type ?? null,
+        status: m.status ?? null,
+        createdAt: m.created_at,
+      })),
+    });
+  }
 
   if (phone) {
     // Single conversation — merge outbound + inbound, sorted by time

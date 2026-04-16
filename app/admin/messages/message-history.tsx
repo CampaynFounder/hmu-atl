@@ -46,6 +46,9 @@ export function MessageHistory() {
   const [loading, setLoading] = useState(true);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
+  const [drillFilter, setDrillFilter] = useState<'all' | 'inbound' | 'outbound' | 'failed' | null>(null);
+  const [drillMessages, setDrillMessages] = useState<{ phone: string; message: string; status?: string; eventType?: string; createdAt: string; direction: string }[]>([]);
+  const [drillLoading, setDrillLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchThreads = useCallback(async () => {
@@ -62,25 +65,63 @@ export function MessageHistory() {
 
   useEffect(() => { fetchThreads(); }, [fetchThreads]);
 
-  // Re-fetch threads instantly on inbound SMS
-  const handleAdminEvent = useCallback((msg: { name: string }) => {
-    if (msg.name === 'sms_inbound') fetchThreads();
-  }, [fetchThreads]);
+  const openDrill = useCallback(async (filter: 'inbound' | 'outbound' | 'failed') => {
+    setDrillFilter(filter);
+    setDrillLoading(true);
+    try {
+      const res = await fetch(`/api/admin/messages?filter=${filter}`);
+      if (res.ok) {
+        const data = await res.json();
+        setDrillMessages(data.messages ?? []);
+      }
+    } catch {}
+    setDrillLoading(false);
+  }, []);
 
-  useAbly({ channelName: 'admin:feed', onMessage: handleAdminEvent });
-
-  const openConversation = async (phone: string) => {
+  const openConversation = useCallback(async (phone: string) => {
     setSelectedPhone(phone);
     try {
       const res = await fetch(`/api/admin/messages?phone=${phone}`);
       if (res.ok) {
         const data = await res.json();
         setConversation(data);
-        // Refresh threads to update unread counts
         fetchThreads();
       }
     } catch {}
-  };
+  }, [fetchThreads]);
+
+  // Track selected phone in a ref so the Ably callback always sees the latest value
+  const selectedPhoneRef = useRef<string | null>(null);
+  useEffect(() => { selectedPhoneRef.current = selectedPhone; }, [selectedPhone]);
+
+  const openConversationRef = useRef(openConversation);
+  useEffect(() => { openConversationRef.current = openConversation; }, [openConversation]);
+
+  // Re-fetch threads + open conversation on inbound SMS via Ably
+  const handleAdminEvent = useCallback((msg: { name: string; data: unknown }) => {
+    if (msg.name === 'sms_inbound') {
+      fetchThreads();
+      // If we're viewing the conversation this message belongs to, refresh it
+      const payload = msg.data as { from?: string } | undefined;
+      const inboundPhone = payload?.from;
+      if (inboundPhone && selectedPhoneRef.current === inboundPhone) {
+        openConversationRef.current(inboundPhone);
+      }
+    }
+  }, [fetchThreads]);
+
+  useAbly({ channelName: 'admin:feed', onMessage: handleAdminEvent });
+
+  // Fallback polling every 30s — catches messages if Ably publish failed
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchThreads();
+      if (selectedPhoneRef.current) {
+        openConversationRef.current(selectedPhoneRef.current);
+      }
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchThreads]);
 
   const sendReply = async () => {
     if (!replyText.trim() || !selectedPhone) return;
@@ -209,21 +250,25 @@ export function MessageHistory() {
         <h1 className="text-xl font-bold">Messages</h1>
       </div>
 
-      {/* SMS Cost Stats */}
+      {/* SMS Cost Stats — clickable for drill-down */}
       {smsStats && (
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-            <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>Outbound</div>
-            <div className="text-xl font-bold text-white">{smsStats.outbound}</div>
-          </div>
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-            <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>Inbound</div>
-            <div className="text-xl font-bold text-white">{smsStats.inbound}</div>
-          </div>
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-            <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>Failed</div>
-            <div className="text-xl font-bold" style={{ color: smsStats.failed > 0 ? '#FF5252' : '#fff' }}>{smsStats.failed}</div>
-          </div>
+          {([
+            { key: 'outbound' as const, label: 'Outbound', value: smsStats.outbound, color: '#fff' },
+            { key: 'inbound' as const, label: 'Inbound', value: smsStats.inbound, color: '#fff' },
+            { key: 'failed' as const, label: 'Failed', value: smsStats.failed, color: smsStats.failed > 0 ? '#FF5252' : '#fff' },
+          ]).map(({ key, label, value, color }) => (
+            <button
+              key={key}
+              onClick={() => drillFilter === key ? setDrillFilter(null) : openDrill(key)}
+              className={`bg-neutral-900 border rounded-xl p-3 text-left transition-colors cursor-pointer hover:bg-white/5 ${
+                drillFilter === key ? 'border-[#00E676]' : 'border-neutral-800'
+              }`}
+            >
+              <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>{label}</div>
+              <div className="text-xl font-bold" style={{ color }}>{value}</div>
+            </button>
+          ))}
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
             <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>Total</div>
             <div className="text-xl font-bold text-white">{smsStats.total}</div>
@@ -233,6 +278,50 @@ export function MessageHistory() {
             <div className="text-xl font-bold" style={{ color: '#00E676', fontFamily: "'Space Mono', monospace" }}>${smsStats.cost.toFixed(2)}</div>
             <div className="text-[10px] text-neutral-600 mt-0.5">$0.0075/msg</div>
           </div>
+        </div>
+      )}
+
+      {/* Drill-down message list */}
+      {drillFilter && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+            <h2 className="text-sm font-semibold capitalize">{drillFilter} Messages</h2>
+            <button
+              onClick={() => setDrillFilter(null)}
+              className="text-xs text-neutral-500 hover:text-white"
+            >
+              Close
+            </button>
+          </div>
+          {drillLoading ? (
+            <div className="p-6 text-center text-neutral-500 text-sm">Loading...</div>
+          ) : drillMessages.length === 0 ? (
+            <div className="p-6 text-center text-neutral-500 text-sm">No {drillFilter} messages</div>
+          ) : (
+            <div className="divide-y divide-neutral-800/50 max-h-80 overflow-y-auto">
+              {drillMessages.map((msg, i) => (
+                <div
+                  key={i}
+                  className="px-4 py-3 hover:bg-white/5 cursor-pointer transition-colors"
+                  onClick={() => { setDrillFilter(null); openConversation(msg.phone); }}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-mono text-neutral-400">{msg.phone}</span>
+                    <div className="flex items-center gap-2">
+                      {msg.eventType && (
+                        <span className="text-[9px] text-neutral-600 bg-white/5 px-1.5 py-0.5 rounded">{msg.eventType}</span>
+                      )}
+                      {msg.status === 'failed' && (
+                        <span className="text-[9px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">FAILED</span>
+                      )}
+                      <span className="text-[10px] text-neutral-600">{timeAgo(msg.createdAt)}</span>
+                    </div>
+                  </div>
+                  <p className="text-sm text-white truncate">{msg.message}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
