@@ -77,7 +77,7 @@ export const ZONE_REGISTRY: ZoneRegistryEntry[] = [
     displayName: 'Hero Headline Line 2',
     description: 'Second line of hero headline',
     sortOrder: 4,
-    defaultContent: 'RideFair > Rideshare',
+    defaultContent: 'Ride<span style="color:var(--green)">Fair</span> &gt; Ride<span style="opacity:0.25">share</span>',
   },
   {
     pageSlug: 'driver_landing',

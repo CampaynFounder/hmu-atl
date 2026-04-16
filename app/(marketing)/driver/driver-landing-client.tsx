@@ -30,7 +30,7 @@ function DriverLandingInner() {
   const tickerSpeed = useZone('ticker_speed', '18');
   const heroEyebrow = useZone('hero_eyebrow', 'For ATL Driver-Preneurs');
   const heroLine1 = useZone('hero_headline_line1', 'Keep More.');
-  const heroLine2 = useZone('hero_headline_line2', 'RideFair > Rideshare');
+  const heroLine2 = useZone('hero_headline_line2', 'Ride<span style="color:var(--green)">Fair</span> &gt; Ride<span style="opacity:0.25">share</span>');
   const heroSub = useZone('hero_subheadline', 'You Drive. You Thrive. Stop Letting Algorithms Determine Your Worth. <strong>Your Pay. Your Way.</strong> HMU.');
   const heroCtaPrimary = useZone('hero_cta_primary', 'Keep More $$$ From My Rides');
   const heroCtaSecondary = useZone('hero_cta_secondary', 'See how it works ↓');
@@ -300,7 +300,7 @@ function DriverLandingInner() {
         </div>
         <h1 className={styles.heroHeadline}>
           <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0s' }}>{heroLine1}</span>
-          <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0.1s' }}>Ride<span className={styles.lineGreen}>Fair</span> {'>'} Ride<span style={{ opacity: 0.25 }}>share</span></span>
+          <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0.1s' }} dangerouslySetInnerHTML={{ __html: heroLine2 }} />
         </h1>
         <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }} dangerouslySetInnerHTML={{ __html: heroSub }} />
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
