@@ -44,6 +44,42 @@ interface FeeTier {
   totalFees: number;
 }
 
+interface RevenueStreams {
+  rideFares: number;
+  addonRevenue: number;
+  cashTotal: number;
+  cashRides: number;
+  digitalRides: number;
+  hmuFirstSubscribers: number;
+  hmuFirstMrr: number;
+}
+
+interface FeeAudit {
+  totalExpectedFees: number;
+  totalActualFees: number;
+  totalVariance: number;
+  expectedPct: number;
+  actualPct: number;
+  flaggedCount: number;
+}
+
+interface SubscriptionMetrics {
+  active: number;
+  mrr: number;
+  newThisWeek: number;
+  newThisMonth: number;
+  churnedThisMonth: number;
+}
+
+interface AuditFlag {
+  type: string;
+  severity: string;
+  rideId?: string;
+  driverId?: string;
+  amount?: number;
+  message: string;
+}
+
 type Period = 'all' | 'monthly' | 'weekly' | 'daily';
 
 function fmt(n: number): string {
@@ -56,8 +92,12 @@ export function MoneyDashboard() {
   const [unitEconomics, setUnitEconomics] = useState<UnitEconomics | null>(null);
   const [dailyRevenue, setDailyRevenue] = useState<DailyRevenue[]>([]);
   const [feeTiers, setFeeTiers] = useState<FeeTier[]>([]);
+  const [revenueStreams, setRevenueStreams] = useState<RevenueStreams | null>(null);
+  const [feeAudit, setFeeAudit] = useState<FeeAudit | null>(null);
+  const [subscriptions, setSubscriptions] = useState<SubscriptionMetrics | null>(null);
+  const [auditFlags, setAuditFlags] = useState<AuditFlag[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'overview' | 'ledger'>('overview');
+  const [tab, setTab] = useState<'overview' | 'ledger' | 'intelligence'>('overview');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -69,6 +109,16 @@ export function MoneyDashboard() {
         setUnitEconomics(data.unitEconomics);
         setDailyRevenue(data.dailyRevenue);
         setFeeTiers(data.feeTiers);
+        if (data.revenueStreams) setRevenueStreams(data.revenueStreams);
+        if (data.feeAudit) setFeeAudit(data.feeAudit);
+        // Fetch intelligence data in parallel
+        Promise.all([
+          fetch('/api/admin/money/subscriptions').then(r => r.ok ? r.json() : null),
+          fetch(`/api/admin/money/audit-flags?period=${period}`).then(r => r.ok ? r.json() : null),
+        ]).then(([subs, flags]) => {
+          if (subs) setSubscriptions(subs);
+          if (flags?.flags) setAuditFlags(flags.flags);
+        }).catch(() => {});
       }
     } catch (err) {
       console.error('Failed to fetch money data:', err);
@@ -87,7 +137,7 @@ export function MoneyDashboard() {
         <h1 className="text-xl font-bold">Revenue</h1>
         <div className="flex gap-2">
           <div className="flex bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden">
-            {(['overview', 'ledger'] as const).map((t) => (
+            {(['overview', 'ledger', 'intelligence'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -99,7 +149,7 @@ export function MoneyDashboard() {
               </button>
             ))}
           </div>
-          {tab === 'overview' && (
+          {(tab === 'overview' || tab === 'intelligence') && (
             <div className="flex bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden">
               {(['all', 'monthly', 'weekly', 'daily'] as Period[]).map((p) => (
                 <button
@@ -117,7 +167,151 @@ export function MoneyDashboard() {
         </div>
       </div>
 
-      {tab === 'ledger' ? (
+      {tab === 'intelligence' ? (
+        <div className="space-y-6">
+          {/* Revenue Streams */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+              <p className="text-[10px] text-neutral-500 tracking-wide mb-1">RIDE FARES</p>
+              <p className="text-xl font-bold font-mono">{fmt(revenueStreams?.rideFares ?? 0)}</p>
+              <p className="text-[10px] text-neutral-600">{revenueStreams?.digitalRides ?? 0} digital rides</p>
+            </div>
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+              <p className="text-[10px] text-neutral-500 tracking-wide mb-1">ADD-ON EXTRAS</p>
+              <p className="text-xl font-bold font-mono">{fmt(revenueStreams?.addonRevenue ?? 0)}</p>
+              <p className="text-[10px] text-neutral-600">Menu items + in-ride</p>
+            </div>
+            <div className="bg-neutral-900 border border-blue-500/20 rounded-xl p-4">
+              <p className="text-[10px] text-blue-400 tracking-wide mb-1">HMU FIRST</p>
+              <p className="text-xl font-bold font-mono text-blue-400">MRR: {fmt(revenueStreams?.hmuFirstMrr ?? 0)}</p>
+              <p className="text-[10px] text-neutral-600">{revenueStreams?.hmuFirstSubscribers ?? 0} subscribers</p>
+              {subscriptions && (
+                <p className="text-[10px] text-neutral-500 mt-1">
+                  +{subscriptions.newThisWeek} this wk &middot; {subscriptions.churnedThisMonth} churned
+                </p>
+              )}
+            </div>
+            <div className="bg-neutral-900 border border-yellow-500/20 rounded-xl p-4">
+              <p className="text-[10px] text-yellow-400 tracking-wide mb-1">CASH RIDES</p>
+              <p className="text-xl font-bold font-mono">{fmt(revenueStreams?.cashTotal ?? 0)}</p>
+              <p className="text-[10px] text-neutral-600">{revenueStreams?.cashRides ?? 0} rides (unaudited)</p>
+            </div>
+          </div>
+
+          {/* Expected vs Actual */}
+          {feeAudit && (
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
+              <h2 className="text-sm font-semibold mb-4">Expected vs Actual Platform Fees</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                <div>
+                  <p className="text-xs text-neutral-500">Expected Fees</p>
+                  <p className="text-lg font-bold font-mono">{fmt(feeAudit.totalExpectedFees)}</p>
+                  <p className="text-[10px] text-neutral-600">{feeAudit.expectedPct}% of GMV</p>
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-500">Actual Fees</p>
+                  <p className="text-lg font-bold font-mono text-emerald-400">{fmt(feeAudit.totalActualFees)}</p>
+                  <p className="text-[10px] text-neutral-600">{feeAudit.actualPct}% of GMV</p>
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-500">Variance</p>
+                  <p className={`text-lg font-bold font-mono ${
+                    feeAudit.totalVariance > 0.5 ? 'text-yellow-400' :
+                    feeAudit.totalVariance < -0.5 ? 'text-red-400' :
+                    'text-emerald-400'
+                  }`}>
+                    {feeAudit.totalVariance > 0 ? '+' : ''}{fmt(feeAudit.totalVariance)}
+                  </p>
+                  <p className="text-[10px] text-neutral-600">
+                    {feeAudit.totalVariance > 0.5 ? 'Under-collected' :
+                     feeAudit.totalVariance < -0.5 ? 'Over-collected' : 'On track'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-500">Flagged Rides</p>
+                  <p className={`text-lg font-bold ${feeAudit.flaggedCount > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {feeAudit.flaggedCount}
+                  </p>
+                  <p className="text-[10px] text-neutral-600">Variance &gt; $0.50</p>
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-500">Fee Rate Gap</p>
+                  <p className={`text-lg font-bold font-mono ${
+                    Math.abs(feeAudit.expectedPct - feeAudit.actualPct) > 1 ? 'text-yellow-400' : 'text-emerald-400'
+                  }`}>
+                    {feeAudit.expectedPct - feeAudit.actualPct > 0 ? '+' : ''}{(feeAudit.expectedPct - feeAudit.actualPct).toFixed(1)}%
+                  </p>
+                  <p className="text-[10px] text-neutral-600">Expected {feeAudit.expectedPct}% vs actual {feeAudit.actualPct}%</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* HMU First Detail */}
+          {subscriptions && (
+            <div className="bg-neutral-900 border border-blue-500/20 rounded-xl p-5">
+              <h2 className="text-sm font-semibold mb-4 text-blue-400">HMU First Subscriptions</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                <div>
+                  <p className="text-xs text-neutral-500">Active</p>
+                  <p className="text-lg font-bold">{subscriptions.active}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-500">MRR</p>
+                  <p className="text-lg font-bold font-mono text-blue-400">{fmt(subscriptions.mrr)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-500">New This Week</p>
+                  <p className="text-lg font-bold text-emerald-400">+{subscriptions.newThisWeek}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-500">New This Month</p>
+                  <p className="text-lg font-bold text-emerald-400">+{subscriptions.newThisMonth}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-500">Churned (30d)</p>
+                  <p className={`text-lg font-bold ${subscriptions.churnedThisMonth > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {subscriptions.churnedThisMonth}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Audit Flags */}
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
+            <h2 className="text-sm font-semibold mb-4">Audit Flags</h2>
+            {auditFlags.length === 0 ? (
+              <p className="text-sm text-emerald-400 text-center py-4">No anomalies detected</p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {auditFlags.map((flag, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-start gap-3 text-xs p-3 rounded-lg border ${
+                      flag.severity === 'urgent' ? 'border-red-500/30 bg-red-500/5' :
+                      flag.severity === 'warning' ? 'border-yellow-500/30 bg-yellow-500/5' :
+                      'border-neutral-700'
+                    }`}
+                  >
+                    <span className={`shrink-0 mt-0.5 w-2 h-2 rounded-full ${
+                      flag.severity === 'urgent' ? 'bg-red-500' :
+                      flag.severity === 'warning' ? 'bg-yellow-500' : 'bg-neutral-500'
+                    }`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white">{flag.message}</p>
+                      <p className="text-neutral-600 mt-0.5">
+                        {flag.type.replace(/_/g, ' ')}
+                        {flag.amount ? ` · ${fmt(flag.amount)}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : tab === 'ledger' ? (
         <TransactionLedger />
       ) : loading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
+import { auditFees } from '@/lib/admin/fee-audit';
 
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
@@ -124,6 +125,60 @@ export async function GET(req: NextRequest) {
     `,
   ]);
 
+  // Revenue streams + fee audit (non-blocking — don't fail the whole response)
+  let revenueStreams = null;
+  let feeAudit = null;
+  try {
+    const [streamsRows, hmuFirstRows, auditResult] = await Promise.all([
+      isAllTime ? sql`
+        SELECT
+          COALESCE(SUM(COALESCE(final_agreed_price, amount, 0)), 0) as ride_fares,
+          COALESCE(SUM(COALESCE(add_on_total, 0)), 0) as addon_revenue,
+          COALESCE(SUM(CASE WHEN is_cash THEN COALESCE(final_agreed_price, amount, 0) + COALESCE(add_on_total, 0) ELSE 0 END), 0) as cash_total,
+          COUNT(*) FILTER (WHERE is_cash = true) as cash_rides,
+          COUNT(*) FILTER (WHERE is_cash = false OR is_cash IS NULL) as digital_rides
+        FROM rides WHERE status IN ('completed', 'disputed', 'ended')
+      ` : sql`
+        SELECT
+          COALESCE(SUM(COALESCE(final_agreed_price, amount, 0)), 0) as ride_fares,
+          COALESCE(SUM(COALESCE(add_on_total, 0)), 0) as addon_revenue,
+          COALESCE(SUM(CASE WHEN is_cash THEN COALESCE(final_agreed_price, amount, 0) + COALESCE(add_on_total, 0) ELSE 0 END), 0) as cash_total,
+          COUNT(*) FILTER (WHERE is_cash = true) as cash_rides,
+          COUNT(*) FILTER (WHERE is_cash = false OR is_cash IS NULL) as digital_rides
+        FROM rides WHERE status IN ('completed', 'disputed', 'ended')
+          AND created_at > NOW() - ${interval}::interval
+      `,
+      sql`SELECT COUNT(*)::int as count FROM users WHERE tier = 'hmu_first'`,
+      auditFees(period).catch(() => null),
+    ]);
+
+    const s = streamsRows[0] ?? {};
+    const hmuFirstCount = (hmuFirstRows[0]?.count as number) || 0;
+
+    revenueStreams = {
+      rideFares: Number(s.ride_fares ?? 0),
+      addonRevenue: Number(s.addon_revenue ?? 0),
+      cashTotal: Number(s.cash_total ?? 0),
+      cashRides: Number(s.cash_rides ?? 0),
+      digitalRides: Number(s.digital_rides ?? 0),
+      hmuFirstSubscribers: hmuFirstCount,
+      hmuFirstMrr: Math.round(hmuFirstCount * 9.99 * 100) / 100,
+    };
+
+    if (auditResult) {
+      feeAudit = {
+        totalExpectedFees: auditResult.totalExpectedFees,
+        totalActualFees: auditResult.totalActualFees,
+        totalVariance: auditResult.totalVariance,
+        expectedPct: auditResult.expectedPct,
+        actualPct: auditResult.actualPct,
+        flaggedCount: auditResult.flaggedCount,
+      };
+    }
+  } catch (err) {
+    console.error('[money] revenue streams error (non-fatal):', err);
+  }
+
   const m = metrics[0] ?? {};
   const ue = unitEconomics[0] ?? {};
   const cs = cashStats[0] ?? {};
@@ -170,6 +225,8 @@ export async function GET(req: NextRequest) {
       rideCount: Number(t.ride_count ?? 0),
       totalFees: Number(t.total_fees ?? 0),
     })),
+    revenueStreams,
+    feeAudit,
     period,
   });
 }
