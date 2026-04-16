@@ -47,8 +47,9 @@ export function MessageHistory() {
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
   const [drillFilter, setDrillFilter] = useState<'all' | 'inbound' | 'outbound' | 'failed' | null>(null);
-  const [drillMessages, setDrillMessages] = useState<{ phone: string; message: string; status?: string; eventType?: string; createdAt: string; direction: string }[]>([]);
+  const [drillMessages, setDrillMessages] = useState<{ id: string; phone: string; message: string; status?: string; eventType?: string; createdAt: string; direction: string }[]>([]);
   const [drillLoading, setDrillLoading] = useState(false);
+  const [retrying, setRetrying] = useState<Record<string, 'sending' | 'sent' | 'failed'>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchThreads = useCallback(async () => {
@@ -77,6 +78,22 @@ export function MessageHistory() {
     } catch {}
     setDrillLoading(false);
   }, []);
+
+  const retrySms = useCallback(async (smsLogId: string) => {
+    setRetrying(prev => ({ ...prev, [smsLogId]: 'sending' }));
+    try {
+      const res = await fetch('/api/admin/messages/retry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ smsLogId }),
+      });
+      const data = await res.json();
+      setRetrying(prev => ({ ...prev, [smsLogId]: data.success ? 'sent' : 'failed' }));
+      if (data.success) fetchThreads();
+    } catch {
+      setRetrying(prev => ({ ...prev, [smsLogId]: 'failed' }));
+    }
+  }, [fetchThreads]);
 
   const openConversation = useCallback(async (phone: string) => {
     setSelectedPhone(phone);
@@ -313,6 +330,18 @@ export function MessageHistory() {
                       )}
                       {msg.status === 'failed' && (
                         <span className="text-[9px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">FAILED</span>
+                      )}
+                      {msg.status === 'failed' && retrying[msg.id] !== 'sent' && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); retrySms(msg.id); }}
+                          disabled={retrying[msg.id] === 'sending'}
+                          className="text-[9px] text-[#00E676] bg-[#00E676]/10 hover:bg-[#00E676]/20 px-2 py-0.5 rounded font-medium transition-colors disabled:opacity-50"
+                        >
+                          {retrying[msg.id] === 'sending' ? '...' : retrying[msg.id] === 'failed' ? 'Retry Again' : 'Retry'}
+                        </button>
+                      )}
+                      {retrying[msg.id] === 'sent' && (
+                        <span className="text-[9px] text-[#00E676] bg-[#00E676]/10 px-2 py-0.5 rounded font-medium">Sent</span>
                       )}
                       <span className="text-[10px] text-neutral-600">{timeAgo(msg.createdAt)}</span>
                     </div>
