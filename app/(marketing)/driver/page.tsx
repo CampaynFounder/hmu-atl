@@ -1,4 +1,5 @@
 import DriverLandingClient from './driver-landing-client';
+import { getPageContent } from '@/lib/cms/queries';
 
 export const metadata = {
   title: 'HMU Cash Ride — Make Bank Trips not Blank Trips | Driver Sign Up',
@@ -23,6 +24,26 @@ export const metadata = {
   },
 };
 
-export default function DriverLandingPage() {
-  return <DriverLandingClient />;
+export default async function DriverLandingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const params = await searchParams;
+  const utmFunnel = typeof params.utm_funnel === 'string' ? params.utm_funnel : undefined;
+  const utmSource = typeof params.utm_source === 'string' ? params.utm_source : undefined;
+  const utmCampaign = typeof params.utm_campaign === 'string' ? params.utm_campaign : undefined;
+
+  const { content, flags, sectionOrder, funnelStage } = await getPageContent(
+    'driver_landing', 'atl',
+    { utm_funnel: utmFunnel, utm_source: utmSource, utm_campaign: utmCampaign },
+  );
+  return (
+    <DriverLandingClient
+      initialContent={content}
+      initialFlags={flags}
+      sectionOrder={sectionOrder}
+      funnelStage={funnelStage}
+    />
+  );
 }

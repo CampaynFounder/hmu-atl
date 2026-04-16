@@ -7,10 +7,114 @@ import { posthog } from '@/components/analytics/posthog-provider';
 import { fbEvent, fbCustomEvent } from '@/components/analytics/meta-pixel';
 import { Footer } from '@/components/landing/footer';
 import ShowcaseCarousel from '@/components/driver/showcase-carousel';
+import { CmsProvider, useCmsContext } from '@/lib/cms/provider';
+import { useZone } from '@/lib/cms/use-zone';
+import { useFlag } from '@/lib/cms/use-flag';
+import type { ContentMap, FlagMap } from '@/lib/cms/types';
+import { getDefaultSectionOrder } from '@/lib/cms/section-registry';
 import styles from './driver.module.css';
 
-export default function DriverLandingClient() {
+export default function DriverLandingClient({ initialContent, initialFlags, sectionOrder, funnelStage }: { initialContent?: ContentMap; initialFlags?: FlagMap; sectionOrder?: string[]; funnelStage?: string }) {
+  return (
+    <CmsProvider initialContent={initialContent ?? {}} initialFlags={initialFlags} sectionOrder={sectionOrder} funnelStage={funnelStage}>
+      <DriverLandingInner />
+    </CmsProvider>
+  );
+}
+
+function DriverLandingInner() {
   const router = useRouter();
+
+  // CMS zones
+  const tickerItems = useZone<string[]>('ticker_items', ['You set the price', 'The less you make — the less we take', 'Hit your cap — we take zero', 'Cash App • Venmo • Zelle • Bank — always free', 'Payment secured upfront', 'No show — still paid']);
+  const tickerSpeed = useZone('ticker_speed', '18');
+  const heroEyebrow = useZone('hero_eyebrow', 'For ATL Driver-Preneurs');
+  const heroLine1 = useZone('hero_headline_line1', 'Keep More.');
+  const heroLine2 = useZone('hero_headline_line2', 'RideFair > Rideshare');
+  const heroSub = useZone('hero_subheadline', 'You Drive. You Thrive. Stop Letting Algorithms Determine Your Worth. <strong>Your Pay. Your Way.</strong> HMU.');
+  const heroCtaPrimary = useZone('hero_cta_primary', 'Keep More $$$ From My Rides');
+  const heroCtaSecondary = useZone('hero_cta_secondary', 'See how it works ↓');
+  const heroTrust = useZone('hero_trust_text', 'Drivers live in ATL right now — <strong>try it free today</strong>');
+  const painLabel = useZone('pain_label', 'The Problem');
+  const painHeadline = useZone('pain_headline', 'Other Apps Playin in Our Face');
+  const painBody = useZone('pain_body', "You're putting miles on your car, burning gas, blocking time — and they set your rate, take their cut no matter what, and leave you waiting when riders waste your time.");
+  const painCards = useZone<Array<{ icon: string; title: string; body: string }>>('pain_cards', [
+    { icon: '⏱', title: 'They set your price. You just drive.', body: "Uber, Lyft — they calculate what you make. Same flat cut whether you did 1 ride or 20. That's not a business, that's a job with worse hours." },
+    { icon: '🚗', title: 'You pull up. They not ready.', body: 'You drove 12 minutes to get there. Now they "5 more minutes." That\'s gas, time, and another ride you missed while you sat there waiting.' },
+    { icon: '👻', title: 'They cancel. You get nothing.', body: "They accepted, you drove over, now they ghost. Other platforms give you a small fee — eventually. HMU protects your time from jump." },
+  ]);
+  const howLabel = useZone('how_label', 'How It Works');
+  const howHeadline = useZone('how_headline', 'How Driverpreneurs Get Paid');
+  const howSub = useZone('how_subheadline', 'Post your availability. Set your price. Rider pays before you move. Done.');
+  const howSteps = useZone<Array<{ num: string; title: string; body: string }>>('how_steps', [
+    { num: '01', title: 'You post your HMU', body: "Tell the city you're available. Your area, your time, your minimum price. Riders in your area see your post and your rating." },
+    { num: '02', title: 'Rider taps Pull Up — money locked', body: "When a rider confirms, payment is held before you go anywhere. Not a promise. The money is secured the second they say BET." },
+    { num: '03', title: 'You show up. They better show up.', body: "You tap HERE when you arrive. If they're not ready in 10 minutes — no-show fee. You still eat." },
+    { num: '04', title: 'End ride. Get your money.', body: "Tap End Ride. Rider has 45 minutes to dispute or payment releases automatically to your Cash App, Venmo, Zelle, or bank." },
+  ]);
+  const protectionBadge = useZone('protection_badge', '🔒 Driver Protection');
+  const protectionCards = useZone<Array<{ situation: string; headline: string; result: string }>>('protection_cards', [
+    { situation: 'Situation 01', headline: 'No Response', result: 'Get Paid' },
+    { situation: 'Situation 02', headline: 'Still Getting Dressed', result: 'Still Gettin Paid' },
+    { situation: 'Situation 03', headline: 'Wastin Your Time', result: 'Get Paid' },
+  ]);
+  const trackingLabel = useZone('tracking_label', 'Live Tracking');
+  const trackingFeatures = useZone<Array<{ icon: string; text: string }>>('tracking_features', [
+    { icon: '📍', text: 'Real-time GPS — rider sees you OTW, you see their pin' },
+    { icon: '⏱️', text: '10-min no-show timer starts when you tap HERE' },
+    { icon: '💬', text: 'In-ride chat — no need to share your phone number' },
+    { icon: '💵', text: 'Cash Mode — accept cash rides with ETA tracking. 3 free/month, unlimited with HMU First' },
+    { icon: '🔐', text: 'Rider info stays private — you see display name only' },
+  ]);
+  const feesLabel = useZone('fees_label', 'How We Pay');
+  const feesIntro = useZone('fees_intro', "Other apps take the same flat cut whether you did one ride or ten. <strong>We don't do that.</strong> Your first $50 every day, we only take 10%. The more you earn, the more we earn — but we never go above 25%. And once you hit your daily cap, <strong>we take zero for the rest of the day.</strong>");
+  const feeTiers = useZone<Array<{ label: string; rate: string; keep: string; width: string }>>('fee_tiers', [
+    { label: 'First $50 today', rate: 'We take 10%', keep: 'You keep 90%', width: '90%' },
+    { label: '$50–$150 today', rate: 'We take 15%', keep: 'You keep 85%', width: '85%' },
+    { label: '$150–$300 today', rate: 'We take 20%', keep: 'You keep 80%', width: '80%' },
+    { label: 'Over $300 today', rate: 'We take 25%', keep: 'You keep 75%', width: '75%' },
+  ]);
+  const capCard = useZone<{ title: string; body: string }>('cap_card', {
+    title: 'Daily Cap: $40 max. Weekly Cap: $150 max.',
+    body: "No matter how many rides you do, <strong>HMU ATL never takes more than $40 from you in a single day.</strong> Hit your cap and every ride after that is yours — zero platform fee. Resets midnight ET every day. Weekly cap resets every Sunday.",
+  });
+  const payoutLabel = useZone('payout_label', 'How You Get Paid');
+  const payoutHeadline = useZone('payout_headline', 'Your Money, Your Way');
+  const payoutSub = useZone('payout_subheadline', 'Pick how you want to get paid when you sign up. Switch anytime. Cash App, Venmo, Zelle, and bank transfers are always free.');
+  const payoutMethods = useZone<Array<{ icon: string; name: string; speed: string; fee: string; best?: boolean; bestTag?: string; note?: string }>>('payout_methods', [
+    { icon: '💸', name: 'Cash App', speed: 'Instant • Most popular in ATL', fee: 'FREE', best: true, bestTag: 'Most popular' },
+    { icon: '💙', name: 'Venmo', speed: 'Instant', fee: 'FREE', best: true },
+    { icon: '🏦', name: 'Zelle', speed: 'Instant bank transfer', fee: 'FREE', best: true },
+    { icon: '🏧', name: 'Bank Account', speed: 'Next morning (Free tier) or instant (HMU First)', fee: 'FREE', best: true },
+    { icon: '💳', name: 'Debit Card', speed: 'Instant push to any Visa/Mastercard debit', fee: '0.5% fee', note: '~$0.10 on $20' },
+    { icon: '🅿️', name: 'PayPal', speed: 'Instant', fee: '1% fee', note: '~$0.20 on $20' },
+  ]);
+  const payoutAppleNote = useZone('payout_apple_note', "<strong>Apple Pay note:</strong> Apple Pay is a spending tool — Apple doesn't allow anyone to receive payouts to it. Use Cash App or Venmo instead and get paid just as fast, for free.");
+  const socialProofPills = useZone<Array<{ emoji: string; quote: string; author: string }>>('social_proof_pills', [
+    { emoji: '💰', quote: 'First $50 I only paid $4 in fees — wild', author: 'ATL Driver' },
+    { emoji: '🔒', quote: 'Cap hit on a Saturday — free rides rest of the day', author: 'Decatur' },
+    { emoji: '💸', quote: 'Cash App instant every time', author: 'Bankhead Driver' },
+    { emoji: '⏱', quote: 'No more waiting for cancel fees', author: 'East ATL' },
+    { emoji: '🚗', quote: 'They not ready? Still paid', author: 'Midtown' },
+    { emoji: '⭐', quote: '92% Chill rating after 40 rides', author: 'OG Driver' },
+  ]);
+  const ctaEyebrow = useZone('cta_eyebrow', 'Ready to Run It?');
+  const ctaHeadline = useZone('cta_headline', 'Start Earning More Per Ride');
+  const ctaSub = useZone('cta_subheadline', 'No subscription required to start. Sign up, set your price, post your first HMU.');
+  const ctaButtonText = useZone('cta_button_text', 'Keep More $$$ From My Rides');
+  const ctaFinePrint = useZone('cta_fine_print', 'Free to start. No credit card. Cancel anytime.');
+  const navCtaText = useZone('nav_cta_text', 'Make More Driving');
+
+  // Feature flags
+  const showPainSection = useFlag('driver_landing.pain_section', true);
+  const showHowSection = useFlag('driver_landing.how_section', true);
+  const showProtectionSection = useFlag('driver_landing.protection_section', true);
+  const showTrackingSection = useFlag('driver_landing.tracking_section', true);
+  const showFeesSection = useFlag('driver_landing.fees_section', true);
+  const showPayoutSection = useFlag('driver_landing.payout_section', true);
+  const showSocialProof = useFlag('driver_landing.social_proof', true);
+  const showCtaSection = useFlag('driver_landing.cta_section', true);
+
   const [earnedToday, setEarnedToday] = useState('140');
   const [simKeep, setSimKeep] = useState('$122.31');
   const [simTook, setSimTook] = useState('$17.69');
@@ -36,10 +140,12 @@ export default function DriverLandingClient() {
     return '';
   };
 
-  // Meta Pixel: driver landing viewed
+  // Meta Pixel: driver landing viewed (with funnel stage)
+  const { funnelStage: currentFunnelStage } = useCmsContext();
   useEffect(() => {
-    fbEvent('ViewContent', { content_name: 'Driver Landing', content_category: 'driver_funnel', value: 9.99, currency: 'USD' });
-  }, []);
+    fbEvent('ViewContent', { content_name: `Driver Landing - ${currentFunnelStage}`, content_category: 'driver_funnel', funnel_stage: currentFunnelStage, value: 9.99, currency: 'USD' });
+    fbCustomEvent(`FunnelView_${currentFunnelStage}`, { audience: 'driver' });
+  }, [currentFunnelStage]);
 
   // Scroll reveal
   useEffect(() => {
@@ -115,11 +221,15 @@ export default function DriverLandingClient() {
     setEmailError(eErr);
     if (pErr || eErr) return;
     setIsSubmitting(true);
-    posthog.capture('driver_signup_form_submitted', { phone: phone ? 'provided' : 'empty', email: email ? 'provided' : 'empty' });
-    fbEvent('Lead', { content_name: 'Driver Signup Form', content_category: 'driver_funnel' });
+    const params = new URLSearchParams(window.location.search);
+    const currentStage = params.get('utm_funnel') || 'awareness';
+
+    // Analytics: PostHog + Meta Pixel with funnel stage
+    posthog.capture('lead_captured', { lead_type: 'driver', funnel_stage: currentStage, audience: 'driver', source: 'driver_landing', phone: phone ? 'provided' : 'empty', email: email ? 'provided' : 'empty' });
+    fbEvent('Lead', { content_name: 'Driver Signup Form', content_category: `driver_${currentStage}` });
+    fbCustomEvent(`FunnelLead_${currentStage}`, { audience: 'driver' });
 
     // Store lead before redirecting
-    const params = new URLSearchParams(window.location.search);
     fetch('/api/leads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -131,11 +241,20 @@ export default function DriverLandingClient() {
         utm_source: params.get('utm_source'),
         utm_medium: params.get('utm_medium'),
         utm_campaign: params.get('utm_campaign'),
+        funnel_stage: currentStage,
+        audience: 'driver',
       }),
     }).catch(() => {});
 
     setTimeout(() => router.push('/sign-up?type=driver'), 800);
   };
+
+  // Dynamic section ordering — checks if a section should render based on the layout
+  const { sectionOrder: ctxSectionOrder } = useCmsContext();
+  const activeSections = new Set(
+    ctxSectionOrder.length > 0 ? ctxSectionOrder : getDefaultSectionOrder('driver_landing')
+  );
+  const isActive = (key: string) => activeSections.has(key);
 
   return (
     <div className={styles.container}>
@@ -147,27 +266,20 @@ export default function DriverLandingClient() {
         <Link href="/" className={styles.navLogo}>HMU ATL</Link>
         <div className={styles.navActions}>
           <Link href="/sign-in?type=driver" className={styles.navSignIn}>Sign In</Link>
-          <Link href="/sign-up?type=driver" className={styles.navCta} onClick={() => { posthog.capture('driver_nav_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'nav' }); }}>Make More Driving</Link>
+          <Link href="/sign-up?type=driver" className={styles.navCta} onClick={() => { posthog.capture('driver_nav_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'nav' }); }}>{navCtaText}</Link>
         </div>
       </nav>
 
       {/* TICKER */}
+      {isActive('ticker') && (
       <div className={styles.ticker}>
-        <div className={styles.tickerInner}>
-          <div className={styles.tickerItem}>You set the price</div>
-          <div className={styles.tickerItem}>The less you make — the less we take</div>
-          <div className={styles.tickerItem}>Hit your cap — we take zero</div>
-          <div className={styles.tickerItem}>Cash App • Venmo • Zelle • Bank — always free</div>
-          <div className={styles.tickerItem}>Payment secured upfront</div>
-          <div className={styles.tickerItem}>No show — still paid</div>
-          <div className={styles.tickerItem}>You set the price</div>
-          <div className={styles.tickerItem}>The less you make — the less we take</div>
-          <div className={styles.tickerItem}>Hit your cap — we take zero</div>
-          <div className={styles.tickerItem}>Cash App • Venmo • Zelle • Bank — always free</div>
-          <div className={styles.tickerItem}>Payment secured upfront</div>
-          <div className={styles.tickerItem}>No show — still paid</div>
+        <div className={styles.tickerInner} style={{ animationDuration: `${tickerSpeed}s` }}>
+          {[...tickerItems, ...tickerItems].map((item, i) => (
+            <div key={i} className={styles.tickerItem}>{item}</div>
+          ))}
         </div>
       </div>
+      )}
 
       {/* HMU SHOWCASE CAROUSEL */}
       <div style={{ margin: '100px 20px 0', position: 'relative', zIndex: 2 }}>
@@ -175,104 +287,77 @@ export default function DriverLandingClient() {
       </div>
 
       {/* HERO */}
+      {isActive('hero') && (
       <section className={styles.hero} style={{ paddingTop: 40 }}>
         <div className={`${styles.heroEyebrow} ${styles.fadeUp}`} style={{ animationDelay: '0s' }}>
-          For ATL Driver-Preneurs
+          {heroEyebrow}
         </div>
         <h1 className={styles.heroHeadline}>
-          <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0s' }}>Keep More.</span>
+          <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0s' }}>{heroLine1}</span>
           <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0.1s' }}>Ride<span className={styles.lineGreen}>Fair</span> {'>'} Ride<span style={{ opacity: 0.25 }}>share</span></span>
         </h1>
-        <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }}>
-          You Drive. You Thrive. Stop Letting Algorithms Determine Your Worth. <strong>Your Pay. Your Way.</strong> HMU.
-        </p>
+        <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }} dangerouslySetInnerHTML={{ __html: heroSub }} />
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
-          <Link href="/sign-up?type=driver" className={styles.btnPrimary} onClick={() => { posthog.capture('driver_hero_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'hero' }); }}>Keep More $$$ From My Rides</Link>
-          <a href="#how" className={styles.btnGhost}>See how it works ↓</a>
+          <Link href="/sign-up?type=driver" className={styles.btnPrimary} onClick={() => { posthog.capture('driver_hero_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'hero' }); }}>{heroCtaPrimary}</Link>
+          <a href="#how" className={styles.btnGhost}>{heroCtaSecondary}</a>
         </div>
         <div className={`${styles.heroTrust} ${styles.fadeUp}`} style={{ animationDelay: '0.5s' }}>
           <div className={styles.trustDot} />
-          <p className={styles.trustText}>Drivers live in ATL right now — <strong>try it free today</strong></p>
+          <p className={styles.trustText} dangerouslySetInnerHTML={{ __html: heroTrust }} />
         </div>
       </section>
+      )}
 
       {/* PAIN */}
+      {isActive('pain') && showPainSection && (
       <section className={`${styles.section} ${styles.sectionAlt}`}>
-        <p className={`${styles.sectionLabel} ${styles.reveal}`}>The Problem</p>
+        <p className={`${styles.sectionLabel} ${styles.reveal}`}>{painLabel}</p>
         <h2 className={`${styles.painHeadline} ${styles.reveal}`}>
-          Other Apps <span className={styles.strike}>Playin in Our Face</span>
+          Other Apps <span className={styles.strike}>{painHeadline.replace('Other Apps ', '')}</span>
         </h2>
         <p className={styles.reveal} style={{ fontSize: 16, color: 'var(--gray-light)', lineHeight: 1.6, marginBottom: 8 }}>
-          You&apos;re putting miles on your car, burning gas, blocking time — and they set your rate,
-          take their cut no matter what, and leave you waiting when riders waste your time.
+          {painBody}
         </p>
         <div className={styles.painCards}>
-          <div className={`${styles.painCard} ${styles.reveal}`}>
-            <div className={styles.painIcon}>⏱</div>
+          {painCards.map((card, i) => (
+          <div key={i} className={`${styles.painCard} ${styles.reveal}`}>
+            <div className={styles.painIcon}>{card.icon}</div>
             <div>
-              <div className={styles.painCardTitle}>They set your price. You just drive.</div>
-              <div className={styles.painCardBody}>Uber, Lyft — they calculate what you make. Same flat cut whether you did 1 ride or 20. That&apos;s not a business, that&apos;s a job with worse hours.</div>
+              <div className={styles.painCardTitle}>{card.title}</div>
+              <div className={styles.painCardBody}>{card.body}</div>
             </div>
           </div>
-          <div className={`${styles.painCard} ${styles.reveal}`}>
-            <div className={styles.painIcon}>🚗</div>
-            <div>
-              <div className={styles.painCardTitle}>You pull up. They not ready.</div>
-              <div className={styles.painCardBody}>You drove 12 minutes to get there. Now they &quot;5 more minutes.&quot; That&apos;s gas, time, and another ride you missed while you sat there waiting.</div>
-            </div>
-          </div>
-          <div className={`${styles.painCard} ${styles.reveal}`}>
-            <div className={styles.painIcon}>👻</div>
-            <div>
-              <div className={styles.painCardTitle}>They cancel. You get nothing.</div>
-              <div className={styles.painCardBody}>They accepted, you drove over, now they ghost. Other platforms give you a small fee — eventually. HMU protects your time from jump.</div>
-            </div>
-          </div>
+          ))}
         </div>
       </section>
+      )}
 
       {/* HOW IT WORKS */}
+      {isActive('how_it_works') && showHowSection && (
       <section className={styles.section} id="how">
-        <p className={`${styles.sectionLabel} ${styles.reveal}`}>How It Works</p>
+        <p className={`${styles.sectionLabel} ${styles.reveal}`}>{howLabel}</p>
         <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
           <span className={styles.green}>How</span><br />Driverpreneurs<br />Get Paid
         </h2>
-        <p className={`${styles.sectionSub} ${styles.reveal}`}>Post your availability. Set your price. Rider pays before you move. Done.</p>
+        <p className={`${styles.sectionSub} ${styles.reveal}`}>{howSub}</p>
         <div className={styles.steps}>
-          <div className={`${styles.step} ${styles.reveal}`}>
-            <div className={styles.stepNum}>01</div>
+          {howSteps.map((step, i) => (
+          <div key={i} className={`${styles.step} ${styles.reveal}`}>
+            <div className={styles.stepNum}>{step.num}</div>
             <div>
-              <div className={styles.stepTitle}>You post your HMU</div>
-              <div className={styles.stepBody}>Tell the city you&apos;re available. Your area, your time, <span className={styles.highlight}>your minimum price.</span> Riders in your area see your post and your rating.</div>
+              <div className={styles.stepTitle}>{step.title}</div>
+              <div className={styles.stepBody}>{step.body}</div>
             </div>
           </div>
-          <div className={`${styles.step} ${styles.reveal}`}>
-            <div className={styles.stepNum}>02</div>
-            <div>
-              <div className={styles.stepTitle}>Rider taps Pull Up — money locked</div>
-              <div className={styles.stepBody}>When a rider confirms, <span className={styles.highlight}>payment is held before you go anywhere.</span> Not a promise. The money is secured the second they say BET.</div>
-            </div>
-          </div>
-          <div className={`${styles.step} ${styles.reveal}`}>
-            <div className={styles.stepNum}>03</div>
-            <div>
-              <div className={styles.stepTitle}>You show up. They better show up.</div>
-              <div className={styles.stepBody}>You tap HERE when you arrive. <span className={styles.highlight}>If they&apos;re not ready in 10 minutes — no-show fee. You still eat.</span></div>
-            </div>
-          </div>
-          <div className={`${styles.step} ${styles.reveal}`}>
-            <div className={styles.stepNum}>04</div>
-            <div>
-              <div className={styles.stepTitle}>End ride. Get your money.</div>
-              <div className={styles.stepBody}>Tap End Ride. Rider has 45 minutes to dispute or <span className={styles.highlight}>payment releases automatically to your Cash App, Venmo, Zelle, or bank.</span></div>
-            </div>
-          </div>
+          ))}
         </div>
       </section>
+      )}
 
       {/* PAYMENT PROTECTION */}
+      {isActive('protection') && showProtectionSection && (
       <section className={`${styles.section} ${styles.sectionAlt}`}>
-        <div className={styles.protectionBadge}>🔒 Driver Protection</div>
+        <div className={styles.protectionBadge}>{protectionBadge}</div>
         <h2 className={`${styles.protectionHeadline} ${styles.reveal}`}>
           Make Money<br /><span style={{ color: 'var(--green)' }}>Doin Rides</span>
         </h2>
@@ -281,27 +366,21 @@ export default function DriverLandingClient() {
           Once you&apos;ve made it to the pickup, the rider needs a real reason not to pay.
         </p>
         <div className={styles.paidCards}>
-          <div className={`${styles.paidCard} ${styles.reveal}`}>
-            <div className={styles.paidSituation}>Situation 01</div>
-            <div className={styles.paidHeadlineText}>No Response</div>
-            <div className={styles.paidResult}>Get Paid</div>
+          {protectionCards.map((card, i) => (
+          <div key={i} className={`${styles.paidCard} ${styles.reveal}`}>
+            <div className={styles.paidSituation}>{card.situation}</div>
+            <div className={styles.paidHeadlineText}>{card.headline}</div>
+            <div className={styles.paidResult}>{card.result}</div>
           </div>
-          <div className={`${styles.paidCard} ${styles.reveal}`}>
-            <div className={styles.paidSituation}>Situation 02</div>
-            <div className={styles.paidHeadlineText}>Still Getting Dressed</div>
-            <div className={styles.paidResult}>Still Gettin Paid</div>
-          </div>
-          <div className={`${styles.paidCard} ${styles.reveal}`}>
-            <div className={styles.paidSituation}>Situation 03</div>
-            <div className={styles.paidHeadlineText}>Wastin Your Time</div>
-            <div className={styles.paidResult}>Get Paid</div>
-          </div>
+          ))}
         </div>
       </section>
+      )}
 
       {/* ETA TRACKING */}
+      {isActive('tracking') && showTrackingSection && (
       <section className={styles.section}>
-        <p className={`${styles.sectionLabel} ${styles.reveal}`}>Live Tracking</p>
+        <p className={`${styles.sectionLabel} ${styles.reveal}`}>{trackingLabel}</p>
         <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
           Stop Guessing<br />Where To<br /><span className={styles.green}>Pull Up</span>
         </h2>
@@ -373,14 +452,8 @@ export default function DriverLandingClient() {
 
         {/* Feature bullets */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {[
-            { icon: '\uD83D\uDCCD', text: 'Real-time GPS — rider sees you OTW, you see their pin' },
-            { icon: '\u23F1\uFE0F', text: '10-min no-show timer starts when you tap HERE' },
-            { icon: '\uD83D\uDCAC', text: 'In-ride chat — no need to share your phone number' },
-            { icon: '\uD83D\uDCB5', text: 'Cash Mode — accept cash rides with ETA tracking. 3 free/month, unlimited with HMU First' },
-            { icon: '\uD83D\uDD10', text: 'Rider info stays private — you see display name only' },
-          ].map(f => (
-            <div key={f.text} className={styles.reveal} style={{
+          {trackingFeatures.map((f, i) => (
+            <div key={i} className={styles.reveal} style={{
               display: 'flex', alignItems: 'center', gap: 12,
               fontSize: 14, color: '#bbb', lineHeight: 1.4,
             }}>
@@ -390,73 +463,38 @@ export default function DriverLandingClient() {
           ))}
         </div>
       </section>
+      )}
 
       {/* HOW WE PAY — PROGRESSIVE FEES */}
+      {isActive('fees') && showFeesSection && (
       <section className={styles.section} id="how-we-pay">
-        <p className={`${styles.sectionLabel} ${styles.reveal}`}>How We Pay</p>
+        <p className={`${styles.sectionLabel} ${styles.reveal}`}>{feesLabel}</p>
         <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
           The Less You<br />Make, The Less<br /><span className={styles.green}>We Take</span>
         </h2>
 
-        <p className={`${styles.feeIntro} ${styles.reveal}`}>
-          Other apps take the same flat cut whether you did one ride or ten.{' '}
-          <strong>We don&apos;t do that.</strong> Your first $50 every day, we only take 10%.
-          The more you earn, the more we earn — but we never go above 25%.
-          And once you hit your daily cap, <strong>we take zero for the rest of the day.</strong>
-        </p>
+        <p className={`${styles.feeIntro} ${styles.reveal}`} dangerouslySetInnerHTML={{ __html: feesIntro }} />
 
         {/* Progressive tier bars */}
         <div className={`${styles.tierBars} ${styles.reveal}`}>
-          <div className={styles.tierBar}>
-            <div className={styles.tierBarFill} style={{ width: '90%' }} />
+          {feeTiers.map((tier, i) => (
+          <div key={i} className={styles.tierBar}>
+            <div className={styles.tierBarFill} style={{ width: tier.width }} />
             <div className={styles.tierBarContent}>
-              <span className={styles.tierBarLabel}>First $50 today</span>
+              <span className={styles.tierBarLabel}>{tier.label}</span>
               <div className={styles.tierBarRight}>
-                <span className={styles.tierBarRate}>We take 10%</span>
-                <span className={styles.tierBarKeep}>You keep 90%</span>
+                <span className={styles.tierBarRate}>{tier.rate}</span>
+                <span className={styles.tierBarKeep}>{tier.keep}</span>
               </div>
             </div>
           </div>
-          <div className={styles.tierBar}>
-            <div className={styles.tierBarFill} style={{ width: '85%' }} />
-            <div className={styles.tierBarContent}>
-              <span className={styles.tierBarLabel}>$50–$150 today</span>
-              <div className={styles.tierBarRight}>
-                <span className={styles.tierBarRate}>We take 15%</span>
-                <span className={styles.tierBarKeep}>You keep 85%</span>
-              </div>
-            </div>
-          </div>
-          <div className={styles.tierBar}>
-            <div className={styles.tierBarFill} style={{ width: '80%' }} />
-            <div className={styles.tierBarContent}>
-              <span className={styles.tierBarLabel}>$150–$300 today</span>
-              <div className={styles.tierBarRight}>
-                <span className={styles.tierBarRate}>We take 20%</span>
-                <span className={styles.tierBarKeep}>You keep 80%</span>
-              </div>
-            </div>
-          </div>
-          <div className={styles.tierBar}>
-            <div className={styles.tierBarFill} style={{ width: '75%' }} />
-            <div className={styles.tierBarContent}>
-              <span className={styles.tierBarLabel}>Over $300 today</span>
-              <div className={styles.tierBarRight}>
-                <span className={styles.tierBarRate}>We take 25%</span>
-                <span className={styles.tierBarKeep}>You keep 75%</span>
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
 
         {/* Daily cap callout */}
         <div className={`${styles.capCard} ${styles.reveal}`}>
-          <div className={styles.capCardTitle}>Daily Cap: $40 max. Weekly Cap: $150 max.</div>
-          <div className={styles.capCardBody}>
-            No matter how many rides you do, <strong>HMU ATL never takes more than $40 from you in a single day.</strong>{' '}
-            Hit your cap and every ride after that is yours — zero platform fee.
-            Resets midnight ET every day. Weekly cap resets every Sunday.
-          </div>
+          <div className={styles.capCardTitle}>{capCard.title}</div>
+          <div className={styles.capCardBody} dangerouslySetInnerHTML={{ __html: capCard.body }} />
         </div>
 
         {/* Live fee simulator */}
@@ -558,130 +596,64 @@ export default function DriverLandingClient() {
           </div>
         </div>
       </section>
+      )}
 
       {/* PAYOUT METHODS */}
+      {isActive('payout') && showPayoutSection && (
       <section className={`${styles.section} ${styles.sectionAlt}`} id="payout-methods">
-        <p className={`${styles.sectionLabel} ${styles.reveal}`}>How You Get Paid</p>
+        <p className={`${styles.sectionLabel} ${styles.reveal}`}>{payoutLabel}</p>
         <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
           Your Money,<br /><span className={styles.green}>Your Way</span>
         </h2>
         <p className={`${styles.sectionSub} ${styles.reveal}`}>
-          Pick how you want to get paid when you sign up. Switch anytime.
-          Cash App, Venmo, Zelle, and bank transfers are always free.
+          {payoutSub}
         </p>
 
         <div className={styles.methodsGrid}>
-          <div className={`${styles.methodCard} ${styles.methodCardBest} ${styles.reveal}`}>
+          {payoutMethods.map((method, i) => (
+          <div key={i} className={`${styles.methodCard} ${method.best ? styles.methodCardBest : ''} ${styles.reveal}`}>
             <div className={styles.methodLeft}>
-              <div className={styles.methodIcon}>💸</div>
+              <div className={styles.methodIcon}>{method.icon}</div>
               <div>
-                <div className={styles.methodName}>Cash App</div>
-                <div className={styles.methodSpeed}>Instant • Most popular in ATL</div>
+                <div className={styles.methodName}>{method.name}</div>
+                <div className={styles.methodSpeed}>{method.speed}</div>
               </div>
             </div>
             <div className={styles.methodRight}>
-              <div className={styles.methodFeeFree}>FREE</div>
-              <div className={styles.methodBestTag}>Most popular</div>
+              <div className={method.fee === 'FREE' ? styles.methodFeeFree : styles.methodFeePaid}>{method.fee}</div>
+              {method.bestTag && <div className={styles.methodBestTag}>{method.bestTag}</div>}
+              {method.note && <div className={styles.methodNote}>{method.note}</div>}
             </div>
           </div>
-          <div className={`${styles.methodCard} ${styles.methodCardBest} ${styles.reveal}`}>
-            <div className={styles.methodLeft}>
-              <div className={styles.methodIcon}>💙</div>
-              <div>
-                <div className={styles.methodName}>Venmo</div>
-                <div className={styles.methodSpeed}>Instant</div>
-              </div>
-            </div>
-            <div className={styles.methodRight}>
-              <div className={styles.methodFeeFree}>FREE</div>
-            </div>
-          </div>
-          <div className={`${styles.methodCard} ${styles.methodCardBest} ${styles.reveal}`}>
-            <div className={styles.methodLeft}>
-              <div className={styles.methodIcon}>🏦</div>
-              <div>
-                <div className={styles.methodName}>Zelle</div>
-                <div className={styles.methodSpeed}>Instant bank transfer</div>
-              </div>
-            </div>
-            <div className={styles.methodRight}>
-              <div className={styles.methodFeeFree}>FREE</div>
-            </div>
-          </div>
-          <div className={`${styles.methodCard} ${styles.methodCardBest} ${styles.reveal}`}>
-            <div className={styles.methodLeft}>
-              <div className={styles.methodIcon}>🏧</div>
-              <div>
-                <div className={styles.methodName}>Bank Account</div>
-                <div className={styles.methodSpeed}>Next morning (Free tier) or instant (HMU First)</div>
-              </div>
-            </div>
-            <div className={styles.methodRight}>
-              <div className={styles.methodFeeFree}>FREE</div>
-            </div>
-          </div>
-          <div className={`${styles.methodCard} ${styles.reveal}`}>
-            <div className={styles.methodLeft}>
-              <div className={styles.methodIcon}>💳</div>
-              <div>
-                <div className={styles.methodName}>Debit Card</div>
-                <div className={styles.methodSpeed}>Instant push to any Visa/Mastercard debit</div>
-              </div>
-            </div>
-            <div className={styles.methodRight}>
-              <div className={styles.methodFeePaid}>0.5% fee</div>
-              <div className={styles.methodNote}>~$0.10 on $20</div>
-            </div>
-          </div>
-          <div className={`${styles.methodCard} ${styles.reveal}`}>
-            <div className={styles.methodLeft}>
-              <div className={styles.methodIcon}>🅿️</div>
-              <div>
-                <div className={styles.methodName}>PayPal</div>
-                <div className={styles.methodSpeed}>Instant</div>
-              </div>
-            </div>
-            <div className={styles.methodRight}>
-              <div className={styles.methodFeePaid}>1% fee</div>
-              <div className={styles.methodNote}>~$0.20 on $20</div>
-            </div>
-          </div>
+          ))}
         </div>
 
-        <div className={`${styles.methodsNote} ${styles.reveal}`}>
-          <strong>Apple Pay note:</strong> Apple Pay is a spending tool — Apple doesn&apos;t allow anyone to receive payouts to it. Use Cash App or Venmo instead and get paid just as fast, for free.
-        </div>
+        <div className={`${styles.methodsNote} ${styles.reveal}`} dangerouslySetInnerHTML={{ __html: payoutAppleNote }} />
       </section>
+      )}
 
       {/* SOCIAL PROOF */}
+      {isActive('social_proof') && showSocialProof && (
       <section className={styles.section} style={{ padding: '48px 0' }}>
         <div className={styles.proofMarqueeWrap}>
           <div className={styles.proofMarquee}>
-            <div className={styles.proofPill}>💰 &quot;First $50 I only paid $4 in fees — wild&quot; — <span>ATL Driver</span></div>
-            <div className={styles.proofPill}>🔒 &quot;Cap hit on a Saturday — free rides rest of the day&quot; — <span>Decatur</span></div>
-            <div className={styles.proofPill}>💸 &quot;Cash App instant every time&quot; — <span>Bankhead Driver</span></div>
-            <div className={styles.proofPill}>⏱ &quot;No more waiting for cancel fees&quot; — <span>East ATL</span></div>
-            <div className={styles.proofPill}>🚗 &quot;They not ready? Still paid&quot; — <span>Midtown</span></div>
-            <div className={styles.proofPill}>⭐ &quot;92% Chill rating after 40 rides&quot; — <span>OG Driver</span></div>
-            <div className={styles.proofPill}>💰 &quot;First $50 I only paid $4 in fees — wild&quot; — <span>ATL Driver</span></div>
-            <div className={styles.proofPill}>🔒 &quot;Cap hit on a Saturday — free rides rest of the day&quot; — <span>Decatur</span></div>
-            <div className={styles.proofPill}>💸 &quot;Cash App instant every time&quot; — <span>Bankhead Driver</span></div>
-            <div className={styles.proofPill}>⏱ &quot;No more waiting for cancel fees&quot; — <span>East ATL</span></div>
-            <div className={styles.proofPill}>🚗 &quot;They not ready? Still paid&quot; — <span>Midtown</span></div>
-            <div className={styles.proofPill}>⭐ &quot;92% Chill rating after 40 rides&quot; — <span>OG Driver</span></div>
+            {[...socialProofPills, ...socialProofPills].map((pill, i) => (
+              <div key={i} className={styles.proofPill}>{pill.emoji} &quot;{pill.quote}&quot; — <span>{pill.author}</span></div>
+            ))}
           </div>
         </div>
       </section>
+      )}
 
       {/* FINAL CTA */}
+      {isActive('cta') && showCtaSection && (
       <section className={styles.ctaSection} id="signup">
-        <p className={`${styles.ctaEyebrow} ${styles.reveal}`}>Ready to Run It?</p>
+        <p className={`${styles.ctaEyebrow} ${styles.reveal}`}>{ctaEyebrow}</p>
         <h2 className={`${styles.ctaHeadline} ${styles.reveal}`}>
           Start Earning<br /><span className={styles.blockGreen}>More Per Ride</span>
         </h2>
         <p className={`${styles.ctaSub} ${styles.reveal}`}>
-          No subscription required to start.<br />
-          Sign up, set your price, post your first HMU.
+          {ctaSub}
         </p>
         <form className={`${styles.ctaForm} ${styles.reveal}`} onSubmit={handleSignup}>
           <div className={styles.inputWrap}>
@@ -710,13 +682,15 @@ export default function DriverLandingClient() {
             type="submit"
             className={`${styles.ctaSubmit} ${isSubmitting ? styles.ctaSubmitLoading : ''}`}
           >
-            {isSubmitting ? 'Setting you up...' : 'Keep More $$$ From My Rides'}
+            {isSubmitting ? 'Setting you up...' : ctaButtonText}
           </button>
-          <p className={styles.ctaFine}>Free to start. No credit card. Cancel anytime.</p>
+          <p className={styles.ctaFine}>{ctaFinePrint}</p>
         </form>
       </section>
+      )}
 
       {/* OFFER DETAILS */}
+      {isActive('offer_details') && (
       <section id="offer-details" style={{
         padding: '40px 20px', borderTop: '1px solid rgba(255,255,255,0.06)',
       }}>
@@ -744,6 +718,7 @@ export default function DriverLandingClient() {
           </div>
         </div>
       </section>
+      )}
 
       {/* FOOTER */}
       <Footer />

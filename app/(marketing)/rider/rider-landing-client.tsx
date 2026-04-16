@@ -5,15 +5,88 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { posthog } from '@/components/analytics/posthog-provider';
 import { Footer } from '@/components/landing/footer';
+import { CmsProvider, useCmsContext } from '@/lib/cms/provider';
+import { useZone } from '@/lib/cms/use-zone';
+import { useFlag } from '@/lib/cms/use-flag';
+import type { ContentMap, FlagMap } from '@/lib/cms/types';
+import { getDefaultSectionOrder } from '@/lib/cms/section-registry';
 import styles from './rider.module.css';
 
-export default function RiderLandingClient() {
+export default function RiderLandingClient({ initialContent, initialFlags, sectionOrder, funnelStage }: { initialContent?: ContentMap; initialFlags?: FlagMap; sectionOrder?: string[]; funnelStage?: string }) {
+  return (
+    <CmsProvider initialContent={initialContent ?? {}} initialFlags={initialFlags} sectionOrder={sectionOrder} funnelStage={funnelStage}>
+      <RiderLandingInner />
+    </CmsProvider>
+  );
+}
+
+function RiderLandingInner() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [emailError, setEmailError] = useState('');
+
+  // CMS zones
+  const tickerItems = useZone<string[]>('ticker_items', ['Skip the Surge', 'Save Up to 60%', 'Escrow Protected', 'No Corporate Middleman', 'Real ATL Drivers']);
+  const tickerSpeed = useZone('ticker_speed', '22');
+  const heroEyebrow = useZone('hero_eyebrow', 'Peer-to-Peer Rides • Metro Atlanta');
+  const heroLine1 = useZone('hero_headline_line1', 'STOP PAYING');
+  const heroLine2 = useZone('hero_headline_line2', 'SURGE PRICES.');
+  const heroSub = useZone('hero_subheadline', 'HMU connects you directly with local Atlanta drivers. <strong>Fair prices. Secured payments.</strong> No corporate cut inflating your fare.');
+  const heroCtaPrimary = useZone('hero_cta_primary', 'SIGN UP FREE');
+  const heroTrust = useZone('hero_trust_text', 'Drivers live in ATL right now — <strong>rides starting at $5</strong>');
+  const painHeadline = useZone('pain_headline', 'TIRED OF THIS?');
+  const riderPainCards = useZone<Array<{ title: string; body: string }>>('pain_cards', [
+    { title: '$45 for a 20-minute ride', body: "Uber and Lyft jack up prices whenever they want. Surge pricing at 2am? That's your whole night's budget." },
+    { title: 'Random driver every time', body: 'No relationship, no trust. Just a stranger with an app and a rating that means nothing.' },
+    { title: 'Money gone before the ride starts', body: 'You get charged immediately. Driver cancels? Good luck getting that refund fast.' },
+  ]);
+  const howHeadline = useZone('how_headline', 'How HMU Works For Riders');
+  const howSub = useZone('how_subheadline', "Post what you need. Pick who you trust. Pay when it's real.");
+  const howSteps = useZone<Array<{ num: string; title: string; body: string }>>('how_steps', [
+    { num: '01', title: 'Post Your Ride', body: 'Drop your pickup, destination, and what you want to pay. Drivers in your area see it instantly.' },
+    { num: '02', title: 'Browse Drivers', body: 'Swipe through available drivers. See their Chill Score, video intro, and reviews from real riders.' },
+    { num: '03', title: 'Lock In & Pay', body: "Tap Pull Up to confirm. Your payment is held in escrow — driver doesn't get paid until you arrive safe." },
+    { num: '04', title: 'Ride & Rate', body: 'Track your driver in real-time. Rate them after. Build the community you trust.' },
+  ]);
+  const pricingRoutes = useZone<Array<{ route: string; hmu: string; uber: string; save: string }>>('pricing_routes', [
+    { route: 'Buckhead → Airport', hmu: '$18', uber: '$45', save: 'Save 60%' },
+    { route: 'Midtown → Downtown', hmu: '$8', uber: '$22', save: 'Save 64%' },
+    { route: 'Decatur → Buckhead', hmu: '$15', uber: '$38', save: 'Save 61%' },
+  ]);
+  const safetyCards = useZone<Array<{ icon: string; title: string; body: string }>>('safety_cards', [
+    { icon: '🔒', title: 'Escrow Protection', body: 'Your money is held until you arrive. If something goes wrong, you dispute — funds stay locked.' },
+    { icon: '✌️', title: 'Chill Score', body: 'Every driver has a community rating. CHILL, Cool AF, or red flags — you see it all before you ride.' },
+    { icon: '🎥', title: 'Video Intros', body: 'See your driver before you book. Real face, real person, no catfishing.' },
+    { icon: '⏱', title: '45-Min Dispute Window', body: "After every ride, you have 45 minutes to flag anything. We hold the funds until it's resolved." },
+  ]);
+  const ogTitle = useZone('og_title', 'BECOME AN OG');
+  const ogBody = useZone('og_body', 'Complete <strong>10 rides with zero disputes</strong> and unlock OG status. See driver comments. Get priority matching with top-rated drivers. You earned it.');
+  const cmsTestimonials = useZone<Array<{ quote: string; author: string }>>('testimonials', [
+    { quote: 'Saved $24 going to the airport. Never using Uber again.', author: 'Marcus, East Atlanta' },
+    { quote: 'My driver was chill af. We actually had a real conversation.', author: 'Keya, Decatur' },
+    { quote: 'The escrow thing is genius. I feel safe knowing my money is protected.', author: 'Darius, Buckhead' },
+    { quote: "I matched with the same driver three times now. It's like having a homie with a car.", author: 'Nia, Midtown' },
+    { quote: '$8 from Midtown to Downtown. Uber wanted $22. Do the math.', author: 'Jaylen, West End' },
+    { quote: 'Video intros sold me. I knew who was pulling up before they got there.', author: 'Tasha, College Park' },
+  ]);
+  const ctaEyebrow = useZone('cta_eyebrow', 'Ready to Save?');
+  const ctaHeadline = useZone('cta_headline', 'Skip The Surge. Ride For Less.');
+  const ctaSub = useZone('cta_subheadline', 'Join 500+ riders on the waitlist. Sign up free. No credit card required.');
+  const ctaButtonText = useZone('cta_button_text', 'LOCK IN');
+  const ctaFinePrint = useZone('cta_fine_print', 'Free to sign up. No credit card. Cancel anytime.');
+  const navCtaText = useZone('nav_cta_text', 'Lock In');
+
+  // Feature flags
+  const showPainSection = useFlag('rider_landing.pain_section', true);
+  const showHowSection = useFlag('rider_landing.how_section', true);
+  const showPricingSection = useFlag('rider_landing.pricing_section', true);
+  const showSafetySection = useFlag('rider_landing.safety_section', true);
+  const showOgSection = useFlag('rider_landing.og_section', true);
+  const showTestimonials = useFlag('rider_landing.testimonials', true);
+  const showCtaSection = useFlag('rider_landing.cta_section', true);
 
   const PHONE_REGEX = /^(\+1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}$/;
   const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -56,17 +129,19 @@ export default function RiderLandingClient() {
     setEmailError(eErr);
     if (pErr || eErr) return;
     setIsSubmitting(true);
+    const params = new URLSearchParams(window.location.search);
+    const currentStage = params.get('utm_funnel') || 'awareness';
+
     try {
-      posthog.capture('rider_signup_form_submitted', {
-        phone: phone ? 'provided' : 'empty',
-        email: email ? 'provided' : 'empty',
+      posthog.capture('lead_captured', {
+        lead_type: 'rider', funnel_stage: currentStage, audience: 'rider',
+        source: 'rider_landing', phone: phone ? 'provided' : 'empty', email: email ? 'provided' : 'empty',
       });
     } catch (_) {
       // posthog may not be initialized
     }
 
     // Store lead before redirecting
-    const params = new URLSearchParams(window.location.search);
     fetch('/api/leads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -78,20 +153,22 @@ export default function RiderLandingClient() {
         utm_source: params.get('utm_source'),
         utm_medium: params.get('utm_medium'),
         utm_campaign: params.get('utm_campaign'),
+        funnel_stage: currentStage,
+        audience: 'rider',
       }),
     }).catch(() => {});
 
     setTimeout(() => router.push('/sign-up?type=rider'), 800);
   };
 
-  const testimonials = [
-    { quote: 'Saved $24 going to the airport. Never using Uber again.', author: 'Marcus, East Atlanta' },
-    { quote: 'My driver was chill af. We actually had a real conversation.', author: 'Keya, Decatur' },
-    { quote: 'The escrow thing is genius. I feel safe knowing my money is protected.', author: 'Darius, Buckhead' },
-    { quote: 'I matched with the same driver three times now. It\'s like having a homie with a car.', author: 'Nia, Midtown' },
-    { quote: '$8 from Midtown to Downtown. Uber wanted $22. Do the math.', author: 'Jaylen, West End' },
-    { quote: 'Video intros sold me. I knew who was pulling up before they got there.', author: 'Tasha, College Park' },
-  ];
+  const testimonials = cmsTestimonials;
+
+  // Dynamic section ordering
+  const { sectionOrder: ctxSectionOrder } = useCmsContext();
+  const activeSections = new Set(
+    ctxSectionOrder.length > 0 ? ctxSectionOrder : getDefaultSectionOrder('rider_landing')
+  );
+  const isActive = (key: string) => activeSections.has(key);
 
   return (
     <div className={styles.container}>
@@ -108,210 +185,148 @@ export default function RiderLandingClient() {
             className={styles.navCta}
             onClick={() => { try { posthog.capture('rider_nav_cta_clicked'); } catch (_) {} }}
           >
-            Lock In
+            {navCtaText}
           </Link>
         </div>
       </nav>
 
       {/* TICKER */}
+      {isActive('ticker') && (
       <div className={styles.ticker}>
-        <div className={styles.tickerInner}>
-          <div className={styles.tickerItem}>Skip the Surge</div>
-          <div className={styles.tickerItem}>Save Up to 60%</div>
-          <div className={styles.tickerItem}>Escrow Protected</div>
-          <div className={styles.tickerItem}>No Corporate Middleman</div>
-          <div className={styles.tickerItem}>Real ATL Drivers</div>
-          <div className={styles.tickerItem}>Skip the Surge</div>
-          <div className={styles.tickerItem}>Save Up to 60%</div>
-          <div className={styles.tickerItem}>Escrow Protected</div>
-          <div className={styles.tickerItem}>No Corporate Middleman</div>
-          <div className={styles.tickerItem}>Real ATL Drivers</div>
+        <div className={styles.tickerInner} style={{ animationDuration: `${tickerSpeed}s` }}>
+          {[...tickerItems, ...tickerItems].map((item, i) => (
+            <div key={i} className={styles.tickerItem}>{item}</div>
+          ))}
         </div>
       </div>
+      )}
 
       {/* HERO */}
+      {isActive('hero') && (
       <section className={styles.hero}>
         <div className={`${styles.heroEyebrow} ${styles.fadeUp}`} style={{ animationDelay: '0s' }}>
-          Peer-to-Peer Rides &bull; Metro Atlanta
+          {heroEyebrow}
         </div>
         <h1 className={styles.heroHeadline}>
-          <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0s' }}>STOP PAYING</span>
-          <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0.1s' }}>SURGE PRICES.</span>
+          <span className={`${styles.fadeUp}`} style={{ display: 'block', animationDelay: '0s' }}>{heroLine1}</span>
+          <span className={`${styles.fadeUp} ${styles.lineGreen}`} style={{ display: 'block', animationDelay: '0.1s' }}>{heroLine2}</span>
         </h1>
-        <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }}>
-          HMU connects you directly with local Atlanta drivers. <strong>Fair prices. Secured payments.</strong> No corporate cut inflating your fare.
-        </p>
+        <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }} dangerouslySetInnerHTML={{ __html: heroSub }} />
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
           <Link
             href="/sign-up?type=rider"
             className={styles.btnPrimary}
             onClick={() => { try { posthog.capture('rider_hero_cta_clicked'); } catch (_) {} }}
           >
-            SIGN UP FREE
+            {heroCtaPrimary}
           </Link>
           <a href="#how-it-works" className={styles.btnGhost}>See how it works &darr;</a>
         </div>
         <div className={`${styles.heroTrust} ${styles.fadeUp}`} style={{ animationDelay: '0.5s' }}>
           <div className={styles.trustDot} />
-          <p className={styles.trustText}>Drivers live in ATL right now &mdash; <strong>rides starting at $5</strong></p>
+          <p className={styles.trustText} dangerouslySetInnerHTML={{ __html: heroTrust }} />
         </div>
       </section>
+      )}
 
       {/* PAIN POINTS */}
+      {isActive('pain') && showPainSection && (
       <section className={`${styles.section} ${styles.sectionAlt}`}>
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>The Problem</p>
-        <h2 className={`${styles.painHeadline} ${styles.reveal}`}>TIRED OF THIS?</h2>
+        <h2 className={`${styles.painHeadline} ${styles.reveal}`}>{painHeadline}</h2>
         <div className={styles.painCards}>
-          <div className={`${styles.painCard} ${styles.reveal}`}>
+          {riderPainCards.map((card, i) => (
+          <div key={i} className={`${styles.painCard} ${styles.reveal}`}>
             <div>
-              <div className={styles.painCardTitle}>$45 for a 20-minute ride</div>
-              <div className={styles.painCardBody}>Uber and Lyft jack up prices whenever they want. Surge pricing at 2am? That&apos;s your whole night&apos;s budget.</div>
+              <div className={styles.painCardTitle}>{card.title}</div>
+              <div className={styles.painCardBody}>{card.body}</div>
             </div>
           </div>
-          <div className={`${styles.painCard} ${styles.reveal}`}>
-            <div>
-              <div className={styles.painCardTitle}>Random driver every time</div>
-              <div className={styles.painCardBody}>No relationship, no trust. Just a stranger with an app and a rating that means nothing.</div>
-            </div>
-          </div>
-          <div className={`${styles.painCard} ${styles.reveal}`}>
-            <div>
-              <div className={styles.painCardTitle}>Money gone before the ride starts</div>
-              <div className={styles.painCardBody}>You get charged immediately. Driver cancels? Good luck getting that refund fast.</div>
-            </div>
-          </div>
+          ))}
         </div>
       </section>
+      )}
 
       {/* HOW IT WORKS */}
+      {isActive('how_it_works') && showHowSection && (
       <section className={styles.section} id="how-it-works">
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>How It Works</p>
         <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
           <span className={styles.green}>How HMU</span><br />Works For<br />Riders
         </h2>
-        <p className={`${styles.sectionSub} ${styles.reveal}`}>Post what you need. Pick who you trust. Pay when it&apos;s real.</p>
+        <p className={`${styles.sectionSub} ${styles.reveal}`}>{howSub}</p>
         <div className={styles.steps}>
-          <div className={`${styles.step} ${styles.reveal}`}>
-            <div className={styles.stepNum}>01</div>
+          {howSteps.map((step, i) => (
+          <div key={i} className={`${styles.step} ${styles.reveal}`}>
+            <div className={styles.stepNum}>{step.num}</div>
             <div>
-              <div className={styles.stepTitle}>Post Your Ride</div>
-              <div className={styles.stepBody}>Drop your pickup, destination, and what you want to pay. <span className={styles.highlight}>Drivers in your area see it instantly.</span></div>
+              <div className={styles.stepTitle}>{step.title}</div>
+              <div className={styles.stepBody}>{step.body}</div>
             </div>
           </div>
-          <div className={`${styles.step} ${styles.reveal}`}>
-            <div className={styles.stepNum}>02</div>
-            <div>
-              <div className={styles.stepTitle}>Browse Drivers</div>
-              <div className={styles.stepBody}>Swipe through available drivers. See their <span className={styles.highlight}>Chill Score, video intro, and reviews</span> from real riders.</div>
-            </div>
-          </div>
-          <div className={`${styles.step} ${styles.reveal}`}>
-            <div className={styles.stepNum}>03</div>
-            <div>
-              <div className={styles.stepTitle}>Lock In & Pay</div>
-              <div className={styles.stepBody}>Tap Pull Up to confirm. <span className={styles.highlight}>Your payment is held in escrow</span> &mdash; driver doesn&apos;t get paid until you arrive safe.</div>
-            </div>
-          </div>
-          <div className={`${styles.step} ${styles.reveal}`}>
-            <div className={styles.stepNum}>04</div>
-            <div>
-              <div className={styles.stepTitle}>Ride & Rate</div>
-              <div className={styles.stepBody}><span className={styles.highlight}>Track your driver in real-time.</span> Rate them after. Build the community you trust.</div>
-            </div>
-          </div>
+          ))}
         </div>
       </section>
+      )}
 
       {/* PRICING COMPARISON */}
+      {isActive('pricing') && showPricingSection && (
       <section className={`${styles.section} ${styles.sectionAlt}`} id="pricing">
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>Real Routes</p>
         <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
           Real Routes.<br /><span className={styles.green}>Real Savings.</span>
         </h2>
         <div className={styles.pricingCards}>
-          <div className={`${styles.pricingCard} ${styles.reveal}`}>
-            <div className={styles.pricingRoute}>Buckhead &rarr; Airport</div>
+          {pricingRoutes.map((route, i) => (
+          <div key={i} className={`${styles.pricingCard} ${styles.reveal}`}>
+            <div className={styles.pricingRoute}>{route.route}</div>
             <div className={styles.pricingRow}>
               <span className={styles.pricingLabel}>HMU</span>
-              <span className={styles.pricingHmu}>$18</span>
+              <span className={styles.pricingHmu}>{route.hmu}</span>
             </div>
             <div className={styles.pricingRow}>
               <span className={styles.pricingLabel}>Uber</span>
-              <span className={styles.pricingUber}>$45</span>
+              <span className={styles.pricingUber}>{route.uber}</span>
             </div>
-            <div className={styles.pricingSave}>Save 60%</div>
+            <div className={styles.pricingSave}>{route.save}</div>
           </div>
-          <div className={`${styles.pricingCard} ${styles.reveal}`}>
-            <div className={styles.pricingRoute}>Midtown &rarr; Downtown</div>
-            <div className={styles.pricingRow}>
-              <span className={styles.pricingLabel}>HMU</span>
-              <span className={styles.pricingHmu}>$8</span>
-            </div>
-            <div className={styles.pricingRow}>
-              <span className={styles.pricingLabel}>Uber</span>
-              <span className={styles.pricingUber}>$22</span>
-            </div>
-            <div className={styles.pricingSave}>Save 64%</div>
-          </div>
-          <div className={`${styles.pricingCard} ${styles.reveal}`}>
-            <div className={styles.pricingRoute}>Decatur &rarr; Buckhead</div>
-            <div className={styles.pricingRow}>
-              <span className={styles.pricingLabel}>HMU</span>
-              <span className={styles.pricingHmu}>$15</span>
-            </div>
-            <div className={styles.pricingRow}>
-              <span className={styles.pricingLabel}>Uber</span>
-              <span className={styles.pricingUber}>$38</span>
-            </div>
-            <div className={styles.pricingSave}>Save 61%</div>
-          </div>
+          ))}
         </div>
       </section>
+      )}
 
       {/* SAFETY & TRUST */}
+      {isActive('safety') && showSafetySection && (
       <section className={styles.section}>
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>Trust & Safety</p>
         <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
           Your Safety.<br /><span className={styles.green}>Our Priority.</span>
         </h2>
         <div className={styles.safetyGrid}>
-          <div className={`${styles.safetyCard} ${styles.reveal}`}>
-            <div className={styles.safetyIcon}>&#128274;</div>
-            <div className={styles.safetyTitle}>Escrow Protection</div>
-            <div className={styles.safetyBody}>Your money is held until you arrive. If something goes wrong, you dispute &mdash; funds stay locked.</div>
+          {safetyCards.map((card, i) => (
+          <div key={i} className={`${styles.safetyCard} ${styles.reveal}`}>
+            <div className={styles.safetyIcon}>{card.icon}</div>
+            <div className={styles.safetyTitle}>{card.title}</div>
+            <div className={styles.safetyBody}>{card.body}</div>
           </div>
-          <div className={`${styles.safetyCard} ${styles.reveal}`}>
-            <div className={styles.safetyIcon}>&#9996;&#65039;</div>
-            <div className={styles.safetyTitle}>Chill Score</div>
-            <div className={styles.safetyBody}>Every driver has a community rating. CHILL, Cool AF, or red flags &mdash; you see it all before you ride.</div>
-          </div>
-          <div className={`${styles.safetyCard} ${styles.reveal}`}>
-            <div className={styles.safetyIcon}>&#127909;</div>
-            <div className={styles.safetyTitle}>Video Intros</div>
-            <div className={styles.safetyBody}>See your driver before you book. Real face, real person, no catfishing.</div>
-          </div>
-          <div className={`${styles.safetyCard} ${styles.reveal}`}>
-            <div className={styles.safetyIcon}>&#9201;</div>
-            <div className={styles.safetyTitle}>45-Min Dispute Window</div>
-            <div className={styles.safetyBody}>After every ride, you have 45 minutes to flag anything. We hold the funds until it&apos;s resolved.</div>
-          </div>
+          ))}
         </div>
       </section>
+      )}
 
       {/* OG STATUS */}
+      {isActive('og_status') && showOgSection && (
       <section className={`${styles.section} ${styles.sectionAlt}`}>
         <div className={`${styles.ogCard} ${styles.reveal}`}>
           <div className={styles.ogBadge}>OG Status</div>
-          <h2 className={styles.ogTitle}>BECOME AN OG</h2>
-          <p className={styles.ogBody}>
-            Complete <strong>10 rides with zero disputes</strong> and unlock OG status.
-            See driver comments. Get priority matching with top-rated drivers.
-            You earned it.
-          </p>
+          <h2 className={styles.ogTitle}>{ogTitle}</h2>
+          <p className={styles.ogBody} dangerouslySetInnerHTML={{ __html: ogBody }} />
         </div>
       </section>
+      )}
 
       {/* PAYMENT METHODS */}
+      {isActive('payments') && (
       <section className={styles.section}>
         <p className={`${styles.sectionLabel} ${styles.reveal}`}>Payments</p>
         <h2 className={`${styles.sectionHeadline} ${styles.reveal}`}>
@@ -343,8 +358,10 @@ export default function RiderLandingClient() {
           <strong>Secure payments.</strong> All payments processed through Stripe. Your card info never touches our servers.
         </div>
       </section>
+      )}
 
       {/* TESTIMONIALS */}
+      {isActive('testimonials') && (
       <section className={styles.testimonialSection}>
         <p className={styles.testimonialLabel}>What Riders Say</p>
         <div className={styles.marqueeWrap}>
@@ -368,16 +385,17 @@ export default function RiderLandingClient() {
           </div>
         </div>
       </section>
+      )}
 
       {/* FINAL CTA */}
+      {isActive('cta') && showCtaSection && (
       <section className={styles.ctaSection} id="signup">
-        <p className={`${styles.ctaEyebrow} ${styles.reveal}`}>Ready to Save?</p>
+        <p className={`${styles.ctaEyebrow} ${styles.reveal}`}>{ctaEyebrow}</p>
         <h2 className={`${styles.ctaHeadline} ${styles.reveal}`}>
           Skip The Surge.<br /><span className={styles.blockGreen}>Ride For Less.</span>
         </h2>
         <p className={`${styles.ctaSub} ${styles.reveal}`}>
-          Join 500+ riders on the waitlist.<br />
-          Sign up free. No credit card required.
+          {ctaSub}
         </p>
         <form className={`${styles.ctaForm} ${styles.reveal}`} onSubmit={handleSignup}>
           <div className={styles.inputWrap}>
@@ -406,11 +424,12 @@ export default function RiderLandingClient() {
             type="submit"
             className={`${styles.ctaSubmit} ${isSubmitting ? styles.ctaSubmitLoading : ''}`}
           >
-            {isSubmitting ? 'Setting you up...' : 'LOCK IN'}
+            {isSubmitting ? 'Setting you up...' : ctaButtonText}
           </button>
-          <p className={styles.ctaFine}>Free to sign up. No credit card. Cancel anytime.</p>
+          <p className={styles.ctaFine}>{ctaFinePrint}</p>
         </form>
       </section>
+      )}
 
       {/* FOOTER */}
       <Footer />

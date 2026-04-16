@@ -8,46 +8,55 @@ import { useAbly } from '@/hooks/use-ably';
 import { useMarket } from './market-context';
 import { useSidebar } from './sidebar-context';
 import { useAdminTheme } from './theme-context';
+import { useAdminAuth } from './admin-auth-context';
 
 type BadgeColor = 'green' | 'red' | 'amber';
-type NavItem = { href: string; label: string; icon: string; badgeCategory?: string; badgeColor?: BadgeColor };
+type NavItem = { href: string; label: string; icon: string; permission?: string; badgeCategory?: string; badgeColor?: BadgeColor };
 
 const navSections: { label: string; items: NavItem[] }[] = [
   {
     label: 'MONITOR',
     items: [
-      { href: '/admin', label: 'Live Ops', icon: '⚡' },
-      { href: '/admin/money', label: 'Revenue', icon: '💰' },
-      { href: '/admin/pricing', label: 'Pricing', icon: '⚙️' },
-      { href: '/admin/schedule', label: 'Schedules', icon: '📅' },
+      { href: '/admin', label: 'Live Ops', icon: '⚡', permission: 'monitor.liveops' },
+      { href: '/admin/money', label: 'Revenue', icon: '💰', permission: 'monitor.revenue' },
+      { href: '/admin/pricing', label: 'Pricing', icon: '⚙️', permission: 'monitor.pricing' },
+      { href: '/admin/schedule', label: 'Schedules', icon: '📅', permission: 'monitor.schedules' },
     ],
   },
   {
     label: 'ACT',
     items: [
-      { href: '/admin/support', label: 'Support', icon: '🎫', badgeCategory: 'support', badgeColor: 'amber' },
-      { href: '/admin/notifications', label: 'Notifications', icon: '🔔' },
-      { href: '/admin/disputes', label: 'Disputes', icon: '⚖️', badgeCategory: 'disputes', badgeColor: 'red' },
-      { href: '/admin/users', label: 'Users', icon: '👥', badgeCategory: 'users', badgeColor: 'green' },
-      { href: '/admin/suspect-usage', label: 'Suspect Usage', icon: '🚨' },
+      { href: '/admin/support', label: 'Support', icon: '🎫', permission: 'act.support', badgeCategory: 'support', badgeColor: 'amber' },
+      { href: '/admin/notifications', label: 'Notifications', icon: '🔔', permission: 'act.notifications' },
+      { href: '/admin/disputes', label: 'Disputes', icon: '⚖️', permission: 'act.disputes', badgeCategory: 'disputes', badgeColor: 'red' },
+      { href: '/admin/users', label: 'Users', icon: '👥', permission: 'act.users', badgeCategory: 'users', badgeColor: 'green' },
+      { href: '/admin/suspect-usage', label: 'Suspect Usage', icon: '🚨', permission: 'act.suspect' },
     ],
   },
   {
     label: 'GROW',
     items: [
-      { href: '/admin/marketing', label: 'Outreach', icon: '📣' },
-      { href: '/admin/messages', label: 'Messages', icon: '💬', badgeCategory: 'messages', badgeColor: 'green' },
-      { href: '/admin/leads', label: 'Leads', icon: '📧', badgeCategory: 'leads', badgeColor: 'green' },
-      { href: '/admin/content', label: 'Content', icon: '🎬' },
+      { href: '/admin/marketing', label: 'Outreach', icon: '📣', permission: 'grow.outreach' },
+      { href: '/admin/messages', label: 'Messages', icon: '💬', permission: 'grow.messages', badgeCategory: 'messages', badgeColor: 'green' },
+      { href: '/admin/leads', label: 'Leads', icon: '📧', permission: 'grow.leads', badgeCategory: 'leads', badgeColor: 'green' },
+      { href: '/admin/content', label: 'Content', icon: '🎬', permission: 'grow.content' },
+      { href: '/admin/funnel', label: 'Funnel CMS', icon: '📝', permission: 'grow.funnel' },
     ],
   },
   {
     label: 'RAISE',
     items: [
-      { href: '/admin/data-room', label: 'Data Room', icon: '🔒' },
-      { href: '/admin/pitch-videos', label: 'Pitch Videos', icon: '📱' },
-      { href: '/admin/videos', label: 'Videos', icon: '🎥' },
-      { href: '/admin/docs', label: 'Tech Docs', icon: '📄' },
+      { href: '/admin/data-room', label: 'Data Room', icon: '🔒', permission: 'raise.dataroom' },
+      { href: '/admin/pitch-videos', label: 'Pitch Videos', icon: '📱', permission: 'raise.pitch' },
+      { href: '/admin/videos', label: 'Videos', icon: '🎥', permission: 'raise.videos' },
+      { href: '/admin/docs', label: 'Tech Docs', icon: '📄', permission: 'raise.docs' },
+    ],
+  },
+  {
+    label: 'SYSTEM',
+    items: [
+      { href: '/admin/roles', label: 'Roles', icon: '🔑', permission: 'admin.roles' },
+      { href: '/admin/audit', label: 'Audit Log', icon: '📋', permission: 'admin.audit' },
     ],
   },
 ];
@@ -62,10 +71,19 @@ export function AdminSidebar() {
   const pathname = usePathname();
   const { collapsed, toggle } = useSidebar();
   const { theme, toggle: toggleTheme } = useAdminTheme();
+  const { hasPermission } = useAdminAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({});
   const { markets, selectedMarketId, setSelectedMarketId } = useMarket();
   const { signOut } = useClerk();
+
+  // Filter nav sections by permissions — user needs at least .view to see an item
+  const filteredSections = navSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => !item.permission || hasPermission(`${item.permission}.view`)),
+    }))
+    .filter((section) => section.items.length > 0);
 
   const fetchCounts = useCallback(() => {
     fetch('/api/admin/action-items/counts')
@@ -117,7 +135,7 @@ export function AdminSidebar() {
             {theme === 'dark' ? '☀' : '☾'}
           </button>
           <span className="text-xs truncate max-w-[100px]" style={{ color: 'var(--admin-text-muted)' }}>
-            {navSections.flatMap(s => s.items).find(i => isActive(i.href))?.label || ''}
+            {filteredSections.flatMap(s => s.items).find(i => isActive(i.href))?.label || ''}
           </span>
         </div>
       </div>
@@ -179,7 +197,7 @@ export function AdminSidebar() {
 
         {/* Nav */}
         <nav className={`flex-1 overflow-y-auto ${collapsed ? 'lg:p-2 p-4' : 'p-4'} space-y-5`}>
-          {navSections.map((section) => (
+          {filteredSections.map((section) => (
             <div key={section.label}>
               {/* Section label — hidden when collapsed */}
               <p className={`px-3 mb-2 text-[10px] font-bold tracking-[3px] ${collapsed ? 'lg:hidden' : ''}`} style={{ color: 'var(--admin-text-faint)' }}>

@@ -3,11 +3,76 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Footer } from '@/components/landing/footer';
+import { CmsProvider } from '@/lib/cms/provider';
+import { useZone } from '@/lib/cms/use-zone';
+import { useFlag } from '@/lib/cms/use-flag';
+import type { ContentMap, FlagMap } from '@/lib/cms/types';
 import styles from './page.module.css';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function HomePage() {
+  // Fetch CMS content client-side (homepage is 'use client')
+  const [cmsContent, setCmsContent] = useState<ContentMap>({});
+  const [cmsFlags, setCmsFlags] = useState<FlagMap>({});
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const utmFunnel = params.get('utm_funnel') || '';
+    const qs = utmFunnel ? `&utm_funnel=${utmFunnel}` : '';
+    fetch(`/api/content/homepage?market=atl${qs}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.content) setCmsContent(data.content);
+        if (data.flags) setCmsFlags(data.flags);
+      })
+      .catch(() => {});
+  }, []);
+
+  return (
+    <CmsProvider initialContent={cmsContent} initialFlags={cmsFlags}>
+      <HomePageInner />
+    </CmsProvider>
+  );
+}
+
+function HomePageInner() {
+  // CMS zones
+  const heroBadge = useZone('hero_badge', 'Launching Q2 2026 • Metro Atlanta');
+  const heroLine1 = useZone('hero_headline_line1', 'HATE Blank Trips?');
+  const heroLine2 = useZone('hero_headline_line2', "Get Atlanta's UpFront Driver Payment Platform.");
+  const heroSub = useZone('hero_subheadline', 'Ride Scammers Hate HMU. They Go Ghost? You Get Paid. You Cancel? They Lose Nothing.');
+  const heroStats = useZone<Array<{ value: string; label: string }>>('hero_stats', [
+    { value: '127+', label: 'Drivers Ready' },
+    { value: '$8', label: 'Avg. Ride' },
+    { value: '60%', label: 'Savings' },
+  ]);
+  const howRiderSteps = useZone<Array<{ num: string; title: string; body: string }>>('how_rider_steps', [
+    { num: '01', title: 'Post Your Ride', body: "Tell us where you're going and your price" },
+    { num: '02', title: 'Match With a Driver', body: 'Swipe through available drivers in your area' },
+    { num: '03', title: 'Pay & Ride', body: 'Payment held in escrow. Released after safe arrival.' },
+  ]);
+  const howDriverSteps = useZone<Array<{ num: string; title: string; body: string }>>('how_driver_steps', [
+    { num: '01', title: 'Go Live', body: 'Post your availability to the feed' },
+    { num: '02', title: 'Accept Rides', body: 'Choose the rides that work for you' },
+    { num: '03', title: 'Get Paid', body: 'Money secured before you pull up. Keep up to 90%.' },
+  ]);
+  const whyCards = useZone<Array<{ icon: string; title: string; desc: string }>>('why_cards', [
+    { icon: '📉', title: 'Save Up to 60%', desc: 'No surge pricing. No corporate markup. Just fair rides between neighbors.' },
+    { icon: '🔒', title: 'Money Secured First', desc: 'Escrow holds payment before the driver pulls up. No chasing payments.' },
+    { icon: '🤝', title: 'Community Trust', desc: 'Chill Score ratings. Video intros. Real people, verified by their neighbors.' },
+    { icon: '💸', title: 'Driver Keeps More', desc: 'Drivers keep 88-90% of every ride. Daily fee cap means the rest is all theirs.' },
+  ]);
+  const pricingRoutes = useZone<Array<{ route: string; hmu: string; uber: string; save: string }>>('pricing_routes', [
+    { route: 'Buckhead → Airport', hmu: '$18', uber: '$45', save: 'Save $27 (60%)' },
+    { route: 'Midtown → Downtown', hmu: '$8', uber: '$22', save: 'Save $14 (64%)' },
+    { route: 'Decatur → Buckhead', hmu: '$15', uber: '$38', save: 'Save $23 (61%)' },
+  ]);
+  const waitlistHeadline = useZone('waitlist_headline', 'NOT IN ATLANTA?');
+  const waitlistSub = useZone('waitlist_subheadline', "We're starting in Metro Atlanta, but HMU is coming to more cities. Drop your info and we'll let you know when we launch near you.");
+  const driverCtaBanner = useZone('driver_cta_banner', 'FIRST $500 FREE • OG PRICING FOR OG DRIVERS');
+  const driverCtaDesc = useZone('driver_cta_desc', 'Set your price. Keep up to 90%. Daily fee cap means more money in your pocket.');
+  const riderCtaDesc = useZone('rider_cta_desc', 'Skip the surge. Save up to 60% on every ride across Metro Atlanta.');
+
   const [isDark, setIsDark] = useState(true);
   const [userType, setUserType] = useState<'rider' | 'driver'>('rider');
   const [email, setEmail] = useState('');
@@ -106,16 +171,16 @@ export default function HomePage() {
             <span className={styles.pulsingDotPing} />
             <span className={styles.pulsingDotInner} />
           </span>
-          Launching Q2 2026 &bull; Metro Atlanta
+          {heroBadge}
         </div>
 
         <h1 className={`${styles.heroHeadline} ${styles.fadeUp}`} style={{ animationDelay: '0.1s' }}>
-          <span className={styles.lineWhite}>HATE Blank Trips?</span>
-          <span className={styles.lineGreen}>Get Atlanta&apos;s UpFront Driver Payment Platform.</span>
+          <span className={styles.lineWhite}>{heroLine1}</span>
+          <span className={styles.lineGreen}>{heroLine2}</span>
         </h1>
 
         <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.2s' }}>
-          Ride Scammers Hate HMU. They Go Ghost? You Get Paid. You Cancel? They Lose Nothing.
+          {heroSub}
         </p>
 
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }}>
@@ -124,20 +189,15 @@ export default function HomePage() {
         </div>
 
         <div className={`${styles.statsRow} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
-          <div className={styles.statItem}>
-            <span className={styles.statValue}>127+</span>
-            <span className={styles.statLabel}>Drivers Ready</span>
-          </div>
-          <div className={styles.statDivider} />
-          <div className={styles.statItem}>
-            <span className={styles.statValue}>$8</span>
-            <span className={styles.statLabel}>Avg. Ride</span>
-          </div>
-          <div className={styles.statDivider} />
-          <div className={styles.statItem}>
-            <span className={styles.statValue}>60%</span>
-            <span className={styles.statLabel}>Savings</span>
-          </div>
+          {heroStats.map((stat, i) => (
+            <div key={i} style={{ display: 'contents' }}>
+              {i > 0 && <div className={styles.statDivider} />}
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{stat.value}</span>
+                <span className={styles.statLabel}>{stat.label}</span>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -157,27 +217,15 @@ export default function HomePage() {
                 FOR <span className={styles.green}>RIDERS</span>
               </div>
               <div className={styles.steps}>
-                <div className={styles.step}>
-                  <div className={styles.stepNum}>01</div>
+                {howRiderSteps.map((step, i) => (
+                <div key={i} className={styles.step}>
+                  <div className={styles.stepNum}>{step.num}</div>
                   <div>
-                    <div className={styles.stepTitle}>Post Your Ride</div>
-                    <div className={styles.stepBody}>Tell us where you&apos;re going and your price</div>
+                    <div className={styles.stepTitle}>{step.title}</div>
+                    <div className={styles.stepBody}>{step.body}</div>
                   </div>
                 </div>
-                <div className={styles.step}>
-                  <div className={styles.stepNum}>02</div>
-                  <div>
-                    <div className={styles.stepTitle}>Match With a Driver</div>
-                    <div className={styles.stepBody}>Swipe through available drivers in your area</div>
-                  </div>
-                </div>
-                <div className={styles.step}>
-                  <div className={styles.stepNum}>03</div>
-                  <div>
-                    <div className={styles.stepTitle}>Pay &amp; Ride</div>
-                    <div className={styles.stepBody}>Payment held in escrow. Released after safe arrival.</div>
-                  </div>
-                </div>
+                ))}
               </div>
               <Link href="/rider" className={styles.howLink}>
                 Learn more <span>→</span>
@@ -190,27 +238,15 @@ export default function HomePage() {
                 FOR <span className={styles.green}>DRIVERS</span>
               </div>
               <div className={styles.steps}>
-                <div className={styles.step}>
-                  <div className={styles.stepNum}>01</div>
+                {howDriverSteps.map((step, i) => (
+                <div key={i} className={styles.step}>
+                  <div className={styles.stepNum}>{step.num}</div>
                   <div>
-                    <div className={styles.stepTitle}>Go Live</div>
-                    <div className={styles.stepBody}>Post your availability to the feed</div>
+                    <div className={styles.stepTitle}>{step.title}</div>
+                    <div className={styles.stepBody}>{step.body}</div>
                   </div>
                 </div>
-                <div className={styles.step}>
-                  <div className={styles.stepNum}>02</div>
-                  <div>
-                    <div className={styles.stepTitle}>Accept Rides</div>
-                    <div className={styles.stepBody}>Choose the rides that work for you</div>
-                  </div>
-                </div>
-                <div className={styles.step}>
-                  <div className={styles.stepNum}>03</div>
-                  <div>
-                    <div className={styles.stepTitle}>Get Paid</div>
-                    <div className={styles.stepBody}>Money secured before you pull up. Keep up to 90%.</div>
-                  </div>
-                </div>
+                ))}
               </div>
               <Link href="/driver" className={styles.howLink}>
                 Learn more <span>→</span>
@@ -230,37 +266,13 @@ export default function HomePage() {
           </div>
 
           <div className={`${styles.whyGrid} ${styles.reveal}`}>
-            <div className={styles.whyCard}>
-              <div className={styles.whyCardIcon}>📉</div>
-              <div className={styles.whyCardTitle}>Save Up to 60%</div>
-              <div className={styles.whyCardDesc}>
-                No surge pricing. No corporate markup. Just fair rides between neighbors.
-              </div>
+            {whyCards.map((card, i) => (
+            <div key={i} className={styles.whyCard}>
+              <div className={styles.whyCardIcon}>{card.icon}</div>
+              <div className={styles.whyCardTitle}>{card.title}</div>
+              <div className={styles.whyCardDesc}>{card.desc}</div>
             </div>
-
-            <div className={styles.whyCard}>
-              <div className={styles.whyCardIcon}>🔒</div>
-              <div className={styles.whyCardTitle}>Money Secured First</div>
-              <div className={styles.whyCardDesc}>
-                Escrow holds payment before the driver pulls up. No chasing payments.
-              </div>
-            </div>
-
-            <div className={styles.whyCard}>
-              <div className={styles.whyCardIcon}>🤝</div>
-              <div className={styles.whyCardTitle}>Community Trust</div>
-              <div className={styles.whyCardDesc}>
-                Chill Score ratings. Video intros. Real people, verified by their neighbors.
-              </div>
-            </div>
-
-            <div className={styles.whyCard}>
-              <div className={styles.whyCardIcon}>💸</div>
-              <div className={styles.whyCardTitle}>Driver Keeps More</div>
-              <div className={styles.whyCardDesc}>
-                Drivers keep 88-90% of every ride. Daily fee cap means the rest is all theirs.
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </section>
@@ -275,32 +287,16 @@ export default function HomePage() {
           </div>
 
           <div className={`${styles.pricingGrid} ${styles.reveal}`}>
-            <div className={styles.pricingCard}>
-              <div className={styles.pricingRoute}>Buckhead → Airport</div>
+            {pricingRoutes.map((route, i) => (
+            <div key={i} className={styles.pricingCard}>
+              <div className={styles.pricingRoute}>{route.route}</div>
               <div className={styles.pricingPrices}>
-                <span className={styles.pricingHmu}>$18</span>
-                <span className={styles.pricingUber}>$45</span>
+                <span className={styles.pricingHmu}>{route.hmu}</span>
+                <span className={styles.pricingUber}>{route.uber}</span>
               </div>
-              <div className={styles.pricingSave}>Save $27 (60%)</div>
+              <div className={styles.pricingSave}>{route.save}</div>
             </div>
-
-            <div className={styles.pricingCard}>
-              <div className={styles.pricingRoute}>Midtown → Downtown</div>
-              <div className={styles.pricingPrices}>
-                <span className={styles.pricingHmu}>$8</span>
-                <span className={styles.pricingUber}>$22</span>
-              </div>
-              <div className={styles.pricingSave}>Save $14 (64%)</div>
-            </div>
-
-            <div className={styles.pricingCard}>
-              <div className={styles.pricingRoute}>Decatur → Buckhead</div>
-              <div className={styles.pricingPrices}>
-                <span className={styles.pricingHmu}>$15</span>
-                <span className={styles.pricingUber}>$38</span>
-              </div>
-              <div className={styles.pricingSave}>Save $23 (61%)</div>
-            </div>
+            ))}
           </div>
         </div>
       </section>
@@ -312,8 +308,7 @@ export default function HomePage() {
             NOT IN <span className={styles.green}>ATLANTA?</span>
           </h2>
           <p className={styles.waitlistSub}>
-            We&apos;re starting in Metro Atlanta, but HMU is coming to more cities.
-            Drop your info and we&apos;ll let you know when we launch near you.
+            {waitlistSub}
           </p>
 
           {waitlistSubmitted ? (
@@ -390,13 +385,13 @@ export default function HomePage() {
           <div className={`${styles.dualCtaGrid} ${styles.reveal}`}>
             <div className={`${styles.dualCtaCard} ${styles.dualCtaCardDriver}`}>
               <div className={`${styles.ogBanner} ${isDark ? styles.ogBannerDark : styles.ogBannerLight}`}>
-                FIRST $500 FREE &bull; OG PRICING FOR OG DRIVERS
+                {driverCtaBanner}
               </div>
               <h3 className={styles.dualCtaHeading}>
                 WANT TO <span className={styles.green}>DRIVE?</span>
               </h3>
               <p className={styles.dualCtaDesc}>
-                Set your price. Keep up to 90%. Daily fee cap means more money in your pocket.
+                {driverCtaDesc}
               </p>
               <Link href="/sign-up?type=driver" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnFilled}`}>
                 SIGN UP NOW
@@ -408,7 +403,7 @@ export default function HomePage() {
                 NEED A <span className={styles.green}>RIDE?</span>
               </h3>
               <p className={styles.dualCtaDesc}>
-                Skip the surge. Save up to 60% on every ride across Metro Atlanta.
+                {riderCtaDesc}
               </p>
               <Link href="/sign-up?type=rider" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnOutline}`}>
                 SIGN UP AS RIDER

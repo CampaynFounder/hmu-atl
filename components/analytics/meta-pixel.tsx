@@ -26,6 +26,11 @@ export function fbCustomEvent(eventName: string, params?: Record<string, unknown
   }
 }
 
+/** Fire a stage-specific funnel event for retargeting/untargeting in Meta Ads */
+export function fbFunnelEvent(stage: string, audience: string, params?: Record<string, unknown>) {
+  fbCustomEvent(`FunnelLead_${stage}`, { funnel_stage: stage, audience, ...params });
+}
+
 export function MetaPixel() {
   const pathname = usePathname();
   const searchParams = useSearchParams();

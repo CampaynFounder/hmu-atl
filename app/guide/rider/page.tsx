@@ -1,11 +1,12 @@
 import type { Metadata } from 'next';
+import { getPageContent } from '@/lib/cms/queries';
 
 export const metadata: Metadata = {
   title: 'How It Works — Rider Guide | HMU ATL',
   description: 'Step-by-step guide for HMU ATL riders. Learn how to find drivers, book rides, and save money.',
 };
 
-const steps = [
+const defaultSteps = [
   {
     num: '01',
     title: 'Find a Driver',
@@ -80,7 +81,14 @@ const steps = [
   },
 ];
 
-export default function RiderGuidePage() {
+export default async function RiderGuidePage() {
+  const { content } = await getPageContent('rider_guide', 'atl');
+  const title = (content.guide_title as string) || 'HOW RIDERS BOOK ON HMU';
+  const intro = (content.guide_intro as string) || "Welcome to HMU ATL. We're Atlanta-based and built this for riders tired of surge pricing and ride scammers. Here's how it works.";
+  const steps = (content.guide_steps as typeof defaultSteps) || defaultSteps;
+  const ctaText = (content.guide_cta_text as string) || 'Find a Driver';
+  const ctaNote = (content.guide_cta_note as string) || "Questions? We're real people in Atlanta. Text us anytime.";
+
   return (
     <div style={{
       background: '#080808', color: '#fff', minHeight: '100svh',
@@ -96,10 +104,10 @@ export default function RiderGuidePage() {
           fontFamily: 'var(--font-display, Bebas Neue, sans-serif)',
           fontSize: '36px', lineHeight: 1.1, marginBottom: '12px',
         }}>
-          HOW RIDERS<br />BOOK ON HMU
+          {title}
         </h1>
         <p style={{ fontSize: '15px', color: '#888', maxWidth: '340px', margin: '0 auto', lineHeight: 1.5 }}>
-          Welcome to HMU ATL. We&apos;re Atlanta-based and built this for riders tired of surge pricing and ride scammers. Here&apos;s how it works.
+          {intro}
         </p>
       </div>
 
@@ -167,10 +175,10 @@ export default function RiderGuidePage() {
               textDecoration: 'none',
             }}
           >
-            Find a Driver
+            {ctaText}
           </a>
           <p style={{ fontSize: '12px', color: '#555', marginTop: '12px' }}>
-            Questions? We&apos;re real people in Atlanta. Text us anytime.
+            {ctaNote}
           </p>
         </div>
       </div>
