@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
+import { createActionItem } from '@/lib/admin/action-items';
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,7 +27,19 @@ export async function POST(request: NextRequest) {
       RETURNING id
     `;
 
-    return NextResponse.json({ id: rows[0]?.id, stored: true }, { status: 201 });
+    const leadId = rows[0]?.id;
+
+    // Create action item for admin badge
+    if (leadId) {
+      createActionItem({
+        category: 'leads',
+        itemType: 'new_lead',
+        referenceId: leadId as string,
+        title: `New ${lead_type} lead: ${email || phone}`,
+      }).catch(() => {});
+    }
+
+    return NextResponse.json({ id: leadId, stored: true }, { status: 201 });
   } catch (error) {
     console.error('Lead capture error:', error);
     return NextResponse.json({ error: 'Failed to store lead' }, { status: 500 });

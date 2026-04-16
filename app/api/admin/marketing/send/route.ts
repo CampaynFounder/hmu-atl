@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { sendSms } from '@/lib/sms/textbee';
 import { sql } from '@/lib/db/client';
+import { resolveActionItem } from '@/lib/admin/action-items';
 
 interface Recipient {
   phone: string;
@@ -109,6 +110,10 @@ export async function POST(req: NextRequest) {
             INSERT INTO admin_sms_sent (admin_id, recipient_id, recipient_phone, message, status)
             VALUES (${admin.id}, ${recipientId}, ${phone}, ${auditMessage}, ${status})
           `;
+          // Resolve action item when admin contacts a user
+          if (recipientId) {
+            resolveActionItem('users', recipientId).catch(() => {});
+          }
         } catch (auditErr) {
           console.error('[ADMIN_SMS_AUDIT] failed:', auditErr);
         }

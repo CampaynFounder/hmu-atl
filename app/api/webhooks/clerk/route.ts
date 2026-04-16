@@ -8,6 +8,7 @@ import { WebhookEvent } from '@clerk/nextjs/server';
 import { createUser, updateUser, deleteUser, getUserByClerkId, resolveDriverHandleToUserId } from '@/lib/db/users';
 import { sql } from '@/lib/db/client';
 import { notifyAdminSms } from '@/lib/admin/notify';
+import { createActionItem } from '@/lib/admin/action-items';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 import type { ProfileType } from '@/lib/db/types';
 
@@ -116,7 +117,7 @@ export async function POST(req: Request) {
         }
       }
 
-      const { created } = await createUser({
+      const { user: newUser, created } = await createUser({
         clerk_id: id,
         profile_type: profileType,
         phone: verifiedPhone,
@@ -171,6 +172,14 @@ export async function POST(req: Request) {
         `${emoji} New ${profileType} signup: ${displayName} (${verifiedPhone}) via ${signupSource}`,
         { clerkId: id },
       ).catch(() => {});
+
+      // Create action item for admin badge
+      await createActionItem({
+        category: 'users',
+        itemType: 'new_signup',
+        referenceId: newUser.id,
+        title: `New ${profileType}: ${displayName} (${verifiedPhone}) via ${signupSource}`,
+      }).catch(() => {});
 
       return new Response('User created after phone verification', { status: 201 });
     } catch (error) {

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 import { clerkClient } from '@clerk/nextjs/server';
+import { resolveActionItem } from '@/lib/admin/action-items';
 
 export async function GET(
   req: NextRequest,
@@ -199,6 +200,9 @@ export async function PATCH(
     changes: body,
     adminNotes,
   });
+
+  // Resolve action item when admin takes action on a user
+  resolveActionItem('users', id).catch(() => {});
 
   return NextResponse.json({ success: true, user: rows[0] });
 }

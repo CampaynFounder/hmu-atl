@@ -9,7 +9,10 @@ import { useMarket } from './market-context';
 import { useSidebar } from './sidebar-context';
 import { useAdminTheme } from './theme-context';
 
-const navSections = [
+type BadgeColor = 'green' | 'red' | 'amber';
+type NavItem = { href: string; label: string; icon: string; badgeCategory?: string; badgeColor?: BadgeColor };
+
+const navSections: { label: string; items: NavItem[] }[] = [
   {
     label: 'MONITOR',
     items: [
@@ -22,10 +25,10 @@ const navSections = [
   {
     label: 'ACT',
     items: [
-      { href: '/admin/support', label: 'Support', icon: '🎫' },
+      { href: '/admin/support', label: 'Support', icon: '🎫', badgeCategory: 'support', badgeColor: 'amber' },
       { href: '/admin/notifications', label: 'Notifications', icon: '🔔' },
-      { href: '/admin/disputes', label: 'Disputes', icon: '⚖️' },
-      { href: '/admin/users', label: 'Users', icon: '👥' },
+      { href: '/admin/disputes', label: 'Disputes', icon: '⚖️', badgeCategory: 'disputes', badgeColor: 'red' },
+      { href: '/admin/users', label: 'Users', icon: '👥', badgeCategory: 'users', badgeColor: 'green' },
       { href: '/admin/suspect-usage', label: 'Suspect Usage', icon: '🚨' },
     ],
   },
@@ -33,8 +36,8 @@ const navSections = [
     label: 'GROW',
     items: [
       { href: '/admin/marketing', label: 'Outreach', icon: '📣' },
-      { href: '/admin/messages', label: 'Messages', icon: '💬', badge: true },
-      { href: '/admin/leads', label: 'Leads', icon: '📧' },
+      { href: '/admin/messages', label: 'Messages', icon: '💬', badgeCategory: 'messages', badgeColor: 'green' },
+      { href: '/admin/leads', label: 'Leads', icon: '📧', badgeCategory: 'leads', badgeColor: 'green' },
       { href: '/admin/content', label: 'Content', icon: '🎬' },
     ],
   },
@@ -49,27 +52,35 @@ const navSections = [
   },
 ];
 
+const BADGE_COLORS: Record<BadgeColor, string> = {
+  green: 'bg-[#00E676]',
+  red: 'bg-[#FF5252]',
+  amber: 'bg-[#FFB300]',
+};
+
 export function AdminSidebar() {
   const pathname = usePathname();
   const { collapsed, toggle } = useSidebar();
   const { theme, toggle: toggleTheme } = useAdminTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({});
   const { markets, selectedMarketId, setSelectedMarketId } = useMarket();
   const { signOut } = useClerk();
 
-  const fetchUnread = useCallback(() => {
-    fetch('/api/admin/messages/unread')
-      .then(r => r.json())
-      .then(d => setUnreadMessages(d.unread ?? 0))
+  const fetchCounts = useCallback(() => {
+    fetch('/api/admin/action-items/counts')
+      .then(r => r.ok ? r.json() : {})
+      .then(d => setBadgeCounts(d))
       .catch(() => {});
   }, []);
 
-  useEffect(() => { fetchUnread(); }, [fetchUnread]);
+  useEffect(() => { fetchCounts(); }, [fetchCounts]);
 
   const handleAdminEvent = useCallback((msg: { name: string }) => {
-    if (msg.name === 'sms_inbound') fetchUnread();
-  }, [fetchUnread]);
+    if (msg.name === 'sms_inbound' || msg.name === 'action_item_created' || msg.name === 'action_item_resolved') {
+      fetchCounts();
+    }
+  }, [fetchCounts]);
 
   useAbly({ channelName: 'admin:feed', onMessage: handleAdminEvent });
 
@@ -195,12 +206,12 @@ export function AdminSidebar() {
                   >
                     <span className={`text-base ${collapsed ? 'lg:text-lg' : ''}`}>{item.icon}</span>
                     <span className={`flex-1 ${collapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
-                    {(item as { badge?: boolean }).badge && unreadMessages > 0 && (
+                    {item.badgeCategory && (badgeCounts[item.badgeCategory] ?? 0) > 0 && (
                       <span className={`
-                        bg-[#00E676] text-black text-[9px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1
+                        ${BADGE_COLORS[item.badgeColor || 'green']} text-black text-[9px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1
                         ${collapsed ? 'lg:absolute lg:-top-0.5 lg:-right-0.5 lg:min-w-[14px] lg:h-[14px] lg:text-[7px]' : ''}
                       `}>
-                        {unreadMessages}
+                        {badgeCounts[item.badgeCategory]}
                       </span>
                     )}
                   </Link>

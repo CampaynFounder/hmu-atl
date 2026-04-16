@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
+import { resolveActionItem } from '@/lib/admin/action-items';
 
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
@@ -105,6 +106,9 @@ export async function PATCH(req: NextRequest) {
     newStatus,
     notes,
   });
+
+  // Resolve action item when admin handles dispute
+  resolveActionItem('disputes', disputeId).catch(() => {});
 
   return NextResponse.json({ success: true, dispute: rows[0] });
 }
