@@ -191,7 +191,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-// PATCH — mark all as read for a phone
+// PATCH — mark as read for a phone (or ALL)
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
@@ -199,8 +199,12 @@ export async function PATCH(req: NextRequest) {
   const { phone } = await req.json();
   if (!phone) return NextResponse.json({ error: 'phone required' }, { status: 400 });
 
-  const normalized = phone.replace(/\D/g, '');
-  await sql`UPDATE sms_inbound SET read = true WHERE from_phone = ${normalized} AND read = false`;
+  if (phone === 'ALL') {
+    await sql`UPDATE sms_inbound SET read = true WHERE read = false`;
+  } else {
+    const normalized = phone.replace(/\D/g, '');
+    await sql`UPDATE sms_inbound SET read = true WHERE from_phone = ${normalized} AND read = false`;
+  }
 
   return NextResponse.json({ success: true });
 }

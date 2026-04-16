@@ -58,15 +58,32 @@ export function MessageHistory() {
   const totalUnread = threads.reduce((sum, t) => sum + t.unreadCount, 0);
 
   const markAllRead = async () => {
-    // Mark all unread threads as read
     const unreadPhones = threads.filter(t => t.unreadCount > 0).map(t => t.phone);
-    await Promise.all(unreadPhones.map(phone =>
-      fetch('/api/admin/messages', {
+    if (unreadPhones.length === 0) return;
+    try {
+      await Promise.all(unreadPhones.map(phone =>
+        fetch('/api/admin/messages', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone }),
+        })
+      ));
+      // Also clear any with empty phone
+      await fetch('/api/admin/messages', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone }),
-      })
-    ));
+        body: JSON.stringify({ phone: 'ALL' }),
+      });
+    } catch {}
+    fetchThreads();
+  };
+
+  const markThreadRead = async (phone: string) => {
+    await fetch('/api/admin/messages', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone }),
+    });
     fetchThreads();
   };
 
@@ -465,48 +482,70 @@ export function MessageHistory() {
               No message history yet. Send an SMS from Outreach or User Management to start a conversation.
             </div>
           ) : (
-            <div className="divide-y divide-neutral-800/50 overflow-y-auto" style={{ maxHeight: 400 }}>
-              {threads.map((thread) => (
-                <button
-                  key={thread.phone}
-                  onClick={() => openConversation(thread.phone)}
-                  className="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors"
-                >
-                  {/* Avatar */}
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
-                    thread.unreadCount > 0 ? 'bg-[#00E676]/20 text-[#00E676]' : 'bg-neutral-800 text-neutral-500'
-                  }`}>
-                    {thread.name ? thread.name.charAt(0).toUpperCase() : '#'}
-                  </div>
+            <div className="overflow-y-auto" style={{ maxHeight: 400 }}>
+              {threads.map((thread) => {
+                const isUnread = thread.unreadCount > 0;
+                return (
+                  <div
+                    key={thread.phone}
+                    style={{
+                      borderLeft: isUnread ? '3px solid #00E676' : '3px solid transparent',
+                      background: isUnread ? 'rgba(0,230,118,0.06)' : 'transparent',
+                      borderBottom: '1px solid var(--admin-border, rgba(255,255,255,0.06))',
+                    }}
+                    className="flex items-center gap-3 px-4 py-3"
+                  >
+                    {/* Clickable area — opens conversation */}
+                    <button
+                      onClick={() => openConversation(thread.phone)}
+                      className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                    >
+                      {/* Avatar */}
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
+                        isUnread ? 'bg-[#00E676]/25 text-[#00E676]' : 'bg-neutral-800 text-neutral-500'
+                      }`}>
+                        {thread.name ? thread.name.charAt(0).toUpperCase() : '#'}
+                      </div>
 
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className={`text-sm truncate ${thread.unreadCount > 0 ? 'font-bold text-white' : 'font-medium text-white'}`}>
-                        {thread.name ?? thread.phone}
-                      </span>
-                      <span className="text-[10px] text-neutral-600 shrink-0 ml-2">
-                        {timeAgo(thread.lastMessageAt)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-neutral-500 font-mono truncate">{thread.phone}</span>
-                      {thread.profileType && (
-                        <span className={`text-[10px] ${thread.profileType === 'driver' ? 'text-blue-400' : 'text-green-400'}`}>
-                          {thread.profileType}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm truncate" style={{ fontWeight: isUnread ? 800 : 500, color: isUnread ? 'var(--admin-text, #fff)' : 'var(--admin-text-secondary, #aaa)' }}>
+                            {thread.name ?? thread.phone}
+                          </span>
+                          <span className="text-[10px] text-neutral-600 shrink-0 ml-2">
+                            {timeAgo(thread.lastMessageAt)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-neutral-500 font-mono truncate">{thread.phone}</span>
+                          {thread.profileType && (
+                            <span className={`text-[10px] ${thread.profileType === 'driver' ? 'text-blue-400' : 'text-green-400'}`}>
+                              {thread.profileType}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
 
-                  {/* Unread badge */}
-                  {thread.unreadCount > 0 && (
-                    <div className="bg-[#00E676] text-black text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shrink-0">
-                      {thread.unreadCount}
-                    </div>
-                  )}
-                </button>
-              ))}
+                    {/* Unread badge + mark read button */}
+                    {isUnread ? (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="bg-[#00E676] text-black text-[10px] font-bold min-w-[20px] h-5 rounded-full flex items-center justify-center px-1.5">
+                          {thread.unreadCount}
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); markThreadRead(thread.phone); }}
+                          className="text-[9px] text-neutral-500 hover:text-white px-1.5 py-0.5 rounded transition-colors"
+                          title="Mark as read"
+                        >
+                          ✓
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           )
         )}
