@@ -29,6 +29,54 @@ import { ZoneEditor } from './components/zone-editor';
 import { useAdminAuth } from '@/app/admin/components/admin-auth-context';
 import type { SectionLayoutEntry } from '@/lib/cms/types';
 
+type InheritedFrom = 'custom' | 'persona_stage' | 'persona' | 'stage' | 'control' | 'default';
+
+// Badge that shows where the zone's current content is coming from, so the
+// admin can immediately tell whether they're editing a persona/stage-specific
+// override or an inherited default. Saving always writes to the target variant
+// for the current (stage, persona) — other personas are never overwritten.
+function getInheritanceBadge(
+  inherited: InheritedFrom | undefined,
+  stage: string,
+  persona: string | null,
+): { label: string; bg: string; fg: string; tooltip: string } | null {
+  // Awareness + no persona = the default view. Only show a badge if content is
+  // actually missing (nothing to indicate otherwise).
+  const isDefaultView = stage === 'awareness' && !persona;
+  if (isDefaultView && (!inherited || inherited === 'control' || inherited === 'custom')) return null;
+
+  if (!inherited || inherited === 'default') {
+    return {
+      label: 'NEW', bg: 'rgba(150,150,150,0.1)', fg: '#999',
+      tooltip: 'No content yet for any persona or stage. Edit to create.',
+    };
+  }
+  if (inherited === 'custom') {
+    const target = [persona, stage !== 'awareness' ? stage : null].filter(Boolean).join(' + ') || 'default';
+    return {
+      label: 'CUSTOM', bg: 'rgba(0,230,118,0.1)', fg: '#00E676',
+      tooltip: `Content is customized for ${target}. Only this view is affected when you save.`,
+    };
+  }
+  if (inherited === 'persona_stage' || inherited === 'persona') {
+    return {
+      label: 'PERSONA', bg: 'rgba(68,138,255,0.1)', fg: '#448AFF',
+      tooltip: 'Content inherited from this persona\'s default. Saving will create an override for this exact stage + persona.',
+    };
+  }
+  if (inherited === 'stage') {
+    return {
+      label: 'STAGE', bg: 'rgba(255,179,0,0.1)', fg: '#FFB300',
+      tooltip: 'Content inherited from the funnel stage default. Saving will create an override for this exact stage + persona.',
+    };
+  }
+  // inherited === 'control'
+  return {
+    label: 'DEFAULT', bg: 'rgba(255,179,0,0.1)', fg: '#FFB300',
+    tooltip: 'Content inherited from the base default. Saving will create an override for this exact stage + persona — other personas are not affected.',
+  };
+}
+
 interface ZoneData {
   id: string;
   zone_key: string;
@@ -39,6 +87,8 @@ interface ZoneData {
   variant_content: unknown;
   variant_status: string | null;
   has_stage_override: boolean;
+  inherited_from?: InheritedFrom;
+  target_variant_name?: string;
 }
 
 export default function SectionBuilderPage() {
@@ -115,12 +165,16 @@ export default function SectionBuilderPage() {
 
   useEffect(() => { fetchLayout(); }, [fetchLayout]);
 
-  // Fetch zone content for current stage
+  // Fetch zone content for current stage + persona.
+  // persona is included so the server can return the persona-specific variant
+  // (falling back through persona_stage → persona → stage → control), ensuring
+  // an admin editing persona B never sees persona A's content.
   const fetchZones = useCallback(async () => {
     if (!selectedMarketId) return;
     try {
+      const personaParam = persona ? `&persona=${encodeURIComponent(persona)}` : '';
       const r = await fetch(
-        `/api/admin/funnel/zones?page=${pageSlug}&market_id=${selectedMarketId}&stage=${stage}`,
+        `/api/admin/funnel/zones?page=${pageSlug}&market_id=${selectedMarketId}&stage=${stage}${personaParam}`,
         { cache: 'no-store' },
       );
       if (!r.ok) throw new Error(`zones ${r.status}`);
@@ -131,7 +185,7 @@ export default function SectionBuilderPage() {
       console.error('[CMS] zones fetch failed:', e);
       setLoadError(`Failed to load zones: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [pageSlug, selectedMarketId, stage]);
+  }, [pageSlug, selectedMarketId, stage, persona]);
 
   useEffect(() => { fetchZones(); }, [fetchZones]);
 
@@ -284,6 +338,10 @@ export default function SectionBuilderPage() {
                   variant_content: savedVariant.content,
                   variant_status: savedVariant.status,
                   has_stage_override: snapStage !== 'awareness' || !!snapPersona,
+                  // After a successful save for the current target, this zone
+                  // is now customized for this exact (stage, persona) combo —
+                  // no longer inherited from a less-specific variant.
+                  inherited_from: 'custom',
                 }
               : z,
           ),
@@ -434,20 +492,23 @@ export default function SectionBuilderPage() {
                           const content = getZoneContent(zoneKey);
                           const hasEdit = editedContent[zoneKey] !== undefined;
 
+                          const zoneMeta = zones.find((z) => z.zone_key === zoneKey);
+                          const inherited = zoneMeta?.inherited_from;
+                          const badge = getInheritanceBadge(inherited, stage, persona);
                           return (
                             <div key={zoneKey}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                                 <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--admin-text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
                                   {meta.displayName}
-                                  {stage !== 'awareness' && (
-                                    <span style={{
-                                      fontSize: 8, padding: '1px 5px', borderRadius: 3, fontWeight: 700,
-                                      background: zones.find(z => z.zone_key === zoneKey)?.has_stage_override
-                                        ? 'rgba(0,230,118,0.1)' : 'rgba(255,179,0,0.1)',
-                                      color: zones.find(z => z.zone_key === zoneKey)?.has_stage_override
-                                        ? '#00E676' : '#FFB300',
-                                    }}>
-                                      {zones.find(z => z.zone_key === zoneKey)?.has_stage_override ? 'CUSTOM' : 'DEFAULT'}
+                                  {badge && (
+                                    <span
+                                      title={badge.tooltip}
+                                      style={{
+                                        fontSize: 8, padding: '1px 5px', borderRadius: 3, fontWeight: 700,
+                                        background: badge.bg, color: badge.fg,
+                                      }}
+                                    >
+                                      {badge.label}
                                     </span>
                                   )}
                                 </label>
