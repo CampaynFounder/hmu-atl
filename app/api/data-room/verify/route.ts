@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit/check';
-
-const ACCESS_CODE = process.env.DATA_ROOM_ACCESS_CODE || 'atlhmu82';
+import { getDataRoomAccessCode } from '@/lib/data-room/access-code';
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,8 +19,9 @@ export async function POST(request: NextRequest) {
     }
 
     const { code } = await request.json();
+    const accessCode = await getDataRoomAccessCode();
 
-    if (!code || code.toLowerCase() !== ACCESS_CODE.toLowerCase()) {
+    if (!code || code.toLowerCase() !== accessCode.toLowerCase()) {
       return NextResponse.json({ error: 'Invalid access code' }, { status: 401 });
     }
 

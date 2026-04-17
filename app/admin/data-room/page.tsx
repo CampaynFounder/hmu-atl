@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Upload, FileText, Trash2, RefreshCw, Users, Download, Eye,
-  Pencil, X, ExternalLink, Shield,
+  Pencil, X, ExternalLink, Shield, KeyRound, Check, Copy,
 } from 'lucide-react';
 
 interface Document {
@@ -96,11 +96,28 @@ function formatDate(d: string | null | undefined) {
   });
 }
 
+interface AccessCodeMeta {
+  code: string;
+  source: 'db' | 'env' | 'default';
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
 export default function AdminDataRoomPage() {
-  const [tab, setTab] = useState<'documents' | 'consents' | 'logs'>('documents');
+  const [tab, setTab] = useState<'documents' | 'consents' | 'logs' | 'settings'>('documents');
   const [documents, setDocuments] = useState<Document[]>([]);
   const [consents, setConsents] = useState<Consent[]>([]);
   const [logs, setLogs] = useState<AccessLog[]>([]);
+
+  // Access code (super admin only — tab hidden if 403)
+  const [accessCodeMeta, setAccessCodeMeta] = useState<AccessCodeMeta | null>(null);
+  const [isSuper, setIsSuper] = useState(false);
+  const [codeDraft, setCodeDraft] = useState('');
+  const [codeReveal, setCodeReveal] = useState(false);
+  const [codeSaving, setCodeSaving] = useState(false);
+  const [codeError, setCodeError] = useState('');
+  const [codeSaved, setCodeSaved] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
 
   // Upload / replace modal
   const [showUpload, setShowUpload] = useState(false);
@@ -150,11 +167,73 @@ export default function AdminDataRoomPage() {
     }
   }, []);
 
+  const fetchAccessCode = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/data-room/access-code');
+      if (res.status === 403) {
+        setIsSuper(false);
+        return;
+      }
+      if (res.ok) {
+        const meta: AccessCodeMeta = await res.json();
+        setAccessCodeMeta(meta);
+        setCodeDraft(meta.code);
+        setIsSuper(true);
+      }
+    } catch (e) {
+      console.error('Failed to fetch access code:', e);
+    }
+  }, []);
+
   useEffect(() => {
     fetchDocuments();
     fetchConsents();
     fetchLogs();
-  }, [fetchDocuments, fetchConsents, fetchLogs]);
+    fetchAccessCode();
+  }, [fetchDocuments, fetchConsents, fetchLogs, fetchAccessCode]);
+
+  const handleSaveAccessCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = codeDraft.trim();
+    if (trimmed.length < 4) {
+      setCodeError('Must be at least 4 characters');
+      return;
+    }
+    setCodeSaving(true);
+    setCodeError('');
+    setCodeSaved(false);
+    try {
+      const res = await fetch('/api/admin/data-room/access-code', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: trimmed }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCodeError(data.error || 'Failed to update');
+        return;
+      }
+      setAccessCodeMeta(data);
+      setCodeDraft(data.code);
+      setCodeSaved(true);
+      setTimeout(() => setCodeSaved(false), 2500);
+    } catch {
+      setCodeError('Failed to update');
+    } finally {
+      setCodeSaving(false);
+    }
+  };
+
+  const handleCopyCode = async () => {
+    if (!accessCodeMeta?.code) return;
+    try {
+      await navigator.clipboard.writeText(accessCodeMeta.code);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 1500);
+    } catch {
+      // ignore
+    }
+  };
 
   const resetUploadForm = () => {
     setUploadFile(null);
@@ -309,6 +388,7 @@ export default function AdminDataRoomPage() {
               { key: 'documents', label: 'Documents', icon: FileText, count: documents.filter((d) => d.is_active).length },
               { key: 'consents', label: 'Consents', icon: Users, count: consents.length },
               { key: 'logs', label: 'Access Log', icon: Eye, count: logs.length },
+              ...(isSuper ? [{ key: 'settings' as const, label: 'Settings', icon: KeyRound, count: null as number | null }] : []),
             ].map((t) => {
               const Icon = t.icon;
               const active = tab === t.key;
@@ -322,9 +402,11 @@ export default function AdminDataRoomPage() {
                 >
                   <Icon className="w-4 h-4" />
                   <span>{t.label}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${active ? 'bg-[#00e676]/20 text-[#00e676]' : 'bg-[#1a1a1a] text-[#555]'}`}>
-                    {t.count}
-                  </span>
+                  {t.count !== null && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${active ? 'bg-[#00e676]/20 text-[#00e676]' : 'bg-[#1a1a1a] text-[#555]'}`}>
+                      {t.count}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -458,6 +540,92 @@ export default function AdminDataRoomPage() {
                   </button>
                 ))
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Settings — super admin only */}
+        {tab === 'settings' && isSuper && (
+          <div className="space-y-4">
+            <div className="bg-[#141414] rounded-2xl border border-[#1a1a1a] p-5">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="w-10 h-10 bg-[#0f0f0f] rounded-xl flex items-center justify-center border border-[#1a1a1a] shrink-0">
+                  <KeyRound className="w-5 h-5 text-[#00e676]" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-white font-medium">Investor Access Code</h3>
+                  <p className="text-[#888] text-xs mt-0.5">
+                    Investors enter this to unlock the NDA form at /data-room. Case-insensitive.
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveAccessCode} className="space-y-3">
+                <Field label="Access Code">
+                  <div className="flex gap-2">
+                    <input
+                      type={codeReveal ? 'text' : 'password'}
+                      value={codeDraft}
+                      onChange={(e) => { setCodeDraft(e.target.value); setCodeSaved(false); setCodeError(''); }}
+                      className={inputClass}
+                      minLength={4}
+                      maxLength={128}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setCodeReveal((v) => !v)}
+                      className="shrink-0 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl px-3 text-[#bbb] hover:text-white hover:border-[#333] transition-colors"
+                      title={codeReveal ? 'Hide' : 'Reveal'}
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyCode}
+                      className="shrink-0 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl px-3 text-[#bbb] hover:text-white hover:border-[#333] transition-colors"
+                      title="Copy current code"
+                    >
+                      {codeCopied ? <Check className="w-4 h-4 text-[#00e676]" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </Field>
+
+                {codeError && <p className="text-[#ff4444] text-sm">{codeError}</p>}
+
+                <div className="flex items-center justify-between gap-3 pt-2">
+                  <div className="text-[11px] text-[#666] space-y-0.5">
+                    {accessCodeMeta?.source === 'db' ? (
+                      <>
+                        <p>Last updated {formatDate(accessCodeMeta.updatedAt)}</p>
+                        {accessCodeMeta.updatedBy && (
+                          <p className="text-[#555] break-all">by {accessCodeMeta.updatedBy}</p>
+                        )}
+                      </>
+                    ) : accessCodeMeta?.source === 'env' ? (
+                      <p>Currently sourced from environment variable. Saving here overrides it.</p>
+                    ) : (
+                      <p>Using built-in default. Save to set a custom code.</p>
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={codeSaving || !codeDraft.trim() || codeDraft.trim() === accessCodeMeta?.code}
+                    className="bg-[#00e676] text-[#080808] font-semibold px-5 py-2.5 rounded-full disabled:opacity-40 transition-opacity shrink-0"
+                  >
+                    {codeSaving ? 'Saving…' : codeSaved ? 'Saved ✓' : 'Update Code'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <div className="bg-[#0f0f0f] rounded-xl border border-[#1a1a1a] p-4">
+              <p className="text-[#666] text-xs leading-relaxed">
+                <span className="text-[#888]">Heads up:</span> changing the code takes effect immediately.
+                Anyone mid-session who hasn&rsquo;t submitted the NDA form will need the new code to continue.
+                Signed consents retain the code that was used at the time.
+              </p>
             </div>
           </div>
         )}
