@@ -171,8 +171,20 @@ function RiderLandingInner() {
 
   const testimonials = cmsTestimonials;
 
-  // Dynamic section ordering
+  // Build sign-up URL that carries persona + funnel stage through
   const { sectionOrder: ctxSectionOrder } = useCmsContext();
+  const [signUpUrl, setSignUpUrl] = useState('/sign-up?type=rider');
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sp = new URLSearchParams({ type: 'rider' });
+    const p = params.get('utm_persona');
+    const f = params.get('utm_funnel');
+    if (p) sp.set('persona', p);
+    if (f && f !== 'awareness') sp.set('funnel_stage', f);
+    setSignUpUrl(`/sign-up?${sp}`);
+  }, []);
+
+  // Dynamic section ordering
   const activeSections = new Set(
     ctxSectionOrder.length > 0 ? ctxSectionOrder : getDefaultSectionOrder('rider_landing')
   );
@@ -189,7 +201,7 @@ function RiderLandingInner() {
         <div className={styles.navActions}>
           <Link href="/sign-in" className={styles.navSignIn}>Sign In</Link>
           <Link
-            href="/sign-up?type=rider"
+            href={signUpUrl}
             className={styles.navCta}
             onClick={() => { try { posthog.capture('rider_nav_cta_clicked'); } catch (_) {} }}
           >
@@ -222,7 +234,7 @@ function RiderLandingInner() {
         <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }} dangerouslySetInnerHTML={{ __html: heroSub }} />
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
           <Link
-            href="/sign-up?type=rider"
+            href={signUpUrl}
             className={styles.btnPrimary}
             onClick={() => { try { posthog.capture('rider_hero_cta_clicked'); } catch (_) {} }}
           >
