@@ -61,6 +61,7 @@ export default function SectionBuilderPage() {
   const [editedContent, setEditedContent] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [savingLayout, setSavingLayout] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -73,10 +74,10 @@ export default function SectionBuilderPage() {
     // Determine audience from page slug
     const audience = pageSlug.startsWith('driver') ? 'driver' : pageSlug.startsWith('rider') ? 'rider' : '';
     const qs = `?market_id=${selectedMarketId}${audience ? `&audience=${audience}` : ''}`;
-    fetch(`/api/admin/funnel/personas${qs}`)
+    fetch(`/api/admin/funnel/personas${qs}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((data) => setPersonas((data.personas || []).filter((p: { is_active: boolean }) => p.is_active)))
-      .catch(() => {});
+      .catch((e) => console.error('[CMS] personas fetch failed:', e));
   }, [selectedMarketId, pageSlug]);
 
   // Reset state when stage, persona, or page changes
@@ -93,8 +94,11 @@ export default function SectionBuilderPage() {
   // Fetch existing layout for this stage
   const fetchLayout = useCallback(() => {
     if (!selectedMarketId) return;
-    fetch(`/api/admin/funnel/layouts?page_slug=${pageSlug}&stage=${stage}&market_id=${selectedMarketId}`)
-      .then((r) => r.json())
+    fetch(`/api/admin/funnel/layouts?page_slug=${pageSlug}&stage=${stage}&market_id=${selectedMarketId}`, { cache: 'no-store' })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`layout ${r.status}`);
+        return r.json();
+      })
       .then((data) => {
         if (data.layout?.sections && Array.isArray(data.layout.sections)) {
           setLayout(data.layout.sections);
@@ -103,18 +107,30 @@ export default function SectionBuilderPage() {
           setLayout(pageSections.map((s) => ({ sectionKey: s.sectionKey, visible: true })));
         }
       })
-      .catch(() => {});
+      .catch((e) => {
+        console.error('[CMS] layout fetch failed:', e);
+        setLoadError(`Failed to load layout: ${e.message || e}`);
+      });
   }, [pageSlug, stage, selectedMarketId]);
 
   useEffect(() => { fetchLayout(); }, [fetchLayout]);
 
   // Fetch zone content for current stage
-  const fetchZones = useCallback(() => {
+  const fetchZones = useCallback(async () => {
     if (!selectedMarketId) return;
-    fetch(`/api/admin/funnel/zones?page=${pageSlug}&market_id=${selectedMarketId}&stage=${stage}`)
-      .then((r) => r.json())
-      .then((data) => setZones(data.zones || []))
-      .catch(() => {});
+    try {
+      const r = await fetch(
+        `/api/admin/funnel/zones?page=${pageSlug}&market_id=${selectedMarketId}&stage=${stage}`,
+        { cache: 'no-store' },
+      );
+      if (!r.ok) throw new Error(`zones ${r.status}`);
+      const data = await r.json();
+      setZones(data.zones || []);
+      setLoadError(null);
+    } catch (e) {
+      console.error('[CMS] zones fetch failed:', e);
+      setLoadError(`Failed to load zones: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }, [pageSlug, selectedMarketId, stage]);
 
   useEffect(() => { fetchZones(); }, [fetchZones]);
@@ -123,17 +139,29 @@ export default function SectionBuilderPage() {
   const saveLayout = async (newLayout: SectionLayoutEntry[]) => {
     if (!selectedMarketId) return;
     setSavingLayout(true);
-    await fetch('/api/admin/funnel/layouts', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        page_slug: pageSlug,
-        stage,
-        market_id: selectedMarketId,
-        sections: newLayout,
-      }),
-    });
-    setSavingLayout(false);
+    try {
+      const res = await fetch('/api/admin/funnel/layouts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          page_slug: pageSlug,
+          stage,
+          market_id: selectedMarketId,
+          sections: newLayout,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error('[CMS] Layout save failed:', err);
+        alert(`Layout save failed: ${err.error || res.statusText}`);
+      }
+    } catch (e) {
+      console.error('[CMS] Layout save error:', e);
+      alert(`Layout save error: ${e}`);
+    } finally {
+      setSavingLayout(false);
+    }
   };
 
   // Drag end handler
@@ -160,7 +188,10 @@ export default function SectionBuilderPage() {
   const getZoneContent = (zoneKey: string): unknown => {
     if (editedContent[zoneKey] !== undefined) return editedContent[zoneKey];
     const dbZone = zones.find((z) => z.zone_key === zoneKey);
-    if (dbZone?.variant_content) return dbZone.variant_content;
+    // Explicit null/undefined check — empty strings and other falsy values ('', 0, false) are valid saved content
+    if (dbZone && dbZone.variant_content !== undefined && dbZone.variant_content !== null) {
+      return dbZone.variant_content;
+    }
     const regEntry = ZONE_REGISTRY.find((z) => z.pageSlug === pageSlug && z.zoneKey === zoneKey);
     return regEntry?.defaultContent;
   };
@@ -176,11 +207,17 @@ export default function SectionBuilderPage() {
     };
   };
 
-  // Save zone content
-  const saveZone = async (zoneKey: string) => {
-    if (!selectedMarketId) return;
+  // Save zone content. Returns true on success so callers (Save All) can detect failure.
+  // Accepts an explicit snapshot of stage/persona/content so batched saves are not
+  // vulnerable to stale closures if the user switches stage mid-batch.
+  const saveZoneWith = async (
+    zoneKey: string,
+    content: unknown,
+    snapStage: string,
+    snapPersona: string | null,
+  ): Promise<boolean> => {
+    if (!selectedMarketId) return false;
     setSaving(true);
-    const content = editedContent[zoneKey];
     const dbZone = zones.find((z) => z.zone_key === zoneKey);
     const zoneId = dbZone?.id;
 
@@ -188,28 +225,29 @@ export default function SectionBuilderPage() {
       console.error('[CMS] Zone not found in DB:', zoneKey);
       alert(`Zone "${zoneKey}" not found. Try clicking "Seed Zones" on the Funnel CMS dashboard first.`);
       setSaving(false);
-      return;
+      return false;
     }
 
-    // Build utm_targets based on stage + persona selection
+    // Build utm_targets based on snapshot stage + persona
     const utmTargets: Record<string, string[]> = {};
-    if (stage !== 'awareness') utmTargets.utm_funnel = [stage];
-    if (persona) utmTargets.utm_persona = [persona];
+    if (snapStage !== 'awareness') utmTargets.utm_funnel = [snapStage];
+    if (snapPersona) utmTargets.utm_persona = [snapPersona];
     const hasTargets = Object.keys(utmTargets).length > 0;
 
     // Build variant name from targeting
     let variantName = 'control';
-    if (persona && stage !== 'awareness') variantName = `persona_${persona}_stage_${stage}`;
-    else if (persona) variantName = `persona_${persona}`;
-    else if (stage !== 'awareness') variantName = `stage_${stage}`;
+    if (snapPersona && snapStage !== 'awareness') variantName = `persona_${snapPersona}_stage_${snapStage}`;
+    else if (snapPersona) variantName = `persona_${snapPersona}`;
+    else if (snapStage !== 'awareness') variantName = `stage_${snapStage}`;
 
-    const targetLabel = [persona, stage !== 'awareness' ? stage : null].filter(Boolean).join(' + ') || 'default';
+    const targetLabel = [snapPersona, snapStage !== 'awareness' ? snapStage : null].filter(Boolean).join(' + ') || 'default';
     const saveStatus = needsApproval ? 'pending_approval' : 'published';
 
     try {
       const res = await fetch('/api/admin/funnel/variants', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({
           zone_id: zoneId,
           market_id: selectedMarketId,
@@ -220,27 +258,61 @@ export default function SectionBuilderPage() {
           save_status: saveStatus,
         }),
       });
+      const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        console.error('[CMS] Save failed:', err);
-        alert(`Save failed: ${err.error || res.statusText}`);
-        setSaving(false);
-        return;
+        console.error('[CMS] Save failed:', payload);
+        alert(`Save failed: ${payload.error || res.statusText || 'Unknown error'}`);
+        return false;
       }
-      // Clear edit state and refresh
-      setEditedContent((prev) => {
-        const next = { ...prev };
-        delete next[zoneKey];
-        return next;
-      });
-      fetchZones();
+
+      // Merge the authoritative saved variant into local zones so the UI reflects
+      // exactly what the server wrote — no refetch race, no stale cache.
+      // Only override the displayed variant_content if the snapshot matches
+      // what the admin is currently viewing (same stage/persona), so a batch save
+      // across stages doesn't overwrite the on-screen zone with a different stage's content.
+      const savedVariant = payload.variant as
+        | { id: string; content: unknown; status: string | null }
+        | undefined;
+      const viewingSameTarget = snapStage === stage && snapPersona === persona;
+      if (savedVariant && viewingSameTarget) {
+        setZones((prev) =>
+          prev.map((z) =>
+            z.zone_key === zoneKey
+              ? {
+                  ...z,
+                  variant_id: savedVariant.id,
+                  variant_content: savedVariant.content,
+                  variant_status: savedVariant.status,
+                  has_stage_override: snapStage !== 'awareness' || !!snapPersona,
+                }
+              : z,
+          ),
+        );
+      }
+
+      // Clear the in-memory edit for this zone only if the user is still viewing
+      // the same target. Otherwise leave it intact — the user may still want to
+      // see their edit on the current view.
+      if (viewingSameTarget) {
+        setEditedContent((prev) => {
+          const next = { ...prev };
+          delete next[zoneKey];
+          return next;
+        });
+      }
+      return true;
     } catch (e) {
       console.error('[CMS] Save error:', e);
-      alert(`Save error: ${e}`);
+      alert(`Save error: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  // Thin wrapper — single-zone Save button path. Takes current render state.
+  const saveZone = (zoneKey: string) =>
+    saveZoneWith(zoneKey, editedContent[zoneKey], stage, persona);
 
   // Get section definition
   const getSectionDef = (key: string): SectionDefinition | undefined =>
@@ -262,6 +334,27 @@ export default function SectionBuilderPage() {
           Preview {[stage, persona].filter(Boolean).join(' + ')} &rarr;
         </a>
       </div>
+
+      {/* Load error banner — makes failures visible instead of silent */}
+      {loadError && (
+        <div style={{
+          padding: '10px 16px', borderRadius: 8, marginBottom: 16,
+          background: 'rgba(255,82,82,0.08)', border: '1px solid rgba(255,82,82,0.3)',
+          color: '#FF5252', fontSize: 12, fontWeight: 600,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+        }}>
+          <span>⚠ {loadError}</span>
+          <button
+            onClick={() => { setLoadError(null); fetchZones(); fetchLayout(); }}
+            style={{
+              padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+              background: '#FF5252', color: '#000', border: 'none', cursor: 'pointer',
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Read-only banner */}
       {isReadOnly && (
@@ -405,8 +498,18 @@ export default function SectionBuilderPage() {
           <span>{Object.keys(editedContent).length} unsaved change{Object.keys(editedContent).length > 1 ? 's' : ''}</span>
           <button
             onClick={async () => {
-              for (const key of Object.keys(editedContent)) {
-                await saveZone(key);
+              // Snapshot state at click time so a user switching stage/persona
+              // mid-batch cannot redirect in-flight saves to a different variant.
+              const snapStage = stage;
+              const snapPersona = persona;
+              const snapEdits = { ...editedContent };
+              let failed = 0;
+              for (const key of Object.keys(snapEdits)) {
+                const ok = await saveZoneWith(key, snapEdits[key], snapStage, snapPersona);
+                if (!ok) failed++;
+              }
+              if (failed > 0) {
+                alert(`${failed} zone${failed > 1 ? 's' : ''} failed to save. Check console for details.`);
               }
             }}
             disabled={saving}
