@@ -70,15 +70,27 @@ export async function POST(
   // Resolve IDs
   const [riderRows, driverRows] = await Promise.all([
     sql`SELECT id, account_status FROM users WHERE clerk_id = ${clerkId} LIMIT 1`,
-    sql`SELECT user_id, areas, enforce_minimum, (pricing->>'minimum')::numeric as min_ride_price FROM driver_profiles WHERE handle = ${handle} LIMIT 1`,
+    sql`SELECT user_id, areas, enforce_minimum, accepts_cash, cash_only, (pricing->>'minimum')::numeric as min_ride_price FROM driver_profiles WHERE handle = ${handle} LIMIT 1`,
   ]);
 
   if (!riderRows.length) return NextResponse.json({ error: 'Rider not found' }, { status: 404 });
   if (!driverRows.length) return NextResponse.json({ error: 'Driver not found' }, { status: 404 });
 
   const rider = riderRows[0] as { id: string; account_status: string };
-  const driverProfile = driverRows[0] as { user_id: string; areas: string[]; enforce_minimum: boolean; min_ride_price: number | null };
+  const driverProfile = driverRows[0] as { user_id: string; areas: string[]; enforce_minimum: boolean; accepts_cash: boolean | null; cash_only: boolean | null; min_ride_price: number | null };
   const driverUserId = driverProfile.user_id;
+
+  // Clamp is_cash to the driver's payment config — never trust the client.
+  // Keeps the driver SMS, payment gate, and scheduling policy in sync with
+  // what the driver actually offers, regardless of stale chat state.
+  //   cash_only             → forced true
+  //   !accepts_cash         → forced false (digital-only driver)
+  //   accepts_cash + !cash_only → honor rider's choice
+  const resolvedIsCash = driverProfile.cash_only === true
+    ? true
+    : driverProfile.accepts_cash !== true
+    ? false
+    : is_cash === true;
 
   // Structural self-booking guard — rider and driver cannot be the same user.
   // Backs up the UI blocker on /d/[handle] in case someone calls the API directly
@@ -154,7 +166,7 @@ export async function POST(
   }
 
   // Re-run eligibility server-side (never trust client)
-  const eligibility = await checkRiderEligibility(rider.id, driverUserId, is_cash);
+  const eligibility = await checkRiderEligibility(rider.id, driverUserId, resolvedIsCash);
   if (!eligibility.eligible) {
     return NextResponse.json({ error: eligibility.reason, code: eligibility.code }, { status: 403 });
   }
@@ -182,7 +194,7 @@ export async function POST(
     driverUserId,
     window.startAt,
     window.endAt,
-    { strict: !is_cash }
+    { strict: !resolvedIsCash }
   );
   if (!avail.available && avail.conflict) {
     return NextResponse.json(
@@ -218,7 +230,7 @@ export async function POST(
     dropoffAreaSlug: route.dropoff_area_slug,
     dropoffInMarket: route.dropoff_in_market,
     timeWindow: timeWindow || {},
-    isCash: is_cash,
+    isCash: resolvedIsCash,
   });
 
   // Always create a tentative hold — "now" bookings need the same
@@ -264,7 +276,7 @@ export async function POST(
 
       // Build cash ride suffix if applicable
       let cashSuffix = '';
-      if (is_cash) {
+      if (resolvedIsCash) {
         try {
           const cashRows = await sql`
             SELECT cash_rides_remaining, cash_pack_balance FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1

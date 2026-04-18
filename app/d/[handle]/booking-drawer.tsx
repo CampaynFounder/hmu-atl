@@ -1,6 +1,16 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import InlinePaymentForm from '@/components/payments/inline-payment-form';
+
+interface SavedPaymentMethod {
+  id: string;
+  brand: string | null;
+  last4: string;
+  expMonth: number | null;
+  expYear: number | null;
+  isDefault: boolean;
+}
 
 /** Format time string to short readable format: Mon 03/31/26 2:00PM */
 function formatTime(timeStr: string): string {
@@ -66,6 +76,36 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
   const [secondsLeft, setSecondsLeft] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const isCashRide = !!prefill?.isCash;
+  const [paymentMethods, setPaymentMethods] = useState<SavedPaymentMethod[] | null>(null);
+  const [showAddPayment, setShowAddPayment] = useState(false);
+
+  // Fetch saved payment methods for non-cash rides so the rider sees what
+  // will be charged. If they have none, we inline the Stripe form so they
+  // can link a card without leaving the drawer.
+  useEffect(() => {
+    if (!open || isCashRide) {
+      setPaymentMethods(null);
+      setShowAddPayment(false);
+      return;
+    }
+    let cancelled = false;
+    fetch('/api/rider/payment-methods')
+      .then(r => r.ok ? r.json() : { methods: [] })
+      .then(data => {
+        if (cancelled) return;
+        const methods = (data.methods || []) as SavedPaymentMethod[];
+        setPaymentMethods(methods);
+        setShowAddPayment(methods.length === 0);
+      })
+      .catch(() => { if (!cancelled) { setPaymentMethods([]); setShowAddPayment(true); } });
+    return () => { cancelled = true; };
+  }, [open, isCashRide]);
+
+  const hasSavedMethod = !isCashRide && (paymentMethods?.length ?? 0) > 0;
+  const paymentReady = isCashRide || hasSavedMethod;
+  const defaultMethod = paymentMethods?.find(m => m.isDefault) || paymentMethods?.[0] || null;
+
   // Countdown timer
   useEffect(() => {
     if (state !== 'pending' || !expiresAt) return;
@@ -97,6 +137,11 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
     }
     if (driverMinimum > 0 && Number(price) < driverMinimum) {
       setError(`${driver.displayName}'s minimum is $${driverMinimum} — bump it up to book.`);
+      return;
+    }
+    if (!paymentReady) {
+      setError('Link a payment method to confirm the booking.');
+      setShowAddPayment(true);
       return;
     }
     setSubmitting(true);
@@ -177,6 +222,14 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
         .expired-title { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 32px; margin-bottom: 8px; color: #fff; }
         .expired-sub { font-size: 14px; color: #bbb; }
         .close-btn { width: 100%; margin-top: 16px; padding: 14px; background: transparent; border: 1px solid rgba(255,255,255,0.12); border-radius: 100px; color: #ddd; font-size: 15px; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .payment-row { display: flex; align-items: center; gap: 12px; background: #1f1f1f; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px 16px; }
+        .payment-row--cash { border-color: rgba(0,230,118,0.25); background: rgba(0,230,118,0.06); }
+        .payment-row--loading { color: #888; font-size: 13px; justify-content: center; }
+        .payment-row__icon { font-size: 22px; line-height: 1; }
+        .payment-row__title { color: #fff; font-size: 14px; font-weight: 600; }
+        .payment-row__sub { color: #888; font-size: 12px; margin-top: 2px; line-height: 1.4; }
+        .payment-change-btn { background: transparent; border: 1px solid rgba(255,255,255,0.15); border-radius: 100px; padding: 6px 14px; color: #ddd; font-size: 12px; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .payment-change-btn:hover { border-color: rgba(0,230,118,0.4); color: #00E676; }
       `}</style>
 
       <div className="drawer-overlay" onClick={onClose} />
@@ -245,14 +298,62 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
               placeholder="e.g. Today after 3pm"
             />
 
+            <div className="drawer-label">Payment</div>
+            {isCashRide ? (
+              <div className="payment-row payment-row--cash">
+                <span className="payment-row__icon">💵</span>
+                <div>
+                  <div className="payment-row__title">Cash to driver</div>
+                  <div className="payment-row__sub">Hand ${price || '?'} to {driver.displayName} at pickup.</div>
+                </div>
+              </div>
+            ) : paymentMethods === null ? (
+              <div className="payment-row payment-row--loading">Loading payment methods…</div>
+            ) : hasSavedMethod && !showAddPayment ? (
+              <div className="payment-row">
+                <span className="payment-row__icon">💳</span>
+                <div style={{ flex: 1 }}>
+                  <div className="payment-row__title">
+                    {defaultMethod?.brand ? defaultMethod.brand.charAt(0).toUpperCase() + defaultMethod.brand.slice(1) : 'Card'} •••• {defaultMethod?.last4 || '????'}
+                  </div>
+                  <div className="payment-row__sub">
+                    Held when {driver.displayName} accepts. Charged when you&apos;re in the ride.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="payment-change-btn"
+                  onClick={() => setShowAddPayment(true)}
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <InlinePaymentForm
+                compact
+                onSuccess={() => {
+                  setShowAddPayment(false);
+                  fetch('/api/rider/payment-methods')
+                    .then(r => r.ok ? r.json() : { methods: [] })
+                    .then(data => setPaymentMethods((data.methods || []) as SavedPaymentMethod[]))
+                    .catch(() => {});
+                }}
+                onCancel={hasSavedMethod ? () => setShowAddPayment(false) : undefined}
+              />
+            )}
+
             {error && <p className="drawer-error">{error}</p>}
 
             <button
               className="drawer-submit"
               onClick={handleSubmit}
-              disabled={submitting}
+              disabled={submitting || !paymentReady}
             >
-              {submitting ? 'Sending...' : `Send Booking Request — $${price || '?'}`}
+              {submitting
+                ? 'Sending...'
+                : !paymentReady
+                ? 'Link Payment to Continue'
+                : `Send Booking Request — $${price || '?'}`}
             </button>
           </>
         )}

@@ -35,7 +35,14 @@ export interface BookingDraft {
   isCash?: boolean;
 }
 
-export type DraftSlot = 'pickup' | 'dropoff' | 'time' | 'price';
+export type DraftSlot = 'pickup' | 'dropoff' | 'time' | 'price' | 'payment';
+
+/** Driver's payment config, used by missingSlots to decide whether the
+ *  rider needs to explicitly pick cash or card. */
+export interface DriverPaymentConfig {
+  cashOnly: boolean;
+  acceptsCash: boolean;
+}
 
 const FALLBACK_RIDE_MINUTES = 45;
 const BUFFER_MIN_DEFAULT = 15;
@@ -143,19 +150,31 @@ export function mergeExtract(
   return m;
 }
 
-/** Which required slots the draft is still missing, in the order we should ask. */
-export function missingSlots(d: BookingDraft): DraftSlot[] {
+/** Which required slots the draft is still missing, in the order we should ask.
+ *
+ *  When driverPayment is supplied and the driver accepts BOTH cash and card,
+ *  the rider must explicitly pick one — `isCash` typed as boolean. Cash-only
+ *  and digital-only drivers don't surface a payment slot; the caller should
+ *  pre-seed `isCash` from the driver's config in those cases. */
+export function missingSlots(
+  d: BookingDraft,
+  driverPayment?: DriverPaymentConfig,
+): DraftSlot[] {
   const missing: DraftSlot[] = [];
   if (!d.pickup) missing.push('pickup');
   if (!d.dropoff) missing.push('dropoff');
   if (!d.timeIso) missing.push('time');
   if (!priceValid(d)) missing.push('price');
+  if (driverPayment) {
+    const acceptsBoth = driverPayment.acceptsCash && !driverPayment.cashOnly;
+    if (acceptsBoth && typeof d.isCash !== 'boolean') missing.push('payment');
+  }
   return missing;
 }
 
 /** Draft has everything we need to submit the booking. */
-export function isComplete(d: BookingDraft): boolean {
-  return missingSlots(d).length === 0;
+export function isComplete(d: BookingDraft, driverPayment?: DriverPaymentConfig): boolean {
+  return missingSlots(d, driverPayment).length === 0;
 }
 
 /** Rider price meets or beats the driver minimum. */
@@ -169,8 +188,12 @@ export function priceValid(d: BookingDraft): boolean {
  * Deterministic next question — used as a fallback when GPT fails or as a
  * hint the model can paraphrase. Keeps the flow moving even if the LLM hic.
  */
-export function nextQuestion(d: BookingDraft, driverName: string): string {
-  const next = missingSlots(d)[0];
+export function nextQuestion(
+  d: BookingDraft,
+  driverName: string,
+  driverPayment?: DriverPaymentConfig,
+): string {
+  const next = missingSlots(d, driverPayment)[0];
   switch (next) {
     case 'pickup':
       return 'Where you coming from?';
@@ -184,6 +207,8 @@ export function nextQuestion(d: BookingDraft, driverName: string): string {
         ? `${driverName}'s minimum is $${min} — what works for you?`
         : 'What price works for you?';
     }
+    case 'payment':
+      return `Paying cash or card? (${driverName} takes both)`;
     default:
       return 'Ready to lock this in?';
   }

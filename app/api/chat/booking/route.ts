@@ -319,12 +319,24 @@ ${getStepInstructions(step, driver)}`;
               args as Record<string, unknown>
             );
 
-            const still = missingSlots(mergedForConfirm);
+            // Pre-seed isCash when the driver's config leaves no choice —
+            // cash-only or digital-only. Only accepts-both drivers expose
+            // the 'payment' slot, forcing the rider to pick.
+            const driverCashOnly = driver.cash_only === true;
+            const driverAcceptsCash = driver.accepts_cash === true;
+            if (driverCashOnly) mergedForConfirm.isCash = true;
+            else if (!driverAcceptsCash) mergedForConfirm.isCash = false;
+
+            const driverPayment = { cashOnly: driverCashOnly, acceptsCash: driverAcceptsCash };
+            const still = missingSlots(mergedForConfirm, driverPayment);
             if (still.length) {
+              const needsPayment = still.includes('payment');
               result = {
                 action: 'incomplete',
                 missing: still,
-                error: `Still need: ${still.join(', ')}`,
+                error: needsPayment
+                  ? 'Need to know: paying cash or card?'
+                  : `Still need: ${still.join(', ')}`,
                 draft: mergedForConfirm,
               };
               break;
@@ -371,8 +383,10 @@ ${getStepInstructions(step, driver)}`;
               break;
             }
 
-            // All gates passed — hand the client a fully-resolved booking
-            // payload shaped the way the existing client + book route expect.
+            // All gates passed — isCash is now guaranteed to be a boolean
+            // (pre-seeded for deterministic driver configs, required by
+            // missingSlots for accepts-both). Hand the client a fully
+            // resolved booking payload.
             const bookingOut: Record<string, unknown> = {
               pickup: mergedForConfirm.pickup,
               dropoff: mergedForConfirm.dropoff,
@@ -386,7 +400,7 @@ ${getStepInstructions(step, driver)}`;
               price: mergedForConfirm.riderPrice,
               suggestedPrice: mergedForConfirm.suggestedPrice,
               driverMinimum: mergedForConfirm.driverMinimum,
-              isCash: mergedForConfirm.isCash,
+              isCash: mergedForConfirm.isCash === true,
               estimatedRideMinutes:
                 new Date(window.endAt).getTime() - new Date(window.startAt).getTime() > 0
                   ? Math.round(
@@ -593,6 +607,9 @@ STRICT RULES:
 function getStepInstructions(step: string, driver: Record<string, unknown>): string {
   const name = driver.display_name || driver.handle;
   const hasCash = driver.cash_only || driver.accepts_cash;
+  const cashOnly = !!driver.cash_only;
+  const acceptsBoth = !!driver.accepts_cash && !cashOnly;
+  const digitalOnly = !driver.accepts_cash && !cashOnly;
 
   switch (step) {
     case 'trip_details':
@@ -623,7 +640,7 @@ OUTPUT: Move to quote.`;
       return `GOAL: Call compare_pricing and present the price with Uber comparison.
 DO: Call compare_pricing with the route distance, duration, and driver minimum.
 DO: The tool returns a recommended price AND the driver minimum — present BOTH.
-DO: Present like: "Uber would charge around $X for this trip. ${name}'s minimum is $[min] — we'd suggest around $Y but anything at or above $[min] works. ${hasCash ? 'This would be a cash ride.' : ''} What price works for you?"
+DO: Present like: "Uber would charge around $X for this trip. ${name}'s minimum is $[min] — we'd suggest around $Y but anything at or above $[min] works. ${cashOnly ? `${name} is cash only.` : acceptsBoth ? `${name} takes cash or card.` : ''} What price works for you?"
 DO: NEVER reveal the pricing formula or mention "midpoint", "lower bound", or "suggested price calculation"
 DO: If rider offers a price AT or ABOVE the driver minimum, ACCEPT IT IMMEDIATELY — say "bet, $Z works" and advance. Do NOT try to upsell or suggest a higher price.
 DO: If rider offers BELOW the driver minimum, explain: "${name}'s minimum is $[min] — can you do at least that?" This is the ONLY reason to push back on a price.
@@ -635,7 +652,10 @@ OUTPUT: Confirm all details and call confirm_details.`;
     case 'confirm':
       return `GOAL: Summarize the trip and call confirm_details to save it.
 DO: Call confirm_details with SEPARATE pickup and dropoff (not combined), time (rider's words), resolvedTime (ISO timestamp), stops, riderPrice, roundTrip, isCash.
-DO: Summarize with the RESOLVED date: "Here's your trip: [pickup] → [dropoff], [resolved date like 'Friday April 11th at 3pm'], ~$[price]. You can adjust the price and time before confirming. Ready?"
+${cashOnly ? `PAYMENT: ${name} is CASH ONLY. Always set isCash=true. Tell the rider: "Heads up — ${name} is cash only. Bring $[price] in cash for the ride."` : ''}
+${digitalOnly ? `PAYMENT: ${name} accepts card payments only. Always set isCash=false. Do not mention cash.` : ''}
+${acceptsBoth ? `PAYMENT: ${name} accepts cash OR card. Before calling confirm_details, you MUST ask the rider: "Paying cash or card?" Set isCash=true for cash, isCash=false for card. Do not call confirm_details until the rider has picked one. If they're unsure, tell them: "Card gets held now, charged when you're in the ride. Cash means you hand it to ${name} at pickup."` : ''}
+DO: Summarize with the RESOLVED date: "Here's your trip: [pickup] → [dropoff], [resolved date like 'Friday April 11th at 3pm'], ~$[price][isCash ? ', cash' : ', on card']. You can adjust the price and time before confirming. Ready?"
 DO: NEVER show an ISO timestamp to the rider — always use a friendly format like "Friday April 11th at 3:00 PM"
 DO: Always mention they can adjust the price in the booking form.
 ADVANCE TO NEXT STEP WHEN: confirm_details is called successfully.
