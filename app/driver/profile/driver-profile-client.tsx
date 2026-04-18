@@ -18,7 +18,10 @@ interface ProfileData {
   gender: string;
   pronouns: string;
   lgbtqFriendly: boolean;
-  areas: string[];
+  areas: string[]; // legacy
+  areaSlugs: string[];
+  servicesEntireMarket: boolean;
+  acceptsLongDistance: boolean;
   pricing: Record<string, unknown>;
   schedule: Record<string, unknown>;
   videoUrl: string;
@@ -37,6 +40,13 @@ interface ProfileData {
   allowInRouteStops: boolean;
   waitMinutes: number;
   advanceNoticeHours: number;
+}
+
+type Cardinal = 'westside' | 'eastside' | 'northside' | 'southside' | 'central';
+interface MarketAreaChip {
+  slug: string;
+  name: string;
+  cardinal: Cardinal;
 }
 
 interface UserData {
@@ -62,15 +72,18 @@ interface Props {
   user: UserData;
   payout: PayoutData;
   subscription: SubscriptionData;
+  market: { slug: string; name: string };
+  marketAreas: MarketAreaChip[];
 }
 
-const ATLANTA_AREAS = [
-  'Any Area', 'East Side', 'West Side', 'North Side', 'South Side', 'Long Distance OK',
-  'Midtown', 'Buckhead', 'Downtown', 'East Atlanta', 'West End',
-  'Decatur', 'College Park', 'Sandy Springs', 'Marietta', 'Stone Mountain',
-  'Dunwoody', 'Brookhaven', 'Smyrna', 'Kennesaw', 'Alpharetta',
-  'Roswell', 'Lawrenceville', 'Norcross', 'Duluth', 'Conyers',
-];
+const CARDINAL_ORDER: Cardinal[] = ['central', 'northside', 'eastside', 'southside', 'westside'];
+const CARDINAL_LABEL: Record<Cardinal, string> = {
+  central: 'Central',
+  northside: 'Northside',
+  eastside: 'Eastside',
+  southside: 'Southside',
+  westside: 'Westside',
+};
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const DAY_LABELS: Record<string, string> = {
@@ -78,7 +91,7 @@ const DAY_LABELS: Record<string, string> = {
   friday: 'Fri', saturday: 'Sat', sunday: 'Sun',
 };
 
-export default function DriverProfileClient({ profile, user, payout, subscription }: Props) {
+export default function DriverProfileClient({ profile, user, payout, subscription, market, marketAreas }: Props) {
   const [data, setData] = useState(profile);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState('');
@@ -97,7 +110,7 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
     try {
       let res: Response;
 
-      if ('acceptDirectBookings' in patch || 'minRiderChillScore' in patch || 'requireOgStatus' in patch || 'showVideoOnLink' in patch || 'profileVisible' in patch || 'fwu' in patch || 'acceptsCash' in patch || 'cashOnly' in patch || 'waitMinutes' in patch || 'advanceNoticeHours' in patch || 'allowInRouteStops' in patch) {
+      if ('acceptDirectBookings' in patch || 'minRiderChillScore' in patch || 'requireOgStatus' in patch || 'showVideoOnLink' in patch || 'profileVisible' in patch || 'fwu' in patch || 'acceptsCash' in patch || 'cashOnly' in patch || 'waitMinutes' in patch || 'advanceNoticeHours' in patch || 'allowInRouteStops' in patch) { // eslint-disable-line @typescript-eslint/no-unused-vars
         res = await fetch('/api/drivers/booking-settings', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -118,7 +131,9 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
       } else {
         // Map client field names to DB field names
         const apiPatch: Record<string, unknown> = {};
-        if ('areas' in patch) apiPatch.areas = patch.areas;
+        if ('areaSlugs' in patch) apiPatch.area_slugs = patch.areaSlugs;
+        if ('servicesEntireMarket' in patch) apiPatch.services_entire_market = patch.servicesEntireMarket;
+        if ('acceptsLongDistance' in patch) apiPatch.accepts_long_distance = patch.acceptsLongDistance;
         if ('pricing' in patch) apiPatch.pricing = patch.pricing;
         if ('schedule' in patch) apiPatch.schedule = patch.schedule;
         if ('lgbtqFriendly' in patch) apiPatch.lgbtq_friendly = patch.lgbtqFriendly;
@@ -151,11 +166,11 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
     save(patch);
   };
 
-  const toggleArea = (area: string) => {
-    const next = data.areas.includes(area)
-      ? data.areas.filter((a) => a !== area)
-      : [...data.areas, area];
-    update({ areas: next });
+  const toggleAreaSlug = (slug: string) => {
+    const next = data.areaSlugs.includes(slug)
+      ? data.areaSlugs.filter((s) => s !== slug)
+      : [...data.areaSlugs, slug];
+    update({ areaSlugs: next });
   };
 
   const toggleDay = (day: string) => {
@@ -615,15 +630,63 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
 
         {/* Areas */}
         <div className="dp-section">
-          <div className="dp-section-title">Areas You Serve</div>
-          <div className="dp-row-sub" style={{ marginBottom: '12px' }}>Tap to toggle — riders see these on your HMU link</div>
-          <div className="area-chips">
-            {ATLANTA_AREAS.map((area) => (
-              <button key={area} className={`area-chip${data.areas.includes(area) ? ' selected' : ''}`} onClick={() => toggleArea(area)}>
-                {area}
-              </button>
-            ))}
+          <div className="dp-section-title">Areas You Serve — {market.name}</div>
+          <div className="dp-row-sub" style={{ marginBottom: '12px' }}>
+            Tap to toggle. Riders pick from the same list — you&apos;ll get matched when there&apos;s overlap.
           </div>
+
+          {/* Macro toggles */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+            <label className="dp-row" style={{ cursor: 'pointer' }}>
+              <div className="dp-row-left">
+                <div className="dp-row-label">Anywhere in {market.name}</div>
+                <div className="dp-row-sub">Show me every request in this market — no area filter</div>
+              </div>
+              <input
+                type="checkbox"
+                checked={data.servicesEntireMarket}
+                onChange={(e) => update({ servicesEntireMarket: e.target.checked })}
+              />
+            </label>
+            <label className="dp-row" style={{ cursor: 'pointer' }}>
+              <div className="dp-row-left">
+                <div className="dp-row-label">Long distance OK</div>
+                <div className="dp-row-sub">Accept rides where the dropoff is outside {market.name}</div>
+              </div>
+              <input
+                type="checkbox"
+                checked={data.acceptsLongDistance}
+                onChange={(e) => update({ acceptsLongDistance: e.target.checked })}
+              />
+            </label>
+          </div>
+
+          {!data.servicesEntireMarket && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {CARDINAL_ORDER.map(cardinal => {
+                const rows = marketAreas.filter(a => a.cardinal === cardinal);
+                if (!rows.length) return null;
+                return (
+                  <div key={cardinal}>
+                    <div style={{ fontSize: 10, letterSpacing: 2, color: '#666', textTransform: 'uppercase', marginBottom: 8 }}>
+                      {CARDINAL_LABEL[cardinal]}
+                    </div>
+                    <div className="area-chips">
+                      {rows.map(a => (
+                        <button
+                          key={a.slug}
+                          className={`area-chip${data.areaSlugs.includes(a.slug) ? ' selected' : ''}`}
+                          onClick={() => toggleAreaSlug(a.slug)}
+                        >
+                          {a.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Schedule */}

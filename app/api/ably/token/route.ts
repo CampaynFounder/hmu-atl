@@ -25,7 +25,10 @@ export async function POST(req: NextRequest) {
       capability['admin:feed'] = ['subscribe'];
     }
 
-    // Grant area feed channels — wildcard so any area works
+    // Grant market feed channels — wildcard so the driver's resolved market works
+    capability['market:*:feed'] = ['subscribe'];
+    // Legacy area:*:feed subscription kept during transition so any unmigrated
+    // client code doesn't silently drop realtime events.
     capability['area:*:feed'] = ['subscribe'];
 
     // If rideId provided, scope to that ride channel

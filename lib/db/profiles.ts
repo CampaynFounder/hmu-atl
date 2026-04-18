@@ -206,7 +206,10 @@ export interface UpdateDriverProfileParams {
   lgbtq_friendly?: boolean;
   video_url?: string;
   thumbnail_url?: string;
-  areas?: string[];
+  areas?: string[]; // LEGACY — still accepted during transition but no longer written
+  area_slugs?: string[];
+  services_entire_market?: boolean;
+  accepts_long_distance?: boolean;
   pricing?: Record<string, any>;
   schedule?: Record<string, any>;
   vehicle_info?: Record<string, any>;
@@ -333,6 +336,9 @@ export async function updateDriverProfile(
     throw new Error('Driver profile not found');
   }
 
+  // Legacy `areas` JSONB is intentionally NOT written here — it's kept
+  // read-only during the transition to slug-based routing. Callers should
+  // use `area_slugs` + `services_entire_market` + `accepts_long_distance`.
   const result = await sql`
     UPDATE driver_profiles
     SET
@@ -342,7 +348,9 @@ export async function updateDriverProfile(
       lgbtq_friendly = COALESCE(${params.lgbtq_friendly ?? null}, lgbtq_friendly),
       video_url = COALESCE(${params.video_url ?? null}, video_url),
       thumbnail_url = COALESCE(${params.thumbnail_url ?? null}, thumbnail_url),
-      areas = COALESCE(${params.areas ? JSON.stringify(params.areas) : null}::jsonb, areas),
+      area_slugs = COALESCE(${params.area_slugs ?? null}::text[], area_slugs),
+      services_entire_market = COALESCE(${params.services_entire_market ?? null}, services_entire_market),
+      accepts_long_distance = COALESCE(${params.accepts_long_distance ?? null}, accepts_long_distance),
       pricing = COALESCE(${params.pricing ? JSON.stringify(params.pricing) : null}::jsonb, pricing),
       schedule = COALESCE(${params.schedule ? JSON.stringify(params.schedule) : null}::jsonb, schedule),
       vehicle_info = COALESCE(${params.vehicle_info ? JSON.stringify(params.vehicle_info) : null}::jsonb, vehicle_info),

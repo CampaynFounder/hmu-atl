@@ -33,9 +33,10 @@ interface RiderRequest {
 interface Props {
   driverUserId: string;
   driverAreas: string[];
+  marketSlug: string;
 }
 
-export default function DriverFeedClient({ driverAreas }: Props) {
+export default function DriverFeedClient({ driverAreas, marketSlug }: Props) {
   const [requests, setRequests] = useState<RiderRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -60,10 +61,9 @@ export default function DriverFeedClient({ driverAreas }: Props) {
   // Initial load — Ably handles real-time updates
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
 
-  // Subscribe to area channels for real-time rider request notifications
-  const primaryArea = driverAreas[0]?.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'atl';
+  // Subscribe to the market feed channel for real-time rider request notifications
   useAbly({
-    channelName: `area:${primaryArea}:feed`,
+    channelName: `market:${marketSlug}:feed`,
     onMessage: useCallback(() => { fetchRequests(); }, [fetchRequests]),
   });
 
@@ -94,15 +94,24 @@ export default function DriverFeedClient({ driverAreas }: Props) {
     }
   };
 
-  const handleDecline = async (postId: string) => {
+  const handleDecline = async (postId: string): Promise<boolean> => {
     try {
       const res = await fetch(`/api/bookings/${postId}/decline`, { method: 'POST' });
-      if (res.ok) {
-        setRequests((prev) => prev.filter((r) => r.id !== postId));
-        setActionFeedback('Declined');
-        setTimeout(() => setActionFeedback(null), 2000);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionFeedback(data.error || `Couldn't pass (${res.status})`);
+        setTimeout(() => setActionFeedback(null), 3000);
+        return false;
       }
-    } catch { /* silent */ }
+      setRequests((prev) => prev.filter((r) => r.id !== postId));
+      setActionFeedback(data.status === 'declined_awaiting_rider' ? 'Passed — rider notified' : 'Passed');
+      setTimeout(() => setActionFeedback(null), 2000);
+      return true;
+    } catch {
+      setActionFeedback('Network error — try again');
+      setTimeout(() => setActionFeedback(null), 3000);
+      return false;
+    }
   };
 
   const current = requests[currentIndex];
@@ -235,7 +244,7 @@ export default function DriverFeedClient({ driverAreas }: Props) {
                 <SwipeableCard
                   key={current.id}
                   request={current}
-                  onAccept={() => handleAccept(current.id)}
+                  onAccept={async () => { await handleAccept(current.id); return true; }}
                   onDecline={() => handleDecline(current.id)}
                   onViewProfile={(h) => setViewingRiderHandle(h)}
                 />
@@ -304,8 +313,8 @@ function SwipeableCard({
   onViewProfile,
 }: {
   request: RiderRequest;
-  onAccept: () => void;
-  onDecline: () => void;
+  onAccept: () => Promise<boolean> | void;
+  onDecline: () => Promise<boolean> | void;
   onViewProfile: (handle: string) => void;
 }) {
   const x = useMotionValue(0);
@@ -314,25 +323,26 @@ function SwipeableCard({
   const skipOpacity = useTransform(x, [-200, -80, 0], [1, 0.5, 0]);
   const [dismissed, setDismissed] = useState<'left' | 'right' | null>(null);
 
-  const handleDragEnd = (_: unknown, info: PanInfo) => {
-    if (info.offset.x > 120) {
-      setDismissed('right');
-      setTimeout(onAccept, 300);
-    } else if (info.offset.x < -120) {
-      setDismissed('left');
-      setTimeout(onDecline, 300);
+  const fireAction = async (dir: 'left' | 'right', action: () => Promise<boolean> | void) => {
+    setDismissed(dir);
+    // Wait for exit animation, then run the action. If the action fails
+    // (returns false), reverse the dismissal so the card reappears and the
+    // driver can retry.
+    await new Promise((r) => setTimeout(r, 300));
+    const ok = await action();
+    if (ok === false) {
+      x.set(0);
+      setDismissed(null);
     }
   };
 
-  const handlePassClick = () => {
-    setDismissed('left');
-    setTimeout(onDecline, 300);
+  const handleDragEnd = (_: unknown, info: PanInfo) => {
+    if (info.offset.x > 120) fireAction('right', onAccept);
+    else if (info.offset.x < -120) fireAction('left', onDecline);
   };
 
-  const handleAcceptClick = () => {
-    setDismissed('right');
-    setTimeout(onAccept, 300);
-  };
+  const handlePassClick = () => fireAction('left', onDecline);
+  const handleAcceptClick = () => fireAction('right', onAccept);
 
   const timeAgo = getTimeAgo(request.createdAt);
 

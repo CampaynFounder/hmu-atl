@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishToChannel } from '@/lib/ably/server';
+import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
+import { parseRoute, resolveProvidedSlugs } from '@/lib/markets/parse-areas';
 
 // GET — list rider's active posts
 export async function GET() {
@@ -75,7 +77,7 @@ export async function POST(req: NextRequest) {
     const { userId: clerkId } = await auth();
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { message, price, is_cash } = await req.json();
+    const { message, price, is_cash, pickup_area_slug, dropoff_area_slug } = await req.json();
 
     if (!message || !price || price < 1) {
       return NextResponse.json({ error: 'Include a message and price ($1 minimum)' }, { status: 400 });
@@ -91,11 +93,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'You already have an active ride', code: 'active_ride', rideId: (activeRides[0] as { id: string }).id }, { status: 409 });
     }
 
+    const market = await resolveMarketForUser(userId);
+
+    // Prefer explicit client-selected slugs (confirm chips). Fall back to
+    // natural-language parse of the free-text message.
+    const route = (pickup_area_slug || dropoff_area_slug)
+      ? await resolveProvidedSlugs(market.market_id, pickup_area_slug, dropoff_area_slug)
+      : await parseRoute(message, market.market_id);
+
     const rows = await sql`
       INSERT INTO hmu_posts (
-        user_id, post_type, areas, price, time_window, status, expires_at, is_cash
+        user_id, post_type, market_id, pickup_area_slug, dropoff_area_slug, dropoff_in_market,
+        areas, price, time_window, status, expires_at, is_cash
       ) VALUES (
-        ${userId}, 'rider_request', ${['ATL']},
+        ${userId}, 'rider_request', ${market.market_id},
+        ${route.pickup_area_slug}, ${route.dropoff_area_slug}, ${route.dropoff_in_market},
+        ${[market.slug.toUpperCase()]},
         ${price}, ${JSON.stringify({ message, destination: message })}::jsonb,
         'active', NOW() + INTERVAL '2 hours', ${is_cash || false}
       )
@@ -104,10 +117,20 @@ export async function POST(req: NextRequest) {
 
     const postId = (rows[0] as { id: string }).id;
 
-    // Publish to area channels so driver feeds update in real-time
-    publishToChannel('area:atl:feed', 'rider_request', { postId, price, message }).catch(() => {});
+    // Publish to market feed so driver feeds update in real-time
+    publishToChannel(feedChannelForMarket(market.slug), 'rider_request', {
+      postId, price, message,
+      pickup_area_slug: route.pickup_area_slug,
+      dropoff_area_slug: route.dropoff_area_slug,
+    }).catch(() => {});
 
-    return NextResponse.json({ postId }, { status: 201 });
+    return NextResponse.json({
+      postId,
+      market: market.slug,
+      pickup_area_slug: route.pickup_area_slug,
+      dropoff_area_slug: route.dropoff_area_slug,
+      dropoff_in_market: route.dropoff_in_market,
+    }, { status: 201 });
   } catch (error) {
     console.error('Create rider post error:', error);
     return NextResponse.json({ error: 'Failed to post' }, { status: 500 });

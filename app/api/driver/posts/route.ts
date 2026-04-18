@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishToChannel, publishAdminEvent } from '@/lib/ably/server';
+import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
 
 // GET — list driver's active availability posts
 export async function GET() {
@@ -67,11 +68,21 @@ export async function POST(req: NextRequest) {
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     const userId = (userRows[0] as { id: string }).id;
 
-    // Get driver's areas from profile
-    const profileRows = await sql`SELECT areas FROM driver_profiles WHERE user_id = ${userId} LIMIT 1`;
-    const driverAreas = profileRows.length && Array.isArray((profileRows[0] as Record<string, unknown>).areas)
-      ? (profileRows[0] as Record<string, unknown>).areas as string[]
-      : ['ATL'];
+    const market = await resolveMarketForUser(userId);
+
+    // Driver's slug-based coverage (new source of truth)
+    const profileRows = await sql`
+      SELECT area_slugs, services_entire_market, accepts_long_distance
+      FROM driver_profiles WHERE user_id = ${userId} LIMIT 1
+    `;
+    const driverProfile = (profileRows[0] || {}) as {
+      area_slugs?: string[];
+      services_entire_market?: boolean;
+      accepts_long_distance?: boolean;
+    };
+    const driverAreas: string[] = Array.isArray(driverProfile.area_slugs) && driverProfile.area_slugs.length
+      ? driverProfile.area_slugs
+      : [market.slug.toUpperCase()];
 
     // Parse price from message if not provided
     let parsedPrice = price;
@@ -88,9 +99,9 @@ export async function POST(req: NextRequest) {
 
     const rows = await sql`
       INSERT INTO hmu_posts (
-        user_id, post_type, areas, price, time_window, status, expires_at
+        user_id, post_type, market_id, areas, price, time_window, status, expires_at
       ) VALUES (
-        ${userId}, 'driver_available', ${driverAreas},
+        ${userId}, 'driver_available', ${market.market_id}, ${driverAreas},
         ${parsedPrice || 0}, ${JSON.stringify({ message })}::jsonb,
         'active', NOW() + INTERVAL '4 hours'
       )
@@ -99,13 +110,10 @@ export async function POST(req: NextRequest) {
 
     const postId = (rows[0] as { id: string }).id;
 
-    // Publish to area channels so rider feeds update in real-time
+    // Publish to this market's feed so rider feeds update in real-time
     const postData = { postId, userId, areas: driverAreas, price: parsedPrice, message };
-    for (const area of driverAreas) {
-      const slug = area.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      publishToChannel(`area:${slug}:feed`, 'driver_available', postData).catch(() => {});
-    }
-    publishAdminEvent('driver_live', { userId, areas: driverAreas }).catch(() => {});
+    publishToChannel(feedChannelForMarket(market.slug), 'driver_available', postData).catch(() => {});
+    publishAdminEvent('driver_live', { userId, market: market.slug, areas: driverAreas }).catch(() => {});
 
     return NextResponse.json({ postId }, { status: 201 });
   } catch (error) {
@@ -127,24 +135,14 @@ export async function DELETE(req: NextRequest) {
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     const userId = (userRows[0] as { id: string }).id;
 
-    // Get areas before cancelling to notify area channels
-    const postRows = await sql`
-      SELECT areas FROM hmu_posts WHERE id = ${postId} AND user_id = ${userId} LIMIT 1
-    `;
-    const areas = postRows.length && Array.isArray((postRows[0] as Record<string, unknown>).areas)
-      ? (postRows[0] as Record<string, unknown>).areas as string[]
-      : [];
+    const market = await resolveMarketForUser(userId);
 
     await sql`
       UPDATE hmu_posts SET status = 'cancelled'
       WHERE id = ${postId} AND user_id = ${userId} AND status = 'active'
     `;
 
-    // Notify area channels that driver went offline
-    for (const area of areas) {
-      const slug = area.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      publishToChannel(`area:${slug}:feed`, 'driver_offline', { postId, userId }).catch(() => {});
-    }
+    publishToChannel(feedChannelForMarket(market.slug), 'driver_offline', { postId, userId }).catch(() => {});
 
     return NextResponse.json({ success: true });
   } catch (error) {

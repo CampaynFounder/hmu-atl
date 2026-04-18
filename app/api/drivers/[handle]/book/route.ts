@@ -16,6 +16,8 @@ import {
 } from '@/lib/schedule/conflicts';
 import { logSuspectEvent } from '@/lib/admin/suspect-events';
 import { checkRateLimit } from '@/lib/rate-limit/check';
+import { resolveMarketForUser } from '@/lib/markets/resolver';
+import { parseRoute, resolveProvidedSlugs } from '@/lib/markets/parse-areas';
 
 // Cap total booking submissions per rider per hour. The structural
 // getActiveDirectBooking() check already prevents duplicate active bookings
@@ -46,7 +48,14 @@ export async function POST(
 
   const { handle } = await params;
 
-  let body: { price: number; areas?: string[]; timeWindow?: Record<string, unknown>; is_cash?: boolean };
+  let body: {
+    price: number;
+    areas?: string[];
+    timeWindow?: Record<string, unknown>;
+    is_cash?: boolean;
+    pickup_area_slug?: string | null;
+    dropoff_area_slug?: string | null;
+  };
   try {
     body = await req.json();
   } catch {
@@ -182,11 +191,32 @@ export async function POST(
     );
   }
 
+  const market = await resolveMarketForUser(rider.id);
+
+  // Prefer UI-picked slugs; fall back to parsing pickup/dropoff/destination
+  // strings from the chat booking flow.
+  const twForParse = (timeWindow || {}) as Record<string, unknown>;
+  const routeText = [
+    twForParse.pickup as string | undefined,
+    twForParse.dropoff as string | undefined,
+  ].filter(Boolean).join(' > ')
+    || (twForParse.destination as string | undefined)
+    || (twForParse.message as string | undefined)
+    || '';
+
+  const route = (body.pickup_area_slug || body.dropoff_area_slug)
+    ? await resolveProvidedSlugs(market.market_id, body.pickup_area_slug, body.dropoff_area_slug)
+    : await parseRoute(routeText, market.market_id);
+
   const post = await createDirectBookingPost({
     riderId: rider.id,
     driverUserId,
+    marketId: market.market_id,
     price,
     areas,
+    pickupAreaSlug: route.pickup_area_slug,
+    dropoffAreaSlug: route.dropoff_area_slug,
+    dropoffInMarket: route.dropoff_in_market,
     timeWindow: timeWindow || {},
     isCash: is_cash,
   });

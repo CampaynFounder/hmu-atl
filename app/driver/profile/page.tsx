@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getDriverProfileByUserId } from '@/lib/db/profiles';
+import { resolveMarketForUser } from '@/lib/markets/resolver';
+import { getMarketAreas } from '@/lib/markets/areas';
 import DriverProfileClient from './driver-profile-client';
 
 export default async function DriverProfilePage() {
@@ -25,6 +27,8 @@ export default async function DriverProfilePage() {
   if (!profile) redirect('/onboarding?type=driver');
 
   const p = profile as unknown as Record<string, unknown>;
+  const market = await resolveMarketForUser(user.id);
+  const marketAreas = await getMarketAreas(market.market_id);
 
   return (
     <DriverProfileClient
@@ -38,6 +42,9 @@ export default async function DriverProfilePage() {
         pronouns: (p.pronouns as string) || '',
         lgbtqFriendly: (p.lgbtq_friendly as boolean) || false,
         areas: Array.isArray(p.areas) ? p.areas : [],
+        areaSlugs: Array.isArray(p.area_slugs) ? (p.area_slugs as string[]) : [],
+        servicesEntireMarket: (p.services_entire_market as boolean) || false,
+        acceptsLongDistance: (p.accepts_long_distance as boolean) || false,
         pricing: (p.pricing as Record<string, unknown>) || {},
         schedule: (p.schedule as Record<string, unknown>) || {},
         videoUrl: (p.video_url as string) || '',
@@ -72,6 +79,12 @@ export default async function DriverProfilePage() {
         status: (p.subscription_status as string) || null,
         subscriptionId: (p.stripe_subscription_id as string) || null,
       }}
+      market={{ slug: market.slug, name: market.name }}
+      marketAreas={marketAreas.map(a => ({
+        slug: a.slug,
+        name: a.name,
+        cardinal: a.cardinal,
+      }))}
     />
   );
 }

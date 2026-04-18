@@ -50,7 +50,7 @@ export async function GET() {
 
 async function collectRiderActions(userId: string, user: Record<string, unknown>, actions: PendingAction[]) {
   // Run all queries in parallel
-  const [activeRides, unratedRides, pendingBookings, draftBookings, paymentMethods, riderProfile, unreadMessages] = await Promise.all([
+  const [activeRides, unratedRides, pendingBookings, declinedBookings, draftBookings, paymentMethods, riderProfile, unreadMessages] = await Promise.all([
     // P0: Active ride needing attention
     sql`
       SELECT id, status, driver_id, coo_at,
@@ -75,6 +75,15 @@ async function collectRiderActions(userId: string, user: Record<string, unknown>
       FROM hmu_posts hp
       WHERE hp.user_id = ${userId} AND hp.post_type = 'direct_booking'
         AND hp.status = 'active' AND hp.booking_expires_at > NOW()
+      ORDER BY hp.created_at DESC LIMIT 1
+    `,
+    // P0: Driver passed — awaiting rider decision (cancel vs broadcast)
+    sql`
+      SELECT hp.id, hp.price,
+        (SELECT display_name FROM driver_profiles WHERE user_id = hp.last_declined_by LIMIT 1) as driver_name
+      FROM hmu_posts hp
+      WHERE hp.user_id = ${userId}
+        AND hp.status = 'declined_awaiting_rider'
       ORDER BY hp.created_at DESC LIMIT 1
     `,
     // P1: Draft bookings (abandoned chat)
@@ -173,6 +182,23 @@ async function collectRiderActions(userId: string, user: Record<string, unknown>
       color: '#00E676',
       emoji: '\u{1F4DD}',
       meta: { driverHandle: handle },
+    });
+  }
+
+  // P0: Driver passed — rider needs to cancel or broadcast
+  if (declinedBookings.length) {
+    const p = declinedBookings[0] as Record<string, unknown>;
+    actions.push({
+      id: `driver_passed_${p.id}`,
+      priority: 0,
+      type: 'driver_passed',
+      title: `${p.driver_name || 'The driver'} passed`,
+      subtitle: `Broadcast to all drivers or cancel your $${Number(p.price || 0)} ride`,
+      cta: 'Decide',
+      href: `/rider/posts/${p.id}/passed`,
+      color: '#FF9100',
+      emoji: '\u{1F914}',
+      meta: { postId: p.id },
     });
   }
 

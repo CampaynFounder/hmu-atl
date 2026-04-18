@@ -6,7 +6,7 @@ export type ProfileType = 'rider' | 'driver' | 'admin';
 export type AccountStatus = 'pending_activation' | 'active' | 'suspended' | 'banned';
 export type Tier = 'free' | 'hmu_first';
 export type PostType = 'rider_seeking_driver' | 'driver_offering_ride' | 'direct_booking';
-export type HmuPostStatus = 'active' | 'matched' | 'expired' | 'cancelled';
+export type HmuPostStatus = 'active' | 'matched' | 'expired' | 'cancelled' | 'completed' | 'declined_awaiting_rider';
 export type RideStatus = 'pending' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
 export type DisputeStatus = 'open' | 'under_review' | 'resolved' | 'closed';
 export type RatingType = 'chill' | 'cool_af' | 'kinda_creepy' | 'weirdo';
@@ -49,7 +49,10 @@ export interface DriverProfile {
   lgbtq_friendly: boolean;
   video_url?: string;
   thumbnail_url?: string;
-  areas: Record<string, any>; // JSONB
+  areas: Record<string, any>; // JSONB — LEGACY, read-only, superseded by area_slugs
+  area_slugs: string[];
+  services_entire_market: boolean;
+  accepts_long_distance: boolean;
   pricing: Record<string, any>; // JSONB
   schedule: Record<string, any>; // JSONB
   vehicle_info: Record<string, any>; // JSONB
@@ -60,6 +63,18 @@ export interface DriverProfile {
   require_og_status: boolean;
   created_at: Date;
   updated_at: Date;
+}
+
+export type Cardinal = 'westside' | 'eastside' | 'northside' | 'southside' | 'central';
+
+export interface MarketArea {
+  id: string;
+  market_id: string;
+  slug: string;
+  name: string;
+  cardinal: Cardinal;
+  sort_order: number;
+  is_active: boolean;
 }
 
 export interface RiderProfile {
@@ -84,14 +99,20 @@ export interface RiderProfile {
 export interface HmuPost {
   id: string;
   user_id: string;
+  market_id: string;
   post_type: PostType;
-  areas: string[]; // TEXT[]
+  areas: string[]; // TEXT[] — legacy freeform, superseded by pickup_area_slug/dropoff_area_slug
+  pickup_area_slug: string | null;
+  dropoff_area_slug: string | null;
+  dropoff_in_market: boolean;
+  last_declined_by: string | null;
   price: number;
   time_window: Record<string, any>; // JSONB
   status: HmuPostStatus;
   expires_at: Date;
   target_driver_id: string | null;
   booking_expires_at: Date | null;
+  is_cash: boolean;
   created_at: Date;
 }
 
@@ -262,4 +283,108 @@ export interface RideAddOn {
   final_amount: number | null;
   added_at: Date;
   confirmed_at: Date | null;
+}
+
+// ============================================================================
+// Pricing & Promotions (Phase 1 — schema)
+// ============================================================================
+
+export type PromoType = 'free_rides' | 'percent_off_fees' | 'free_hmu_first';
+
+export type PromoEligibility =
+  | 'new_drivers'
+  | 'all_drivers'
+  | 'specific_drivers'
+  | 'funnel_stage';
+
+export type CouponSource = 'auto_signup' | 'code_redemption' | 'manual_assignment';
+
+export type CouponStatus = 'active' | 'exhausted' | 'expired' | 'revoked';
+
+export interface PublicOffer {
+  id: string;
+  market_id: string | null;
+  tier: Tier;
+  funnel_stage_slug: string | null;
+  before_price_cents: number;
+  after_price_cents: number;
+  label_text: string | null;
+  linked_promotion_id: string | null;
+  effective_from: Date;
+  effective_to: Date | null;
+  is_active: boolean;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export type FreeRidesBenefit = { rides: number };
+export type PercentOffBenefit = { percent: number; days?: number; rides?: number };
+export type FreeHmuFirstBenefit = { months: number };
+export type PromoBenefitConfig = FreeRidesBenefit | PercentOffBenefit | FreeHmuFirstBenefit | Record<string, never>;
+
+export type PromoEligibilityConfig =
+  | { funnel_stage_slug: string }
+  | Record<string, never>;
+
+export interface Promotion {
+  id: string;
+  market_id: string | null;
+  name: string;
+  description: string | null;
+  code: string | null;
+  promo_type: PromoType;
+  benefit_config: PromoBenefitConfig;
+  eligibility: PromoEligibility;
+  eligibility_config: PromoEligibilityConfig;
+  global_redemption_cap: number | null;
+  global_redemptions_used: number;
+  auto_apply_on_signup: boolean;
+  starts_at: Date;
+  ends_at: Date | null;
+  is_active: boolean;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface DriverCoupon {
+  id: string;
+  driver_id: string;
+  promotion_id: string;
+  source: CouponSource;
+  uses_remaining: number | null;
+  original_uses: number | null;
+  status: CouponStatus;
+  issued_at: Date;
+  expires_at: Date | null;
+  exhausted_at: Date | null;
+  revoked_at: Date | null;
+  revoked_by: string | null;
+  revoke_reason: string | null;
+}
+
+export interface CouponRedemption {
+  id: string;
+  driver_coupon_id: string;
+  ride_id: string;
+  fee_waived_cents: number;
+  fee_would_have_been_cents: number;
+  fee_charged_cents: number;
+  created_at: Date;
+}
+
+export interface SignupPricingSnapshot {
+  id: string;
+  user_id: string;
+  market_id: string | null;
+  funnel_stage: string | null;
+  pricing_config_free_id: string | null;
+  pricing_config_hmu_first_id: string | null;
+  public_offer_id: string | null;
+  auto_applied_promotion_id: string | null;
+  auto_applied_coupon_id: string | null;
+  captured_at: Date;
 }

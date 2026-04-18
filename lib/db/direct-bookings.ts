@@ -171,8 +171,12 @@ export async function checkRiderEligibility(
 export async function createDirectBookingPost(params: {
   riderId: string;
   driverUserId: string;
+  marketId: string;
   price: number;
   areas: string[];
+  pickupAreaSlug: string | null;
+  dropoffAreaSlug: string | null;
+  dropoffInMarket: boolean;
   timeWindow: Record<string, unknown>;
   isCash?: boolean;
 }): Promise<HmuPost> {
@@ -180,6 +184,10 @@ export async function createDirectBookingPost(params: {
     INSERT INTO hmu_posts (
       user_id,
       post_type,
+      market_id,
+      pickup_area_slug,
+      dropoff_area_slug,
+      dropoff_in_market,
       areas,
       price,
       time_window,
@@ -191,6 +199,10 @@ export async function createDirectBookingPost(params: {
     ) VALUES (
       ${params.riderId},
       'direct_booking',
+      ${params.marketId},
+      ${params.pickupAreaSlug},
+      ${params.dropoffAreaSlug},
+      ${params.dropoffInMarket},
       ${params.areas},
       ${params.price},
       ${JSON.stringify(params.timeWindow)},
