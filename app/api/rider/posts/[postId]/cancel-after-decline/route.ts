@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { cancelTentativeBooking } from '@/lib/schedule/conflicts';
+import { publishToChannel } from '@/lib/ably/server';
+import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
 
 /**
  * Rider closes out a direct booking that the target driver passed on.
@@ -33,6 +35,10 @@ export async function POST(
   }
 
   cancelTentativeBooking(postId).catch(() => {});
+
+  // Drop the locked preview from other drivers' feeds promptly.
+  const market = await resolveMarketForUser(riderId);
+  publishToChannel(feedChannelForMarket(market.slug), 'post_cancelled', { postId }).catch(() => {});
 
   return NextResponse.json({ status: 'cancelled', postId });
 }

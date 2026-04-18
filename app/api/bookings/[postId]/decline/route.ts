@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-import { notifyUser } from '@/lib/ably/server';
+import { notifyUser, publishToChannel } from '@/lib/ably/server';
+import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
 
 /**
  * Driver passes on a post. Two branches:
@@ -70,6 +71,11 @@ export async function POST(
       message: `${driverName} passed — keep it private or broadcast to all drivers?`,
       awaitingRiderDecision: true,
     }).catch(() => {});
+
+    // Surface the locked preview to other drivers in the market right away
+    // so they see the demand and can pounce the moment the rider broadcasts.
+    const market = await resolveMarketForUser(post.user_id);
+    publishToChannel(feedChannelForMarket(market.slug), 'post_locked', { postId }).catch(() => {});
 
     return NextResponse.json({
       status: 'declined_awaiting_rider',

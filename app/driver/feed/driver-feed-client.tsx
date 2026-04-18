@@ -12,6 +12,7 @@ import { useAbly } from '@/hooks/use-ably';
 interface RiderRequest {
   id: string;
   type?: string;
+  locked?: boolean;
   riderName: string;
   riderHandle?: string | null;
   riderAvatarUrl?: string | null;
@@ -322,8 +323,10 @@ function SwipeableCard({
   const acceptOpacity = useTransform(x, [0, 80, 200], [0, 0.5, 1]);
   const skipOpacity = useTransform(x, [-200, -80, 0], [1, 0.5, 0]);
   const [dismissed, setDismissed] = useState<'left' | 'right' | null>(null);
+  const locked = !!request.locked;
 
   const fireAction = async (dir: 'left' | 'right', action: () => Promise<boolean> | void) => {
+    if (locked) return;
     setDismissed(dir);
     // Wait for exit animation, then run the action. If the action fails
     // (returns false), reverse the dismissal so the card reappears and the
@@ -349,8 +352,8 @@ function SwipeableCard({
   return (
     <motion.div
       className="rider-card"
-      style={{ x, rotate }}
-      drag={!dismissed ? 'x' : false}
+      style={{ x, rotate, opacity: locked ? 0.72 : 1 }}
+      drag={!dismissed && !locked ? 'x' : false}
       dragConstraints={{ left: 0, right: 0 }}
       dragElastic={0.7}
       onDragEnd={handleDragEnd}
@@ -475,15 +478,37 @@ function SwipeableCard({
 
         {/* Actions */}
         <div className="rc-actions">
-          <button className="rc-btn rc-btn--accept" onClick={handleAcceptClick} disabled={!!dismissed}>
-            {request.type === 'direct' ? `Accept $${request.price}` : `HMU $${request.price}`}
-          </button>
-          <button className="rc-btn rc-btn--decline" onClick={handlePassClick} disabled={!!dismissed}>
-            Pass
-          </button>
-          <div className="rc-swipe-hint">
-            Swipe right to accept · left to pass
-          </div>
+          {locked ? (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '14px 16px', borderRadius: 100,
+              border: '1px solid rgba(255,145,0,0.35)',
+              background: 'rgba(255,145,0,0.08)',
+              color: '#FFB366',
+              fontSize: 13, fontWeight: 600,
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: '#FF9100',
+                animation: 'lockedPulse 1.6s ease-in-out infinite',
+              }} />
+              <style>{`@keyframes lockedPulse { 0%,100%{opacity:1} 50%{opacity:0.35} }`}</style>
+              Waiting on rider — could open up any minute
+            </div>
+          ) : (
+            <>
+              <button className="rc-btn rc-btn--accept" onClick={handleAcceptClick} disabled={!!dismissed}>
+                {request.type === 'direct' ? `Accept $${request.price}` : `HMU $${request.price}`}
+              </button>
+              <button className="rc-btn rc-btn--decline" onClick={handlePassClick} disabled={!!dismissed}>
+                Pass
+              </button>
+              <div className="rc-swipe-hint">
+                Swipe right to accept · left to pass
+              </div>
+            </>
+          )}
         </div>
       </div>
 

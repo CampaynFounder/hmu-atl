@@ -37,10 +37,16 @@ export async function GET() {
   //       * posts with no parsed pickup_area_slug fall back to visible if
   //         driver services the entire market (conservative default)
   //   - exclude posts this driver has already passed
+  // We show declined_awaiting_rider posts as LOCKED previews alongside active
+  // rider_requests — same market + area gate, except the driver who passed
+  // (`last_declined_by`) is filtered out. Locked cards become interactive
+  // the moment the rider taps Broadcast (status flips to active → Ably
+  // push → feed refetch).
   const rows = await sql`
     SELECT
       p.id,
       p.post_type,
+      p.status,
       p.price,
       p.time_window,
       p.booking_expires_at,
@@ -60,8 +66,7 @@ export async function GET() {
     LEFT JOIN rider_profiles rp ON rp.user_id = p.user_id
     LEFT JOIN users u2 ON u2.id = p.user_id
     LEFT JOIN rides r ON r.hmu_post_id = p.id AND r.status NOT IN ('cancelled')
-    WHERE p.status = 'active'
-      AND r.id IS NULL
+    WHERE r.id IS NULL
       AND p.market_id = ${driverMarketId}
       AND NOT EXISTS (
         SELECT 1 FROM ride_interests ri
@@ -70,26 +75,45 @@ export async function GET() {
           AND ri.status = 'passed'
       )
       AND (
-        (p.post_type = 'direct_booking'
+        -- Direct booking targeting this driver (not area-gated)
+        (p.status = 'active'
+          AND p.post_type = 'direct_booking'
           AND p.target_driver_id = ${driverUserId}
           AND p.booking_expires_at > NOW())
         OR
-        (p.post_type = 'rider_request'
-          AND p.expires_at > NOW()
+        -- Active broadcast OR locked preview of a passed direct booking.
+        -- Same gate applies; for locked posts we additionally exclude the
+        -- driver who already passed.
+        (p.expires_at > NOW()
           AND (
-            ${driverPrefs.services_entire_market ?? false}::boolean = TRUE
-            OR (
-              p.pickup_area_slug IS NOT NULL
-              AND p.pickup_area_slug = ANY(${driverAreaSlugs}::text[])
-              AND (
-                (p.dropoff_in_market = TRUE
-                  AND (p.dropoff_area_slug IS NULL
-                       OR p.dropoff_area_slug = ANY(${driverAreaSlugs}::text[])))
-                OR ${driverPrefs.accepts_long_distance ?? false}::boolean = TRUE
-              )
+            (p.status = 'active' AND p.post_type = 'rider_request')
+            OR
+            (p.status = 'declined_awaiting_rider' AND p.last_declined_by IS DISTINCT FROM ${driverUserId})
+          )
+          AND (
+            -- Pickup gate
+            (
+              ${driverPrefs.services_entire_market ?? false}::boolean = TRUE
+              OR (p.pickup_area_slug IS NOT NULL
+                  AND p.pickup_area_slug = ANY(${driverAreaSlugs}::text[]))
+              OR p.pickup_area_slug IS NULL
             )
-            OR (p.pickup_area_slug IS NULL AND ${driverPrefs.services_entire_market ?? false}::boolean = TRUE)
-          ))
+            -- Dropoff gate (unchanged by entire-market — entire-market is about pickup coverage)
+            AND (
+              p.dropoff_in_market = TRUE
+              OR ${driverPrefs.accepts_long_distance ?? false}::boolean = TRUE
+            )
+            -- When both pickup AND dropoff are inside the market and driver
+            -- picked specific areas, require at least one side to match.
+            AND (
+              ${driverPrefs.services_entire_market ?? false}::boolean = TRUE
+              OR p.pickup_area_slug IS NULL
+              OR p.dropoff_area_slug IS NULL
+              OR p.pickup_area_slug = ANY(${driverAreaSlugs}::text[])
+              OR p.dropoff_area_slug = ANY(${driverAreaSlugs}::text[])
+            )
+          )
+        )
       )
     ORDER BY p.created_at DESC
   `;
@@ -98,9 +122,11 @@ export async function GET() {
     const tw = (row.time_window ?? {}) as Record<string, unknown>;
     const createdAt = new Date(row.created_at as string);
     const minutesAgo = (Date.now() - createdAt.getTime()) / 60000;
+    const locked = row.status === 'declined_awaiting_rider';
     return {
       id: row.id,
       type: row.post_type === 'direct_booking' ? 'direct' : 'open',
+      locked,
       riderName: row.rider_name ?? 'Rider',
       riderHandle: (row.rider_handle as string) || null,
       riderAvatarUrl: (row.rider_avatar_url as string) || null,
