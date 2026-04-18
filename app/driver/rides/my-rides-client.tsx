@@ -163,12 +163,39 @@ function StatBox({ label, value, color = '#fff' }: { label: string; value: strin
 
 function ActiveRideCard({ ride }: { ride: Ride }) {
   const st = STATUS_LABELS[ride.status] || { label: ride.status, color: '#888', bg: 'rgba(255,255,255,0.05)' };
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  // Free cancel allowed while still 'matched' — post-OTW needs driver agreement
+  // via the ride detail screen, not a one-tap button on a list.
+  const canCancelFreely = ride.status === 'matched';
+
+  const handleCancel = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm(`Cancel this ride with ${ride.riderName}? This frees up the slot and releases any hold.`)) return;
+    setCancelling(true);
+    setCancelError(null);
+    try {
+      const res = await fetch(`/api/rides/${ride.id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCancelError(data.error || `Failed (${res.status})`);
+        setCancelling(false);
+        return;
+      }
+      window.location.reload();
+    } catch {
+      setCancelError('Network error');
+      setCancelling(false);
+    }
+  };
+
   return (
-    <Link href={`/ride/${ride.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-      <div style={{
-        background: '#141414', border: '1px solid rgba(0,230,118,0.25)',
-        borderRadius: 16, padding: 16, marginBottom: 10,
-      }}>
+    <div style={{
+      background: '#141414', border: '1px solid rgba(0,230,118,0.25)',
+      borderRadius: 16, padding: 16, marginBottom: 10,
+    }}>
+      <Link href={`/ride/${ride.id}`} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <span style={{ fontWeight: 700, fontSize: 15 }}>{ride.riderName}</span>
           <span style={{
@@ -182,8 +209,27 @@ function ActiveRideCard({ ride }: { ride: Ride }) {
         <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 22, color: '#00E676' }}>
           ${(ride.price + ride.addOnTotal).toFixed(2)}
         </div>
-      </div>
-    </Link>
+      </Link>
+      {canCancelFreely && (
+        <>
+          <button
+            type="button"
+            onClick={handleCancel}
+            disabled={cancelling}
+            style={{
+              marginTop: 10, width: '100%', padding: '10px',
+              background: 'transparent', border: '1px solid rgba(255,82,82,0.3)',
+              borderRadius: 100, color: '#FF5252', fontSize: 13, fontWeight: 600,
+              cursor: cancelling ? 'not-allowed' : 'pointer', opacity: cancelling ? 0.5 : 1,
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            }}
+          >
+            {cancelling ? 'Cancelling...' : 'Cancel Ride'}
+          </button>
+          {cancelError && <div style={{ fontSize: 12, color: '#FF5252', marginTop: 6, textAlign: 'center' }}>{cancelError}</div>}
+        </>
+      )}
+    </div>
   );
 }
 
