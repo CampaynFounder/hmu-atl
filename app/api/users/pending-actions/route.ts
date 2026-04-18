@@ -96,9 +96,11 @@ async function collectRiderActions(userId: string, user: Record<string, unknown>
     sql`SELECT id FROM rider_payment_methods WHERE rider_id = ${userId} LIMIT 1`,
     // P2: Profile completeness
     sql`SELECT display_name, gender, first_name FROM rider_profiles WHERE user_id = ${userId} LIMIT 1`,
-    // P1: Unread chat messages
+    // P1: Unread chat messages — ride_messages has no sender_name column;
+    // resolve via driver_profiles (sender is the driver on a rider's ride).
     sql`
-      SELECT rm.ride_id, rm.sender_name,
+      SELECT rm.ride_id,
+        (SELECT display_name FROM driver_profiles WHERE user_id = rm.sender_id LIMIT 1) AS sender_name,
         (SELECT status FROM rides WHERE id = rm.ride_id) as ride_status
       FROM ride_messages rm
       JOIN rides r ON r.id = rm.ride_id
@@ -306,19 +308,21 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
         AND hp.status = 'active' AND hp.booking_expires_at > NOW()
       ORDER BY hp.created_at DESC LIMIT 3
     `,
-    // P1/P2: Driver profile
+    // P1/P2: Driver profile — completed_rides lives on users, not driver_profiles.
     sql`
-      SELECT payout_setup_complete, video_url, pricing, handle, completed_rides, phone,
+      SELECT payout_setup_complete, video_url, pricing, handle, phone,
         (SELECT COUNT(*) FROM rides WHERE driver_id = ${userId} AND status = 'completed')::int as total_rides
       FROM driver_profiles WHERE user_id = ${userId} LIMIT 1
     `,
     // P2: Schedule
     sql`SELECT id FROM driver_schedules WHERE driver_id = ${userId} AND is_active = true LIMIT 1`,
-    // P2: Services menu
-    sql`SELECT id FROM driver_services WHERE driver_id = ${userId} AND is_active = true LIMIT 1`,
-    // P1: Unread chat messages
+    // P2: Services menu — table is driver_service_menu (not driver_services)
+    sql`SELECT id FROM driver_service_menu WHERE driver_id = ${userId} AND is_active = true LIMIT 1`,
+    // P1: Unread chat messages — resolve sender display name via rider_profiles
+    // (sender on a driver's unread-inbound is the rider).
     sql`
-      SELECT rm.ride_id, rm.sender_name
+      SELECT rm.ride_id,
+        (SELECT display_name FROM rider_profiles WHERE user_id = rm.sender_id LIMIT 1) AS sender_name
       FROM ride_messages rm
       JOIN rides r ON r.id = rm.ride_id
       WHERE r.driver_id = ${userId} AND rm.sender_id != ${userId}
@@ -417,7 +421,7 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
     }
 
     // P1: Share link (new driver)
-    const totalRides = Number(dp.total_rides || dp.completed_rides || 0);
+    const totalRides = Number(dp.total_rides || 0);
     if (totalRides === 0 && dp.payout_setup_complete) {
       actions.push({
         id: 'share_link',
@@ -464,7 +468,7 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
     }
 
     // P3: Learn about ratings (before first ride)
-    const driverTotalRides = Number(dp.total_rides || dp.completed_rides || 0);
+    const driverTotalRides = Number(dp.total_rides || 0);
     if (driverTotalRides === 0) {
       actions.push({
         id: 'learn_ratings',
