@@ -2,7 +2,28 @@
 // Handles Clerk authentication and route-based authorization
 
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
+
+// Attribution cookie — first-touch ID, 30-day lifetime. Pure cookie (no DB hit).
+// Only set on non-API public routes; webhooks and API calls stay untouched.
+const ATTRIB_COOKIE = 'hmu_attrib_id';
+const ATTRIB_MAX_AGE_S = 60 * 60 * 24 * 30;
+
+function ensureAttribCookie(req: NextRequest): NextResponse | undefined {
+  if (req.cookies.has(ATTRIB_COOKIE)) return undefined;
+  if (req.nextUrl.pathname.startsWith('/api')) return undefined;
+  if (req.method !== 'GET') return undefined;
+  const res = NextResponse.next();
+  const id = crypto.randomUUID();
+  res.cookies.set(ATTRIB_COOKIE, id, {
+    maxAge: ATTRIB_MAX_AGE_S,
+    httpOnly: false,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+  });
+  return res;
+}
 
 // ============================================================
 // MAINTENANCE MODE — set to true to redirect auth routes
@@ -115,7 +136,7 @@ export default clerkMiddleware(async (auth, req) => {
 
   // Allow public routes without authentication
   if (isPublicRoute(req)) {
-    return;
+    return ensureAttribCookie(req);
   }
 
   // Protect all other routes — redirect to our sign-in page if not authenticated

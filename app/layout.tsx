@@ -8,6 +8,7 @@ import { Inter, Bebas_Neue, DM_Sans, Space_Mono } from 'next/font/google';
 import { Header } from '@/components/layout/header';
 import { PostHogProvider } from '@/components/analytics/posthog-provider';
 import { MetaPixel } from '@/components/analytics/meta-pixel';
+import { AttributionTracker } from '@/components/analytics/attribution-tracker';
 import { GlobalRideAlert } from '@/components/global-ride-alert';
 import './globals.css';
 
@@ -201,6 +202,7 @@ export default function RootLayout({
           <Suspense>
             <PostHogProvider>
               <MetaPixel />
+              <AttributionTracker />
               <Header />
               <GlobalRideAlert />
               {children}

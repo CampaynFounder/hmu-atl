@@ -41,6 +41,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/leads', label: 'Leads', icon: '📧', permission: 'grow.leads', badgeCategory: 'leads', badgeColor: 'green' },
       { href: '/admin/content', label: 'Content', icon: '🎬', permission: 'grow.content' },
       { href: '/admin/funnel', label: 'Funnel CMS', icon: '📝', permission: 'grow.funnel' },
+      { href: '/admin/driver-playbook/fb-groups', label: 'Playbook FB Groups', icon: '👥' },
     ],
   },
   {
@@ -56,6 +57,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
     label: 'SYSTEM',
     items: [
       { href: '/admin/roles', label: 'Roles', icon: '🔑', permission: 'admin.roles' },
+      { href: '/admin/feature-flags', label: 'Feature Flags', icon: '🚩' },
       { href: '/admin/audit', label: 'Audit Log', icon: '📋', permission: 'admin.audit' },
     ],
   },
