@@ -102,7 +102,7 @@ export async function POST(
       // Check driver doesn't already have interest or active ride
       const [existingInterest, driverActiveRides] = await Promise.all([
         sql`SELECT id FROM ride_interests WHERE post_id = ${postId} AND driver_id = ${driverUserId} LIMIT 1`,
-        sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('matched','otw','here','active') LIMIT 1`,
+        sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('otw','here','active') LIMIT 1`,
       ]);
 
       if (existingInterest.length) {
@@ -161,8 +161,12 @@ export async function POST(
 
     // ── DIRECT BOOKINGS: Instant match (driver was specifically chosen) ──
     const [riderActiveRides, driverActiveRides] = await Promise.all([
-      sql`SELECT id FROM rides WHERE rider_id = ${riderId} AND status IN ('matched','otw','here','active') LIMIT 1`,
-      sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('matched','otw','here','active') LIMIT 1`,
+      // Only block on rides that are ACTUALLY in progress right now. A
+      // future-scheduled 'matched' ride doesn't prevent taking another
+      // booking at a different time — checkDriverAvailability below handles
+      // time-overlap for future rides via the calendar.
+      sql`SELECT id FROM rides WHERE rider_id = ${riderId} AND status IN ('otw','here','active') LIMIT 1`,
+      sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('otw','here','active') LIMIT 1`,
     ]);
 
     if (riderActiveRides.length) {

@@ -60,10 +60,12 @@ export async function POST(
       return NextResponse.json({ error: 'Driver is no longer available' }, { status: 404 });
     }
 
-    // Check neither party has an active ride
+    // Only block on rides ACTUALLY in progress — future 'matched' rides
+    // don't block a different-time booking. Time-overlap is caught by
+    // the calendar availability check.
     const [riderActiveRides, driverActiveRides] = await Promise.all([
-      sql`SELECT id FROM rides WHERE rider_id = ${riderId} AND status IN ('matched','otw','here','active') LIMIT 1`,
-      sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('matched','otw','here','active') LIMIT 1`,
+      sql`SELECT id FROM rides WHERE rider_id = ${riderId} AND status IN ('otw','here','active') LIMIT 1`,
+      sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('otw','here','active') LIMIT 1`,
     ]);
     if (riderActiveRides.length) {
       return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });

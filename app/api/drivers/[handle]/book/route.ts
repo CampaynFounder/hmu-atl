@@ -143,8 +143,10 @@ export async function POST(
     return NextResponse.json({ error: 'Account not active' }, { status: 403 });
   }
 
-  // Block if rider already has an active ride
-  const activeRides = await sql`SELECT id FROM rides WHERE rider_id = ${rider.id} AND status IN ('matched','otw','here','active') LIMIT 1`;
+  // Block only if rider is in a ride RIGHT NOW (OTW/here/active). A
+  // future 'matched' booking doesn't stop them from scheduling another
+  // ride — the driver-availability check handles time-overlap.
+  const activeRides = await sql`SELECT id FROM rides WHERE rider_id = ${rider.id} AND status IN ('otw','here','active') LIMIT 1`;
   if (activeRides.length) {
     return NextResponse.json({ error: 'You already have an active ride', code: 'active_ride' }, { status: 409 });
   }

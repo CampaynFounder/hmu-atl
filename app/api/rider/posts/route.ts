@@ -87,8 +87,10 @@ export async function POST(req: NextRequest) {
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     const userId = (userRows[0] as { id: string }).id;
 
-    // Block if rider already has an active ride (matched/otw/here/active)
-    const activeRides = await sql`SELECT id FROM rides WHERE rider_id = ${userId} AND status IN ('matched','otw','here','active') LIMIT 1`;
+    // Block only if a ride is in progress right now. A future 'matched'
+    // booking shouldn't stop the rider from broadcasting a different-time
+    // request.
+    const activeRides = await sql`SELECT id FROM rides WHERE rider_id = ${userId} AND status IN ('otw','here','active') LIMIT 1`;
     if (activeRides.length) {
       return NextResponse.json({ error: 'You already have an active ride', code: 'active_ride', rideId: (activeRides[0] as { id: string }).id }, { status: 409 });
     }
