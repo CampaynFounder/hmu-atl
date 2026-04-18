@@ -330,15 +330,23 @@ ${getStepInstructions(step, driver)}`;
             const driverPayment = { cashOnly: driverCashOnly, acceptsCash: driverAcceptsCash };
             const still = missingSlots(mergedForConfirm, driverPayment);
             if (still.length) {
-              const needsPayment = still.includes('payment');
-              result = {
-                action: 'incomplete',
-                missing: still,
-                error: needsPayment
-                  ? 'Need to know: paying cash or card?'
-                  : `Still need: ${still.join(', ')}`,
-                draft: mergedForConfirm,
-              };
+              // If the ONLY thing missing is payment, the price is already
+              // locked in. Hand GPT an explicit "ask payment, don't touch
+              // price" signal so it doesn't loop back into negotiation.
+              const onlyPaymentMissing = still.length === 1 && still[0] === 'payment';
+              result = onlyPaymentMissing
+                ? {
+                    action: 'needs_payment',
+                    missing: ['payment'],
+                    error: 'Price and trip details are LOCKED IN. Ask ONLY "Cash or card?" then call confirm_details again with isCash set. Do NOT re-ask about price, pickup, dropoff, or time — they are already agreed.',
+                    draft: mergedForConfirm,
+                  }
+                : {
+                    action: 'incomplete',
+                    missing: still,
+                    error: `Still need: ${still.join(', ')}`,
+                    draft: mergedForConfirm,
+                  };
               break;
             }
 
@@ -655,7 +663,8 @@ DO: Call confirm_details with SEPARATE pickup and dropoff (not combined), time (
 ${cashOnly ? `PAYMENT: ${name} is CASH ONLY. Always set isCash=true. Tell the rider: "Heads up — ${name} is cash only. Bring $[price] in cash for the ride."` : ''}
 ${digitalOnly ? `PAYMENT: ${name} accepts card payments only. Always set isCash=false. Do not mention cash.` : ''}
 ${acceptsBoth ? `PAYMENT: ${name} accepts cash OR card. Before calling confirm_details, you MUST ask the rider: "Paying cash or card?" Set isCash=true for cash, isCash=false for card. Do not call confirm_details until the rider has picked one. If they're unsure, tell them: "Card gets held now, charged when you're in the ride. Cash means you hand it to ${name} at pickup."` : ''}
-DO: Summarize with the RESOLVED date: "Here's your trip: [pickup] → [dropoff], [resolved date like 'Friday April 11th at 3pm'], ~$[price][isCash ? ', cash' : ', on card']. You can adjust the price and time before confirming. Ready?"
+DO: Summarize with the RESOLVED date: "Here's your trip: [pickup] → [dropoff], [resolved date like 'Friday April 11th at 3pm'], ~$[price]. You can adjust the price and time before confirming. Ready?"
+DO: When mentioning payment, write it in plain English — "paying cash" or "on card" — never use code-like syntax.
 DO: NEVER show an ISO timestamp to the rider — always use a friendly format like "Friday April 11th at 3:00 PM"
 DO: Always mention they can adjust the price in the booking form.
 ADVANCE TO NEXT STEP WHEN: confirm_details is called successfully.
