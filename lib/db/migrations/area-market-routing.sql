@@ -55,6 +55,10 @@ ALTER TABLE hmu_posts
   ADD COLUMN IF NOT EXISTS dropoff_in_market BOOLEAN NOT NULL DEFAULT TRUE,
   ADD COLUMN IF NOT EXISTS last_declined_by  UUID REFERENCES users(id) ON DELETE SET NULL;
 
+-- Widen status from VARCHAR(20) — 'declined_awaiting_rider' is 23 chars.
+-- CHECK constraint enforces allowed values, so TEXT is safe.
+ALTER TABLE hmu_posts ALTER COLUMN status TYPE TEXT;
+
 ALTER TABLE hmu_posts DROP CONSTRAINT IF EXISTS hmu_posts_status_check;
 ALTER TABLE hmu_posts ADD CONSTRAINT hmu_posts_status_check
   CHECK (status IN ('active','matched','expired','cancelled','completed','declined_awaiting_rider'));
