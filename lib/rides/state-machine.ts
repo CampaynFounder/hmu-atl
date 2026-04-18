@@ -5,8 +5,12 @@ export type RideStatus = 'matched' | 'otw' | 'here' | 'confirming' | 'active' | 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   matched: ['otw', 'cancelled'],
   otw: ['here', 'cancelled'],
-  here: ['confirming', 'cancelled'],
-  confirming: ['active', 'here', 'ended', 'cancelled'],  // active=confirmed, here=timeout/reject, ended=no-show
+  // Driver can force-end from here if the rider never gets in the car —
+  // treated as a short/aborted ride, not a no-show (driver did show up).
+  here: ['confirming', 'ended', 'cancelled'],
+  // confirming → ended covers "rider never confirmed they're in the car";
+  // the end-ride handler still captures payment from the existing hold.
+  confirming: ['active', 'here', 'ended', 'cancelled'],
   active: ['ended'],
   ended: ['completed', 'disputed'],
   disputed: ['completed', 'refunded'],

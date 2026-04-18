@@ -1742,21 +1742,51 @@ export default function ActiveRideClient({
           const unreachedStops = stops.filter(s => !s.reached_at);
           const canEdit = !isDriver && ride.status === 'matched' && !!ride.cooAt;
 
-          // Build Google Maps directions URL: driver GPS → pickup → stops → dropoff
-          function buildNavUrl() {
-            // Origin = driver's current GPS, or pickup as fallback
+          // Pick the single "next point" the driver should be routed to, based
+          // on ride status. This prevents Google Maps from routing the driver
+          // through previously-reached points (e.g. back to pickup after
+          // they've already picked the rider up).
+          //   otw           → pickup
+          //   here/confirming/active, stops remain → first unreached stop
+          //   here/confirming/active, no stops     → dropoff
+          //   matched / other → full-trip preview (driver hasn't started)
+          function pickNextWaypoint(): { label: string; coords?: string; address?: string } | null {
+            const status = ride.status as string;
+            if (status === 'otw') {
+              if (ride.pickupLat && ride.pickupLng) return { label: 'Pickup', coords: `${ride.pickupLat},${ride.pickupLng}` };
+              if (pAddr) return { label: 'Pickup', address: pAddr };
+              return null;
+            }
+            if (status === 'here' || status === 'confirming' || status === 'active') {
+              const nextStop = unreachedStops[0];
+              if (nextStop) {
+                if (nextStop.latitude && nextStop.longitude) return { label: 'Next Stop', coords: `${nextStop.latitude},${nextStop.longitude}` };
+                if (nextStop.address || nextStop.name) return { label: 'Next Stop', address: (nextStop.address || nextStop.name) as string };
+              }
+              if (ride.dropoffLat && ride.dropoffLng) return { label: 'Dropoff', coords: `${ride.dropoffLat},${ride.dropoffLng}` };
+              if (dAddr) return { label: 'Dropoff', address: dAddr };
+              return null;
+            }
+            return null;
+          }
+
+          function buildNavUrl(): string | null {
             let origin = '';
-            if (geo.lat && geo.lng) {
-              origin = `${geo.lat},${geo.lng}`;
-            } else if (ride.pickupLat && ride.pickupLng) {
-              origin = `${ride.pickupLat},${ride.pickupLng}`;
-            } else if (pAddr) {
-              origin = encodeURIComponent(pAddr);
+            if (geo.lat && geo.lng) origin = `${geo.lat},${geo.lng}`;
+
+            const next = pickNextWaypoint();
+            if (next) {
+              const dest = next.coords || (next.address ? encodeURIComponent(next.address) : '');
+              if (!dest) return null;
+              const base = `https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=driving`;
+              return origin ? `${base}&origin=${origin}` : base;
             }
 
-            // Waypoints = pickup (when driver GPS is origin) + unreached stops
+            // Fallback: ride hasn't started yet — show full-trip preview.
+            if (!origin && ride.pickupLat && ride.pickupLng) origin = `${ride.pickupLat},${ride.pickupLng}`;
+            else if (!origin && pAddr) origin = encodeURIComponent(pAddr);
+
             const wpParts: string[] = [];
-            // If driver GPS is origin, pickup becomes a waypoint
             if (geo.lat && geo.lng) {
               if (ride.pickupLat && ride.pickupLng) wpParts.push(`${ride.pickupLat},${ride.pickupLng}`);
               else if (pAddr) wpParts.push(encodeURIComponent(pAddr));
@@ -1766,7 +1796,6 @@ export default function ActiveRideClient({
               else if (s.address || s.name) wpParts.push(encodeURIComponent(s.address || s.name || ''));
             }
 
-            // Destination = dropoff
             let dest = '';
             if (ride.dropoffLat && ride.dropoffLng) dest = `${ride.dropoffLat},${ride.dropoffLng}`;
             else if (dAddr) dest = encodeURIComponent(dAddr);
@@ -1778,9 +1807,9 @@ export default function ActiveRideClient({
             return url;
           }
 
+          const nextWaypoint = pickNextWaypoint();
           const navUrl = buildNavUrl();
-          const totalPoints = (pAddr ? 1 : 0) + stops.length + (dAddr ? 1 : 0);
-          const navLabel = totalPoints > 2 ? 'Navigate Full Trip' : pAddr && dAddr ? 'Navigate Trip' : 'Navigate';
+          const navLabel = nextWaypoint ? `Navigate to ${nextWaypoint.label}` : 'Navigate Trip';
 
           return (
             <div style={{
@@ -2894,6 +2923,7 @@ export default function ActiveRideClient({
                     onPress={async () => {
                       if (!endRideConfirm.reason) { setError('Select a reason'); return; }
                       setLoading(true);
+                      setError('');
                       try {
                         const res = await fetch(`/api/rides/${rideId}/end`, {
                           method: 'POST',
@@ -2904,7 +2934,12 @@ export default function ActiveRideClient({
                             earlyEndNotes: endRideConfirm.notes || null,
                           }),
                         });
-                        const data = await res.json();
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                          setError(data.error || `Couldn't end ride (${res.status})`);
+                          setLoading(false);
+                          return;
+                        }
                         if (data.status) setRide(prev => ({ ...prev, status: data.status }));
                         if (data.driver_payout_amount !== undefined) {
                           setRide(prev => ({ ...prev, driverPayoutAmount: Number(data.driverReceives || data.driver_payout_amount), platformFeeAmount: Number(data.platformFee || prev.platformFeeAmount) }));
@@ -2938,13 +2973,19 @@ export default function ActiveRideClient({
                 }
                 // Close to dropoff or no dropoff GPS — end normally
                 setLoading(true);
+                setError('');
                 try {
                   const res = await fetch(`/api/rides/${rideId}/end`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ driverLat: dLat, driverLng: dLng }),
                   });
-                  const data = await res.json();
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    setError(data.error || `Couldn't end ride (${res.status})`);
+                    setLoading(false);
+                    return;
+                  }
                   if (data.status) setRide(prev => ({ ...prev, status: data.status }));
                   if (data.driver_payout_amount !== undefined) {
                     setRide(prev => ({

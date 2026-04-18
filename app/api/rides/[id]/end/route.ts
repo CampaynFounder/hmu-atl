@@ -135,6 +135,10 @@ export async function POST(
       endVerified = result.within;
     }
 
+    // Race-condition guard matches the state-machine's ended-from set —
+    // active (normal), confirming (rider never confirmed), here (driver
+    // aborted after arriving). The validateTransition above already
+    // rejected anything else.
     await sql`
       UPDATE rides SET
         status = 'ended',
@@ -148,7 +152,7 @@ export async function POST(
         early_end_notes = ${earlyEndNotes},
         dispute_window_expires_at = NOW() + ${disputeMinutes + ' minutes'}::interval,
         updated_at = NOW()
-      WHERE id = ${rideId} AND status = 'active'
+      WHERE id = ${rideId} AND status IN ('active', 'confirming', 'here')
     `;
 
     // Booking row stays 'in_progress' through the dispute window — slot is
