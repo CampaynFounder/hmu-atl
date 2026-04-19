@@ -1,0 +1,72 @@
+name: Scheduled crons
+
+# Calls the hmu-atl Worker's cron endpoints on a schedule. Each route
+# validates the CRON_SECRET via the X-Cron-Secret header, so the only
+# piece of secret state in this workflow is the repo secret of the
+# same name.
+#
+# IMPORTANT:
+# - GitHub's minimum cron interval is 5 minutes (not 1). We use */5 for
+#   the conversation-agent queue; users' first messages will therefore
+#   send within ~5 minutes of their configured delay instead of ~1.
+# - Scheduled workflows on GitHub Actions can be delayed or skipped
+#   during high-load windows. For stricter timing, migrate to native
+#   Cloudflare cron triggers.
+# - You can fire either job manually from the Actions tab
+#   ("Run workflow" → pick the job) for smoke testing.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # conversation-agent queue drain + follow-up scan
+    - cron: '0 17 * * 1'    # driver-nudges weekly — Mondays 17:00 UTC (12pm ET)
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which cron to run manually'
+        required: true
+        default: 'conversation-agent'
+        type: choice
+        options:
+          - conversation-agent
+          - driver-nudges
+
+jobs:
+  conversation-agent:
+    name: Conversation agent queue
+    if: github.event.schedule == '*/5 * * * *' || github.event.inputs.job == 'conversation-agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Drain queue + schedule follow-ups
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is not set"
+            exit 1
+          fi
+          response=$(curl --fail-with-body --silent --show-error \
+            --max-time 60 \
+            -H "X-Cron-Secret: $CRON_SECRET" \
+            https://atl.hmucashride.com/api/cron/conversation-agent/process-queue)
+          echo "$response"
+
+  driver-nudges:
+    name: Driver nudges (weekly)
+    if: github.event.schedule == '0 17 * * 1' || github.event.inputs.job == 'driver-nudges'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Fire weekly driver nudges
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is not set"
+            exit 1
+          fi
+          response=$(curl --fail-with-body --silent --show-error \
+            --max-time 60 \
+            -H "X-Cron-Secret: $CRON_SECRET" \
+            https://atl.hmucashride.com/api/cron/driver-nudges)
+          echo "$response"
