@@ -97,6 +97,8 @@ export default function ConversationAgentClient({
         <Stat label="REPLY RATE" value={`${stats.reply_rate_percent}%`} sub={stats.total ? `${stats.total} threads` : 'no data yet'} />
         <Divider />
         <Stat label="OPT-OUTS" value={stats.opted_out.toString()} sub="lifetime" />
+        <div className="flex-1" />
+        <NudgeButton onToast={showToast} />
       </div>
 
       {/* ── Accordion ── */}
@@ -204,6 +206,49 @@ export default function ConversationAgentClient({
 
 function Divider() {
   return <div className="h-10 w-px" style={{ background: 'var(--admin-border)' }} />;
+}
+
+// Fires the same drain + follow-up pass that the cron does, but authed via
+// Clerk admin session. Useful for testing without waiting 5 min.
+function NudgeButton({ onToast }: { onToast: (msg: string) => void }) {
+  const [running, setRunning] = useState(false);
+
+  async function nudge() {
+    setRunning(true);
+    try {
+      const res = await fetch('/api/admin/conversation-agent/run-queue', { method: 'POST' });
+      if (!res.ok) {
+        onToast('Run failed');
+        return;
+      }
+      const data = await res.json() as {
+        drain: { scanned: number; sent: number; failed: number };
+        followups: { queued: number; dormanted: number };
+      };
+      const bits: string[] = [];
+      if (data.drain.sent > 0) bits.push(`${data.drain.sent} sent`);
+      if (data.drain.failed > 0) bits.push(`${data.drain.failed} failed`);
+      if (data.followups.queued > 0) bits.push(`${data.followups.queued} follow-up${data.followups.queued === 1 ? '' : 's'} queued`);
+      if (data.followups.dormanted > 0) bits.push(`${data.followups.dormanted} dormant`);
+      onToast(bits.length ? bits.join(' · ') : 'Nothing to do');
+    } catch {
+      onToast('Network error');
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={nudge}
+      disabled={running}
+      className="px-4 py-2 rounded-lg text-xs font-bold disabled:opacity-50 transition-opacity"
+      style={{ background: '#00E676', color: '#080808' }}
+      title="Drains the outbound queue and schedules due follow-ups immediately instead of waiting for the 5-min cron"
+    >
+      {running ? 'Running…' : '⚡ Nudge cron'}
+    </button>
+  );
 }
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
