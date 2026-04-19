@@ -37,22 +37,19 @@ export async function POST(req: NextRequest) {
       // Gender isn't known yet at opt-in time (profile may not exist). Neutral
       // persona ("Sky") wins the any/any match until a profile is set.
       try {
+        // gender is not tracked in driver/rider profile schema today, so we
+        // always pass null — pickPersonaForUser falls back to the neutral
+        // persona (Sky) which has gender_match = 'any'.
         const rows = await sql`
-          SELECT u.id, u.profile_type, u.phone,
-            COALESCE(dp.gender, rp.gender) AS gender
-          FROM users u
-          LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-          LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-          WHERE u.clerk_id = ${clerkId}
-          LIMIT 1
+          SELECT id, profile_type, phone FROM users WHERE clerk_id = ${clerkId} LIMIT 1
         `;
-        const u = rows[0] as { id: string; profile_type: 'driver' | 'rider' | 'admin'; phone: string | null; gender: string | null } | undefined;
+        const u = rows[0] as { id: string; profile_type: 'driver' | 'rider' | 'admin'; phone: string | null } | undefined;
         if (u?.phone && (u.profile_type === 'driver' || u.profile_type === 'rider')) {
           await scheduleFirstMessageForUser({
             userId: u.id,
             phone: u.phone,
             profileType: u.profile_type,
-            gender: u.gender,
+            gender: null,
           });
         }
       } catch (err) {

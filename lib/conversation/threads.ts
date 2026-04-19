@@ -63,12 +63,10 @@ export async function listThreads(opts: ThreadListOptions = {}): Promise<{ threa
     threads = (await sql`
       SELECT t.*, p.slug AS persona_slug, p.display_name AS persona_display_name,
         u.profile_type AS user_profile_type,
-        COALESCE(dp.gender, rp.gender) AS user_gender
+        NULL::text AS user_gender
       FROM conversation_threads t
       JOIN conversation_personas p ON p.id = t.persona_id
       JOIN users u ON u.id = t.user_id
-      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-      LEFT JOIN rider_profiles rp ON rp.user_id = u.id
       WHERE t.status = ${opts.status} AND t.flagged_for_review = TRUE
       ORDER BY t.updated_at DESC
       LIMIT ${limit} OFFSET ${offset}
@@ -81,12 +79,10 @@ export async function listThreads(opts: ThreadListOptions = {}): Promise<{ threa
     threads = (await sql`
       SELECT t.*, p.slug AS persona_slug, p.display_name AS persona_display_name,
         u.profile_type AS user_profile_type,
-        COALESCE(dp.gender, rp.gender) AS user_gender
+        NULL::text AS user_gender
       FROM conversation_threads t
       JOIN conversation_personas p ON p.id = t.persona_id
       JOIN users u ON u.id = t.user_id
-      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-      LEFT JOIN rider_profiles rp ON rp.user_id = u.id
       WHERE t.status = ${opts.status}
       ORDER BY t.updated_at DESC
       LIMIT ${limit} OFFSET ${offset}
@@ -98,12 +94,10 @@ export async function listThreads(opts: ThreadListOptions = {}): Promise<{ threa
     threads = (await sql`
       SELECT t.*, p.slug AS persona_slug, p.display_name AS persona_display_name,
         u.profile_type AS user_profile_type,
-        COALESCE(dp.gender, rp.gender) AS user_gender
+        NULL::text AS user_gender
       FROM conversation_threads t
       JOIN conversation_personas p ON p.id = t.persona_id
       JOIN users u ON u.id = t.user_id
-      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-      LEFT JOIN rider_profiles rp ON rp.user_id = u.id
       WHERE t.flagged_for_review = TRUE
       ORDER BY t.updated_at DESC
       LIMIT ${limit} OFFSET ${offset}
@@ -115,12 +109,10 @@ export async function listThreads(opts: ThreadListOptions = {}): Promise<{ threa
     threads = (await sql`
       SELECT t.*, p.slug AS persona_slug, p.display_name AS persona_display_name,
         u.profile_type AS user_profile_type,
-        COALESCE(dp.gender, rp.gender) AS user_gender
+        NULL::text AS user_gender
       FROM conversation_threads t
       JOIN conversation_personas p ON p.id = t.persona_id
       JOIN users u ON u.id = t.user_id
-      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-      LEFT JOIN rider_profiles rp ON rp.user_id = u.id
       ORDER BY t.updated_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `) as ThreadWithContext[];
@@ -135,12 +127,10 @@ export async function getThread(id: string): Promise<ThreadWithContext | null> {
   const rows = await sql`
     SELECT t.*, p.slug AS persona_slug, p.display_name AS persona_display_name,
       u.profile_type AS user_profile_type,
-      COALESCE(dp.gender, rp.gender) AS user_gender
+      NULL::text AS user_gender
     FROM conversation_threads t
     JOIN conversation_personas p ON p.id = t.persona_id
     JOIN users u ON u.id = t.user_id
-    LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-    LEFT JOIN rider_profiles rp ON rp.user_id = u.id
     WHERE t.id = ${id}
     LIMIT 1
   `;
