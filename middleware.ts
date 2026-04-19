@@ -80,6 +80,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/webhooks(.*)',
   '/api/meta-verify',
   '/api/cron/(.*)',
+  '/api/maintenance(.*)',
   '/d/(.*)',
   '/api/drivers/:handle',
   '/api/chat/booking',
