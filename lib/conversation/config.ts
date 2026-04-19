@@ -21,11 +21,18 @@ export interface ConversationAgentConfig {
   max_inbound_per_thread: number;
   claude_rate_limit_seconds: number;
   daily_spend_cap_cents: number | null;
+  claude_spend_today_cents: number;
+  claude_spend_reset_date: string;  // 'YYYY-MM-DD'
   updated_at: Date;
   updated_by: string | null;
 }
 
-export type ConfigUpdate = Omit<ConversationAgentConfig, 'id' | 'updated_at' | 'updated_by'>;
+// Admin-editable subset. Rolling spend counters are excluded — the orchestrator
+// owns them.
+export type ConfigUpdate = Omit<
+  ConversationAgentConfig,
+  'id' | 'updated_at' | 'updated_by' | 'claude_spend_today_cents' | 'claude_spend_reset_date'
+>;
 
 export async function getConfig(): Promise<ConversationAgentConfig> {
   const rows = await sql`SELECT * FROM conversation_agent_config WHERE id = 1 LIMIT 1`;

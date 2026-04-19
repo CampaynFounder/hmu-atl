@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { drainQueue } from '@/lib/conversation/scheduler';
+import { scheduleDueFollowups } from '@/lib/conversation/followups';
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -19,6 +20,7 @@ export async function GET(req: NextRequest) {
   const url = req.nextUrl;
   const limit = Math.min(Number(url.searchParams.get('limit') || '50'), 200);
 
-  const result = await drainQueue(limit);
-  return NextResponse.json({ ok: true, ...result });
+  const drain = await drainQueue(limit);
+  const followups = await scheduleDueFollowups();
+  return NextResponse.json({ ok: true, drain, followups });
 }

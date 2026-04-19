@@ -6,6 +6,7 @@ import { sql } from '@/lib/db/client';
 import { sendSms } from '@/lib/sms/textbee';
 import { isFeatureEnabled } from '@/lib/feature-flags';
 import { getConfig } from './config';
+import { handleReply } from './orchestrator';
 
 const FLAG = 'conversation_agent';
 
@@ -81,8 +82,12 @@ export async function handleConversationInbound(
       return { handled: true, reason: 'stop', action: 'opted_out' };
     }
 
-    // Phase 3 will kick in the Claude responder here. For Phase 2 we simply
-    // log and return — response comes later via a different path.
+    // Phase 3: route to the Claude orchestrator. Fire-and-forget — never
+    // block the VoIP.ms webhook response on Claude latency.
+    handleReply(thread.id, message).catch(err =>
+      console.error('[conversation/inbound] orchestrator error:', err),
+    );
+
     return { handled: true, reason: 'logged', action: 'logged' };
   } catch (err) {
     console.error('[conversation/inbound] handleConversationInbound failed:', err);

@@ -14,6 +14,7 @@ export interface ConversationPersona {
   user_type_match: UserTypeMatch;
   greeting_template: string;
   vision_template: string | null;
+  follow_up_template: string | null;
   system_prompt: string;
   max_messages_per_thread: number;
   quiet_hours_start: string;  // 'HH:MM:SS'
@@ -32,6 +33,7 @@ export interface PersonaInput {
   user_type_match: UserTypeMatch;
   greeting_template: string;
   vision_template?: string | null;
+  follow_up_template?: string | null;
   system_prompt: string;
   max_messages_per_thread: number;
   quiet_hours_start: string;
@@ -62,13 +64,13 @@ export async function createPersona(input: PersonaInput, createdBy: string): Pro
   const rows = await sql`
     INSERT INTO conversation_personas (
       slug, display_name, gender_match, user_type_match,
-      greeting_template, vision_template, system_prompt,
+      greeting_template, vision_template, follow_up_template, system_prompt,
       max_messages_per_thread, quiet_hours_start, quiet_hours_end,
       follow_up_schedule_hours, is_active, sort_order,
       created_by, updated_by
     ) VALUES (
       ${input.slug}, ${input.display_name}, ${input.gender_match}, ${input.user_type_match},
-      ${input.greeting_template}, ${input.vision_template ?? null}, ${input.system_prompt},
+      ${input.greeting_template}, ${input.vision_template ?? null}, ${input.follow_up_template ?? null}, ${input.system_prompt},
       ${input.max_messages_per_thread}, ${input.quiet_hours_start}, ${input.quiet_hours_end},
       ${input.follow_up_schedule_hours}::int[], ${input.is_active}, ${input.sort_order},
       ${createdBy}, ${createdBy}
@@ -88,6 +90,7 @@ export async function updatePersona(id: string, input: PersonaInput, updatedBy: 
       user_type_match = ${input.user_type_match},
       greeting_template = ${input.greeting_template},
       vision_template = ${input.vision_template ?? null},
+      follow_up_template = ${input.follow_up_template ?? null},
       system_prompt = ${input.system_prompt},
       max_messages_per_thread = ${input.max_messages_per_thread},
       quiet_hours_start = ${input.quiet_hours_start},

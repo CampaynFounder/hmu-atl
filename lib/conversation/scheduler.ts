@@ -305,11 +305,13 @@ export async function drainQueue(limit = 50): Promise<DrainResult> {
         INSERT INTO conversation_messages (thread_id, direction, body, generated_by, delivery_status, voipms_id)
         VALUES (${thread.id}, 'outbound', ${body}, 'template', 'sent', ${sendResult.messageId ?? null})
       `;
+      const isFollowUp = msg.kind === 'follow_up';
       await sql`
         UPDATE conversation_threads
         SET
           status = CASE WHEN status = 'pending' THEN 'active' ELSE status END,
           messages_sent = messages_sent + 1,
+          followups_sent = followups_sent + ${isFollowUp ? 1 : 0},
           last_outbound_at = NOW(),
           updated_at = NOW()
         WHERE id = ${thread.id}
@@ -339,7 +341,7 @@ function renderMessageBody(kind: DueMessage['kind'], persona: ConversationPerson
   switch (kind) {
     case 'greeting': return persona.greeting_template;
     case 'vision':   return persona.vision_template || null;
-    case 'follow_up': return persona.greeting_template;  // placeholder — Phase 3 adds templated follow-ups
+    case 'follow_up': return persona.follow_up_template || persona.greeting_template;
     default: return null;
   }
 }

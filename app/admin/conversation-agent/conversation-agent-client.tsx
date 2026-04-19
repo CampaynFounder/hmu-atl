@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { ConversationAgentConfig, ConfigUpdate } from '@/lib/conversation/config';
 import type { ConversationPersona, PersonaInput, GenderMatch, UserTypeMatch } from '@/lib/conversation/personas';
 import type { ThreadStats, ThreadWithContext } from '@/lib/conversation/threads';
+import { composeSystemPrompt } from '@/lib/conversation/prompt-parts';
 
 type SerializedPersona = Omit<ConversationPersona, 'created_at' | 'updated_at'> & {
   created_at: string;
@@ -255,6 +256,7 @@ const DEFAULT_PERSONA: PersonaInput = {
   user_type_match: 'any',
   greeting_template: '',
   vision_template: null,
+  follow_up_template: null,
   system_prompt: '',
   max_messages_per_thread: 3,
   quiet_hours_start: '21:00',
@@ -288,6 +290,7 @@ function PersonasEditor({ personas, onPersonasChange, onToast }: PersonasEditorP
       user_type_match: p.user_type_match,
       greeting_template: p.greeting_template,
       vision_template: p.vision_template,
+      follow_up_template: p.follow_up_template,
       system_prompt: p.system_prompt,
       max_messages_per_thread: p.max_messages_per_thread,
       quiet_hours_start: p.quiet_hours_start.slice(0, 5),
@@ -483,9 +486,33 @@ function PersonaForm({ draft, isNew, saving, onChange, onCancel, onSave }: Perso
           <textarea className="field-input" rows={3} value={draft.vision_template ?? ''} onChange={e => patch('vision_template', e.target.value || null)} />
           <CharCount value={draft.vision_template ?? ''} max={155} />
         </Field>
+        <Field label="Follow-up template (sent if user doesn't reply)" full>
+          <textarea className="field-input" rows={3} value={draft.follow_up_template ?? ''} onChange={e => patch('follow_up_template', e.target.value || null)} />
+          <CharCount value={draft.follow_up_template ?? ''} max={155} />
+        </Field>
         <Field label="System prompt (Claude)" full>
           <textarea className="field-input" rows={6} value={draft.system_prompt} onChange={e => patch('system_prompt', e.target.value)} />
         </Field>
+        <div className="md:col-span-2">
+          <details className="rounded-lg px-3 py-2" style={{ background: 'var(--admin-bg-elevated)', border: '1px solid var(--admin-border)' }}>
+            <summary className="text-[10px] font-bold tracking-widest cursor-pointer" style={{ color: 'var(--admin-text-faint)' }}>
+              PREVIEW COMPOSED PROMPT (what Claude sees)
+            </summary>
+            <pre
+              className="mt-2 text-[11px] whitespace-pre-wrap font-mono"
+              style={{ color: 'var(--admin-text-secondary)', lineHeight: 1.4 }}
+            >
+{composeSystemPrompt({
+  personaSystemPrompt: draft.system_prompt || '(empty)',
+  visionTemplate: draft.vision_template,
+  includeVisionDirective: true,
+})}
+            </pre>
+            <p className="text-[10px] mt-2" style={{ color: 'var(--admin-text-muted)' }}>
+              VISION DIRECTIVE only appears when the thread has not yet delivered the vision and config.vision_trigger = first_reply.
+            </p>
+          </details>
+        </div>
         <Field label="Max messages per thread">
           <input className="field-input" type="number" min={1} value={draft.max_messages_per_thread} onChange={e => patch('max_messages_per_thread', Number(e.target.value))} />
         </Field>
