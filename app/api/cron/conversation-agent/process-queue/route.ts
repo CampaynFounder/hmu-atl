@@ -2,9 +2,11 @@
 // Schedule: once per minute via Cloudflare cron trigger (configure later in
 // wrangler.worker.jsonc; for now it can be poked manually with CRON_SECRET).
 //
-// Security: Bearer CRON_SECRET. Feature flag check inside drainQueue (short
-// circuits if conversation_agent is OFF — so this is safe to schedule even
-// before flag flip).
+// Security: X-Cron-Secret header matches process.env.CRON_SECRET. We do NOT
+// use Authorization: Bearer because Clerk middleware intercepts that header
+// and tries to parse it as a Clerk JWT, 307-redirecting to /sign-in on
+// mismatch. Feature flag check inside drainQueue (short circuits if
+// conversation_agent is OFF — safe to schedule before flag flip).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { drainQueue } from '@/lib/conversation/scheduler';
@@ -12,8 +14,8 @@ import { scheduleDueFollowups } from '@/lib/conversation/followups';
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  const authHeader = req.headers.get('authorization') || '';
-  if (!secret || authHeader !== `Bearer ${secret}`) {
+  const sentSecret = req.headers.get('x-cron-secret') || '';
+  if (!secret || sentSecret !== secret) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 

@@ -4,7 +4,9 @@
 // Trigger from Cloudflare Workers cron (wrangler.worker.jsonc):
 //   { "crons": [{ "name": "driver-nudges", "cron": "0 17 * * 1" }] }  // Mon 17:00 UTC = 12pm ET
 //
-// Request security: Bearer token in Authorization header (CRON_SECRET).
+// Request security: X-Cron-Secret header must equal process.env.CRON_SECRET.
+// Authorization: Bearer is not used because Clerk middleware intercepts that
+// header and rejects non-JWT values with a 307 to /sign-in.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
@@ -91,8 +93,8 @@ function pickTip(d: StaleDriver): { id: string; title: string; body: string; cta
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  const auth = req.headers.get('authorization') || '';
-  if (!secret || auth !== `Bearer ${secret}`) {
+  const sentSecret = req.headers.get('x-cron-secret') || '';
+  if (!secret || sentSecret !== secret) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
