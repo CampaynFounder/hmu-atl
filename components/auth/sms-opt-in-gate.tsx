@@ -16,34 +16,42 @@ import { SmsOptInPrompt } from './sms-opt-in-prompt';
 const DISMISS_COOKIE = 'hmu_sms_prompt_dismissed';
 const SIGNUP_WINDOW_DAYS = 30;
 
+// Mounted in the root layout, so it runs on EVERY page. Any unhandled
+// throw here would 404 the entire app — wrap every DB call and return null
+// on any failure.
 export async function SmsOptInGate() {
-  const { userId: clerkId } = await auth();
-  if (!clerkId) return null;
+  try {
+    const { userId: clerkId } = await auth();
+    if (!clerkId) return null;
 
-  const cookieStore = await cookies();
-  if (cookieStore.get(DISMISS_COOKIE)) return null;
+    const cookieStore = await cookies();
+    if (cookieStore.get(DISMISS_COOKIE)) return null;
 
-  const rows = await sql`
-    SELECT id, profile_type, opt_in_sms, created_at
-    FROM users WHERE clerk_id = ${clerkId} LIMIT 1
-  `;
-  const user = rows[0] as {
-    id: string;
-    profile_type: string;
-    opt_in_sms: boolean;
-    created_at: Date;
-  } | undefined;
-  if (!user) return null;
-  if (user.opt_in_sms) return null;
-  if (user.profile_type !== 'driver' && user.profile_type !== 'rider') return null;
+    const rows = await sql`
+      SELECT id, profile_type, opt_in_sms, created_at
+      FROM users WHERE clerk_id = ${clerkId} LIMIT 1
+    `;
+    const user = rows[0] as {
+      id: string;
+      profile_type: string;
+      opt_in_sms: boolean;
+      created_at: Date;
+    } | undefined;
+    if (!user) return null;
+    if (user.opt_in_sms) return null;
+    if (user.profile_type !== 'driver' && user.profile_type !== 'rider') return null;
 
-  const createdMs = new Date(user.created_at).getTime();
-  const ageDays = (Date.now() - createdMs) / 86_400_000;
-  if (ageDays > SIGNUP_WINDOW_DAYS) return null;
+    const createdMs = new Date(user.created_at).getTime();
+    const ageDays = (Date.now() - createdMs) / 86_400_000;
+    if (ageDays > SIGNUP_WINDOW_DAYS) return null;
 
-  const flagOn = await isFeatureEnabled('conversation_agent', { userId: user.id });
-  if (!flagOn) return null;
+    const flagOn = await isFeatureEnabled('conversation_agent', { userId: user.id });
+    if (!flagOn) return null;
 
-  const config = await getConfig();
-  return <SmsOptInPrompt disclosureText={config.opt_in_disclosure_text} />;
+    const config = await getConfig();
+    return <SmsOptInPrompt disclosureText={config.opt_in_disclosure_text} />;
+  } catch (err) {
+    console.error('[SmsOptInGate] suppressed error:', err);
+    return null;
+  }
 }

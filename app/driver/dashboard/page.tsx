@@ -13,6 +13,24 @@ export default async function DriverDashboardPage() {
   const { userId: clerkId } = await auth();
   if (!clerkId) redirect('/sign-in');
 
+  // Driver-playbook side-effects (attribution attach + shell eligibility)
+  // are ALL best-effort — the dashboard page must render even if any of
+  // these DB calls fail. Wrap in try/catch so a Neon blip can never 404
+  // the dashboard.
+  const shellProps = await loadShellProps(clerkId).catch((err) => {
+    console.error('[driver/dashboard] shell props failed — rendering bare dashboard:', err);
+    return { surveyEligible: false, profileCardEligible: false, checklistDismissed: false };
+  });
+
+  return (
+    <>
+      <DriverDashboardClient />
+      <PlaybookShell {...shellProps} />
+    </>
+  );
+}
+
+async function loadShellProps(clerkId: string) {
   const rows = await sql`
     SELECT id, profile_type, survey_completed_at, survey_skipped_at
     FROM users
@@ -26,37 +44,29 @@ export default async function DriverDashboardPage() {
     survey_skipped_at: Date | null;
   } | undefined;
 
-  let surveyEligible = false;
-  let profileCardEligible = false;
-  let checklistDismissed = false;
-  if (user && user.profile_type === 'driver') {
-    const cookieStore = await cookies();
-    const cookieId = cookieStore.get(ATTRIB_COOKIE)?.value;
-    if (cookieId) {
-      // Fire-and-forget; never block render on attribution attach.
-      attachAttributionToUser(cookieId, user.id).catch(() => {});
-    }
-    const flagOn = await isFeatureEnabled('driver_playbook', { userId: user.id });
-    if (flagOn) {
-      profileCardEligible = true;
-      if (!user.survey_completed_at && !user.survey_skipped_at) {
-        surveyEligible = true;
-      }
-      const prefRows = await sql`
-        SELECT checklist_dismissed_at FROM user_preferences WHERE user_id = ${user.id} LIMIT 1
-      `;
-      checklistDismissed = !!(prefRows[0] as { checklist_dismissed_at: Date | null } | undefined)?.checklist_dismissed_at;
-    }
+  if (!user || user.profile_type !== 'driver') {
+    return { surveyEligible: false, profileCardEligible: false, checklistDismissed: false };
   }
 
-  return (
-    <>
-      <DriverDashboardClient />
-      <PlaybookShell
-        surveyEligible={surveyEligible}
-        profileCardEligible={profileCardEligible}
-        checklistDismissed={checklistDismissed}
-      />
-    </>
-  );
+  const cookieStore = await cookies();
+  const cookieId = cookieStore.get(ATTRIB_COOKIE)?.value;
+  if (cookieId) {
+    attachAttributionToUser(cookieId, user.id).catch(() => {});
+  }
+
+  const flagOn = await isFeatureEnabled('driver_playbook', { userId: user.id });
+  if (!flagOn) {
+    return { surveyEligible: false, profileCardEligible: false, checklistDismissed: false };
+  }
+
+  const prefRows = await sql`
+    SELECT checklist_dismissed_at FROM user_preferences WHERE user_id = ${user.id} LIMIT 1
+  `;
+  const checklistDismissed = !!(prefRows[0] as { checklist_dismissed_at: Date | null } | undefined)?.checklist_dismissed_at;
+
+  return {
+    profileCardEligible: true,
+    surveyEligible: !user.survey_completed_at && !user.survey_skipped_at,
+    checklistDismissed,
+  };
 }
