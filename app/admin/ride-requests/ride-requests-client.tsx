@@ -22,6 +22,14 @@ interface RideRequestRow {
   phone: string | null;
   admin_texted: boolean;
   last_admin_sms_at: string | null;
+  target_driver_id: string | null;
+  target_driver_name: string | null;
+  target_driver_handle: string | null;
+  target_driver_phone: string | null;
+  declined_by_driver_id: string | null;
+  declined_by_driver_name: string | null;
+  declined_by_driver_handle: string | null;
+  declined_by_driver_phone: string | null;
 }
 
 interface Stats {
@@ -55,7 +63,7 @@ export default function RideRequestsClient() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
-  const [composing, setComposing] = useState<RideRequestRow | null>(null);
+  const [composing, setComposing] = useState<{ row: RideRequestRow; target: 'rider' | 'driver' } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   async function load() {
@@ -201,15 +209,53 @@ export default function RideRequestsClient() {
                       </span>
                     )}
                   </div>
+                  {(r.target_driver_id || r.declined_by_driver_id) && (
+                    <div className="mt-2 flex items-center gap-2 flex-wrap text-[11px]" style={{ color: 'var(--admin-text-secondary)' }}>
+                      {r.target_driver_id && (
+                        <span
+                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded"
+                          style={{ background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.25)' }}
+                        >
+                          <span style={{ color: '#00E676' }}>→ tried to book</span>
+                          <Link href={`/admin/users/${r.target_driver_id}`} className="font-semibold" style={{ color: 'var(--admin-text)' }}>
+                            {r.target_driver_name || r.target_driver_handle || 'driver'}
+                          </Link>
+                          {r.target_driver_handle && <code className="text-[9px]" style={{ color: 'var(--admin-text-muted)' }}>@{r.target_driver_handle}</code>}
+                          {r.target_driver_phone && <span style={{ color: 'var(--admin-text-muted)' }}>· {r.target_driver_phone}</span>}
+                        </span>
+                      )}
+                      {r.declined_by_driver_id && (
+                        <span
+                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded"
+                          style={{ background: 'rgba(255,82,82,0.08)', border: '1px solid rgba(255,82,82,0.25)' }}
+                        >
+                          <span style={{ color: '#FF5252' }}>✕ declined by</span>
+                          <Link href={`/admin/users/${r.declined_by_driver_id}`} className="font-semibold" style={{ color: 'var(--admin-text)' }}>
+                            {r.declined_by_driver_name || r.declined_by_driver_handle || 'driver'}
+                          </Link>
+                          {r.declined_by_driver_handle && <code className="text-[9px]" style={{ color: 'var(--admin-text-muted)' }}>@{r.declined_by_driver_handle}</code>}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
                   <button
-                    onClick={() => setComposing(r)}
+                    onClick={() => setComposing({ row: r, target: 'rider' })}
                     className="text-xs font-bold px-3 py-1.5 rounded-lg"
                     style={{ background: '#00E676', color: '#080808' }}
                   >
                     Text rider
                   </button>
+                  {(r.target_driver_id || r.declined_by_driver_id) && (
+                    <button
+                      onClick={() => setComposing({ row: r, target: 'driver' })}
+                      className="text-[11px] font-semibold px-3 py-1 rounded-lg"
+                      style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}
+                    >
+                      Text driver
+                    </button>
+                  )}
                   <Link
                     href={`/admin/users/${r.user_id}`}
                     className="text-[10px] text-center px-3 py-1 rounded"
@@ -226,7 +272,8 @@ export default function RideRequestsClient() {
 
       {composing && (
         <ComposeModal
-          row={composing}
+          row={composing.row}
+          target={composing.target}
           onClose={() => setComposing(null)}
           onSent={(msg) => {
             showToast(msg);
@@ -277,16 +324,54 @@ function TypePill({ type }: { type: string }) {
 
 interface ComposeModalProps {
   row: RideRequestRow;
+  target: 'rider' | 'driver';
   onClose: () => void;
   onSent: (msg: string) => void;
 }
 
-function ComposeModal({ row, onClose, onSent }: ComposeModalProps) {
-  const [message, setMessage] = useState(DEFAULT_TEMPLATE);
+function ComposeModal({ row, target, onClose, onSent }: ComposeModalProps) {
+  // When texting a driver: prefer the declined-by driver (more actionable —
+  // "why'd you pass?") over the targeted driver for the phone/name.
+  const driverId = row.declined_by_driver_id ?? row.target_driver_id;
+  const driverName = row.declined_by_driver_name ?? row.target_driver_name;
+  const driverPhone = row.declined_by_driver_phone ?? row.target_driver_phone;
+  const driverContext = row.declined_by_driver_id ? 'declined' : 'targeted';
+
+  const recipient = target === 'rider'
+    ? { phone: row.phone, name: row.name, userId: row.user_id, profileType: row.profile_type }
+    : { phone: driverPhone, name: driverName, userId: driverId, profileType: 'driver' };
+
+  const riderName = row.name || 'the rider';
+  const driverDisplayName = driverName || 'this driver';
+
+  const templates = target === 'rider'
+    ? [
+        { label: 'Still need a ride?', text: DEFAULT_TEMPLATE },
+        { label: 'Try again', text: `Hey ${row.name || 'there'}, it's HMU. Your ride request didn't get picked up last time — want me to reach out to a driver directly?` },
+        { label: 'Here to help', text: `Hey ${row.name || 'there'}, HMU team here. Saw your ride post — what went wrong? Happy to hook you up manually.` },
+      ]
+    : [
+        {
+          label: driverContext === 'declined' ? 'Why pass?' : 'Check in',
+          text: driverContext === 'declined'
+            ? `Hey ${driverDisplayName}, it's HMU — noticed you passed on ${riderName}'s ride. Anything we can do different next time?`
+            : `Hey ${driverDisplayName}, it's HMU — ${riderName} tried to book you earlier. You good to run it?`,
+        },
+        {
+          label: 'Offer match',
+          text: `Hey ${driverDisplayName}, HMU team. ${riderName} is still looking for a ride. Want me to send them your way?`,
+        },
+        {
+          label: 'Heads up',
+          text: `Yo ${driverDisplayName}, quick check-in from HMU — you around to take rides right now? Got a rider lined up.`,
+        },
+      ];
+
+  const [message, setMessage] = useState(templates[0].text);
   const [sending, setSending] = useState(false);
 
   async function send() {
-    if (!row.phone) { onSent('No phone on file'); return; }
+    if (!recipient.phone) { onSent('No phone on file'); return; }
     if (message.trim().length === 0) return;
     if (message.length > 160) return;
     setSending(true);
@@ -295,7 +380,7 @@ function ComposeModal({ row, onClose, onSent }: ComposeModalProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          recipients: [{ phone: row.phone, name: row.name, userId: row.user_id }],
+          recipients: [{ phone: recipient.phone, name: recipient.name, userId: recipient.userId ?? undefined }],
           message,
         }),
       });
@@ -304,7 +389,7 @@ function ComposeModal({ row, onClose, onSent }: ComposeModalProps) {
         onSent(data.error || 'Send failed');
         return;
       }
-      onSent(data.sent ? `Sent to ${row.name || row.phone}` : 'Send failed');
+      onSent(data.sent ? `Sent to ${recipient.name || recipient.phone}` : 'Send failed');
     } catch {
       onSent('Network error');
     } finally {
@@ -325,11 +410,14 @@ function ComposeModal({ row, onClose, onSent }: ComposeModalProps) {
       >
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
+            <p className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: target === 'rider' ? '#00E676' : '#448AFF' }}>
+              Texting {target}{target === 'driver' ? ` (${driverContext})` : ''}
+            </p>
             <h2 className="text-base font-bold" style={{ color: 'var(--admin-text)' }}>
-              Text {row.name || row.phone}
+              {recipient.name || recipient.phone || 'Unknown'}
             </h2>
             <p className="text-[11px] mt-0.5" style={{ color: 'var(--admin-text-muted)' }}>
-              {row.phone} · {row.profile_type}
+              {recipient.phone || 'no phone on file'} · {recipient.profileType}
             </p>
           </div>
           <button onClick={onClose} className="text-white/50 hover:text-white">✕</button>
@@ -347,11 +435,7 @@ function ComposeModal({ row, onClose, onSent }: ComposeModalProps) {
         </p>
 
         <div className="flex gap-2 mt-2 flex-wrap">
-          {[
-            { label: 'Still need a ride?', text: DEFAULT_TEMPLATE },
-            { label: 'Try again', text: `Hey ${row.name || 'there'}, it's HMU. Your ride request didn't get picked up last time — want me to reach out to a driver directly?` },
-            { label: 'Here to help', text: `Hey ${row.name || 'there'}, HMU team here. Saw your ride post — what went wrong? Happy to hook you up manually.` },
-          ].map(t => (
+          {templates.map(t => (
             <button
               key={t.label}
               onClick={() => setMessage(t.text)}
@@ -367,7 +451,7 @@ function ComposeModal({ row, onClose, onSent }: ComposeModalProps) {
           <button onClick={onClose} disabled={sending} className="text-xs text-white/60 px-3 py-2">Cancel</button>
           <button
             onClick={send}
-            disabled={sending || !message.trim() || message.length > 160}
+            disabled={sending || !message.trim() || message.length > 160 || !recipient.phone}
             className="text-xs font-bold px-4 py-2 rounded-lg disabled:opacity-50"
             style={{ background: '#00E676', color: '#080808' }}
           >
