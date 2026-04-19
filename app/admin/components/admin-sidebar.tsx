@@ -30,6 +30,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/notifications', label: 'Notifications', icon: '🔔', permission: 'act.notifications' },
       { href: '/admin/disputes', label: 'Disputes', icon: '⚖️', permission: 'act.disputes', badgeCategory: 'disputes', badgeColor: 'red' },
       { href: '/admin/users', label: 'Users', icon: '👥', permission: 'act.users', badgeCategory: 'users', badgeColor: 'green' },
+      { href: '/admin/ride-requests', label: 'Ride Requests', icon: '🚖' },
       { href: '/admin/suspect-usage', label: 'Suspect Usage', icon: '🚨', permission: 'act.suspect' },
     ],
   },
