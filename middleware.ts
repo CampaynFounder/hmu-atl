@@ -76,6 +76,7 @@ const isPublicRoute = createRouteMatcher([
   '/auth-callback(.*)',
   '/api/webhooks(.*)',
   '/api/meta-verify',
+  '/api/cron/(.*)',
   '/d/(.*)',
   '/api/drivers/:handle',
   '/api/chat/booking',
