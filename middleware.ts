@@ -3,6 +3,7 @@
 
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse, type NextRequest } from 'next/server';
+import { getStateCached } from '@/lib/maintenance';
 
 // Attribution cookie — first-touch ID, 30-day lifetime. Pure cookie (no DB hit).
 // Only set on non-API public routes; webhooks and API calls stay untouched.
@@ -25,13 +26,13 @@ function ensureAttribCookie(req: NextRequest): NextResponse | undefined {
   return res;
 }
 
-// ============================================================
-// MAINTENANCE MODE — set to true to redirect auth routes
-// ============================================================
-const MAINTENANCE_MODE = false;
-// ============================================================
+// Maintenance mode is now controlled from /admin/maintenance (DB-backed).
+// The flag + message live in the `maintenance_mode` singleton table and are
+// read through a 30s module-level cache in lib/maintenance.ts. Fails open
+// on any DB error so a Neon blip can't black-hole the app.
 
-// Routes that stay up during maintenance (marketing, legal, data room)
+// Routes that stay up during maintenance (marketing, legal, admin, APIs
+// that cron / webhooks / waitlist posts all depend on).
 const isMaintenanceExempt = createRouteMatcher([
   '/',
   '/.well-known(.*)',
@@ -59,6 +60,8 @@ const isMaintenanceExempt = createRouteMatcher([
   '/api/content/(.*)',
   '/api/webhooks(.*)',
   '/api/meta-verify',
+  '/api/cron/(.*)',
+  '/api/maintenance(.*)',
   '/maintenance',
   '/admin(.*)',
   '/api/admin(.*)',
@@ -130,9 +133,14 @@ const isProtectedRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  // MAINTENANCE MODE: redirect non-exempt routes to maintenance page
-  if (MAINTENANCE_MODE && !isMaintenanceExempt(req)) {
-    return NextResponse.redirect(new URL('/maintenance', req.url));
+  // MAINTENANCE MODE: dynamic DB-backed. When enabled, non-exempt routes
+  // (authenticated app surfaces) redirect to /maintenance. Admin, webhooks,
+  // crons, sign-in, and marketing all stay live.
+  if (!isMaintenanceExempt(req)) {
+    const maintenance = await getStateCached();
+    if (maintenance.enabled) {
+      return NextResponse.redirect(new URL('/maintenance', req.url));
+    }
   }
 
   // Allow public routes without authentication

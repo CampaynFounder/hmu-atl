@@ -59,6 +59,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
     items: [
       { href: '/admin/roles', label: 'Roles', icon: '🔑', permission: 'admin.roles' },
       { href: '/admin/feature-flags', label: 'Feature Flags', icon: '🚩' },
+      { href: '/admin/maintenance', label: 'Maintenance', icon: '🚧' },
       { href: '/admin/audit', label: 'Audit Log', icon: '📋', permission: 'admin.audit' },
     ],
   },
