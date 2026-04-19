@@ -42,6 +42,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/content', label: 'Content', icon: '🎬', permission: 'grow.content' },
       { href: '/admin/funnel', label: 'Funnel CMS', icon: '📝', permission: 'grow.funnel' },
       { href: '/admin/driver-playbook/fb-groups', label: 'Playbook FB Groups', icon: '👥' },
+      { href: '/admin/conversation-agent', label: 'Conversation Agent', icon: '💬' },
     ],
   },
   {
