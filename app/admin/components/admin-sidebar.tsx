@@ -242,22 +242,25 @@ export function AdminSidebar() {
                 <button
                   type="button"
                   onClick={() => toggleSection(section.label)}
-                  className={`w-full flex items-center justify-between px-3 mb-2 ${collapsed ? 'lg:hidden' : ''}`}
+                  className={`group w-full flex items-center justify-between px-3 py-2.5 mb-1 rounded-lg transition-colors active:bg-white/5 hover:bg-white/5 ${collapsed ? 'lg:hidden' : ''}`}
                   aria-expanded={!isSectionCollapsed}
-                  style={{ color: 'var(--admin-text-faint)' }}
+                  style={{ color: 'var(--admin-text-secondary)' }}
                 >
-                  <span className="text-[10px] font-bold tracking-[3px]">
+                  <span className="text-xs lg:text-[11px] font-bold tracking-[2.5px]">
                     {section.label}
                   </span>
                   <span className="flex items-center gap-2">
                     {isSectionCollapsed && sectionBadge > 0 && (
-                      <span className="bg-[#00E676] text-black text-[9px] font-bold min-w-[16px] h-[16px] rounded-full flex items-center justify-center px-1">
+                      <span className="bg-[#00E676] text-black text-[10px] font-bold min-w-[20px] h-[20px] rounded-full flex items-center justify-center px-1.5">
                         {sectionBadge}
                       </span>
                     )}
                     <span
-                      className="text-[10px] transition-transform duration-150"
-                      style={{ transform: isSectionCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-md text-base transition-transform duration-150"
+                      style={{
+                        transform: isSectionCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                        background: 'rgba(255,255,255,0.06)',
+                      }}
                       aria-hidden
                     >
                       ▾
