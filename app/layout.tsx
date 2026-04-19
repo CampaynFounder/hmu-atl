@@ -9,6 +9,7 @@ import { Header } from '@/components/layout/header';
 import { PostHogProvider } from '@/components/analytics/posthog-provider';
 import { MetaPixel } from '@/components/analytics/meta-pixel';
 import { AttributionTracker } from '@/components/analytics/attribution-tracker';
+import { SmsOptInGate } from '@/components/auth/sms-opt-in-gate';
 import { GlobalRideAlert } from '@/components/global-ride-alert';
 import './globals.css';
 
@@ -206,6 +207,7 @@ export default function RootLayout({
               <Header />
               <GlobalRideAlert />
               {children}
+              <SmsOptInGate />
             </PostHogProvider>
           </Suspense>
         </body>

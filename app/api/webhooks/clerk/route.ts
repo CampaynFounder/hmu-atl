@@ -10,6 +10,7 @@ import { sql } from '@/lib/db/client';
 import { notifyAdminSms } from '@/lib/admin/notify';
 import { createActionItem } from '@/lib/admin/action-items';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
+import { scheduleFirstMessageForUser } from '@/lib/conversation/scheduler';
 import type { ProfileType } from '@/lib/db/types';
 
 // Extract the first verified phone number from a Clerk user payload.
@@ -198,6 +199,24 @@ export async function POST(req: Request) {
         referenceId: newUser.id,
         title: `New ${profileType}: ${displayName} (${verifiedPhone}) via ${signupSource}`,
       });
+
+      // Conversation-agent safety-net scheduler. Short-circuits internally if
+      // the feature flag is off or users.opt_in_sms=FALSE (which is the default
+      // at signup). Primary trigger is POST /api/users/opt-in-sms; this just
+      // covers the case where opt-in was set earlier (future unsafe_metadata
+      // channel). Never blocks signup.
+      try {
+        if (profileType === 'driver' || profileType === 'rider') {
+          await scheduleFirstMessageForUser({
+            userId: newUser.id,
+            phone: verifiedPhone,
+            profileType,
+            gender: null,  // profile rows not created yet at this point
+          });
+        }
+      } catch (schedErr) {
+        console.error('[WEBHOOK] conversation-agent schedule failed:', schedErr);
+      }
 
       return new Response('User created after phone verification', { status: 201 });
     } catch (error) {

@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
 import { publishAdminEvent } from '@/lib/ably/server';
+import { handleConversationInbound } from '@/lib/conversation/inbound';
 
 async function handleInbound(params: Record<string, string>, rawSource: string) {
   // VoIP.ms uses various field names depending on portal config — accept all known variants
@@ -36,6 +37,15 @@ async function handleInbound(params: Record<string, string>, rawSource: string) 
     await publishAdminEvent('sms_inbound', { from: fromPhone, message, to: toDid, timestamp: Date.now() });
   } catch (error) {
     console.error('[VOIPMS WEBHOOK] Ably publish failed:', error);
+  }
+
+  // Conversation agent routing — additive. Short-circuits internally if the
+  // feature flag is off or the sender has no active thread. STOP keyword
+  // handling also lives here.
+  try {
+    await handleConversationInbound(fromPhone, message, voipmsId || null);
+  } catch (error) {
+    console.error('[VOIPMS WEBHOOK] conversation routing failed:', error);
   }
 
   return NextResponse.json({ status: 'ok' });
