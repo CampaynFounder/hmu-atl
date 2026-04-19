@@ -25,6 +25,15 @@ export interface RideRequestRow {
   phone: string | null;
   admin_texted: boolean;
   last_admin_sms_at: string | null;
+  // Who the rider tried to book (direct_booking target) and/or who declined.
+  target_driver_id: string | null;
+  target_driver_name: string | null;
+  target_driver_handle: string | null;
+  target_driver_phone: string | null;
+  declined_by_driver_id: string | null;
+  declined_by_driver_name: string | null;
+  declined_by_driver_handle: string | null;
+  declined_by_driver_phone: string | null;
 }
 
 export async function GET(req: NextRequest) {
@@ -64,11 +73,21 @@ export async function GET(req: NextRequest) {
       COALESCE(rp.display_name, rp.first_name, dp.display_name, dp.first_name) AS name,
       COALESCE(rp.phone, dp.phone) AS phone,
       EXISTS (SELECT 1 FROM admin_sms_sent s WHERE s.recipient_id = u.id) AS admin_texted,
-      (SELECT MAX(s.sent_at) FROM admin_sms_sent s WHERE s.recipient_id = u.id) AS last_admin_sms_at
+      (SELECT MAX(s.sent_at) FROM admin_sms_sent s WHERE s.recipient_id = u.id) AS last_admin_sms_at,
+      p.target_driver_id,
+      COALESCE(tdp.display_name, tdp.first_name) AS target_driver_name,
+      tdp.handle AS target_driver_handle,
+      tdp.phone AS target_driver_phone,
+      p.last_declined_by AS declined_by_driver_id,
+      COALESCE(ldp.display_name, ldp.first_name) AS declined_by_driver_name,
+      ldp.handle AS declined_by_driver_handle,
+      ldp.phone AS declined_by_driver_phone
     FROM hmu_posts p
     JOIN users u ON u.id = p.user_id
     LEFT JOIN rider_profiles rp ON rp.user_id = u.id
     LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+    LEFT JOIN driver_profiles tdp ON tdp.user_id = p.target_driver_id
+    LEFT JOIN driver_profiles ldp ON ldp.user_id = p.last_declined_by
     WHERE p.status IN ('active','expired','declined_awaiting_rider')
       AND (${filterStatus}::text IS NULL OR p.status = ${filterStatus})
       AND (${filterType}::text IS NULL OR p.post_type = ${filterType})
