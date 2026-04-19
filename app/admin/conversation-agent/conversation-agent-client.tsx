@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { ConversationAgentConfig, ConfigUpdate } from '@/lib/conversation/config';
 import type { ConversationPersona, PersonaInput, GenderMatch, UserTypeMatch } from '@/lib/conversation/personas';
 import type { ThreadStats, ThreadWithContext } from '@/lib/conversation/threads';
+import type { AnalyticsSnapshot } from '@/lib/conversation/analytics';
 import { composeSystemPrompt } from '@/lib/conversation/prompt-parts';
 
 type SerializedPersona = Omit<ConversationPersona, 'created_at' | 'updated_at'> & {
@@ -30,7 +31,7 @@ interface Props {
   stats: ThreadStats;
 }
 
-type PanelId = 'personas' | 'pacing' | 'opt_in' | 'engagement' | 'threads';
+type PanelId = 'analytics' | 'personas' | 'pacing' | 'opt_in' | 'engagement' | 'threads';
 
 export default function ConversationAgentClient({
   flagEnabled,
@@ -101,6 +102,16 @@ export default function ConversationAgentClient({
       {/* ── Accordion ── */}
       <div className="space-y-3">
         <AccordionPanel
+          id="analytics"
+          label="Analytics"
+          summary="Funnel · per-persona metrics · acquisition sources · Claude spend"
+          open={openPanel === 'analytics'}
+          onToggle={togglePanel}
+        >
+          <AnalyticsPanel active={openPanel === 'analytics'} />
+        </AccordionPanel>
+
+        <AccordionPanel
           id="personas"
           label="Personas"
           summary={`${activePersonas} active · ${personas.length} total`}
@@ -166,7 +177,12 @@ export default function ConversationAgentClient({
           open={openPanel === 'threads'}
           onToggle={togglePanel}
         >
-          <ThreadsPanel initialThreads={initialThreads} totalThreads={totalThreads} />
+          <ThreadsPanel
+            active={openPanel === 'threads'}
+            initialThreads={initialThreads}
+            initialTotal={totalThreads}
+            onToast={showToast}
+          />
         </AccordionPanel>
       </div>
 
@@ -276,6 +292,7 @@ function PersonasEditor({ personas, onPersonasChange, onToast }: PersonasEditorP
   const [editingId, setEditingId] = useState<string | 'new' | null>(null);
   const [draft, setDraft] = useState<PersonaInput>(DEFAULT_PERSONA);
   const [saving, setSaving] = useState(false);
+  const [testPersona, setTestPersona] = useState<SerializedPersona | null>(null);
 
   function startNew() {
     setDraft(DEFAULT_PERSONA);
@@ -416,11 +433,20 @@ function PersonasEditor({ personas, onPersonasChange, onToast }: PersonasEditorP
             </div>
             <div className="flex flex-col gap-1 shrink-0">
               <button onClick={() => startEdit(p)} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--admin-text-secondary)' }}>Edit</button>
+              <button onClick={() => setTestPersona(p)} className="text-xs px-2 py-1 rounded" style={{ color: '#00E676' }}>Test</button>
               <button onClick={() => remove(p.id)} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--admin-danger, #FF5252)' }}>Delete</button>
             </div>
           </div>
         ))}
       </div>
+
+      {testPersona && (
+        <TestSendModal
+          persona={testPersona}
+          onClose={() => setTestPersona(null)}
+          onToast={onToast}
+        />
+      )}
     </div>
   );
 }
@@ -763,40 +789,602 @@ function Toggle({ checked, onChange, on, off }: { checked: boolean; onChange: (v
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Threads panel (read-only in Phase 1)
+// Analytics panel
 // ────────────────────────────────────────────────────────────────────
 
-function ThreadsPanel({ initialThreads, totalThreads }: { initialThreads: SerializedThread[]; totalThreads: number }) {
-  if (totalThreads === 0) {
-    return (
-      <div className="text-center py-10">
-        <p className="text-sm" style={{ color: 'var(--admin-text-secondary)' }}>
-          No threads yet — first messages send after Phase 2 ships and the flag is enabled.
-        </p>
-      </div>
-    );
+function AnalyticsPanel({ active }: { active: boolean }) {
+  const [data, setData] = useState<AnalyticsSnapshot | null>(null);
+  const [rangeDays, setRangeDays] = useState(30);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/admin/conversation-agent/analytics?range=${rangeDays}`);
+        if (cancelled) return;
+        if (res.ok) setData(await res.json());
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [active, rangeDays]);
+
+  if (!data && !loading) {
+    return <p className="text-sm" style={{ color: 'var(--admin-text-secondary)' }}>No data yet.</p>;
   }
+  if (!data) {
+    return <p className="text-sm" style={{ color: 'var(--admin-text-secondary)' }}>Loading…</p>;
+  }
+
+  const f = data.funnel;
+  const spentDollars = (data.claudeSpendTodayCents / 100).toFixed(2);
+  const capDollars = data.claudeSpendCapCents != null ? (data.claudeSpendCapCents / 100).toFixed(2) : null;
+
   return (
     <div>
-      <p className="text-[11px] mb-3" style={{ color: 'var(--admin-text-muted)' }}>
-        Showing {initialThreads.length} of {totalThreads} threads.
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <p className="text-xs" style={{ color: 'var(--admin-text-secondary)' }}>
+          Window: last {data.rangeDays} days
+        </p>
+        <div className="flex gap-1">
+          {[7, 30, 90].map(r => (
+            <button
+              key={r}
+              onClick={() => setRangeDays(r)}
+              className="text-[11px] px-2 py-1 rounded"
+              style={{
+                background: rangeDays === r ? 'var(--admin-accent, #448AFF)' : 'var(--admin-bg)',
+                color: rangeDays === r ? 'white' : 'var(--admin-text-secondary)',
+                border: '1px solid var(--admin-border)',
+              }}
+            >
+              {r}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Funnel */}
+      <p className="text-[10px] font-bold tracking-[3px] mb-2" style={{ color: 'var(--admin-text-faint)' }}>FUNNEL</p>
+      <div className="space-y-1.5 mb-6">
+        <FunnelStep label="Threads opened" count={f.total} total={f.total} />
+        <FunnelStep label="Sent greeting" count={f.withOutbound} total={f.total} />
+        <FunnelStep label="Got a reply" count={f.withInbound} total={f.withOutbound} />
+        <FunnelStep label="Vision delivered" count={f.visionDelivered} total={f.withInbound} />
+        <FunnelStep label="Went dormant" count={f.dormant} total={f.withOutbound} muted />
+        <FunnelStep label="Opted out" count={f.optedOut} total={f.total} muted />
+        <FunnelStep label="Flagged for review" count={f.flaggedForReview} total={f.total} muted />
+        <FunnelStep label="Handed off to human" count={f.manual} total={f.total} muted />
+      </div>
+
+      {/* Claude spend */}
+      <div className="rounded-lg p-3 mb-6" style={{ background: 'var(--admin-bg)', border: '1px solid var(--admin-border)' }}>
+        <p className="text-[10px] font-bold tracking-[3px] mb-1" style={{ color: 'var(--admin-text-faint)' }}>CLAUDE SPEND TODAY</p>
+        <p className="text-lg font-bold" style={{ color: 'var(--admin-text)' }}>
+          ${spentDollars}{capDollars ? ` / $${capDollars} cap` : ''}
+        </p>
+        {capDollars && data.claudeSpendTodayCents >= (data.claudeSpendCapCents ?? Infinity) && (
+          <p className="text-[11px] mt-1" style={{ color: 'var(--admin-danger, #FF5252)' }}>Cap reached — Claude is paused</p>
+        )}
+      </div>
+
+      {/* Per-persona */}
+      <p className="text-[10px] font-bold tracking-[3px] mb-2" style={{ color: 'var(--admin-text-faint)' }}>PER PERSONA</p>
+      <div className="overflow-x-auto mb-6">
+        <table className="w-full text-xs">
+          <thead>
+            <tr style={{ color: 'var(--admin-text-muted)' }}>
+              <th className="text-left py-1 pr-3">Persona</th>
+              <th className="text-right py-1 px-2">Threads</th>
+              <th className="text-right py-1 px-2">Reply rate</th>
+              <th className="text-right py-1 px-2">Opt-outs</th>
+              <th className="text-right py-1 px-2">Avg sent</th>
+              <th className="text-right py-1 px-2">Avg recv</th>
+              <th className="text-right py-1 pl-2">TTR (min)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.perPersona.map(p => {
+              const replyRate = p.outboundCount ? Math.round((p.replyCount / p.outboundCount) * 100) : 0;
+              return (
+                <tr key={p.personaId} style={{ borderTop: '1px solid var(--admin-border)' }}>
+                  <td className="py-1.5 pr-3" style={{ color: 'var(--admin-text)' }}>{p.displayName} <code className="text-[9px] text-white/30">{p.slug}</code></td>
+                  <td className="text-right py-1.5 px-2" style={{ color: 'var(--admin-text)' }}>{p.threadCount}</td>
+                  <td className="text-right py-1.5 px-2" style={{ color: 'var(--admin-text)' }}>{replyRate}%</td>
+                  <td className="text-right py-1.5 px-2" style={{ color: 'var(--admin-text)' }}>{p.optOutCount}</td>
+                  <td className="text-right py-1.5 px-2" style={{ color: 'var(--admin-text-secondary)' }}>{p.avgMessagesSent}</td>
+                  <td className="text-right py-1.5 px-2" style={{ color: 'var(--admin-text-secondary)' }}>{p.avgMessagesReceived}</td>
+                  <td className="text-right py-1.5 pl-2" style={{ color: 'var(--admin-text-secondary)' }}>
+                    {p.avgTimeToReplyMin != null ? p.avgTimeToReplyMin : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+            {data.perPersona.length === 0 && (
+              <tr><td colSpan={7} className="text-center py-4" style={{ color: 'var(--admin-text-muted)' }}>No data yet</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Per-source */}
+      <p className="text-[10px] font-bold tracking-[3px] mb-2" style={{ color: 'var(--admin-text-faint)' }}>PER ACQUISITION SOURCE</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr style={{ color: 'var(--admin-text-muted)' }}>
+              <th className="text-left py-1 pr-3">Source</th>
+              <th className="text-right py-1 px-2">Threads</th>
+              <th className="text-right py-1 px-2">Reply rate</th>
+              <th className="text-right py-1 pl-2">Opt-outs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.perSource.map(s => {
+              const replyRate = s.threadCount ? Math.round((s.replyCount / s.threadCount) * 100) : 0;
+              return (
+                <tr key={s.source} style={{ borderTop: '1px solid var(--admin-border)' }}>
+                  <td className="py-1.5 pr-3" style={{ color: 'var(--admin-text)' }}>{s.source}</td>
+                  <td className="text-right py-1.5 px-2" style={{ color: 'var(--admin-text)' }}>{s.threadCount}</td>
+                  <td className="text-right py-1.5 px-2" style={{ color: 'var(--admin-text)' }}>{replyRate}%</td>
+                  <td className="text-right py-1.5 pl-2" style={{ color: 'var(--admin-text)' }}>{s.optOutCount}</td>
+                </tr>
+              );
+            })}
+            {data.perSource.length === 0 && (
+              <tr><td colSpan={4} className="text-center py-4" style={{ color: 'var(--admin-text-muted)' }}>No data yet</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function FunnelStep({ label, count, total, muted }: { label: string; count: number; total: number; muted?: boolean }) {
+  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex-1 rounded-lg px-3 py-2 flex items-center justify-between" style={{ background: 'var(--admin-bg)', border: '1px solid var(--admin-border)' }}>
+        <span className="text-xs" style={{ color: muted ? 'var(--admin-text-muted)' : 'var(--admin-text)' }}>{label}</span>
+        <span className="text-xs font-bold" style={{ color: muted ? 'var(--admin-text-muted)' : 'var(--admin-text)' }}>{count}</span>
+      </div>
+      <span className="text-[10px] w-10 text-right" style={{ color: 'var(--admin-text-muted)' }}>
+        {total > 0 ? `${pct}%` : '—'}
+      </span>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Threads panel — filter chips, click to expand with transcript + actions
+// ────────────────────────────────────────────────────────────────────
+
+type ThreadFilter = 'all' | 'active' | 'dormant' | 'opted_out' | 'manual' | 'flagged';
+
+interface ThreadsPanelProps {
+  active: boolean;
+  initialThreads: SerializedThread[];
+  initialTotal: number;
+  onToast: (msg: string) => void;
+}
+
+function ThreadsPanel({ active, initialThreads, initialTotal, onToast }: ThreadsPanelProps) {
+  const [threads, setThreads] = useState<SerializedThread[]>(initialThreads);
+  const [total, setTotal] = useState(initialTotal);
+  const [filter, setFilter] = useState<ThreadFilter>('all');
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<SerializedThread | null>(null);
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({ limit: '50' });
+        if (filter === 'flagged') params.set('flagged', '1');
+        else if (filter !== 'all') params.set('status', filter);
+        const res = await fetch(`/api/admin/conversation-agent/threads?${params.toString()}`);
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        setThreads(data.threads as SerializedThread[]);
+        setTotal(data.total);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [active, filter]);
+
+  function refreshThread(updated: SerializedThread) {
+    setThreads(prev => prev.map(t => (t.id === updated.id ? updated : t)));
+    setSelected(updated);
+  }
+
+  const chips: { id: ThreadFilter; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'active', label: 'Active' },
+    { id: 'dormant', label: 'Dormant' },
+    { id: 'opted_out', label: 'Opted-out' },
+    { id: 'manual', label: 'Manual' },
+    { id: 'flagged', label: 'Flagged' },
+  ];
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-3 overflow-x-auto">
+        {chips.map(c => (
+          <button
+            key={c.id}
+            onClick={() => setFilter(c.id)}
+            className="text-[11px] font-semibold px-3 py-1.5 rounded-full shrink-0"
+            style={{
+              background: filter === c.id ? '#00E676' : 'var(--admin-bg)',
+              color: filter === c.id ? '#080808' : 'var(--admin-text-secondary)',
+              border: '1px solid var(--admin-border)',
+            }}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      {loading && <p className="text-[11px]" style={{ color: 'var(--admin-text-muted)' }}>Loading…</p>}
+
+      {!loading && threads.length === 0 && (
+        <div className="text-center py-8">
+          <p className="text-sm" style={{ color: 'var(--admin-text-secondary)' }}>
+            No threads match this filter.
+          </p>
+        </div>
+      )}
+
+      <p className="text-[11px] mb-2" style={{ color: 'var(--admin-text-muted)' }}>
+        Showing {threads.length} of {total} threads.
       </p>
       <div className="space-y-2">
-        {initialThreads.map(t => (
-          <div key={t.id} className="rounded-lg p-3" style={{ background: 'var(--admin-bg)', border: '1px solid var(--admin-border)' }}>
+        {threads.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setSelected(t)}
+            className="w-full text-left rounded-lg p-3 transition-colors hover:opacity-80"
+            style={{
+              background: 'var(--admin-bg)',
+              border: t.flagged_for_review ? '1px solid rgba(255,82,82,0.3)' : '1px solid var(--admin-border)',
+            }}
+          >
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div>
-                <p className="text-sm font-semibold" style={{ color: 'var(--admin-text)' }}>
-                  {t.persona_display_name} → {t.user_profile_type ?? 'user'} {t.phone}
-                </p>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-semibold" style={{ color: 'var(--admin-text)' }}>
+                    {t.persona_display_name}
+                  </span>
+                  <span className="text-xs" style={{ color: 'var(--admin-text-secondary)' }}>
+                    → {t.user_profile_type ?? 'user'} {t.phone}
+                  </span>
+                  {t.flagged_for_review && <Pill label="flagged" tone="accent" />}
+                </div>
                 <p className="text-[10px] mt-0.5" style={{ color: 'var(--admin-text-muted)' }}>
                   {t.messages_sent} sent · {t.messages_received} received · updated {new Date(t.updated_at).toLocaleString()}
                 </p>
               </div>
               <Pill label={t.status} tone={t.status === 'active' ? 'accent' : 'muted'} />
             </div>
-          </div>
+          </button>
         ))}
+      </div>
+
+      {selected && (
+        <ThreadDetailModal
+          thread={selected}
+          onClose={() => setSelected(null)}
+          onThreadUpdated={refreshThread}
+          onToast={onToast}
+        />
+      )}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Thread detail modal — transcript + actions
+// ────────────────────────────────────────────────────────────────────
+
+interface TranscriptMessage {
+  id: string;
+  thread_id: string;
+  direction: 'inbound' | 'outbound';
+  body: string;
+  generated_by: string | null;
+  voipms_id: string | null;
+  delivery_status: string | null;
+  error_message: string | null;
+  sent_at: string;
+}
+
+interface ThreadDetailModalProps {
+  thread: SerializedThread;
+  onClose: () => void;
+  onThreadUpdated: (t: SerializedThread) => void;
+  onToast: (msg: string) => void;
+}
+
+function ThreadDetailModal({ thread, onClose, onThreadUpdated, onToast }: ThreadDetailModalProps) {
+  const [messages, setMessages] = useState<TranscriptMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/admin/conversation-agent/threads/${thread.id}`);
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        setMessages(data.messages as TranscriptMessage[]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [thread.id]);
+
+  async function handoff() {
+    if (!confirm('Hand off this thread to a human? Claude will stop replying and any queued messages will be cancelled.')) return;
+    setActing(true);
+    try {
+      const res = await fetch(`/api/admin/conversation-agent/threads/${thread.id}/handoff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'admin_handoff' }),
+      });
+      if (res.ok) {
+        const { thread: updated } = await res.json();
+        onThreadUpdated({ ...thread, status: updated.status, flagged_for_review: true });
+        onToast('Handed off');
+      } else {
+        onToast('Hand-off failed');
+      }
+    } finally {
+      setActing(false);
+    }
+  }
+
+  async function resume() {
+    setActing(true);
+    try {
+      const res = await fetch(`/api/admin/conversation-agent/threads/${thread.id}/resume`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const { thread: updated } = await res.json();
+        onThreadUpdated({ ...thread, status: updated.status });
+        onToast('Resumed');
+      } else {
+        onToast('Resume failed');
+      }
+    } finally {
+      setActing(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)' }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="w-full max-w-2xl max-h-[85vh] rounded-2xl overflow-hidden flex flex-col"
+        style={{ background: 'var(--admin-bg-elevated)', border: '1px solid var(--admin-border)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-5 py-4 flex items-start justify-between gap-3" style={{ borderBottom: '1px solid var(--admin-border)' }}>
+          <div className="min-w-0">
+            <h2 className="text-base font-bold" style={{ color: 'var(--admin-text)' }}>
+              {thread.persona_display_name} ↔ {thread.user_profile_type ?? 'user'} {thread.phone}
+            </h2>
+            <p className="text-[11px] mt-1" style={{ color: 'var(--admin-text-muted)' }}>
+              status: <span style={{ color: 'var(--admin-text-secondary)' }}>{thread.status}</span>
+              {' · '}
+              sent: {thread.messages_sent} · received: {thread.messages_received}
+              {thread.flagged_for_review && thread.flag_reason && <> · flagged: {thread.flag_reason}</>}
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="text-white/50 hover:text-white">✕</button>
+        </div>
+
+        {/* Transcript */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
+          {loading && <p className="text-xs text-center" style={{ color: 'var(--admin-text-muted)' }}>Loading…</p>}
+          {!loading && messages.length === 0 && (
+            <p className="text-xs text-center" style={{ color: 'var(--admin-text-muted)' }}>No messages yet.</p>
+          )}
+          {messages.map(m => (
+            <div
+              key={m.id}
+              className="flex"
+              style={{ justifyContent: m.direction === 'inbound' ? 'flex-start' : 'flex-end' }}
+            >
+              <div
+                className="max-w-[80%] rounded-2xl px-3 py-2"
+                style={{
+                  background: m.direction === 'inbound' ? 'var(--admin-bg)' : 'rgba(0,230,118,0.14)',
+                  color: m.direction === 'inbound' ? 'var(--admin-text)' : '#00E676',
+                  border: '1px solid var(--admin-border)',
+                }}
+              >
+                <p className="text-sm whitespace-pre-wrap">{m.body}</p>
+                <p className="text-[9px] mt-1 opacity-60">
+                  {new Date(m.sent_at).toLocaleString()}
+                  {m.generated_by && ` · ${m.generated_by}`}
+                  {m.delivery_status && ` · ${m.delivery_status}`}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Actions */}
+        <div className="px-5 py-3 flex items-center justify-between gap-3 flex-wrap" style={{ borderTop: '1px solid var(--admin-border)' }}>
+          <a
+            href={`/api/admin/conversation-agent/threads/${thread.id}/transcript`}
+            className="text-xs px-3 py-2 rounded-lg"
+            style={{ background: 'var(--admin-bg)', color: 'var(--admin-text-secondary)', border: '1px solid var(--admin-border)' }}
+          >
+            Export CSV
+          </a>
+          <div className="flex gap-2">
+            {thread.status === 'manual' ? (
+              <button
+                onClick={resume}
+                disabled={acting}
+                className="text-xs font-bold px-4 py-2 rounded-lg disabled:opacity-50"
+                style={{ background: '#00E676', color: '#080808' }}
+              >
+                Resume agent
+              </button>
+            ) : (thread.status === 'active' || thread.status === 'dormant' || thread.status === 'pending') ? (
+              <button
+                onClick={handoff}
+                disabled={acting}
+                className="text-xs font-bold px-4 py-2 rounded-lg disabled:opacity-50"
+                style={{ background: 'var(--admin-danger, #FF5252)', color: 'white' }}
+              >
+                Hand off to human
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Send-test modal (persona editor row → "Test")
+// ────────────────────────────────────────────────────────────────────
+
+function TestSendModal({
+  persona, onClose, onToast,
+}: {
+  persona: SerializedPersona;
+  onClose: () => void;
+  onToast: (msg: string) => void;
+}) {
+  const [kind, setKind] = useState<'greeting' | 'follow_up' | 'vision'>('greeting');
+  const [toPhone, setToPhone] = useState('');
+  const [sending, setSending] = useState(false);
+  const [lastBody, setLastBody] = useState<string | null>(null);
+
+  async function send() {
+    if (!toPhone) { onToast('Enter a phone number'); return; }
+    setSending(true);
+    try {
+      const res = await fetch(`/api/admin/conversation-agent/threads/test/test-send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personaId: persona.id, kind, toPhone }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        setLastBody(data.sent_body ?? null);
+        onToast('Test sent');
+      } else {
+        onToast(data.error || 'Send failed');
+      }
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const template =
+    kind === 'greeting'  ? persona.greeting_template :
+    kind === 'follow_up' ? (persona.follow_up_template || persona.greeting_template) :
+                           (persona.vision_template || '');
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)' }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="w-full max-w-md rounded-2xl p-5"
+        style={{ background: 'var(--admin-bg-elevated)', border: '1px solid var(--admin-border)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-base font-bold" style={{ color: 'var(--admin-text)' }}>Test send: {persona.display_name}</h2>
+            <p className="text-[11px] mt-1" style={{ color: 'var(--admin-text-muted)' }}>
+              Sends as [TEST] prefix. Won&apos;t touch thread data.
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="text-white/50 hover:text-white">✕</button>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-[10px] font-bold tracking-widest block mb-1" style={{ color: 'var(--admin-text-faint)' }}>MESSAGE KIND</label>
+            <select
+              className="w-full px-3 py-2 text-sm rounded-lg"
+              style={{ background: 'var(--admin-bg)', border: '1px solid var(--admin-border)', color: 'var(--admin-text)' }}
+              value={kind}
+              onChange={e => setKind(e.target.value as 'greeting' | 'follow_up' | 'vision')}
+            >
+              <option value="greeting">Greeting (first message)</option>
+              <option value="follow_up">Follow-up nudge</option>
+              <option value="vision">Vision message</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold tracking-widest block mb-1" style={{ color: 'var(--admin-text-faint)' }}>TO PHONE</label>
+            <input
+              type="tel"
+              placeholder="+14045551234"
+              value={toPhone}
+              onChange={e => setToPhone(e.target.value)}
+              className="w-full px-3 py-2 text-sm rounded-lg"
+              style={{ background: 'var(--admin-bg)', border: '1px solid var(--admin-border)', color: 'var(--admin-text)' }}
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold tracking-widest block mb-1" style={{ color: 'var(--admin-text-faint)' }}>WILL SEND</label>
+            <div className="rounded-lg px-3 py-2 text-xs whitespace-pre-wrap" style={{ background: 'var(--admin-bg)', border: '1px solid var(--admin-border)', color: 'var(--admin-text-secondary)' }}>
+              [TEST] {template || '(empty — persona has no template for this kind)'}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 mt-5">
+          <button onClick={onClose} disabled={sending} className="text-xs text-white/60 px-3 py-2">Cancel</button>
+          <button
+            onClick={send}
+            disabled={sending || !toPhone || !template}
+            className="text-xs font-bold px-4 py-2 rounded-lg disabled:opacity-50"
+            style={{ background: '#00E676', color: '#080808' }}
+          >
+            {sending ? 'Sending…' : 'Send test'}
+          </button>
+        </div>
+
+        {lastBody && (
+          <p className="text-[10px] mt-3" style={{ color: 'var(--admin-text-muted)' }}>
+            Last sent: {lastBody}
+          </p>
+        )}
       </div>
     </div>
   );

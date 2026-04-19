@@ -77,8 +77,32 @@ export function AdminSidebar() {
   const { hasPermission } = useAdminAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({});
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const { markets, selectedMarketId, setSelectedMarketId } = useMarket();
   const { signOut } = useClerk();
+
+  // Hydrate collapsed-sections from localStorage. Safe to run after mount
+  // because the pre-hydration paint shows all sections expanded (matches
+  // initial state), so no layout shift and no hydration mismatch.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('admin_sidebar_collapsed_sections');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, boolean>;
+      if (parsed && typeof parsed === 'object') {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setCollapsedSections(parsed);
+      }
+    } catch { /* ignore parse error */ }
+  }, []);
+
+  const toggleSection = useCallback((label: string) => {
+    setCollapsedSections(prev => {
+      const next = { ...prev, [label]: !prev[label] };
+      try { localStorage.setItem('admin_sidebar_collapsed_sections', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   // Filter nav sections by permissions — user needs at least .view to see an item
   const filteredSections = navSections
@@ -200,46 +224,81 @@ export function AdminSidebar() {
 
         {/* Nav */}
         <nav className={`flex-1 overflow-y-auto ${collapsed ? 'lg:p-2 p-4' : 'p-4'} space-y-5`}>
-          {filteredSections.map((section) => (
-            <div key={section.label}>
-              {/* Section label — hidden when collapsed */}
-              <p className={`px-3 mb-2 text-[10px] font-bold tracking-[3px] ${collapsed ? 'lg:hidden' : ''}`} style={{ color: 'var(--admin-text-faint)' }}>
-                {section.label}
-              </p>
-              {/* Collapsed divider — visible only when collapsed */}
-              <div className={collapsed ? 'hidden lg:block mb-2 mx-2' : 'hidden'} style={{ borderTop: '1px solid var(--admin-border)' }} />
-
-              <div className="space-y-0.5">
-                {section.items.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileOpen(false)}
-                    title={collapsed ? item.label : undefined}
-                    className={`
-                      flex items-center rounded-lg text-sm font-medium transition-colors relative
-                      ${collapsed ? 'lg:justify-center lg:px-0 lg:py-2.5 gap-0 px-3 py-2.5 gap-3' : 'gap-3 px-3 py-2.5'}
-                    `}
-                    style={{
-                      background: isActive(item.href) ? 'var(--admin-bg-active)' : undefined,
-                      color: isActive(item.href) ? 'var(--admin-text)' : 'var(--admin-text-secondary)',
-                    }}
-                  >
-                    <span className={`text-base ${collapsed ? 'lg:text-lg' : ''}`}>{item.icon}</span>
-                    <span className={`flex-1 ${collapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
-                    {item.badgeCategory && (badgeCounts[item.badgeCategory] ?? 0) > 0 && (
-                      <span className={`
-                        ${BADGE_COLORS[item.badgeColor || 'green']} text-black text-[9px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1
-                        ${collapsed ? 'lg:absolute lg:-top-0.5 lg:-right-0.5 lg:min-w-[14px] lg:h-[14px] lg:text-[7px]' : ''}
-                      `}>
-                        {badgeCounts[item.badgeCategory]}
+          {filteredSections.map((section) => {
+            // When sidebar is in icon-only desktop mode, section collapse is
+            // irrelevant — items stay visible. On mobile / expanded desktop,
+            // section collapse hides the items.
+            const isSectionCollapsed = !!collapsedSections[section.label];
+            const hideItems = isSectionCollapsed && !collapsed;
+            // Unread badge sum for this section — surfaces under the collapsed
+            // label so admins know work is stacking up even when folded away.
+            const sectionBadge = section.items.reduce(
+              (sum, item) => sum + (item.badgeCategory ? (badgeCounts[item.badgeCategory] ?? 0) : 0),
+              0,
+            );
+            return (
+              <div key={section.label}>
+                {/* Section label — collapsible trigger. Hidden when sidebar is fully collapsed on desktop. */}
+                <button
+                  type="button"
+                  onClick={() => toggleSection(section.label)}
+                  className={`w-full flex items-center justify-between px-3 mb-2 ${collapsed ? 'lg:hidden' : ''}`}
+                  aria-expanded={!isSectionCollapsed}
+                  style={{ color: 'var(--admin-text-faint)' }}
+                >
+                  <span className="text-[10px] font-bold tracking-[3px]">
+                    {section.label}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    {isSectionCollapsed && sectionBadge > 0 && (
+                      <span className="bg-[#00E676] text-black text-[9px] font-bold min-w-[16px] h-[16px] rounded-full flex items-center justify-center px-1">
+                        {sectionBadge}
                       </span>
                     )}
-                  </Link>
-                ))}
+                    <span
+                      className="text-[10px] transition-transform duration-150"
+                      style={{ transform: isSectionCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}
+                      aria-hidden
+                    >
+                      ▾
+                    </span>
+                  </span>
+                </button>
+                {/* Collapsed sidebar divider — visible only when sidebar is fully collapsed */}
+                <div className={collapsed ? 'hidden lg:block mb-2 mx-2' : 'hidden'} style={{ borderTop: '1px solid var(--admin-border)' }} />
+
+                <div className={`space-y-0.5 ${hideItems ? 'hidden' : ''}`}>
+                  {section.items.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setMobileOpen(false)}
+                      title={collapsed ? item.label : undefined}
+                      className={`
+                        flex items-center rounded-lg text-sm font-medium transition-colors relative
+                        ${collapsed ? 'lg:justify-center lg:px-0 lg:py-2.5 gap-0 px-3 py-2.5 gap-3' : 'gap-3 px-3 py-2.5'}
+                      `}
+                      style={{
+                        background: isActive(item.href) ? 'var(--admin-bg-active)' : undefined,
+                        color: isActive(item.href) ? 'var(--admin-text)' : 'var(--admin-text-secondary)',
+                      }}
+                    >
+                      <span className={`text-base ${collapsed ? 'lg:text-lg' : ''}`}>{item.icon}</span>
+                      <span className={`flex-1 ${collapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
+                      {item.badgeCategory && (badgeCounts[item.badgeCategory] ?? 0) > 0 && (
+                        <span className={`
+                          ${BADGE_COLORS[item.badgeColor || 'green']} text-black text-[9px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1
+                          ${collapsed ? 'lg:absolute lg:-top-0.5 lg:-right-0.5 lg:min-w-[14px] lg:h-[14px] lg:text-[7px]' : ''}
+                        `}>
+                          {badgeCounts[item.badgeCategory]}
+                        </span>
+                      )}
+                    </Link>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </nav>
 
         {/* Footer */}

@@ -47,6 +47,7 @@ export interface ThreadWithContext extends ConversationThread {
 
 export interface ThreadListOptions {
   status?: ThreadStatus;
+  flaggedOnly?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -55,38 +56,78 @@ export async function listThreads(opts: ThreadListOptions = {}): Promise<{ threa
   const limit = Math.min(opts.limit ?? 50, 200);
   const offset = opts.offset ?? 0;
 
-  const threads = (opts.status
-    ? await sql`
-        SELECT t.*, p.slug AS persona_slug, p.display_name AS persona_display_name,
-          u.profile_type AS user_profile_type,
-          COALESCE(dp.gender, rp.gender) AS user_gender
-        FROM conversation_threads t
-        JOIN conversation_personas p ON p.id = t.persona_id
-        JOIN users u ON u.id = t.user_id
-        LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-        WHERE t.status = ${opts.status}
-        ORDER BY t.updated_at DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `
-    : await sql`
-        SELECT t.*, p.slug AS persona_slug, p.display_name AS persona_display_name,
-          u.profile_type AS user_profile_type,
-          COALESCE(dp.gender, rp.gender) AS user_gender
-        FROM conversation_threads t
-        JOIN conversation_personas p ON p.id = t.persona_id
-        JOIN users u ON u.id = t.user_id
-        LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-        ORDER BY t.updated_at DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `) as ThreadWithContext[];
+  let threads: ThreadWithContext[];
+  let totalRows: Array<{ n: number }>;
 
-  const totalRows = opts.status
-    ? await sql`SELECT COUNT(*)::int AS n FROM conversation_threads WHERE status = ${opts.status}`
-    : await sql`SELECT COUNT(*)::int AS n FROM conversation_threads`;
-  const total = (totalRows[0] as { n: number } | undefined)?.n ?? 0;
+  if (opts.status && opts.flaggedOnly) {
+    threads = (await sql`
+      SELECT t.*, p.slug AS persona_slug, p.display_name AS persona_display_name,
+        u.profile_type AS user_profile_type,
+        COALESCE(dp.gender, rp.gender) AS user_gender
+      FROM conversation_threads t
+      JOIN conversation_personas p ON p.id = t.persona_id
+      JOIN users u ON u.id = t.user_id
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+      WHERE t.status = ${opts.status} AND t.flagged_for_review = TRUE
+      ORDER BY t.updated_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `) as ThreadWithContext[];
+    totalRows = (await sql`
+      SELECT COUNT(*)::int AS n FROM conversation_threads
+      WHERE status = ${opts.status} AND flagged_for_review = TRUE
+    `) as Array<{ n: number }>;
+  } else if (opts.status) {
+    threads = (await sql`
+      SELECT t.*, p.slug AS persona_slug, p.display_name AS persona_display_name,
+        u.profile_type AS user_profile_type,
+        COALESCE(dp.gender, rp.gender) AS user_gender
+      FROM conversation_threads t
+      JOIN conversation_personas p ON p.id = t.persona_id
+      JOIN users u ON u.id = t.user_id
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+      WHERE t.status = ${opts.status}
+      ORDER BY t.updated_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `) as ThreadWithContext[];
+    totalRows = (await sql`
+      SELECT COUNT(*)::int AS n FROM conversation_threads WHERE status = ${opts.status}
+    `) as Array<{ n: number }>;
+  } else if (opts.flaggedOnly) {
+    threads = (await sql`
+      SELECT t.*, p.slug AS persona_slug, p.display_name AS persona_display_name,
+        u.profile_type AS user_profile_type,
+        COALESCE(dp.gender, rp.gender) AS user_gender
+      FROM conversation_threads t
+      JOIN conversation_personas p ON p.id = t.persona_id
+      JOIN users u ON u.id = t.user_id
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+      WHERE t.flagged_for_review = TRUE
+      ORDER BY t.updated_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `) as ThreadWithContext[];
+    totalRows = (await sql`
+      SELECT COUNT(*)::int AS n FROM conversation_threads WHERE flagged_for_review = TRUE
+    `) as Array<{ n: number }>;
+  } else {
+    threads = (await sql`
+      SELECT t.*, p.slug AS persona_slug, p.display_name AS persona_display_name,
+        u.profile_type AS user_profile_type,
+        COALESCE(dp.gender, rp.gender) AS user_gender
+      FROM conversation_threads t
+      JOIN conversation_personas p ON p.id = t.persona_id
+      JOIN users u ON u.id = t.user_id
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+      ORDER BY t.updated_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `) as ThreadWithContext[];
+    totalRows = (await sql`SELECT COUNT(*)::int AS n FROM conversation_threads`) as Array<{ n: number }>;
+  }
 
+  const total = totalRows[0]?.n ?? 0;
   return { threads, total };
 }
 

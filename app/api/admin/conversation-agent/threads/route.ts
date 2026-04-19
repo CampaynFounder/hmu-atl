@@ -8,11 +8,13 @@ export async function GET(req: NextRequest) {
 
   const url = req.nextUrl;
   const statusParam = url.searchParams.get('status') as ThreadStatus | null;
+  const flaggedOnly = url.searchParams.get('flagged') === '1';
   const limit = Number(url.searchParams.get('limit') || '50');
   const offset = Number(url.searchParams.get('offset') || '0');
 
   const { threads, total } = await listThreads({
     status: statusParam ?? undefined,
+    flaggedOnly,
     limit,
     offset,
   });
