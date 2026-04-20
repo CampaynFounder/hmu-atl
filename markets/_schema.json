@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MarketConfig",
+  "description": "Declarative configuration for seeding a new market. Consumed by scripts/seed-market.ts. Each market's JSON file is checked into /markets as the source of truth for that market's shape; the DB row is the runtime state (status toggles, etc.).",
+  "type": "object",
+  "required": ["slug", "name", "subdomain", "state", "timezone", "center_lat", "center_lng", "radius_miles", "areas"],
+  "properties": {
+    "slug": { "type": "string", "pattern": "^[a-z0-9-]+$", "description": "Lowercase, URL-safe. Maps to markets.slug. Unique." },
+    "name": { "type": "string", "description": "Display name, e.g. 'New Orleans'" },
+    "subdomain": { "type": "string", "pattern": "^[a-z0-9-]+$", "description": "Matches the <sub>.hmucashride.com subdomain. Usually identical to slug." },
+    "state": { "type": "string", "description": "Two-letter US state code" },
+    "timezone": { "type": "string", "description": "IANA timezone, e.g. 'America/Chicago'" },
+    "status": { "type": "string", "enum": ["setup", "soft_launch", "live", "paused"], "description": "Initial status. Default 'setup' (not public-facing)." },
+    "center_lat": { "type": "number" },
+    "center_lng": { "type": "number" },
+    "radius_miles": { "type": "integer", "minimum": 5, "maximum": 500 },
+    "sms_did": { "type": "string", "description": "10-digit outbound DID. Can be ATL's during pilot; flip later." },
+    "sms_area_code": { "type": "string", "pattern": "^[0-9]{3}$" },
+    "min_drivers_to_launch": { "type": "integer", "minimum": 1 },
+    "branding": { "type": "object", "description": "Free-form JSONB stored on markets.branding" },
+    "clone_cms_from": { "type": "string", "description": "Slug of an existing market whose content_variants / personas / layouts will be cloned as 'draft' for this new market. Typically 'atl'." },
+    "areas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slug", "name", "cardinal", "sort_order"],
+        "properties": {
+          "slug": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "name": { "type": "string" },
+          "cardinal": { "type": "string", "enum": ["westside", "eastside", "northside", "southside", "central"] },
+          "sort_order": { "type": "integer" }
+        }
+      }
+    }
+  }
+}
