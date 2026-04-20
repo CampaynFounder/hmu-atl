@@ -7,10 +7,14 @@ interface Market {
   slug: string;
   name: string;
   status: string;
+  subdomain: string | null;
   driverCount: number;
   riderCount: number;
   completedRides: number;
   areaCount: number;
+  centerLat: number | null;
+  centerLng: number | null;
+  timezone: string | null;
 }
 
 interface MarketContextValue {

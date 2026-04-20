@@ -4,9 +4,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db/client';
 import { getCurrentUser } from '@/lib/auth/guards';
-import { isValidCoordinates, isInAtlantaMetro, calculateDistance, estimateETA } from '@/lib/geo/distance';
+import { isValidCoordinates, isInMarketBounds, calculateDistance, estimateETA } from '@/lib/geo/distance';
 import { calculateFare, createEscrow, validateEscrowParams } from '@/lib/payments/escrow';
 import { notifyNearbyDrivers, checkMatchRateLimit } from '@/lib/rides/matching';
+import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -82,10 +83,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 7. Validate Atlanta metro area
-    if (!isInAtlantaMetro(pickupLocation) || !isInAtlantaMetro(dropoffLocation)) {
+    // 7. Validate user's market service area. For ATL users this calls through
+    //    to isInAtlantaMetro() (same bounds as before) so behavior is byte-for-byte
+    //    preserved. For other markets it uses center + radius from the DB.
+    const userMarket = await resolveMarketForUser(user.id);
+    if (!isInMarketBounds(pickupLocation, userMarket) || !isInMarketBounds(dropoffLocation, userMarket)) {
       return NextResponse.json(
-        { error: 'Service only available in Atlanta metro area' },
+        { error: `Service only available in the ${userMarket.name} metro area` },
         { status: 400 }
       );
     }

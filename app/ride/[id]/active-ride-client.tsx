@@ -682,9 +682,17 @@ export default function ActiveRideClient({
 
       mapboxgl.accessToken = mapboxToken;
 
+      // Center preference: live driver → pickup → dropoff → ATL fallback.
+      // Using pickup/dropoff before the ATL fallback means multi-market rides
+      // (e.g. NOLA) open centered on their actual coords even if GPS hasn't
+      // streamed in yet. ATL rides still fall back identically when no coords.
       const center: [number, number] = driverLocation
         ? [driverLocation.lng, driverLocation.lat]
-        : [-84.388, 33.749]; // Atlanta default
+        : (ride.pickupLat && ride.pickupLng)
+          ? [ride.pickupLng, ride.pickupLat]
+          : (ride.dropoffLat && ride.dropoffLng)
+            ? [ride.dropoffLng, ride.dropoffLat]
+            : [-84.388, 33.749]; // Atlanta default — last-resort only
 
       const map = new mapboxgl.Map({
         container: mapContainerRef.current!,
