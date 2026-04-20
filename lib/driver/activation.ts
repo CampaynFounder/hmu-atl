@@ -1,11 +1,15 @@
 // Driver activation checklist — computed from driver_profiles + users state.
-// 6 fields that move the needle on getting matched. Percentage = done / total * 100.
+// Each item has the direct route a driver should jump to in order to finish it,
+// so the dashboard card can deep-link per row instead of dumping everyone into
+// /driver/profile and hoping they find the right field.
 
 import { sql } from '@/lib/db/client';
 
 export interface ActivationItem {
   key: string;
   label: string;
+  cta: string;
+  route: string;
   done: boolean;
 }
 
@@ -23,7 +27,9 @@ function isNonEmptyObject(v: unknown): boolean {
 
 export async function getActivationProgress(userId: string): Promise<ActivationProgress> {
   const rows = await sql`
-    SELECT thumbnail_url, video_url, pricing, schedule, vehicle_info, area_slugs
+    SELECT
+      thumbnail_url, video_url, pricing, schedule, vehicle_info, area_slugs,
+      payout_setup_complete, cash_only
     FROM driver_profiles
     WHERE user_id = ${userId}
     LIMIT 1
@@ -35,16 +41,69 @@ export async function getActivationProgress(userId: string): Promise<ActivationP
     schedule: unknown;
     vehicle_info: unknown;
     area_slugs: string[] | null;
+    payout_setup_complete: boolean | null;
+    cash_only: boolean | null;
   } | undefined;
 
+  // Items are ordered by priority: the things most likely to get a driver
+  // matched at top. Per-item route is what the dashboard card links to.
   const items: ActivationItem[] = [
-    { key: 'photo', label: 'Profile photo', done: !!p?.thumbnail_url },
-    { key: 'video', label: 'Video intro', done: !!p?.video_url },
-    { key: 'vehicle', label: 'Vehicle info', done: isNonEmptyObject(p?.vehicle_info) },
-    { key: 'pricing', label: 'Pricing', done: isNonEmptyObject(p?.pricing) },
-    { key: 'schedule', label: 'Schedule', done: isNonEmptyObject(p?.schedule) },
-    { key: 'areas', label: 'Service areas', done: (p?.area_slugs?.length ?? 0) > 0 },
+    {
+      key: 'photo',
+      label: 'Profile photo',
+      cta: 'Add photo',
+      route: '/driver/profile?focus=photo',
+      done: !!p?.thumbnail_url,
+    },
+    {
+      key: 'video',
+      label: 'Video intro',
+      cta: 'Record video',
+      route: '/driver/profile?focus=video',
+      done: !!p?.video_url,
+    },
+    {
+      key: 'pricing',
+      label: 'Pricing',
+      cta: 'Set pricing',
+      route: '/driver/profile?focus=pricing',
+      done: isNonEmptyObject(p?.pricing),
+    },
+    {
+      key: 'schedule',
+      label: 'Hours / schedule',
+      cta: 'Set hours',
+      route: '/driver/schedule',
+      done: isNonEmptyObject(p?.schedule),
+    },
+    {
+      key: 'areas',
+      label: 'Service areas',
+      cta: 'Pick areas',
+      route: '/driver/profile?focus=areas',
+      done: (p?.area_slugs?.length ?? 0) > 0,
+    },
+    {
+      key: 'vehicle',
+      label: 'Vehicle info',
+      cta: 'Add vehicle',
+      route: '/driver/profile?focus=vehicle',
+      done: isNonEmptyObject(p?.vehicle_info),
+    },
   ];
+
+  // Payout counts unless the driver is cash-only. We skip the item entirely
+  // for cash-only drivers so the UI doesn't nag them to connect a bank.
+  const isCashOnly = !!p?.cash_only;
+  if (!isCashOnly) {
+    items.push({
+      key: 'payout',
+      label: 'Link your payout',
+      cta: 'Link payout',
+      route: '/driver/payout-setup',
+      done: !!p?.payout_setup_complete,
+    });
+  }
 
   const complete = items.filter(i => i.done).length;
   const total = items.length;

@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { PostOnboardingSurvey } from './post-onboarding-survey';
 import { ProfileCompletionCard } from './profile-completion-card';
+import { GetRidersQuickCard } from './get-riders-quick-card';
 
 interface Props {
   surveyEligible: boolean;
@@ -19,7 +20,10 @@ export function PlaybookShell({ surveyEligible, profileCardEligible, checklistDi
   return (
     <>
       {profileCardEligible && (
-        <ProfileCompletionCard initiallyDismissed={checklistDismissed} />
+        <>
+          <ProfileCompletionCard initiallyDismissed={checklistDismissed} />
+          <GetRidersQuickCard />
+        </>
       )}
       {showSurvey && <PostOnboardingSurvey onClose={() => setShowSurvey(false)} />}
     </>
