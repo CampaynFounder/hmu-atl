@@ -18,11 +18,10 @@ export interface PlaybookSection {
 
 export const ECONOMICS_HERO = {
   lines: [
-    'Who does the work keeps the money.',
-    'At Uber, that\'s Uber.',
-    'At HMU, that\'s YOU.',
+    'Uber/Lyft treat drivers like workers.',
+    'HMU is for Bosses.',
   ],
-  tail: 'Promoting. Greeting. Driving. It\'s all you — so the money\'s all yours.',
+  tail: 'Find Riders Here:',
 };
 
 export const PLAYBOOK_SECTIONS: PlaybookSection[] = [
