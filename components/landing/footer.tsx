@@ -1,7 +1,25 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Instagram, Twitter, Facebook, Linkedin } from 'lucide-react';
+
+// Auto-detect which market subdomain we're on at render time. Used when the
+// parent doesn't pass an explicit brandCity — common for existing call sites
+// that predate multi-market support. ATL is the fallback so no call site that
+// worked before breaks.
+const SUBDOMAIN_TO_CITY: Record<string, string> = {
+  atl: 'Atlanta',
+  nola: 'New Orleans',
+};
+
+function detectBrandCity(): string {
+  if (typeof window === 'undefined') return 'Atlanta';
+  const host = window.location.hostname.toLowerCase();
+  if (!host.endsWith('.hmucashride.com')) return 'Atlanta';
+  const sub = host.slice(0, -'.hmucashride.com'.length);
+  return SUBDOMAIN_TO_CITY[sub] || 'Atlanta';
+}
 
 const footerLinks = {
   product: {
@@ -54,12 +72,21 @@ const isRootDomain = () => {
   return window.location.hostname === 'hmucashride.com';
 };
 
-export function Footer() {
+export function Footer({ brandCity: explicitBrandCity }: { brandCity?: string } = {}) {
   const root = isRootDomain();
+
+  // If parent passed brandCity, use it; otherwise detect from hostname on
+  // client mount. SSR defaults to 'Atlanta' to avoid hydration mismatch —
+  // client updates once mounted if we're on a non-ATL subdomain.
+  const [detected, setDetected] = useState<string>('Atlanta');
+  useEffect(() => {
+    if (!explicitBrandCity) setDetected(detectBrandCity());
+  }, [explicitBrandCity]);
+  const brandCity = explicitBrandCity ?? detected;
 
   const tagline = root
     ? 'Pre-Trip Payment Verification supporting the 100k+ people in the growing community-led peer-to-peer rideshare network.'
-    : 'Metro Atlanta\u2019s peer-to-peer ride network. Affordable rides, real earnings, community-first.';
+    : `Metro ${brandCity}\u2019s peer-to-peer ride network. Affordable rides, real earnings, community-first.`;
 
   const brandName = root ? 'HMU Cash Ride' : 'HMU Cash Ride';
 

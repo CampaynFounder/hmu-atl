@@ -26,6 +26,7 @@ export default async function HomePage({
       initialContent={content}
       initialFlags={flags}
       brandCity={brand.city}
+      brandCityShort={brand.cityShort}
     />
   );
 }

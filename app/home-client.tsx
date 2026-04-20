@@ -15,19 +15,21 @@ export default function HomePageClient({
   initialContent = {},
   initialFlags = {},
   brandCity = 'Atlanta',
+  brandCityShort = 'ATL',
 }: {
   initialContent?: ContentMap;
   initialFlags?: FlagMap;
   brandCity?: string;
+  brandCityShort?: string;
 }) {
   return (
     <CmsProvider initialContent={initialContent} initialFlags={initialFlags}>
-      <HomePageInner brandCity={brandCity} />
+      <HomePageInner brandCity={brandCity} brandCityShort={brandCityShort} />
     </CmsProvider>
   );
 }
 
-function HomePageInner({ brandCity }: { brandCity: string }) {
+function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brandCityShort: string }) {
   // CMS zones
   const heroBadge = useZone('hero_badge', `Launching Q2 2026 • Metro ${brandCity}`);
   const heroLine1 = useZone('hero_headline_line1', 'HATE Blank Trips?');
@@ -146,7 +148,7 @@ function HomePageInner({ brandCity }: { brandCity: string }) {
 
       {/* NAV */}
       <nav className={styles.nav}>
-        <Link href="/" className={styles.navLogo}>HMU ATL</Link>
+        <Link href="/" className={styles.navLogo}>HMU {brandCityShort}</Link>
         <div className={styles.navActions}>
           <div className={styles.themeToggle}>
             <span className={styles.themeIcon}>{isDark ? '🌙' : '☀️'}</span>
@@ -410,7 +412,7 @@ function HomePageInner({ brandCity }: { brandCity: string }) {
       </section>
 
       {/* FOOTER */}
-      <Footer />
+      <Footer brandCity={brandCity} />
     </div>
   );
 }
