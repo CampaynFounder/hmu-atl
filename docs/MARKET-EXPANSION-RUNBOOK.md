@@ -83,39 +83,48 @@
 
 ---
 
-## Phase 3 — Clerk (5 min, only on first-ever root-domain migration)
+## Phase 3 — Clerk satellite (5 min per market)
 
-> Skip this phase for every market AFTER the first root-domain move. Once
-> Clerk lives at `clerk.hmucashride.com`, new subdomains inherit auth with zero
-> Clerk config.
+> Clerk's **Primary** application domain stays at `atl.hmucashride.com` forever.
+> Every new market subdomain is added as a **Satellite** — one instance, SSO
+> across all markets via handshake redirect. ATL users are never logged out.
+>
+> Re-decided 2026-04-20 after exploring the dashboard: moving the Primary to
+> the apex would have required session invalidation + potential key rotation.
+> Satellites are the pragmatic answer and the code supports them natively
+> (see `app/layout.tsx` ClerkProvider satellite props).
 
-11. **Run the pre-flight:**
-    ```bash
-    npx tsx scripts/pre-clerk-migration-check.ts
-    ```
-    Must print `✅ Zero active rides`. Abort if any rides are `otw | here | active`.
+11. **Clerk dashboard → Domains → Satellites tab:**
+    - **Add satellite domain** → `<slug>.hmucashride.com`
+    - Clerk requests a CNAME for verification:
+      ```
+      Type:    CNAME
+      Name:    clerk.<slug>
+      Target:  frontend-api.clerk.services
+      Proxy:   DNS-only (grey cloud)
+      ```
+    - Add it in Cloudflare DNS, wait for Clerk to show green verified (~30s)
 
-12. **Clerk dashboard:**
-    - Dashboard → your instance → **Domains**
-    - Add custom domain: `clerk.hmucashride.com`
-    - Clerk gives you a CNAME target; add it to Cloudflare DNS (grey cloud / DNS-only, like the existing `clerk.atl.*` record)
-    - Wait ~1 min for DNS verification
-    - Promote `clerk.hmucashride.com` to **primary** custom domain
+12. **If Clerk prompts for additional subdomains** (`accounts.<slug>`,
+    `clkmail.<slug>`), add those CNAMEs too — targets are shown by Clerk,
+    always grey-cloud. Not every satellite needs them.
 
-13. **Update Worker secret:**
-    ```bash
-    npx wrangler@latest secret put NEXT_PUBLIC_CLERK_DOMAIN --config wrangler.worker.jsonc
-    # paste: clerk.hmucashride.com
-    ```
+13. **No Worker secret changes.** `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is
+    instance-wide and already works on all satellites. The SDK's satellite
+    mode is configured per-render in `app/layout.tsx` based on the
+    x-market-slug header.
 
-14. **Redeploy** (existing ATL users sign in once; their accounts/data are untouched):
-    ```bash
-    npm run build && npx opennextjs-cloudflare build && npx wrangler@latest deploy --config wrangler.worker.jsonc
-    ```
+14. **Nothing to redeploy specifically for Clerk.** Worker redeploy happens
+    in Phase 2 when the market route is added; Clerk config is purely
+    dashboard-side.
 
 15. **Smoke test auth:**
-    - Open `atl.hmucashride.com` incognito → sign-in works
-    - Open `<slug>.hmucashride.com` incognito → sign-in works with the same account
+    - Incognito → `atl.hmucashride.com/sign-in` → works as before
+    - Incognito → `<slug>.hmucashride.com/sign-in` → redirects to
+      `atl.hmucashride.com/sign-in` (primary), sign in, handshake-redirects
+      back to the satellite signed in
+    - Existing ATL session in regular browser → visit `<slug>.hmucashride.com`
+      → signed in via handshake without needing to re-auth
 
 ---
 
@@ -172,9 +181,10 @@
 **Gotchas for next market:**
 - Real DB schema ≠ `admin-portal.sql` migration file. Trust `information_schema.columns` over the SQL file when auditing. `markets` table has evolved columns (`subdomain`, `status`, `center_lat/lng`, `sms_did`, `fee_config`, `branding`) that aren't in the checked-in migration. TODO: reconcile the migration history.
 - `isInAtlantaMetro()` only has one production caller (`/api/rides/request`) — the shim layer shape worked cleanly. If future geo validation expands, route everything through `isInMarketBounds()`.
-- Clerk root-domain migration is a one-time event, not per-market. Plan it for a low-traffic window, guard with `pre-clerk-migration-check.ts`.
+- **Clerk: use Satellites, not a root-domain primary change.** Initial plan was to move the Primary to `hmucashride.com` (apex) for truly-shared cookies. Reality: Clerk's Primary-change flow rotates instance state and would log every ATL user out. Satellites achieve the same user-facing outcome (SSO across subdomains) via handshake redirects. Per-market cost: one dashboard entry + one `clerk.<slug>` CNAME. Code already handles it via `isSatellite` prop on ClerkProvider, conditioned on `x-market-slug` header.
 - CMS text swap (`'Atlanta' → 'New Orleans'`) is insufficient for `'ATL' → 'N.O.'` because "ATL" appears in substrings. Keep variants as `draft` and review manually; don't trust a bulk sed on CMS content.
-- SMS templates hardcode "HMU ATL:" and `atl.hmucashride.com` URLs — not broken for pilot (links still work via root cookie) but visually off-brand for NOLA riders/drivers. Follow-up: make `sendSms()` template builder market-aware.
+- SMS templates hardcode "HMU ATL:" and `atl.hmucashride.com` URLs — not broken for pilot (links still work via satellite handshake) but visually off-brand for NOLA riders/drivers. Follow-up: make `sendSms()` template builder market-aware.
+- `scripts/pre-clerk-migration-check.ts` was written for the root-migration path and is not needed for satellite adds. Kept in the repo as a generic "safe to do auth infra work?" pre-flight — useful if we ever do a larger auth change.
 
 ### Template for next entry
 
