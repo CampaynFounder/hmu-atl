@@ -39,6 +39,7 @@
   },
   "routes": [
     { "pattern": "atl.hmucashride.com", "custom_domain": true },
+    { "pattern": "nola.hmucashride.com", "custom_domain": true },
     { "pattern": "hmucashride.com/*", "zone_name": "hmucashride.com" }
   ]
 }

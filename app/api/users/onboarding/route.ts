@@ -15,6 +15,7 @@ import { sendSms } from '@/lib/sms/textbee';
 import { publishAdminEvent } from '@/lib/ably/server';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 import { afterResponse } from '@/lib/runtime/after-response';
+import { resolveMarketBySlug } from '@/lib/markets/resolver';
 
 export async function POST(request: NextRequest) {
   try {
@@ -89,6 +90,7 @@ export async function POST(request: NextRequest) {
       let signupSource: 'hmu_chat' | 'direct' | 'homepage_lead' = 'direct';
       let referredByDriverId: string | null = null;
       let verifiedPhone: string | null = null;
+      let marketId: string | null = null;
       try {
         const clerk = await clerkClient();
         const clerkUser = await clerk.users.getUser(clerkId);
@@ -106,6 +108,12 @@ export async function POST(request: NextRequest) {
         for (const p of clerkUser.phoneNumbers || []) {
           if (p.verification?.status === 'verified') { verifiedPhone = p.phoneNumber; break; }
         }
+        // Market — set by sign-up page from the subdomain Host header.
+        const marketSlug = (meta.market as string) || null;
+        if (marketSlug) {
+          const market = await resolveMarketBySlug(marketSlug);
+          marketId = market?.market_id || null;
+        }
       } catch (metaErr) {
         console.warn('[ONBOARDING] Could not read Clerk unsafeMetadata for attribution:', metaErr);
       }
@@ -120,7 +128,8 @@ export async function POST(request: NextRequest) {
           chill_score,
           phone,
           signup_source,
-          referred_by_driver_id
+          referred_by_driver_id,
+          market_id
         ) VALUES (
           ${clerkId},
           ${profile_type},
@@ -130,7 +139,8 @@ export async function POST(request: NextRequest) {
           100,
           ${verifiedPhone},
           ${signupSource},
-          ${referredByDriverId}
+          ${referredByDriverId},
+          ${marketId}
         )
         ON CONFLICT (clerk_id) DO NOTHING
         RETURNING id

@@ -37,6 +37,8 @@ export async function GET() {
       completedRides: Number(m.completed_rides || 0),
       areaCount: Number(m.area_count || 0),
       minDriversToLaunch: Number(m.min_drivers_to_launch || 10),
+      centerLat: m.center_lat === null || m.center_lat === undefined ? null : Number(m.center_lat),
+      centerLng: m.center_lng === null || m.center_lng === undefined ? null : Number(m.center_lng),
     })),
   });
 }

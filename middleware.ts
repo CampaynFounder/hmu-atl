@@ -10,19 +10,51 @@ import { getStateCached } from '@/lib/maintenance';
 const ATTRIB_COOKIE = 'hmu_attrib_id';
 const ATTRIB_MAX_AGE_S = 60 * 60 * 24 * 30;
 
-function ensureAttribCookie(req: NextRequest): NextResponse | undefined {
-  if (req.cookies.has(ATTRIB_COOKIE)) return undefined;
-  if (req.nextUrl.pathname.startsWith('/api')) return undefined;
-  if (req.method !== 'GET') return undefined;
-  const res = NextResponse.next();
-  const id = crypto.randomUUID();
-  res.cookies.set(ATTRIB_COOKIE, id, {
-    maxAge: ATTRIB_MAX_AGE_S,
-    httpOnly: false,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-  });
+// Known market subdomains. Must match markets.subdomain in Neon. Keep this
+// list tight — parsing an arbitrary subdomain into a slug would let preview
+// domains or typos spoof a market. New markets: add the slug here.
+const KNOWN_MARKET_SUBDOMAINS = new Set(['atl', 'nola']);
+
+// Extract a trusted market slug from the Host header. Returns null unless the
+// host is a known market subdomain (atl.hmucashride.com, nola.hmucashride.com,
+// …). Multi-level subdomains like clerk.atl.hmucashride.com produce null —
+// only the root-level subdomain is a market identifier.
+function marketSlugFromHost(req: NextRequest): string | null {
+  const host = req.headers.get('host')?.toLowerCase().split(':')[0] || '';
+  if (!host.endsWith('.hmucashride.com')) return null;
+  const sub = host.slice(0, -('.hmucashride.com'.length));
+  if (!sub || sub.includes('.') || !KNOWN_MARKET_SUBDOMAINS.has(sub)) return null;
+  return sub;
+}
+
+// Build a NextResponse.next() with x-market-slug stamped on the request
+// headers so server components can read it via next/headers. Also handles
+// the attribution cookie.
+function buildPublicResponse(req: NextRequest): NextResponse {
+  const slug = marketSlugFromHost(req);
+  const requestHeaders = slug
+    ? (() => {
+        const h = new Headers(req.headers);
+        h.set('x-market-slug', slug);
+        return h;
+      })()
+    : req.headers;
+
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
+
+  // Attribution cookie — GET, non-API, no existing cookie
+  const needsCookie = !req.cookies.has(ATTRIB_COOKIE)
+    && !req.nextUrl.pathname.startsWith('/api')
+    && req.method === 'GET';
+  if (needsCookie) {
+    res.cookies.set(ATTRIB_COOKIE, crypto.randomUUID(), {
+      maxAge: ATTRIB_MAX_AGE_S,
+      httpOnly: false,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+    });
+  }
   return res;
 }
 
@@ -146,13 +178,22 @@ export default clerkMiddleware(async (auth, req) => {
 
   // Allow public routes without authentication
   if (isPublicRoute(req)) {
-    return ensureAttribCookie(req);
+    return buildPublicResponse(req);
   }
 
   // Protect all other routes — redirect to our sign-in page if not authenticated
   await auth.protect({
     unauthenticatedUrl: new URL('/sign-in', req.url).toString(),
   });
+
+  // For authenticated routes, still stamp x-market-slug so post-auth server
+  // components can read the subdomain if they want (rare — most use users.market_id).
+  const slug = marketSlugFromHost(req);
+  if (slug) {
+    const headers = new Headers(req.headers);
+    headers.set('x-market-slug', slug);
+    return NextResponse.next({ request: { headers } });
+  }
 });
 
 export const config = {

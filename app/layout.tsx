@@ -3,6 +3,7 @@
 
 import type { Metadata, Viewport } from 'next';
 import { Suspense } from 'react';
+import { headers } from 'next/headers';
 import { ClerkProvider } from '@clerk/nextjs';
 import { Inter, Bebas_Neue, DM_Sans, Space_Mono } from 'next/font/google';
 import { Header } from '@/components/layout/header';
@@ -11,7 +12,13 @@ import { MetaPixel } from '@/components/analytics/meta-pixel';
 import { AttributionTracker } from '@/components/analytics/attribution-tracker';
 import { SmsOptInGate } from '@/components/auth/sms-opt-in-gate';
 import { GlobalRideAlert } from '@/components/global-ride-alert';
+import { MARKET_SLUG_HEADER } from '@/lib/markets/resolver';
 import './globals.css';
+
+// Clerk primary application domain. Every other market subdomain that renders
+// this app is a Clerk satellite (see Clerk Dashboard → Domains → Satellites)
+// and must proxy unauth flows here.
+const CLERK_PRIMARY_HOST = 'atl.hmucashride.com';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const bebasNeue = Bebas_Neue({ weight: '400', subsets: ['latin'], variable: '--font-display' });
@@ -185,13 +192,32 @@ const jsonLd = {
   ],
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Determine if this render is happening on a Clerk satellite subdomain.
+  // Host comes from middleware-stamped x-market-slug (trusted allowlist) — we
+  // only treat a request as a satellite when it's a KNOWN non-primary market.
+  // ATL requests pass through with ClerkProvider in default (primary) mode, so
+  // existing ATL behavior is byte-for-byte unchanged.
+  const h = await headers();
+  const slug = h.get(MARKET_SLUG_HEADER);
+  const isSatellite = slug !== null && slug !== 'atl';
+  const satelliteHost = isSatellite && slug ? `${slug}.hmucashride.com` : null;
+
+  const clerkProps = isSatellite && satelliteHost
+    ? {
+        isSatellite: true as const,
+        domain: satelliteHost,
+        signInUrl: `https://${CLERK_PRIMARY_HOST}/sign-in`,
+        signUpUrl: `https://${CLERK_PRIMARY_HOST}/sign-up`,
+      }
+    : {};
+
   return (
-    <ClerkProvider>
+    <ClerkProvider {...clerkProps}>
       <html lang="en">
         <head>
           <script

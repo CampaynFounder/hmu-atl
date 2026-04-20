@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAbly } from '@/hooks/use-ably';
+import { useMarket } from '@/app/admin/components/market-context';
 
 interface ActiveRide {
   id: string;
@@ -63,6 +64,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
+  const { selectedMarket } = useMarket();
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<unknown>(null);
   // Markers: each ride has up to 3 markers (pickup, dropoff, driver) and a route line
@@ -139,10 +141,15 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const mapboxgl = (window as any).mapboxgl;
         mapboxgl.accessToken = token;
+        // Center on the admin's selected market. When the Market context
+        // hasn't populated yet (first paint) or the market lacks coords, fall
+        // back to ATL so ATL admins see no behavior change.
+        const centerLat = (selectedMarket as { centerLat?: number | null } | null)?.centerLat ?? 33.749;
+        const centerLng = (selectedMarket as { centerLng?: number | null } | null)?.centerLng ?? -84.388;
         const map = new mapboxgl.Map({
           container: mapContainer.current!,
           style: 'mapbox://styles/mapbox/dark-v11',
-          center: [-84.388, 33.749],
+          center: [Number(centerLng), Number(centerLat)],
           zoom: 11,
         });
         map.on('load', () => setMapLoaded(true));

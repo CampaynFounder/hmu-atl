@@ -1,42 +1,50 @@
+import { headers } from 'next/headers';
+import type { Metadata } from 'next';
 import RiderLandingClient from './rider-landing-client';
 import { getPageContent } from '@/lib/cms/queries';
+import { getMarketBranding } from '@/lib/markets/branding';
+import { MARKET_SLUG_HEADER } from '@/lib/markets/resolver';
 
-export const metadata = {
-  title: 'HMU Cash Ride — Make Bank Trips not Blank Trips',
-  description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L. Save up to 60% vs Uber. No surge pricing. Sign up free.',
-  alternates: {
-    canonical: 'https://atl.hmucashride.com/rider',
-  },
-  openGraph: {
+export async function generateMetadata(): Promise<Metadata> {
+  const h = await headers();
+  const brand = getMarketBranding(h.get(MARKET_SLUG_HEADER));
+  const canonical = `https://${brand.host}/rider`;
+  return {
     title: 'HMU Cash Ride — Make Bank Trips not Blank Trips',
-    description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L. Save up to 60% vs Uber. Sign up free.',
-    url: 'https://atl.hmucashride.com/rider',
-    siteName: 'HMUCASHRIDE',
-    locale: 'en_US',
-    type: 'website',
-    images: [{ url: 'https://atl.hmucashride.com/og-image.jpeg', width: 1200, height: 630, alt: 'HMU Cash Ride - Make Bank Trips not Blank Trips' }],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'HMU Cash Ride — Make Bank Trips not Blank Trips',
-    description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L. Sign up free.',
-    images: ['https://atl.hmucashride.com/og-image.jpeg'],
-  },
-};
+    description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L. Save up to 60% vs Uber. No surge pricing. Sign up free.',
+    alternates: { canonical },
+    openGraph: {
+      title: 'HMU Cash Ride — Make Bank Trips not Blank Trips',
+      description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L. Save up to 60% vs Uber. Sign up free.',
+      url: canonical,
+      siteName: 'HMUCASHRIDE',
+      locale: 'en_US',
+      type: 'website',
+      images: [{ url: brand.ogImage, width: 1200, height: 630, alt: 'HMU Cash Ride - Make Bank Trips not Blank Trips' }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: 'HMU Cash Ride — Make Bank Trips not Blank Trips',
+      description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L. Sign up free.',
+      images: [brand.ogImage],
+    },
+  };
+}
 
 export default async function RiderLandingPage({
   searchParams,
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const params = await searchParams;
+  const [params, h] = await Promise.all([searchParams, headers()]);
+  const brand = getMarketBranding(h.get(MARKET_SLUG_HEADER));
   const utmFunnel = typeof params.utm_funnel === 'string' ? params.utm_funnel : undefined;
   const utmSource = typeof params.utm_source === 'string' ? params.utm_source : undefined;
   const utmCampaign = typeof params.utm_campaign === 'string' ? params.utm_campaign : undefined;
   const utmPersona = typeof params.utm_persona === 'string' ? params.utm_persona : undefined;
 
   const { content, flags, sectionOrder, funnelStage } = await getPageContent(
-    'rider_landing', 'atl',
+    'rider_landing', brand.slug,
     { utm_funnel: utmFunnel, utm_source: utmSource, utm_campaign: utmCampaign, utm_persona: utmPersona },
   );
   return (
