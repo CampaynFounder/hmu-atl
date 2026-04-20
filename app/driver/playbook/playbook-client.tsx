@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { posthog } from '@/components/analytics/posthog-provider';
 import { TipsPreferenceToggle } from '@/components/driver/tips-preference-toggle';
 import type { PlaybookSection } from '@/content/driver-playbook';
@@ -28,7 +28,6 @@ interface Props {
   fbGroups: FbGroup[];
 }
 
-// Reusable animation presets — easeOut curve, consistent timing across the page
 const FADE_UP = {
   hidden: { opacity: 0, y: 12 },
   show: { opacity: 1, y: 0 },
@@ -38,6 +37,7 @@ const STAGGER_PARENT = {
   show: { transition: { staggerChildren: 0.06, delayChildren: 0.05 } },
 };
 const EASE = [0.25, 0.1, 0.25, 1] as const;
+const INITIAL_FB_VISIBLE = 3;
 
 export default function PlaybookClient({ hero, sections, fbGroups }: Props) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -61,16 +61,11 @@ export default function PlaybookClient({ hero, sections, fbGroups }: Props) {
         <Link href="/driver/dashboard" aria-label="Back" className="p-1 -ml-1">
           <ArrowLeft size={20} />
         </Link>
-        <h1 className="text-lg font-bold">Get Riders</h1>
+        <h1 className="text-lg font-bold">Driver Playbook</h1>
       </header>
 
-      {/* Hero — staggered line-by-line entry */}
-      <motion.section
-        className="px-5 pt-8 pb-8"
-        initial="hidden"
-        animate="show"
-        variants={STAGGER_PARENT}
-      >
+      {/* Hero */}
+      <motion.section className="px-5 pt-8 pb-8" initial="hidden" animate="show" variants={STAGGER_PARENT}>
         <div className="space-y-1">
           {hero.lines.map((line, i) => (
             <motion.p
@@ -93,7 +88,7 @@ export default function PlaybookClient({ hero, sections, fbGroups }: Props) {
         </motion.p>
       </motion.section>
 
-      {/* Section nav pills */}
+      {/* Section nav pills — anchor links to jump + auto-open each section */}
       <motion.nav
         className="sticky top-[52px] z-10 px-4 py-2 flex gap-2 overflow-x-auto no-scrollbar"
         style={{ background: '#080808', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
@@ -101,153 +96,39 @@ export default function PlaybookClient({ hero, sections, fbGroups }: Props) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: EASE, delay: 0.25 }}
       >
-        <a
-          href="#fb-groups"
-          className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-full transition-transform active:scale-95"
-          style={{ background: '#00E676', color: '#080808' }}
-        >
-          👥 FB Groups
-        </a>
         {sections.map(s => (
           <a
             key={s.slug}
             href={`#${s.slug}`}
             className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full transition-transform active:scale-95"
-            style={{ background: 'rgba(255,255,255,0.06)', color: 'white' }}
+            style={{
+              background: s.slug === 'get-riders' ? '#00E676' : 'rgba(255,255,255,0.06)',
+              color: s.slug === 'get-riders' ? '#080808' : 'white',
+            }}
           >
             {s.icon} {s.title}
           </a>
         ))}
       </motion.nav>
 
-      <div className="px-5 py-8 space-y-12">
-        {/* FB Groups — moved to top so "Find Riders Here:" in the hero points
-            directly at it. Tiles stagger in on page load. */}
-        <motion.section
-          id="fb-groups"
-          className="scroll-mt-28"
-          initial="hidden"
-          animate="show"
-          variants={STAGGER_PARENT}
-        >
-          <motion.div variants={FADE_UP} transition={{ duration: 0.4, ease: EASE }} className="flex items-baseline gap-2 mb-2">
-            <span className="text-2xl">👥</span>
-            <h2 className="text-xl font-bold">FB Groups</h2>
-          </motion.div>
-          <motion.p variants={FADE_UP} transition={{ duration: 0.4, ease: EASE }} className="text-lg font-semibold mb-2" style={{ color: '#00E676' }}>
-            Drop your link in these groups.
-          </motion.p>
-          <motion.p variants={FADE_UP} transition={{ duration: 0.4, ease: EASE }} className="text-sm text-white/70 mb-4">
-            Tap &quot;Open&quot; to go to the group. Tap &quot;Copy&quot; to grab a caption that works.
-          </motion.p>
-          {fbGroups.length === 0 ? (
-            <motion.p variants={FADE_UP} transition={{ duration: 0.4, ease: EASE }} className="text-sm text-white/50">
-              Admin hasn&apos;t added groups for your market yet — check back soon.
-            </motion.p>
-          ) : (
-            <ul className="space-y-3">
-              {fbGroups.map(g => (
-                <motion.li
-                  key={g.id}
-                  variants={FADE_UP}
-                  transition={{ duration: 0.4, ease: EASE }}
-                  whileHover={{ y: -2, transition: { duration: 0.15 } }}
-                  className="rounded-xl p-4"
-                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
-                >
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm">{g.name}</p>
-                      {g.audience && (
-                        <span className="inline-block text-[10px] uppercase tracking-wider mt-0.5 px-1.5 py-0.5 rounded" style={{ background: 'rgba(68,138,255,0.12)', color: '#448AFF' }}>
-                          {g.audience}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {g.why_this_group && (
-                    <p className="text-xs text-white/60 mb-2">{g.why_this_group}</p>
-                  )}
-                  {g.suggested_caption && (
-                    <p
-                      className="text-xs italic mb-3 px-3 py-2 rounded-lg"
-                      style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.8)' }}
-                    >
-                      &quot;{g.suggested_caption}&quot;
-                    </p>
-                  )}
-                  <div className="flex gap-2">
-                    <motion.a
-                      href={g.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => posthog.capture('driver_fb_group_opened', { group_id: g.id, group_name: g.name })}
-                      whileTap={{ scale: 0.96 }}
-                      className="flex-1 text-center text-xs font-semibold py-2 rounded-lg"
-                      style={{ background: 'rgba(255,255,255,0.06)', color: 'white' }}
-                    >
-                      Open group
-                    </motion.a>
-                    <motion.button
-                      onClick={() => copyCaption(g)}
-                      whileTap={{ scale: 0.96 }}
-                      animate={copiedId === g.id ? { scale: [1, 1.05, 1] } : {}}
-                      transition={{ duration: 0.35 }}
-                      className="flex-1 text-xs font-bold py-2 rounded-lg"
-                      style={{ background: '#00E676', color: '#080808' }}
-                    >
-                      {copiedId === g.id ? 'Copied ✓' : 'Copy caption'}
-                    </motion.button>
-                  </div>
-                </motion.li>
-              ))}
-            </ul>
-          )}
-        </motion.section>
-
-        {/* Content sections — fade-up on viewport entry, staggered bullets */}
+      {/* Sections — every section is collapsible. All default-closed. The
+          #<slug> anchors still work; clicking a nav pill scrolls but does
+          NOT auto-open (users tap the header to open). */}
+      <div className="px-5 py-6 space-y-3">
         {sections.map(section => (
-          <motion.section
+          <CollapsibleSection
             key={section.slug}
-            id={section.slug}
-            className="scroll-mt-28"
-            initial="hidden"
-            whileInView="show"
-            viewport={{ once: true, amount: 0.2 }}
-            variants={STAGGER_PARENT}
-          >
-            <motion.div variants={FADE_UP} transition={{ duration: 0.4, ease: EASE }} className="flex items-baseline gap-2 mb-2">
-              <span className="text-2xl">{section.icon}</span>
-              <h2 className="text-xl font-bold">{section.title}</h2>
-            </motion.div>
-            <motion.p variants={FADE_UP} transition={{ duration: 0.4, ease: EASE }} className="text-lg font-semibold mb-2" style={{ color: '#00E676' }}>
-              {section.headline}
-            </motion.p>
-            <motion.p variants={FADE_UP} transition={{ duration: 0.4, ease: EASE }} className="text-sm text-white/70 mb-4">
-              {section.lead}
-            </motion.p>
-            <ul className="space-y-3">
-              {section.bullets.map((b, i) => (
-                <motion.li
-                  key={i}
-                  variants={FADE_UP}
-                  transition={{ duration: 0.35, ease: EASE }}
-                  whileHover={{ x: 2, transition: { duration: 0.15 } }}
-                  className="rounded-xl p-4"
-                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
-                >
-                  <p className="font-semibold text-sm">{b.text}</p>
-                  {b.sub && <p className="text-xs text-white/60 mt-1">{b.sub}</p>}
-                </motion.li>
-              ))}
-            </ul>
-          </motion.section>
+            section={section}
+            fbGroups={section.slug === 'get-riders' ? fbGroups : null}
+            copiedId={copiedId}
+            onCopyCaption={copyCaption}
+          />
         ))}
       </div>
 
       {/* Preferences */}
       <motion.section
-        className="px-5 pb-10"
+        className="px-5 pb-10 pt-4"
         initial={{ opacity: 0 }}
         whileInView={{ opacity: 1 }}
         viewport={{ once: true }}
@@ -264,6 +145,201 @@ export default function PlaybookClient({ hero, sections, fbGroups }: Props) {
         .no-scrollbar::-webkit-scrollbar { display: none; }
         html { scroll-behavior: smooth; }
       `}</style>
+    </div>
+  );
+}
+
+interface CollapsibleSectionProps {
+  section: PlaybookSection;
+  fbGroups: FbGroup[] | null;
+  copiedId: string | null;
+  onCopyCaption: (g: FbGroup) => void;
+}
+
+function CollapsibleSection({ section, fbGroups, copiedId, onCopyCaption }: CollapsibleSectionProps) {
+  const [open, setOpen] = useState(false);
+
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    posthog.capture(next ? 'driver_playbook_section_opened' : 'driver_playbook_section_closed', {
+      slug: section.slug,
+    });
+  }
+
+  return (
+    <section
+      id={section.slug}
+      className="scroll-mt-28 rounded-2xl overflow-hidden"
+      style={{
+        background: 'rgba(255,255,255,0.03)',
+        border: open ? '1px solid rgba(0,230,118,0.25)' : '1px solid rgba(255,255,255,0.06)',
+        transition: 'border-color 200ms ease',
+      }}
+    >
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        className="w-full px-5 py-4 flex items-center gap-3 text-left transition-colors hover:bg-white/[0.02] active:bg-white/[0.04]"
+      >
+        <span className="text-2xl shrink-0">{section.icon}</span>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-base font-bold text-white leading-tight">{section.title}</h2>
+          <p
+            className="text-xs mt-0.5 truncate"
+            style={{ color: open ? '#00E676' : 'rgba(255,255,255,0.55)' }}
+          >
+            {section.headline}
+          </p>
+        </div>
+        <motion.span
+          animate={{ rotate: open ? 180 : 0 }}
+          transition={{ duration: 0.2, ease: EASE }}
+          className="inline-flex items-center justify-center w-7 h-7 rounded-md shrink-0"
+          style={{ background: 'rgba(255,255,255,0.06)', color: 'white', fontSize: 12 }}
+          aria-hidden
+        >
+          ▾
+        </motion.span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="content"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.28, ease: EASE }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div className="px-5 pb-5">
+              <p className="text-sm text-white/70 mb-4 leading-relaxed">{section.lead}</p>
+
+              <ul className="space-y-2.5">
+                {section.bullets.map((b, i) => (
+                  <motion.li
+                    key={i}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.28, ease: EASE, delay: i * 0.04 }}
+                    className="rounded-xl p-3.5"
+                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.05)' }}
+                  >
+                    <p className="font-semibold text-sm">{b.text}</p>
+                    {b.sub && <p className="text-xs text-white/60 mt-1 leading-relaxed">{b.sub}</p>}
+                  </motion.li>
+                ))}
+              </ul>
+
+              {fbGroups && (
+                <InlineFbGroups
+                  groups={fbGroups}
+                  copiedId={copiedId}
+                  onCopyCaption={onCopyCaption}
+                />
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
+  );
+}
+
+interface InlineFbGroupsProps {
+  groups: FbGroup[];
+  copiedId: string | null;
+  onCopyCaption: (g: FbGroup) => void;
+}
+
+function InlineFbGroups({ groups, copiedId, onCopyCaption }: InlineFbGroupsProps) {
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? groups : groups.slice(0, INITIAL_FB_VISIBLE);
+  const hasMore = groups.length > INITIAL_FB_VISIBLE;
+
+  if (groups.length === 0) {
+    return (
+      <div className="mt-5 rounded-xl p-4 text-center" style={{ background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.12)' }}>
+        <p className="text-xs text-white/50">Admin hasn&apos;t added groups for your market yet — check back soon.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-5">
+      <p className="text-[10px] font-bold tracking-[3px] mb-2" style={{ color: '#00E676' }}>
+        {groups.length} {groups.length === 1 ? 'GROUP' : 'GROUPS'} · TAP TO JOIN
+      </p>
+      <ul className="space-y-2">
+        <AnimatePresence initial={false}>
+          {visible.map(g => (
+            <motion.li
+              key={g.id}
+              layout
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.22, ease: EASE }}
+              className="rounded-xl p-3"
+              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+            >
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-sm font-semibold text-white truncate">{g.name}</p>
+                {g.audience && (
+                  <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(68,138,255,0.12)', color: '#448AFF' }}>
+                    {g.audience}
+                  </span>
+                )}
+              </div>
+              {g.why_this_group && (
+                <p className="text-[11px] text-white/55 mb-2">{g.why_this_group}</p>
+              )}
+              {g.suggested_caption && (
+                <p
+                  className="text-[11px] italic mb-2 px-2.5 py-1.5 rounded-lg"
+                  style={{ background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.75)' }}
+                >
+                  &quot;{g.suggested_caption}&quot;
+                </p>
+              )}
+              <div className="flex gap-2">
+                <motion.a
+                  href={g.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => posthog.capture('driver_fb_group_opened', { group_id: g.id, group_name: g.name })}
+                  whileTap={{ scale: 0.96 }}
+                  className="flex-1 text-center text-[11px] font-semibold py-2 rounded-lg"
+                  style={{ background: 'rgba(255,255,255,0.06)', color: 'white' }}
+                >
+                  Open group
+                </motion.a>
+                <motion.button
+                  onClick={() => onCopyCaption(g)}
+                  whileTap={{ scale: 0.96 }}
+                  animate={copiedId === g.id ? { scale: [1, 1.05, 1] } : {}}
+                  transition={{ duration: 0.35 }}
+                  className="flex-1 text-[11px] font-bold py-2 rounded-lg"
+                  style={{ background: '#00E676', color: '#080808' }}
+                >
+                  {copiedId === g.id ? 'Copied ✓' : 'Copy caption'}
+                </motion.button>
+              </div>
+            </motion.li>
+          ))}
+        </AnimatePresence>
+      </ul>
+      {hasMore && (
+        <button
+          onClick={() => setShowAll(s => !s)}
+          className="mt-2 w-full text-[11px] font-semibold py-2 rounded-lg transition-colors hover:bg-white/5"
+          style={{ color: 'rgba(255,255,255,0.7)' }}
+        >
+          {showAll ? 'Show fewer' : `Show ${groups.length - INITIAL_FB_VISIBLE} more`}
+        </button>
+      )}
     </div>
   );
 }

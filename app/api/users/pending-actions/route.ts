@@ -478,7 +478,7 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
         priority: 3,
         type: 'learn_ratings',
         title: "This Ain't Uber/Lyft",
-        subtitle: 'Those platforms are for workers. HMU is for Bosses.',
+        subtitle: 'Those platforms are for workers. HMU is for Owners.',
         cta: 'Connect w/ Riders',
         href: '/driver/playbook#get-riders',
         color: '#00E676',
