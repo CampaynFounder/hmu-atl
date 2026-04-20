@@ -14,15 +14,15 @@ import type { ContentMap, FlagMap } from '@/lib/cms/types';
 import { getDefaultSectionOrder } from '@/lib/cms/section-registry';
 import styles from './driver.module.css';
 
-export default function DriverLandingClient({ initialContent, initialFlags, sectionOrder, funnelStage, brandLabel = 'HMU ATL' }: { initialContent?: ContentMap; initialFlags?: FlagMap; sectionOrder?: string[]; funnelStage?: string; brandLabel?: string }) {
+export default function DriverLandingClient({ initialContent, initialFlags, sectionOrder, funnelStage, brandLabel = 'HMU ATL', brandCity = 'Atlanta' }: { initialContent?: ContentMap; initialFlags?: FlagMap; sectionOrder?: string[]; funnelStage?: string; brandLabel?: string; brandCity?: string }) {
   return (
     <CmsProvider initialContent={initialContent ?? {}} initialFlags={initialFlags} sectionOrder={sectionOrder} funnelStage={funnelStage}>
-      <DriverLandingInner brandLabel={brandLabel} />
+      <DriverLandingInner brandLabel={brandLabel} brandCity={brandCity} />
     </CmsProvider>
   );
 }
 
-function DriverLandingInner({ brandLabel }: { brandLabel: string }) {
+function DriverLandingInner({ brandLabel, brandCity }: { brandLabel: string; brandCity: string }) {
   const router = useRouter();
 
   // CMS zones
@@ -729,7 +729,7 @@ function DriverLandingInner({ brandLabel }: { brandLabel: string }) {
       )}
 
       {/* FOOTER */}
-      <Footer />
+      <Footer brandCity={brandCity} />
     </div>
   );
 }

@@ -54,6 +54,7 @@ export default async function DriverLandingPage({
       sectionOrder={sectionOrder}
       funnelStage={funnelStage}
       brandLabel={`HMU ${brand.cityShort}`}
+      brandCity={brand.city}
     />
   );
 }

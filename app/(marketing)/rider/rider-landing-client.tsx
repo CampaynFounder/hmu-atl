@@ -12,15 +12,15 @@ import type { ContentMap, FlagMap } from '@/lib/cms/types';
 import { getDefaultSectionOrder } from '@/lib/cms/section-registry';
 import styles from './rider.module.css';
 
-export default function RiderLandingClient({ initialContent, initialFlags, sectionOrder, funnelStage, brandLabel = 'HMU ATL' }: { initialContent?: ContentMap; initialFlags?: FlagMap; sectionOrder?: string[]; funnelStage?: string; brandLabel?: string }) {
+export default function RiderLandingClient({ initialContent, initialFlags, sectionOrder, funnelStage, brandLabel = 'HMU ATL', brandCity = 'Atlanta' }: { initialContent?: ContentMap; initialFlags?: FlagMap; sectionOrder?: string[]; funnelStage?: string; brandLabel?: string; brandCity?: string }) {
   return (
     <CmsProvider initialContent={initialContent ?? {}} initialFlags={initialFlags} sectionOrder={sectionOrder} funnelStage={funnelStage}>
-      <RiderLandingInner brandLabel={brandLabel} />
+      <RiderLandingInner brandLabel={brandLabel} brandCity={brandCity} />
     </CmsProvider>
   );
 }
 
-function RiderLandingInner({ brandLabel }: { brandLabel: string }) {
+function RiderLandingInner({ brandLabel, brandCity }: { brandLabel: string; brandCity: string }) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [phone, setPhone] = useState('');
@@ -452,7 +452,7 @@ function RiderLandingInner({ brandLabel }: { brandLabel: string }) {
       )}
 
       {/* FOOTER */}
-      <Footer />
+      <Footer brandCity={brandCity} />
     </div>
   );
 }
