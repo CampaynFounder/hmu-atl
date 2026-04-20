@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
 import { useAbly } from '@/hooks/use-ably';
 import CashoutCard from '@/components/driver/cashout-card';
 import { PendingActionBanner } from '@/components/pending-action-banner';
@@ -194,6 +195,33 @@ export default function DriverHomeClient({
         .loading-dot:nth-child(2) { animation-delay: 0.2s; }
         .loading-dot:nth-child(3) { animation-delay: 0.4s; }
         @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.3;transform:scale(0.6)} }
+
+        /* First-load shimmer — a soft sheen sweeps each primary CTA twice then
+           stops. Works on any button with .shimmer-once. The ::after gives us
+           a gradient overlay without disturbing button content. */
+        .shimmer-once { position: relative; overflow: hidden; }
+        .shimmer-once::after {
+          content: ''; position: absolute; inset: 0;
+          background: linear-gradient(100deg, transparent 0%, rgba(255,255,255,0.35) 50%, transparent 100%);
+          background-size: 200% 100%;
+          animation: shimmerSweep 1.6s ease-out 2;
+          pointer-events: none;
+        }
+        @keyframes shimmerSweep {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+
+        /* Collapsed "no requests" pill — keeps the cashout card above the fold. */
+        .empty-collapsed {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 12px 16px; margin-bottom: 24px;
+          border-radius: 12px;
+          background: rgba(255,255,255,0.03);
+          border: 1px solid rgba(255,255,255,0.06);
+        }
+        .empty-collapsed-label { font-size: 13px; color: var(--gray-light); display: flex; align-items: center; gap: 8px; }
+        .empty-collapsed-expand { font-size: 11px; font-weight: 600; color: var(--green); cursor: pointer; background: transparent; border: none; padding: 4px 8px; }
       `}</style>
 
       <div className="driver-home">
@@ -202,52 +230,79 @@ export default function DriverHomeClient({
           <PendingActionBanner maxActions={3} />
         </div>
 
-        <h1 className="greeting">
+        <motion.h1
+          className="greeting"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
+        >
           {displayName}
           {isHmuFirst
             ? <span className="badge">{'\uD83E\uDD47'} HMU 1st</span>
             : <span className="badge" style={{ background: '#1a1a1a', color: '#888', border: '1px solid rgba(255,255,255,0.08)' }}>Free Tier</span>
           }
-        </h1>
-        <p className="greeting-sub">Your ride link is live</p>
+        </motion.h1>
+        <motion.p
+          className="greeting-sub"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, ease: [0.25, 0.1, 0.25, 1], delay: 0.08 }}
+        >
+          Your ride link is live
+        </motion.p>
 
         {areas.length > 0 && (
-          <div className="areas-row">
+          <motion.div
+            className="areas-row"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1], delay: 0.16 }}
+          >
             {areas.map((a) => (
               <span key={a} className="area-tag">{a}</span>
             ))}
-          </div>
+          </motion.div>
         )}
 
-        {/* Incoming Requests — FIRST so drivers see them immediately */}
-        <h2 className="section-title">Incoming Requests</h2>
-
+        {/* Incoming Requests — collapse the section entirely when empty so the
+            cashout card sits above the fold for new drivers. Loading still
+            shows the dots; requests still render as cards. */}
         {loadingRequests ? (
-          <div className="loading-dots">
-            <div className="loading-dot" />
-            <div className="loading-dot" />
-            <div className="loading-dot" />
-          </div>
+          <>
+            <h2 className="section-title">Incoming Requests</h2>
+            <div className="loading-dots">
+              <div className="loading-dot" />
+              <div className="loading-dot" />
+              <div className="loading-dot" />
+            </div>
+          </>
         ) : requests.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">{'\uD83D\uDCED'}</div>
-            <p className="empty-text">
-              No requests yet — share your link to get started
-            </p>
-          </div>
+          <EmptyRequestsCollapsed />
         ) : (
-          requests.map((req) => (
-            <RequestCard key={req.id} req={req} actionLoading={actionLoading} onAction={handleAction} />
-          ))
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1], delay: 0.2 }}
+          >
+            <h2 className="section-title">Incoming Requests</h2>
+            {requests.map((req) => (
+              <RequestCard key={req.id} req={req} actionLoading={actionLoading} onAction={handleAction} />
+            ))}
+          </motion.div>
         )}
 
-        {/* Lifecycle Card */}
+        {/* Lifecycle Card — fade-up on mount; primary CTAs get a one-shot shimmer */}
         {!payoutSetup && !cashOnly ? (
           /* SETUP: Link payout */
-          <div style={{
-            background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
-            borderRadius: 20, padding: '24px 20px', marginBottom: 32,
-          }}>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1], delay: 0.28 }}
+            style={{
+              background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
+              borderRadius: 20, padding: '24px 20px', marginBottom: 32,
+            }}
+          >
             <div style={{ fontSize: 22, marginBottom: 8 }}>{'\uD83D\uDCB3'}</div>
             <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 24, lineHeight: 1, marginBottom: 6 }}>
               LINK YOUR PAYOUT ACCOUNT
@@ -257,6 +312,7 @@ export default function DriverHomeClient({
             </p>
             <a
               href="/driver/payout-setup"
+              className="shimmer-once"
               style={{
                 display: 'block', width: '100%', padding: 16, borderRadius: 100,
                 border: 'none', background: '#00E676', color: '#080808',
@@ -266,10 +322,15 @@ export default function DriverHomeClient({
             >
               Set Up Payouts
             </a>
-          </div>
+          </motion.div>
         ) : completedRides === 0 ? (
           /* READY: First ride — show cashout card + share prompt */
-          <div style={{ marginBottom: 32 }}>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1], delay: 0.28 }}
+            style={{ marginBottom: 32 }}
+          >
             <CashoutCard />
             <div style={{
               background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
@@ -284,6 +345,7 @@ export default function DriverHomeClient({
               </p>
               <button
                 onClick={handleShare}
+                className="shimmer-once"
                 style={{
                   display: 'block', width: '100%', padding: 16, borderRadius: 100,
                   border: 'none', background: '#00E676', color: '#080808',
@@ -294,10 +356,15 @@ export default function DriverHomeClient({
                 Share My HMU Link
               </button>
             </div>
-          </div>
+          </motion.div>
         ) : completedRides <= 5 ? (
           /* GROWING: Cashout first, then milestone */
-          <div style={{ marginBottom: 32 }}>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1], delay: 0.28 }}
+            style={{ marginBottom: 32 }}
+          >
             <CashoutCard />
             <div style={{
               background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
@@ -324,10 +391,15 @@ export default function DriverHomeClient({
                 Share
               </button>
             </div>
-          </div>
+          </motion.div>
         ) : (
           /* ESTABLISHED: Cashout + subtle upgrade */
-          <div style={{ marginBottom: 32 }}>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1], delay: 0.28 }}
+            style={{ marginBottom: 32 }}
+          >
             <CashoutCard />
             {!isHmuFirst && (
               <div style={{
@@ -349,11 +421,55 @@ export default function DriverHomeClient({
                 </a>
               </div>
             )}
-          </div>
+          </motion.div>
         )}
 
       </div>
     </>
+  );
+}
+
+function EmptyRequestsCollapsed() {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <motion.div
+        className="empty-collapsed"
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1], delay: 0.2 }}
+      >
+        <span className="empty-collapsed-label">
+          {'\uD83D\uDCED'} No incoming requests
+        </span>
+        <button type="button" className="empty-collapsed-expand" onClick={() => setOpen(true)}>
+          Expand
+        </button>
+      </motion.div>
+    );
+  }
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
+    >
+      <h2 className="section-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span>Incoming Requests</span>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="empty-collapsed-expand"
+          style={{ fontSize: 12 }}
+        >
+          Collapse
+        </button>
+      </h2>
+      <div className="empty-state">
+        <div className="empty-icon">{'\uD83D\uDCED'}</div>
+        <p className="empty-text">No requests yet — share your link to get started.</p>
+      </div>
+    </motion.div>
   );
 }
 

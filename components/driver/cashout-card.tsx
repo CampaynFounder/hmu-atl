@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { fbCustomEvent } from '@/components/analytics/meta-pixel';
 import UpgradeOverlay from './upgrade-overlay';
 
@@ -171,9 +172,39 @@ export default function CashoutCard() {
           100% { transform: translateY(300px) translateX(var(--drift)) rotate(540deg); opacity: 0; }
         }
         .co-confetti { position: absolute; top: 0; width: 6px; height: 9px; border-radius: 2px; pointer-events: none; }
+
+        /* First-load shimmer on the primary cashout button. Sweeps twice then
+           stops — cue to tap without being obnoxious. */
+        .co-shimmer { position: relative; overflow: hidden; }
+        .co-shimmer::after {
+          content: ''; position: absolute; inset: 0; border-radius: inherit;
+          background: linear-gradient(100deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%);
+          background-size: 200% 100%;
+          animation: coShimmer 1.6s ease-out 2;
+          pointer-events: none;
+        }
+        @keyframes coShimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+
+        /* Micro text entrance for the headline amount. */
+        @keyframes coTextRise {
+          0% { opacity: 0; transform: translateY(6px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        .co-rise { animation: coTextRise 0.5s cubic-bezier(0.25, 0.1, 0.25, 1) both; }
+        .co-rise-1 { animation-delay: 0.05s; }
+        .co-rise-2 { animation-delay: 0.12s; }
+        .co-rise-3 { animation-delay: 0.2s; }
       `}</style>
 
-      <div className="co-card">
+      <motion.div
+        className="co-card"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
+      >
         {/* Confetti */}
         {particles.map(p => (
           <div key={p.id} className="co-confetti" style={{
@@ -189,8 +220,8 @@ export default function CashoutCard() {
           {isHmuFirst ? '\uD83E\uDD47 HMU First' : 'Free Tier'}
         </div>
 
-        <div className="co-title">Ready to Cash Out</div>
-        <div className={`co-amount ${cashableAmount <= 0 ? 'co-amount--zero' : ''}`}>
+        <div className="co-title co-rise co-rise-1">Ready to Cash Out</div>
+        <div className={`co-amount co-rise co-rise-2 ${cashableAmount <= 0 ? 'co-amount--zero' : ''}`}>
           ${cashableAmount.toFixed(2)}
         </div>
         {balance.pending > 0 && (
@@ -455,7 +486,7 @@ export default function CashoutCard() {
 
             <button
               type="button"
-              className="co-btn co-btn--green"
+              className="co-btn co-btn--green co-shimmer"
               onClick={handleCashout}
               disabled={cashingOut || cashableAmount <= 0 || payoutAmount < minPayout}
             >
@@ -482,7 +513,7 @@ export default function CashoutCard() {
             />
           </>
         )}
-      </div>
+      </motion.div>
     </>
   );
 }
