@@ -65,7 +65,7 @@ export default function PlaybookClient({ hero, sections, fbGroups }: Props) {
             </p>
           ))}
         </div>
-        <p className="mt-4 text-sm text-white/70">{hero.tail}</p>
+        <p className="mt-5 text-base font-bold text-white/90">{hero.tail}</p>
       </section>
 
       {/* Section nav pills */}
