@@ -19,7 +19,7 @@ export default async function DriverDashboardPage() {
   // the dashboard.
   const shellProps = await loadShellProps(clerkId).catch((err) => {
     console.error('[driver/dashboard] shell props failed — rendering bare dashboard:', err);
-    return { surveyEligible: false, profileCardEligible: false, checklistDismissed: false };
+    return { surveyEligible: false, profileCardEligible: false, checklistDismissed: false, promoteFirst: false };
   });
 
   return (
@@ -32,7 +32,7 @@ export default async function DriverDashboardPage() {
 
 async function loadShellProps(clerkId: string) {
   const rows = await sql`
-    SELECT id, profile_type, survey_completed_at, survey_skipped_at
+    SELECT id, profile_type, completed_rides, survey_completed_at, survey_skipped_at
     FROM users
     WHERE clerk_id = ${clerkId}
     LIMIT 1
@@ -40,12 +40,13 @@ async function loadShellProps(clerkId: string) {
   const user = rows[0] as {
     id: string;
     profile_type: string;
+    completed_rides: number | null;
     survey_completed_at: Date | null;
     survey_skipped_at: Date | null;
   } | undefined;
 
   if (!user || user.profile_type !== 'driver') {
-    return { surveyEligible: false, profileCardEligible: false, checklistDismissed: false };
+    return { surveyEligible: false, profileCardEligible: false, checklistDismissed: false, promoteFirst: false };
   }
 
   const cookieStore = await cookies();
@@ -56,7 +57,7 @@ async function loadShellProps(clerkId: string) {
 
   const flagOn = await isFeatureEnabled('driver_playbook', { userId: user.id });
   if (!flagOn) {
-    return { surveyEligible: false, profileCardEligible: false, checklistDismissed: false };
+    return { surveyEligible: false, profileCardEligible: false, checklistDismissed: false, promoteFirst: false };
   }
 
   const prefRows = await sql`
@@ -64,9 +65,16 @@ async function loadShellProps(clerkId: string) {
   `;
   const checklistDismissed = !!(prefRows[0] as { checklist_dismissed_at: Date | null } | undefined)?.checklist_dismissed_at;
 
+  // Brand-new drivers (0 completed rides) need to focus on getting their FIRST
+  // rider, not polishing their profile. Render the FB groups card ABOVE the
+  // profile-completion card for them. Once they've got a ride under their
+  // belt, profile polishing moves back up.
+  const promoteFirst = Number(user.completed_rides ?? 0) === 0;
+
   return {
     profileCardEligible: true,
     surveyEligible: !user.survey_completed_at && !user.survey_skipped_at,
     checklistDismissed,
+    promoteFirst,
   };
 }

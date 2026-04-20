@@ -27,11 +27,26 @@ export const ECONOMICS_HERO = {
 
 export const PLAYBOOK_SECTIONS: PlaybookSection[] = [
   {
+    slug: 'get-riders',
+    icon: '📣',
+    title: 'Promote Your Link',
+    headline: 'Uber buys ads. You ARE the ad.',
+    lead: 'Your HMU link is the ad. Every post = potential booking. Post once a day and you\'ll never run dry. FB groups are below — join them, post your link, get booked.',
+    bullets: [
+      { text: 'Drop your link in FB groups, comments, story, bio', sub: 'Not your number. The link tracks. The link saves payment. A number can\'t do either.' },
+      { text: 'Why link > direct DM', sub: 'Link holds rider payment up-front — no ghosting. Link tracks what works. You lose nothing.' },
+      { text: 'Caption script', sub: '"Running [area] rides tonight — $25 min. HMU: [your link]"' },
+      { text: 'Post across 3-5 groups daily', sub: 'The feed moves fast. One post = one shot. Five posts = five shots.' },
+      { text: 'Tap any group below to join + post', sub: 'Admin keeps this list fresh — these are the groups that actually convert.' },
+    ],
+    tags: ['facebook', 'fb', 'group', 'promotion', 'link', 'share', 'marketing', 'ads', 'post', 'promote'],
+  },
+  {
     slug: 'profile',
     icon: '🪪',
     title: 'Get Seen',
     headline: 'Your profile is your storefront.',
-    lead: 'If riders can\'t see you, they can\'t book you. These five fields move the needle.',
+    lead: 'Once the link is out there, your profile closes the deal. These five fields move the needle.',
     bullets: [
       { text: 'Profile photo', sub: 'Face clear, no shades. Riders pick faces they trust.' },
       { text: 'Vehicle photo + plate', sub: 'Proves you\'re real. No photo, no bookings.' },
@@ -55,21 +70,6 @@ export const PLAYBOOK_SECTIONS: PlaybookSection[] = [
       { text: 'Stack the cap', sub: 'Daily cap hits = $0 platform fee. Past $300, HMU stops taking cuts.' },
     ],
     tags: ['pricing', 'money', 'minimum', 'rate', 'fee', 'cap'],
-  },
-  {
-    slug: 'get-riders',
-    icon: '📣',
-    title: 'Run the Ads',
-    headline: 'Uber buys ads. You ARE the ad.',
-    lead: 'Your HMU link is the ad. Every post = potential booking. Post once a day and you\'ll never run dry.',
-    bullets: [
-      { text: 'Drop your link in FB groups, comments, story, bio', sub: 'Not your number. The link tracks. The link saves payment. A number can\'t do either.' },
-      { text: 'Why link > direct DM', sub: 'Link holds rider payment up-front — no ghosting. Link tracks what works. You lose nothing.' },
-      { text: 'Caption script', sub: '"Running [area] rides tonight — $25 min. HMU: [your link]"' },
-      { text: 'Post across 3-5 groups daily', sub: 'The feed moves fast. One post = one shot. Five posts = five shots.' },
-      { text: 'Use the curated group list below', sub: 'Admin keeps this fresh. Groups that actually convert.' },
-    ],
-    tags: ['facebook', 'fb', 'group', 'promotion', 'link', 'share', 'marketing', 'ads', 'post'],
   },
   {
     slug: 'retention',
