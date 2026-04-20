@@ -16,6 +16,10 @@ export interface CreateUserParams {
   signup_source?: 'hmu_chat' | 'direct' | 'homepage_lead' | 'admin_portal' | null;
   referred_by_driver_id?: string | null;
   referred_via_hmu_post_id?: string | null;
+  // Resolved market UUID — typically derived from the subdomain the user
+  // signed up on (nola.hmucashride.com → nola market). Null falls back to
+  // resolveMarketForUser()'s default, which is ATL.
+  market_id?: string | null;
 }
 
 export interface UpdateUserParams {
@@ -39,7 +43,8 @@ export async function createUser(params: CreateUserParams): Promise<{ user: User
       phone,
       signup_source,
       referred_by_driver_id,
-      referred_via_hmu_post_id
+      referred_via_hmu_post_id,
+      market_id
     ) VALUES (
       ${params.clerk_id},
       ${params.profile_type},
@@ -48,7 +53,8 @@ export async function createUser(params: CreateUserParams): Promise<{ user: User
       ${params.phone ?? null},
       ${params.signup_source ?? null},
       ${params.referred_by_driver_id ?? null},
-      ${params.referred_via_hmu_post_id ?? null}
+      ${params.referred_via_hmu_post_id ?? null},
+      ${params.market_id ?? null}
     )
     ON CONFLICT (clerk_id) DO NOTHING
     RETURNING

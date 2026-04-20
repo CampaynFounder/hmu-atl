@@ -1,14 +1,20 @@
 // Sign Up Page — type-aware branding for riders vs drivers
+import { headers } from 'next/headers';
 import { SignUp } from '@clerk/nextjs';
 import { SignUpTypeStore } from './type-store';
 import { InAppBrowserGate } from '@/components/auth/in-app-browser-gate';
+import { MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver';
 
 interface Props {
   searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string }>;
 }
 
 export default async function SignUpPage({ searchParams }: Props) {
-  const { type, returnTo, cash, persona, funnel_stage } = await searchParams;
+  const [{ type, returnTo, cash, persona, funnel_stage }, h] = await Promise.all([
+    searchParams,
+    headers(),
+  ]);
+  const marketSlug = h.get(MARKET_SLUG_HEADER) || DEFAULT_MARKET_SLUG;
 
   const callbackParams = new URLSearchParams();
   if (type) callbackParams.set('type', type);
@@ -31,6 +37,7 @@ export default async function SignUpPage({ searchParams }: Props) {
   const unsafeMetadata: Record<string, string> = {
     intent: type || 'rider',
     signup_source: signupSource,
+    market: marketSlug,
   };
   if (refHandle) unsafeMetadata.ref_handle = refHandle;
   if (persona) unsafeMetadata.persona = persona;
