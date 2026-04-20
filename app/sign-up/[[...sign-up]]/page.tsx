@@ -4,6 +4,7 @@ import { SignUp } from '@clerk/nextjs';
 import { SignUpTypeStore } from './type-store';
 import { InAppBrowserGate } from '@/components/auth/in-app-browser-gate';
 import { MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver';
+import { getMarketBranding } from '@/lib/markets/branding';
 
 interface Props {
   searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string }>;
@@ -15,6 +16,7 @@ export default async function SignUpPage({ searchParams }: Props) {
     headers(),
   ]);
   const marketSlug = h.get(MARKET_SLUG_HEADER) || DEFAULT_MARKET_SLUG;
+  const brand = getMarketBranding(marketSlug);
 
   const callbackParams = new URLSearchParams();
   if (type) callbackParams.set('type', type);
@@ -66,7 +68,7 @@ export default async function SignUpPage({ searchParams }: Props) {
           lineHeight: 1.1,
           marginBottom: '8px',
         }}>
-          {isDriver ? 'MAKE MORE DOING RIDES.' : isRider ? 'GET A RIDE WITH HMU' : 'JOIN HMU ATL'}
+          {isDriver ? 'MAKE MORE DOING RIDES.' : isRider ? 'GET A RIDE WITH HMU' : `JOIN HMU ${brand.cityShort}`}
         </div>
         <div style={{
           fontSize: '14px',

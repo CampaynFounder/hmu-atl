@@ -30,7 +30,7 @@ function getLogoHref(pathname: string, profileType?: string) {
   return '/';
 }
 
-export function Header() {
+export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const pathname = usePathname();
   const { isSignedIn, user } = useUser();
@@ -61,7 +61,7 @@ export function Header() {
                 className="font-bold text-white"
                 style={{ fontFamily: 'var(--font-display, Bebas Neue, sans-serif)', fontSize: '22px', letterSpacing: '1px' }}
               >
-                HMU ATL
+                {brandLabel}
               </Link>
               {isSignedIn && isHmuFirst && (
                 <span style={{
