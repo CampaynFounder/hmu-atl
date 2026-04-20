@@ -468,19 +468,21 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
       });
     }
 
-    // P3: Learn about ratings (before first ride)
+    // P3: First-ride push — sells the "promote to get riders" flow rather
+    // than ratings culture. Lands on the playbook get-riders section so
+    // drivers hit FB groups + caption templates immediately.
     const driverTotalRides = Number(dp.total_rides || 0);
     if (driverTotalRides === 0) {
       actions.push({
         id: 'learn_ratings',
         priority: 3,
         type: 'learn_ratings',
-        title: 'See how ratings work',
-        subtitle: 'Understand CHILL, Cool AF, and WEIRDO before your first ride',
-        cta: 'Learn',
-        href: '/guide/driver#ratings',
-        color: '#448AFF',
-        emoji: '\u{2B50}',
+        title: "This ain't That",
+        subtitle: 'How to get riders and make money now',
+        cta: 'Show me',
+        href: '/driver/playbook#get-riders',
+        color: '#00E676',
+        emoji: '\u{1F4B0}',
       });
     }
 
