@@ -32,7 +32,7 @@ export const PLAYBOOK_SECTIONS: PlaybookSection[] = [
     headline: 'Your HMU link IS your ad.',
     lead: 'Post your link in the groups below. One post = one shot at a booking. Five posts a day = five shots.',
     bullets: [
-      { text: 'Drop your link — not your number', sub: 'The link holds the rider\'s payment up-front. A phone number can\'t do that. No ghosting.' },
+      { text: 'Drop your link — not your number', sub: 'The link verifies the rider paid. We hold the money up-front. You get paid the second they get in your car.' },
       { text: 'Caption script', sub: '"Running [area] rides tonight — $25 min. HMU: [your link]"' },
       { text: 'Post across 3–5 groups a day', sub: 'Feeds move fast. More posts = more shots.' },
       { text: 'Tap a group below to join + post', sub: 'Admin keeps this list fresh. More groups appear as they\'re added.' },
