@@ -34,10 +34,12 @@ interface ActiveThread {
 // Find an active/pending/dormant thread for this normalized phone. Ignores
 // opted_out/closed threads — STOP is sticky.
 export async function findThreadByPhone(phone10: string): Promise<ActiveThread | null> {
+  // Thread phone is stored in Clerk's E.164 format (e.g. "+15551234567"),
+  // inbound is normalized to 10 digits. Compare last 10 digits on both sides.
   const rows = await sql`
     SELECT id, user_id, persona_id, status, phone, market_slug, messages_received
     FROM conversation_threads
-    WHERE REGEXP_REPLACE(phone, '\\D', '', 'g') = ${phone10}
+    WHERE RIGHT(REGEXP_REPLACE(phone, '\D', '', 'g'), 10) = ${phone10}
       AND status IN ('pending','active','dormant','manual')
     ORDER BY updated_at DESC
     LIMIT 1
@@ -60,10 +62,17 @@ export async function handleConversationInbound(
 ): Promise<InboundResult> {
   try {
     const flagOn = await isFeatureEnabled(FLAG);
-    if (!flagOn) return { handled: false, reason: 'flag-off' };
+    if (!flagOn) {
+      console.log('[conversation/inbound] short-circuit: flag off', { phone10 });
+      return { handled: false, reason: 'flag-off' };
+    }
 
     const thread = await findThreadByPhone(phone10);
-    if (!thread) return { handled: false, reason: 'no-thread' };
+    if (!thread) {
+      console.log('[conversation/inbound] no matching thread for inbound', { phone10, messagePreview: message.slice(0, 40) });
+      return { handled: false, reason: 'no-thread' };
+    }
+    console.log('[conversation/inbound] matched thread', { threadId: thread.id, status: thread.status, phone10 });
 
     // Always log the inbound for audit — happens before STOP processing so we
     // have the message body on record even if we later opt-out.
@@ -84,9 +93,9 @@ export async function handleConversationInbound(
 
     // Phase 3: route to the Claude orchestrator. Fire-and-forget — never
     // block the VoIP.ms webhook response on Claude latency.
-    handleReply(thread.id, message).catch(err =>
-      console.error('[conversation/inbound] orchestrator error:', err),
-    );
+    handleReply(thread.id, message)
+      .then(result => console.log('[conversation/inbound] orchestrator result', { threadId: thread.id, result }))
+      .catch(err => console.error('[conversation/inbound] orchestrator error:', err));
 
     return { handled: true, reason: 'logged', action: 'logged' };
   } catch (err) {
