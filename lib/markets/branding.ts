@@ -26,7 +26,7 @@ const BRANDINGS: Record<string, MarketBranding> = {
     slug: 'nola',
     host: 'nola.hmucashride.com',
     city: 'New Orleans',
-    cityShort: 'N.O.',
+    cityShort: 'NOLA',
     // TODO(nola): swap to NOLA-specific OG asset once design provides one.
     ogImage: 'https://atl.hmucashride.com/og-image.jpeg',
   },

@@ -12,15 +12,15 @@ import type { ContentMap, FlagMap } from '@/lib/cms/types';
 import { getDefaultSectionOrder } from '@/lib/cms/section-registry';
 import styles from './rider.module.css';
 
-export default function RiderLandingClient({ initialContent, initialFlags, sectionOrder, funnelStage }: { initialContent?: ContentMap; initialFlags?: FlagMap; sectionOrder?: string[]; funnelStage?: string }) {
+export default function RiderLandingClient({ initialContent, initialFlags, sectionOrder, funnelStage, brandLabel = 'HMU ATL' }: { initialContent?: ContentMap; initialFlags?: FlagMap; sectionOrder?: string[]; funnelStage?: string; brandLabel?: string }) {
   return (
     <CmsProvider initialContent={initialContent ?? {}} initialFlags={initialFlags} sectionOrder={sectionOrder} funnelStage={funnelStage}>
-      <RiderLandingInner />
+      <RiderLandingInner brandLabel={brandLabel} />
     </CmsProvider>
   );
 }
 
-function RiderLandingInner() {
+function RiderLandingInner({ brandLabel }: { brandLabel: string }) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [phone, setPhone] = useState('');
@@ -197,7 +197,7 @@ function RiderLandingInner() {
 
       {/* NAV */}
       <nav className={styles.nav}>
-        <Link href="/" className={styles.navLogo}>HMU ATL</Link>
+        <Link href="/" className={styles.navLogo}>{brandLabel}</Link>
         <div className={styles.navActions}>
           <Link href="/sign-in" className={styles.navSignIn}>Sign In</Link>
           <Link
