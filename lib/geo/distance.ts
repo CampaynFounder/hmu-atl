@@ -82,6 +82,8 @@ export function estimateETA(
 /**
  * Validate coordinates are within Atlanta metro area
  * Rough bounds: 33.5°N to 34.1°N, -84.8°W to -84.1°W
+ * @deprecated Prefer isInMarketBounds(coords, market) for multi-market support.
+ *   Kept as the authoritative ATL bounds so existing behavior is byte-for-byte preserved.
  */
 export function isInAtlantaMetro(coords: Coordinates): boolean {
   const ATLANTA_BOUNDS = {
@@ -96,6 +98,42 @@ export function isInAtlantaMetro(coords: Coordinates): boolean {
     coords.latitude <= ATLANTA_BOUNDS.maxLat &&
     coords.longitude >= ATLANTA_BOUNDS.minLng &&
     coords.longitude <= ATLANTA_BOUNDS.maxLng
+  );
+}
+
+/**
+ * Validate coordinates are within a market's service area.
+ * Uses a bounding box derived from center + radius_miles. For ATL, delegates
+ * to isInAtlantaMetro() so legacy behavior is preserved exactly.
+ */
+export interface MarketBoundsInput {
+  slug: string;
+  center_lat?: number | null;
+  center_lng?: number | null;
+  radius_miles?: number | null;
+}
+
+export function isInMarketBounds(
+  coords: Coordinates,
+  market: MarketBoundsInput
+): boolean {
+  // Preserve exact ATL behavior — tight legacy bounds, not derived from center+radius.
+  if (market.slug === 'atl') return isInAtlantaMetro(coords);
+
+  const lat = typeof market.center_lat === 'number' ? market.center_lat : NaN;
+  const lng = typeof market.center_lng === 'number' ? market.center_lng : NaN;
+  const rad = typeof market.radius_miles === 'number' ? market.radius_miles : 50;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    // Misconfigured market — accept by default so we don't block rides on a config gap.
+    return true;
+  }
+
+  const bbox = getBoundingBox({ latitude: lat, longitude: lng }, rad);
+  return (
+    coords.latitude >= bbox.minLat &&
+    coords.latitude <= bbox.maxLat &&
+    coords.longitude >= bbox.minLng &&
+    coords.longitude <= bbox.maxLng
   );
 }
 

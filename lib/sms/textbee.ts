@@ -17,8 +17,12 @@ const MAX_RETRIES = 1;
 const RETRY_DELAY_MS = 1500;
 
 // ── Market → DID mapping ──
+// When a market's env var is unset (e.g. NOLA pilot before a 504 DID is
+// purchased), resolution falls through to VOIPMS_DID_ATL so outbound SMS keeps
+// working with the ATL number.
 const MARKET_DIDS: Record<string, string> = {
   atl: 'VOIPMS_DID_ATL',
+  nola: 'VOIPMS_DID_NOLA',
   hou: 'VOIPMS_DID_HOU',
   dal: 'VOIPMS_DID_DAL',
   mem: 'VOIPMS_DID_MEM',
@@ -30,6 +34,7 @@ function getDidForMarket(market: string = 'atl'): string | null {
     // Use direct property access — Cloudflare Workers Proxy needs known keys
     switch (market.toLowerCase()) {
       case 'atl': return process.env.VOIPMS_DID_ATL || null;
+      case 'nola': return process.env.VOIPMS_DID_NOLA || process.env.VOIPMS_DID_ATL || null;
       case 'hou': return process.env.VOIPMS_DID_HOU || null;
       case 'dal': return process.env.VOIPMS_DID_DAL || null;
       case 'mem': return process.env.VOIPMS_DID_MEM || null;
