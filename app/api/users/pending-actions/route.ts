@@ -399,7 +399,7 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
         title: 'Add your phone number',
         subtitle: 'You won\'t get notified when riders book you without it',
         cta: 'Add Phone',
-        href: '/driver/profile',
+        href: '/driver/profile?focus=phone',
         color: '#FF5252',
         emoji: '\u{1F4F1}',
       });
@@ -420,7 +420,8 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
       });
     }
 
-    // P1: Share link (new driver)
+    // P1: Share link (new driver) — send them to the playbook so they see
+    // FB groups + caption templates instead of dumping them on profile edit.
     const totalRides = Number(dp.total_rides || 0);
     if (totalRides === 0 && dp.payout_setup_complete) {
       actions.push({
@@ -428,9 +429,9 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
         priority: 1,
         type: 'share_link',
         title: 'Share your HMU link',
-        subtitle: 'Post it on social or send to friends to get your first ride',
-        cta: 'Copy Link',
-        href: '/driver/profile',
+        subtitle: 'Post it in FB groups or send to friends to get your first ride',
+        cta: 'See Groups',
+        href: '/driver/playbook#fb-groups',
         color: '#E040FB',
         emoji: '\u{1F517}',
       });
@@ -445,7 +446,7 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
         title: 'Add a video intro',
         subtitle: 'Riders book 2x more with drivers who have a video',
         cta: 'Record Video',
-        href: '/driver/profile',
+        href: '/driver/profile?focus=video',
         color: '#FF4081',
         emoji: '\u{1F3A5}',
       });
@@ -461,7 +462,7 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
         title: 'Set your prices',
         subtitle: 'Riders need to know your rates before booking',
         cta: 'Set Pricing',
-        href: '/driver/profile',
+        href: '/driver/profile?focus=pricing',
         color: '#00E676',
         emoji: '\u{1F4B2}',
       });
@@ -523,7 +524,7 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
       title: 'Configure your menu',
       subtitle: 'Add services riders can pre-order when booking',
       cta: 'Add Services',
-      href: '/driver/profile',
+      href: '/driver/profile?focus=menu',
       color: '#FF9100',
       emoji: '\u{1F4CB}',
     });
