@@ -10,6 +10,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const rideId = searchParams.get('ride_id');
   const userId = searchParams.get('user_id');
+  const marketId = searchParams.get('marketId');
 
   try {
     let rows;
@@ -30,6 +31,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
         LEFT JOIN users u_driver ON u_driver.id = r.driver_id
         WHERE r.id = ${rideId}
+          AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId})
         ORDER BY r.created_at DESC LIMIT 50
       `;
     } else if (userId) {
@@ -48,7 +50,8 @@ export async function GET(req: NextRequest) {
         LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
         LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
         LEFT JOIN users u_driver ON u_driver.id = r.driver_id
-        WHERE r.driver_id = ${userId} OR r.rider_id = ${userId}
+        WHERE (r.driver_id = ${userId} OR r.rider_id = ${userId})
+          AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId})
         ORDER BY r.created_at DESC LIMIT 50
       `;
     } else {
@@ -67,6 +70,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
         LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
         LEFT JOIN users u_driver ON u_driver.id = r.driver_id
+        WHERE (${marketId}::uuid IS NULL OR r.market_id = ${marketId})
         ORDER BY r.created_at DESC LIMIT 50
       `;
     }

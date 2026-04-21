@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useMarket } from '../components/market-context';
 
 interface Transaction {
   rideId: string;
@@ -32,6 +33,7 @@ export function TransactionLedger() {
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 });
   const [filters, setFilters] = useState({ rideId: '', userId: '' });
   const [loading, setLoading] = useState(true);
+  const { selectedMarketId } = useMarket();
 
   const fetchLedger = useCallback(async () => {
     setLoading(true);
@@ -39,6 +41,7 @@ export function TransactionLedger() {
       const params = new URLSearchParams({ page: String(pagination.page) });
       if (filters.rideId) params.set('ride_id', filters.rideId);
       if (filters.userId) params.set('user_id', filters.userId);
+      if (selectedMarketId) params.set('marketId', selectedMarketId);
 
       const res = await fetch(`/api/admin/money/ledger?${params}`);
       if (res.ok) {
@@ -51,7 +54,7 @@ export function TransactionLedger() {
     } finally {
       setLoading(false);
     }
-  }, [pagination.page, filters.rideId, filters.userId]);
+  }, [pagination.page, filters.rideId, filters.userId, selectedMarketId]);
 
   useEffect(() => {
     fetchLedger();

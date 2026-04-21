@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
   if (!admin) return unauthorizedResponse();
 
   const period = req.nextUrl.searchParams.get('period') ?? 'monthly';
+  const marketId = req.nextUrl.searchParams.get('marketId');
   const interval = period === 'weekly' ? '7 days' : period === 'daily' ? '1 day' : '30 days';
 
   try {
@@ -29,6 +30,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
         WHERE r.status IN ('completed', 'ended')
           AND r.created_at > NOW() - ${interval}::interval
+          AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId})
         GROUP BY r.driver_id, dp.display_name
         HAVING SUM(COALESCE(r.add_on_total, 0)) > SUM(COALESCE(r.final_agreed_price, r.amount, 0))
           AND SUM(COALESCE(r.add_on_total, 0)) > 0
@@ -41,14 +43,18 @@ export async function GET(req: NextRequest) {
         WHERE COALESCE(r.add_on_total, 0) > 50
           AND r.status IN ('completed', 'ended')
           AND r.created_at > NOW() - ${interval}::interval
+          AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId})
         ORDER BY r.add_on_total DESC
         LIMIT 10
       `,
-      // Ride amount > 3x average
+      // Ride amount > 3x average (per-market average when filtered)
       sql`
         WITH avg_price AS (
           SELECT AVG(COALESCE(final_agreed_price, amount)) as avg_p
-          FROM rides WHERE status = 'completed' AND created_at > NOW() - ${interval}::interval
+          FROM rides
+          WHERE status = 'completed'
+            AND created_at > NOW() - ${interval}::interval
+            AND (${marketId}::uuid IS NULL OR market_id = ${marketId})
         )
         SELECT r.id, r.driver_id, dp.display_name as driver_name,
           COALESCE(r.final_agreed_price, r.amount) as price, ap.avg_p
@@ -56,6 +62,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
         WHERE r.status = 'completed'
           AND r.created_at > NOW() - ${interval}::interval
+          AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId})
           AND COALESCE(r.final_agreed_price, r.amount) > ap.avg_p * 3
           AND ap.avg_p > 0
         ORDER BY COALESCE(r.final_agreed_price, r.amount) DESC
@@ -69,6 +76,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
         WHERE r.status = 'ended'
           AND r.ended_at < NOW() - INTERVAL '48 hours'
+          AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId})
         ORDER BY r.ended_at ASC
         LIMIT 10
       `,

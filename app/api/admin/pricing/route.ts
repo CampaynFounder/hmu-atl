@@ -2,17 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 
-// GET — fetch all pricing configs (active + history)
-export async function GET() {
+// GET — fetch pricing configs for a market (falls back to global rows where
+// market_id IS NULL). When no marketId is provided, return everything so the
+// admin can see history across markets.
+export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+
+  const marketId = req.nextUrl.searchParams.get('marketId');
 
   const configs = await sql`
     SELECT
       id, tier, fee_rate, daily_cap, weekly_cap, progressive_thresholds,
       peak_multiplier, peak_label, effective_from, effective_to,
-      change_reason, changed_by, is_active, created_at
+      change_reason, changed_by, is_active, created_at, market_id
     FROM pricing_config
+    WHERE ${marketId}::uuid IS NULL OR market_id = ${marketId} OR market_id IS NULL
     ORDER BY is_active DESC, effective_from DESC
   `;
 
@@ -30,6 +35,7 @@ export async function GET() {
       effectiveTo: c.effective_to,
       changeReason: c.change_reason,
       isActive: c.is_active,
+      marketId: c.market_id ?? null,
       createdAt: c.created_at,
     })),
   });
@@ -43,6 +49,7 @@ export async function POST(req: NextRequest) {
   const {
     tier, feeRate, dailyCap, weeklyCap, progressiveThresholds,
     peakMultiplier, peakLabel, effectiveFrom, effectiveTo, changeReason,
+    marketId,
   } = await req.json() as {
     tier: string;
     feeRate: number;
@@ -54,6 +61,7 @@ export async function POST(req: NextRequest) {
     effectiveFrom?: string;
     effectiveTo?: string;
     changeReason?: string;
+    marketId?: string | null;
   };
 
   if (!tier || !['free', 'hmu_first'].includes(tier)) {
@@ -63,20 +71,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Fee rate must be between 0 and 1' }, { status: 400 });
   }
 
-  // Deactivate current active config for this tier
+  // Deactivate current active config for this tier+market (or global slot if
+  // marketId is null). A market's pricing is independent of other markets.
   await sql`
     UPDATE pricing_config SET is_active = false
     WHERE tier = ${tier} AND is_active = true
+      AND ((${marketId ?? null}::uuid IS NULL AND market_id IS NULL)
+           OR market_id = ${marketId ?? null})
   `;
 
   // Create new config
   const result = await sql`
     INSERT INTO pricing_config (
-      tier, fee_rate, daily_cap, weekly_cap, progressive_thresholds,
+      tier, market_id, fee_rate, daily_cap, weekly_cap, progressive_thresholds,
       peak_multiplier, peak_label, effective_from, effective_to,
       change_reason, changed_by, is_active
     ) VALUES (
-      ${tier}, ${feeRate}, ${dailyCap}, ${weeklyCap},
+      ${tier}, ${marketId ?? null}, ${feeRate}, ${dailyCap}, ${weeklyCap},
       ${progressiveThresholds ? JSON.stringify(progressiveThresholds) : null}::jsonb,
       ${peakMultiplier ?? 1}, ${peakLabel ?? null},
       ${effectiveFrom ?? new Date().toISOString().split('T')[0]},

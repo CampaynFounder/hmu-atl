@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useMarket } from '../components/market-context';
 
 interface PricingConfig {
   id: string;
@@ -53,13 +54,19 @@ export default function PricingConfigClient() {
   const [previewAmount, setPreviewAmount] = useState('25');
   const [previewTier, setPreviewTier] = useState('free');
 
+  const { selectedMarketId } = useMarket();
+
   useEffect(() => {
-    fetch('/api/admin/pricing')
+    const url = selectedMarketId
+      ? `/api/admin/pricing?marketId=${selectedMarketId}`
+      : '/api/admin/pricing';
+    setLoading(true);
+    fetch(url)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.configs) setConfigs(data.configs); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [selectedMarketId]);
 
   const activeConfigs = configs.filter(c => c.isActive);
   const history = configs.filter(c => !c.isActive);
@@ -86,6 +93,7 @@ export default function PricingConfigClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tier: editingTier,
+          marketId: selectedMarketId,
           feeRate: parseFloat(formRate) / 100,
           dailyCap: parseFloat(formDailyCap),
           weeklyCap: parseFloat(formWeeklyCap),
@@ -101,7 +109,10 @@ export default function PricingConfigClient() {
         setToast('Pricing updated');
         setEditingTier(null);
         // Refetch
-        const r = await fetch('/api/admin/pricing');
+        const refetchUrl = selectedMarketId
+          ? `/api/admin/pricing?marketId=${selectedMarketId}`
+          : '/api/admin/pricing';
+        const r = await fetch(refetchUrl);
         if (r.ok) { const d = await r.json(); setConfigs(d.configs); }
       } else {
         const data = await res.json();

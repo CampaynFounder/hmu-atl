@@ -10,6 +10,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = req.nextUrl;
   const period = searchParams.get('period') ?? 'all';
+  const marketId = searchParams.get('marketId');
 
   const isAllTime = period === 'all';
   let interval: string;
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
         COUNT(*) FILTER (WHERE is_cash = true) as cash_rides,
         COALESCE(SUM(CASE WHEN is_cash = true THEN COALESCE(final_agreed_price, amount) ELSE 0 END), 0) as cash_gmv
       FROM rides
-      WHERE status IN ('completed', 'disputed', 'ended')
+      WHERE (${marketId}::uuid IS NULL OR market_id = ${marketId}) AND status IN ('completed', 'disputed', 'ended')
     ` : sql`
       SELECT
         COALESCE(SUM(COALESCE(final_agreed_price, amount) + COALESCE(add_on_total, 0)), 0) as gmv,
@@ -48,7 +49,7 @@ export async function GET(req: NextRequest) {
         COUNT(*) FILTER (WHERE is_cash = true) as cash_rides,
         COALESCE(SUM(CASE WHEN is_cash = true THEN COALESCE(final_agreed_price, amount) ELSE 0 END), 0) as cash_gmv
       FROM rides
-      WHERE status IN ('completed', 'disputed', 'ended')
+      WHERE (${marketId}::uuid IS NULL OR market_id = ${marketId}) AND status IN ('completed', 'disputed', 'ended')
         AND created_at > NOW() - ${interval}::interval
     `,
 
@@ -60,7 +61,7 @@ export async function GET(req: NextRequest) {
         COALESCE(AVG(COALESCE(driver_payout_amount, 0)), 0) as avg_driver_payout,
         COUNT(*) as total_rides
       FROM rides
-      WHERE status = 'completed'
+      WHERE (${marketId}::uuid IS NULL OR market_id = ${marketId}) AND status = 'completed'
     ` : sql`
       SELECT
         COALESCE(AVG(COALESCE(final_agreed_price, amount)), 0) as avg_price,
@@ -69,7 +70,7 @@ export async function GET(req: NextRequest) {
         COALESCE(AVG(COALESCE(driver_payout_amount, 0)), 0) as avg_driver_payout,
         COUNT(*) as total_rides
       FROM rides
-      WHERE status = 'completed'
+      WHERE (${marketId}::uuid IS NULL OR market_id = ${marketId}) AND status = 'completed'
         AND created_at > NOW() - ${interval}::interval
     `,
 
@@ -81,7 +82,7 @@ export async function GET(req: NextRequest) {
         COALESCE(SUM(COALESCE(stripe_fee_amount, 0)), 0) as stripe_fees,
         COUNT(*) as rides
       FROM rides
-      WHERE status = 'completed'
+      WHERE (${marketId}::uuid IS NULL OR market_id = ${marketId}) AND status = 'completed'
         AND created_at > NOW() - INTERVAL '30 days'
       GROUP BY created_at::date
       ORDER BY day ASC
@@ -94,7 +95,7 @@ export async function GET(req: NextRequest) {
         COALESCE(SUM(COALESCE(r.platform_fee_amount, 0)), 0) as total_fees
       FROM rides r
       JOIN users u ON u.id = r.driver_id
-      WHERE r.status = 'completed'
+      WHERE (${marketId}::uuid IS NULL OR r.market_id = ${marketId}) AND r.status = 'completed'
       GROUP BY u.tier
     ` : sql`
       SELECT
@@ -103,7 +104,7 @@ export async function GET(req: NextRequest) {
         COALESCE(SUM(COALESCE(r.platform_fee_amount, 0)), 0) as total_fees
       FROM rides r
       JOIN users u ON u.id = r.driver_id
-      WHERE r.status = 'completed'
+      WHERE (${marketId}::uuid IS NULL OR r.market_id = ${marketId}) AND r.status = 'completed'
         AND r.created_at > NOW() - ${interval}::interval
       GROUP BY u.tier
     `,
@@ -114,13 +115,13 @@ export async function GET(req: NextRequest) {
         COUNT(*) as count,
         COALESCE(SUM(COALESCE(final_agreed_price, amount)), 0) as total
       FROM rides
-      WHERE status IN ('completed', 'ended') AND is_cash = true
+      WHERE (${marketId}::uuid IS NULL OR market_id = ${marketId}) AND status IN ('completed', 'ended') AND is_cash = true
     ` : sql`
       SELECT
         COUNT(*) as count,
         COALESCE(SUM(COALESCE(final_agreed_price, amount)), 0) as total
       FROM rides
-      WHERE status IN ('completed', 'ended') AND is_cash = true
+      WHERE (${marketId}::uuid IS NULL OR market_id = ${marketId}) AND status IN ('completed', 'ended') AND is_cash = true
         AND created_at > NOW() - ${interval}::interval
     `,
   ]);
@@ -148,7 +149,9 @@ export async function GET(req: NextRequest) {
         FROM rides WHERE status IN ('completed', 'disputed', 'ended')
           AND created_at > NOW() - ${interval}::interval
       `,
-      sql`SELECT COUNT(*)::int as count FROM users WHERE tier = 'hmu_first'`,
+      sql`SELECT COUNT(*)::int as count FROM users
+          WHERE tier = 'hmu_first'
+            AND (${marketId}::uuid IS NULL OR market_id = ${marketId})`,
       auditFees(period).catch(() => null),
     ]);
 

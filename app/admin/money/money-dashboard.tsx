@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { StatCard } from '../components/stat-card';
 import { RevenueChart } from './revenue-chart';
 import { TransactionLedger } from './transaction-ledger';
+import { useMarket } from '../components/market-context';
 
 interface Metrics {
   gmv: number;
@@ -98,11 +99,13 @@ export function MoneyDashboard() {
   const [auditFlags, setAuditFlags] = useState<AuditFlag[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'overview' | 'ledger' | 'intelligence'>('overview');
+  const { selectedMarketId } = useMarket();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/money?period=${period}`);
+      const mq = selectedMarketId ? `&marketId=${selectedMarketId}` : '';
+      const res = await fetch(`/api/admin/money?period=${period}${mq}`);
       if (res.ok) {
         const data = await res.json();
         setMetrics(data.metrics);
@@ -112,9 +115,12 @@ export function MoneyDashboard() {
         if (data.revenueStreams) setRevenueStreams(data.revenueStreams);
         if (data.feeAudit) setFeeAudit(data.feeAudit);
         // Fetch intelligence data in parallel
+        const subUrl = selectedMarketId
+          ? `/api/admin/money/subscriptions?marketId=${selectedMarketId}`
+          : '/api/admin/money/subscriptions';
         Promise.all([
-          fetch('/api/admin/money/subscriptions').then(r => r.ok ? r.json() : null),
-          fetch(`/api/admin/money/audit-flags?period=${period}`).then(r => r.ok ? r.json() : null),
+          fetch(subUrl).then(r => r.ok ? r.json() : null),
+          fetch(`/api/admin/money/audit-flags?period=${period}${mq}`).then(r => r.ok ? r.json() : null),
         ]).then(([subs, flags]) => {
           if (subs) setSubscriptions(subs);
           if (flags?.flags) setAuditFlags(flags.flags);
@@ -125,7 +131,7 @@ export function MoneyDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [period]);
+  }, [period, selectedMarketId]);
 
   useEffect(() => {
     fetchData();
