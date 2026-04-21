@@ -20,7 +20,12 @@ export default function ErrorFallback({
   const { user, isLoaded } = useUser();
   const [retrying, setRetrying] = useState(false);
 
-  // Determine the right "home" based on profile type
+  // Determine the right "home" based on profile type. Signed-in users with
+  // a missing profileType used to be forced to /onboarding here, which was
+  // the destructive path for existing users whose Clerk session briefly
+  // desynced (e.g., right after onboarding, before the metadata write
+  // propagated to the client session). Default to '/' instead — users can
+  // navigate from there without being dropped into the new-user flow.
   let homeHref = '/';
   if (isLoaded && user) {
     const profileType = user.publicMetadata?.profileType as string | undefined;
@@ -30,9 +35,6 @@ export default function ErrorFallback({
       homeHref = '/rider/home';
     } else if (profileType === 'admin') {
       homeHref = '/admin';
-    } else {
-      // Logged in but no profile type — send to onboarding
-      homeHref = '/onboarding';
     }
   }
 

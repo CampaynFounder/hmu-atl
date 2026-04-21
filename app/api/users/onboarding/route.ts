@@ -294,23 +294,24 @@ export async function POST(request: NextRequest) {
     `;
     results.accountStatus = 'active';
 
-    // Defer non-critical external API work until AFTER the response is sent.
-    // Before: these two blocks added 1–3s of latency to the user-visible
-    // response (and up to 3 minutes on cold starts), hiding the success screen
-    // and confetti. Now they run via ctx.waitUntil() so the response returns
-    // immediately and these side effects run in the background.
-    afterResponse(async () => {
-      // Sync profileType to Clerk publicMetadata so return logins can read it
-      // without relying on URL params.
-      try {
-        const clerk = await clerkClient();
-        await clerk.users.updateUserMetadata(clerkId, {
-          publicMetadata: { profileType: profile_type },
-        });
-      } catch (clerkErr) {
-        console.error('[ONBOARDING] Failed to sync profileType to Clerk:', clerkErr);
-      }
+    // Clerk metadata sync MUST run before the response returns so the
+    // client's next render (useUser, auth-callback, error boundary) sees
+    // profileType immediately. Deferring this was causing signed-in users
+    // to be wrongly routed to /onboarding whenever a page errored in the
+    // race window between onboarding-success and Clerk session catch-up.
+    // Twilio SMS below stays deferred — it has no user-visible dependency.
+    try {
+      const clerk = await clerkClient();
+      await clerk.users.updateUserMetadata(clerkId, {
+        publicMetadata: { profileType: profile_type },
+      });
+    } catch (clerkErr) {
+      // Log but don't block — the DB profile exists, so auth-callback's
+      // onboarding-status check will still route correctly on return.
+      console.error('[ONBOARDING] Failed to sync profileType to Clerk:', clerkErr);
+    }
 
+    afterResponse(async () => {
       // Send welcome SMS with guide link.
       if (phone) {
         try {

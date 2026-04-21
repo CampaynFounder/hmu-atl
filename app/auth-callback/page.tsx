@@ -28,56 +28,78 @@ export default function AuthCallbackPage() {
   }, [isLoaded, isSignedIn]);
 
   const checkOnboardingAndRedirect = async () => {
-    try {
-      const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(window.location.search);
 
-      // Read type from URL params first, fall back to localStorage (OAuth loses URL params)
-      const type = params.get('type') || localStorage.getItem('hmu_signup_type');
-      const returnTo = params.get('returnTo') || localStorage.getItem('hmu_signup_returnTo');
-      const isCash = params.get('cash') || localStorage.getItem('hmu_signup_cash');
+    // Read type from URL params first, fall back to localStorage (OAuth loses URL params)
+    const type = params.get('type') || localStorage.getItem('hmu_signup_type');
+    const returnTo = params.get('returnTo') || localStorage.getItem('hmu_signup_returnTo');
+    const isCash = params.get('cash') || localStorage.getItem('hmu_signup_cash');
 
-      // Clean up localStorage after reading — one-time use
-      localStorage.removeItem('hmu_signup_type');
-      localStorage.removeItem('hmu_signup_returnTo');
-      localStorage.removeItem('hmu_signup_cash');
+    // Clean up localStorage after reading — one-time use
+    localStorage.removeItem('hmu_signup_type');
+    localStorage.removeItem('hmu_signup_returnTo');
+    localStorage.removeItem('hmu_signup_cash');
 
-      const res = await fetch('/api/users/onboarding');
-      const data = await res.json();
-
-      // Route if onboarded (active or pending_activation with a profile created)
-      const hasProfile = data.hasDriverProfile || data.hasRiderProfile;
-      if (hasProfile) {
-        // If rider came from a driver share link, send them back
-        if (returnTo && returnTo.startsWith('/d/')) {
-          // Drivers can't book — send them to their dashboard
-          if (data.profileType === 'driver') {
-            router.replace('/driver/home');
-            return;
-          }
-          const url = returnTo.includes('bookingOpen') ? returnTo : `${returnTo}?bookingOpen=1`;
-          router.replace(url);
-          return;
+    // Retry the onboarding-status fetch once on transient failure. A single
+    // Neon/Worker cold-start blip must NEVER drop an existing user onto
+    // /onboarding — that was the bug silently pushing signed-in drivers
+    // through the new-user flow.
+    let data: {
+      hasDriverProfile?: boolean;
+      hasRiderProfile?: boolean;
+      profileType?: string;
+    } | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch('/api/users/onboarding', { cache: 'no-store' });
+        if (res.ok) {
+          data = await res.json();
+          break;
         }
+      } catch {
+        // network blip — retry
+      }
+      if (attempt === 0) await new Promise(r => setTimeout(r, 400));
+    }
+
+    // On persistent failure, never force-redirect to /onboarding — an
+    // existing signed-in user landing on /onboarding is worse than landing
+    // on the marketing root where they can retry.
+    if (!data) {
+      console.error('[auth-callback] onboarding status unavailable after retry');
+      router.replace('/');
+      return;
+    }
+
+    const hasProfile = data.hasDriverProfile || data.hasRiderProfile;
+    if (hasProfile) {
+      // If rider came from a driver share link, send them back
+      if (returnTo && returnTo.startsWith('/d/')) {
+        // Drivers can't book — send them to their dashboard
         if (data.profileType === 'driver') {
           router.replace('/driver/home');
-        } else {
-          router.replace('/rider/home');
+          return;
         }
-      } else {
-        // New user — fire CompleteRegistration pixel event
-        fbEvent('CompleteRegistration', { content_name: type || 'unknown', content_category: type === 'driver' ? 'driver_funnel' : 'rider_funnel' });
-
-        // Forward type and returnTo through onboarding so context is never lost
-        const onboardingParams = new URLSearchParams();
-        if (type) onboardingParams.set('type', type);
-        if (returnTo) onboardingParams.set('returnTo', returnTo);
-        if (isCash === '1') onboardingParams.set('cash', '1');
-        const onboardingUrl = `/onboarding${onboardingParams.size ? `?${onboardingParams}` : ''}`;
-        router.replace(onboardingUrl);
+        const url = returnTo.includes('bookingOpen') ? returnTo : `${returnTo}?bookingOpen=1`;
+        router.replace(url);
+        return;
       }
-    } catch (error) {
-      console.error('Failed to check onboarding status:', error);
-      router.replace('/onboarding');
+      if (data.profileType === 'driver') {
+        router.replace('/driver/home');
+      } else {
+        router.replace('/rider/home');
+      }
+    } else {
+      // New user — fire CompleteRegistration pixel event
+      fbEvent('CompleteRegistration', { content_name: type || 'unknown', content_category: type === 'driver' ? 'driver_funnel' : 'rider_funnel' });
+
+      // Forward type and returnTo through onboarding so context is never lost
+      const onboardingParams = new URLSearchParams();
+      if (type) onboardingParams.set('type', type);
+      if (returnTo) onboardingParams.set('returnTo', returnTo);
+      if (isCash === '1') onboardingParams.set('cash', '1');
+      const onboardingUrl = `/onboarding${onboardingParams.size ? `?${onboardingParams}` : ''}`;
+      router.replace(onboardingUrl);
     }
   };
 
