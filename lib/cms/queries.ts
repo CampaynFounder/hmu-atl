@@ -3,6 +3,7 @@
 import { sql } from '@/lib/db/client';
 import { getDefaultContentMap } from './zone-registry';
 import { getDefaultSectionOrder } from './section-registry';
+import { resolveTierCardExtras } from './tier-card-resolver';
 import type { ContentMap, FlagMap, PageContentResponse, SectionLayoutEntry } from './types';
 
 /**
@@ -149,7 +150,11 @@ export async function getPageContent(
       }
     }
 
-    return { content, flags, experiments, sectionOrder, funnelStage };
+    // Enrich tier_* zones with strikethrough / offer-label fields from
+    // active public_offers. Never throws; falls back to current content.
+    const enrichedContent = await resolveTierCardExtras(content, marketSlug, funnelStage);
+
+    return { content: enrichedContent, flags, experiments, sectionOrder, funnelStage };
   } catch (error) {
     console.error('[CMS] Failed to load content, using defaults:', error);
     return { content: defaults, flags: {}, experiments: {}, sectionOrder: defaultOrder, funnelStage };

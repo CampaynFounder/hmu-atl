@@ -137,6 +137,8 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
         if ('pricing' in patch) apiPatch.pricing = patch.pricing;
         if ('schedule' in patch) apiPatch.schedule = patch.schedule;
         if ('lgbtqFriendly' in patch) apiPatch.lgbtq_friendly = patch.lgbtqFriendly;
+        if ('gender' in patch) apiPatch.gender = patch.gender;
+        if ('pronouns' in patch) apiPatch.pronouns = patch.pronouns;
 
         res = await fetch('/api/users/profile', {
           method: 'PATCH',
@@ -244,8 +246,18 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
         .dp-stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; flex: 1; text-align: center; }
         .dp-stat-val { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 28px; color: var(--green); }
         .dp-stat-label { font-size: 11px; color: var(--gray); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
-        .dp-section { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 20px; margin-bottom: 16px; }
+        .dp-section { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 20px; margin-bottom: 16px; transition: border-color 0.2s; }
+        details.dp-section[open] { border-color: rgba(0,230,118,0.2); }
+        details.dp-section > summary { list-style: none; cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 0; position: relative; padding: 2px 0; min-height: 32px; transition: color 0.2s, margin-bottom 0.2s; -webkit-tap-highlight-color: transparent; }
+        details.dp-section > summary::-webkit-details-marker { display: none; }
+        details.dp-section > summary::after { content: ''; flex-shrink: 0; width: 10px; height: 10px; border-right: 2px solid var(--gray); border-bottom: 2px solid var(--gray); transform: rotate(-45deg); transition: transform 0.25s ease, border-color 0.25s ease; margin-right: 4px; }
+        details.dp-section[open] > summary { color: var(--green); margin-bottom: 14px; }
+        details.dp-section[open] > summary::after { transform: rotate(45deg); border-color: var(--green); }
+        details.dp-section > summary:hover::after { border-color: var(--gray-light); }
+        details.dp-section[open] > *:not(summary) { animation: dpFadeIn 0.25s ease-out; }
+        @keyframes dpFadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
         .dp-section-title { font-family: var(--font-mono, 'Space Mono', monospace); font-size: 10px; color: var(--gray); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 14px; }
+        details.dp-section > summary.dp-section-title { margin-bottom: 0; }
         .dp-row { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
         .dp-row:last-child { border-bottom: none; }
         .dp-row-left { flex: 1; padding-right: 12px; }
@@ -343,10 +355,10 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
         </div>
 
         {/* Share Link */}
-        <div className="dp-section">
-          <div className="dp-section-title">Your HMU Link</div>
+        <details className="dp-section">
+          <summary className="dp-section-title">Your HMU Link</summary>
           <div className="link-pill">{shareUrl}</div>
-        </div>
+        </details>
 
         {/* Payout */}
         <PayoutSection
@@ -362,8 +374,8 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
 
         {/* HMU First Subscription */}
         {user.tier === 'hmu_first' && (
-          <div className="dp-section">
-            <div className="dp-section-title">HMU First Subscription</div>
+          <details className="dp-section">
+            <summary className="dp-section-title">HMU First Subscription</summary>
             <div className="dp-row">
               <div className="dp-row-left">
                 <div className="dp-row-label">Status</div>
@@ -386,12 +398,12 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
                 </div>
               </div>
             )}
-          </div>
+          </details>
         )}
 
         {/* Booking Settings */}
-        <div className="dp-section">
-          <div className="dp-section-title">Booking Settings</div>
+        <details className="dp-section">
+          <summary className="dp-section-title">Booking Settings</summary>
 
           <div className="dp-row">
             <div className="dp-row-left">
@@ -561,11 +573,11 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
           </div>
 
           <div className="save-status">{saving ? 'Saving...' : saved}</div>
-        </div>
+        </details>
 
         {/* Visibility */}
-        <div className="dp-section">
-          <div className="dp-section-title">Visibility</div>
+        <details className="dp-section">
+          <summary className="dp-section-title">Visibility</summary>
 
           <div className="dp-row">
             <div className="dp-row-left">
@@ -592,11 +604,11 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               <div className="toggle-thumb" />
             </button>
           </div>
-        </div>
+        </details>
 
         {/* Pricing */}
-        <div className="dp-section">
-          <div className="dp-section-title">Pricing</div>
+        <details className="dp-section">
+          <summary className="dp-section-title">Pricing</summary>
           <div className="dp-row">
             <div className="dp-row-left">
               <div className="dp-row-label">Minimum ride</div>
@@ -626,11 +638,11 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             <input type="number" className="price-input" defaultValue={Number(data.pricing.out_of_town ?? 0)} onBlur={(e) => updatePricing('out_of_town', e.target.value)} placeholder="$" />
           </div>
           <div className="save-status">{saving ? 'Saving...' : saved}</div>
-        </div>
+        </details>
 
         {/* Areas */}
-        <div className="dp-section">
-          <div className="dp-section-title">Areas You Serve — {market.name}</div>
+        <details className="dp-section">
+          <summary className="dp-section-title">Areas You Serve — {market.name}</summary>
           <div className="dp-row-sub" style={{ marginBottom: '12px' }}>
             Tap to toggle. Riders pick from the same list — you&apos;ll get matched when there&apos;s overlap.
           </div>
@@ -687,11 +699,11 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               })}
             </div>
           )}
-        </div>
+        </details>
 
         {/* Schedule */}
-        <div className="dp-section">
-          <div className="dp-section-title">Availability</div>
+        <details className="dp-section">
+          <summary className="dp-section-title">Availability</summary>
           <div className="dp-row-sub" style={{ marginBottom: '12px' }}>Days you&apos;re available — shows on your HMU link</div>
           <div className="day-grid">
             {DAYS.map((day) => {
@@ -704,11 +716,11 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               );
             })}
           </div>
-        </div>
+        </details>
 
         {/* Video Intro */}
-        <div className="dp-section">
-          <div className="dp-section-title">Video Intro</div>
+        <details className="dp-section">
+          <summary className="dp-section-title">Video Intro</summary>
           <p className="dp-row-sub" style={{ marginBottom: '14px' }}>
             Plays on your HMU link so riders know who&apos;s pulling up
           </p>
@@ -778,11 +790,11 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               )}
             </div>
           )}
-        </div>
+        </details>
 
         {/* Vibe on File */}
-        <div className="dp-section">
-          <div className="dp-section-title">Vibe on File</div>
+        <details className="dp-section">
+          <summary className="dp-section-title">Vibe on File</summary>
           <p className="dp-row-sub" style={{ marginBottom: '14px' }}>
             Quick selfie video so riders know your vibe. Shows a &quot;Vibe on File&quot; badge on your card.
           </p>
@@ -838,11 +850,11 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               )}
             </div>
           )}
-        </div>
+        </details>
 
         {/* Cover Photo / Ad */}
-        <div className="dp-section">
-          <div className="dp-section-title">Cover Photo / Ad</div>
+        <details className="dp-section">
+          <summary className="dp-section-title">Cover Photo / Ad</summary>
           <p className="dp-row-sub" style={{ marginBottom: '14px' }}>
             Shows on your HMU link — use a vehicle photo, promo flyer, or ad
           </p>
@@ -889,11 +901,11 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             onChange={handlePhotoUpload}
             style={{ display: 'none' }}
           />
-        </div>
+        </details>
 
         {/* Phone Number — required for booking notifications */}
-        <div className="dp-section">
-          <div className="dp-section-title">Phone Number</div>
+        <details className="dp-section">
+          <summary className="dp-section-title">Phone Number</summary>
           {!data.phone && (
             <div style={{
               background: 'rgba(255,82,82,0.1)', border: '1px solid rgba(255,82,82,0.25)',
@@ -941,11 +953,11 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               <span>&#10003;</span> Booking notifications will be sent here
             </div>
           )}
-        </div>
+        </details>
 
         {/* License Plate */}
-        <div className="dp-section">
-          <div className="dp-section-title">License Plate</div>
+        <details className="dp-section">
+          <summary className="dp-section-title">License Plate</summary>
           <div style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
             Riders see this when you&apos;re close. Update anytime if you switch cars.
           </div>
@@ -995,11 +1007,11 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               ))}
             </select>
           </div>
-        </div>
+        </details>
 
         {/* Display Identity */}
-        <div className="dp-section">
-          <div className="dp-section-title">Public Identity</div>
+        <details className="dp-section">
+          <summary className="dp-section-title">Public Identity</summary>
           <div className="dp-row-sub" style={{ marginBottom: '12px' }}>What riders see on your profile and HMU link</div>
           <div className="dp-row">
             <div className="dp-row-left">
@@ -1012,25 +1024,51 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             <div className="dp-row-left"><div className="dp-row-label">Handle</div></div>
             <div className="dp-row-value">@{data.handle}</div>
           </div>
-        </div>
+        </details>
 
         {/* Legal Identity */}
-        <div className="dp-section">
-          <div className="dp-section-title">Legal Identity</div>
+        <details className="dp-section">
+          <summary className="dp-section-title">Legal Identity</summary>
           <div className="dp-row-sub" style={{ marginBottom: '12px' }}>Private — used for Stripe verification &amp; payouts only. Riders never see this.</div>
           <div className="dp-row">
             <div className="dp-row-left"><div className="dp-row-label">Legal Name</div></div>
             <div className="dp-row-value">{data.firstName} {data.lastName}</div>
           </div>
           <div className="dp-row">
-            <div className="dp-row-left"><div className="dp-row-label">Gender</div></div>
-            <div className="dp-row-value">{data.gender || '\u2014'}</div>
+            <div className="dp-row-left">
+              <div className="dp-row-label">Gender</div>
+              <div className="dp-row-sub">Used for rider safety preferences</div>
+            </div>
+            <select
+              value={data.gender || ''}
+              onChange={(e) => update({ gender: e.target.value })}
+              className="score-input"
+              style={{ width: 130 }}
+            >
+              <option value="">— Select —</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="non_binary">Non-binary</option>
+              <option value="prefer_not">Prefer not to say</option>
+            </select>
           </div>
           <div className="dp-row">
             <div className="dp-row-left"><div className="dp-row-label">Pronouns</div></div>
-            <div className="dp-row-value">{data.pronouns || '\u2014'}</div>
+            <select
+              value={data.pronouns || ''}
+              onChange={(e) => update({ pronouns: e.target.value })}
+              className="score-input"
+              style={{ width: 130 }}
+            >
+              <option value="">— Select —</option>
+              <option value="he/him">he/him</option>
+              <option value="she/her">she/her</option>
+              <option value="they/them">they/them</option>
+              <option value="he/they">he/they</option>
+              <option value="she/they">she/they</option>
+            </select>
           </div>
-        </div>
+        </details>
       </div>
 
       {/* Save toast */}
@@ -1076,8 +1114,8 @@ function PaymentMethodSection() {
   };
 
   return (
-    <div className="dp-section">
-      <div className="dp-section-title">Payment Method</div>
+    <details className="dp-section">
+      <summary className="dp-section-title">Payment Method</summary>
 
       {loading ? (
         <div style={{ fontSize: 13, color: '#888', padding: '12px 0' }}>Checking...</div>
@@ -1132,6 +1170,6 @@ function PaymentMethodSection() {
           )}
         </>
       )}
-    </div>
+    </details>
   );
 }

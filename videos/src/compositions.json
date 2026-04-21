@@ -211,7 +211,7 @@
       "endCta": "HMU ATL",
       "phoneWidth": 700,
       "phoneHeight": 1512,
-      "muted": false
+      "muted": true
     },
     "duration": 105
   }

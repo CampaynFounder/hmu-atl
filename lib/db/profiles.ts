@@ -353,6 +353,8 @@ export async function updateDriverProfile(
       first_name = COALESCE(${params.first_name ?? null}, first_name),
       last_name = COALESCE(${params.last_name ?? null}, last_name),
       display_name = COALESCE(${params.first_name ? `${params.first_name} ${(params.last_name ?? '').charAt(0)}.`.trim() : null}, display_name),
+      gender = COALESCE(${params.gender ?? null}, gender),
+      pronouns = COALESCE(${params.pronouns ?? null}, pronouns),
       lgbtq_friendly = COALESCE(${params.lgbtq_friendly ?? null}, lgbtq_friendly),
       video_url = COALESCE(${params.video_url ?? null}, video_url),
       thumbnail_url = COALESCE(${params.thumbnail_url ?? null}, thumbnail_url),

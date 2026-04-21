@@ -20,8 +20,20 @@ export default function PayoutSection({ payoutSetupComplete, last4, accountType,
   return (
     <>
       <style>{`
-        .po-section { background: var(--card, #141414); border: 1px solid var(--border, rgba(255,255,255,0.08)); border-radius: 20px; padding: 20px; margin-bottom: 16px; }
+        .po-section { background: var(--card, #141414); border: 1px solid var(--border, rgba(255,255,255,0.08)); border-radius: 20px; padding: 20px; margin-bottom: 16px; transition: border-color 0.2s; }
+        details.po-section[open] { border-color: rgba(0,230,118,0.2); }
+        details.po-section > summary { list-style: none; cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 0; position: relative; padding: 2px 0; min-height: 32px; transition: color 0.2s, margin-bottom 0.2s; -webkit-tap-highlight-color: transparent; }
+        details.po-section > summary::-webkit-details-marker { display: none; }
+        details.po-section > summary::after { content: ''; flex-shrink: 0; width: 10px; height: 10px; border-right: 2px solid var(--gray, #888); border-bottom: 2px solid var(--gray, #888); transform: rotate(-45deg); transition: transform 0.25s ease, border-color 0.25s ease; margin-right: 4px; }
+        details.po-section[open] > summary { color: var(--green, #00E676); margin-bottom: 14px; }
+        details.po-section[open] > summary::after { transform: rotate(45deg); border-color: var(--green, #00E676); }
+        details.po-section > summary:hover::after { border-color: var(--gray-light, #bbb); }
+        details.po-section[open] > *:not(summary) { animation: poFadeIn 0.25s ease-out; }
+        @keyframes poFadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
         .po-section-title { font-family: var(--font-mono, 'Space Mono', monospace); font-size: 10px; color: var(--gray, #888); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 14px; }
+        details.po-section > summary.po-section-title { margin-bottom: 0; }
+        .po-summary-right { display: flex; align-items: center; gap: 10px; }
+        .po-setup-pill { background: rgba(255,179,0,0.15); color: #FFB300; font-size: 10px; font-weight: 700; letter-spacing: 1px; padding: 3px 8px; border-radius: 100px; text-transform: uppercase; }
         .po-banner { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: rgba(255,179,0,0.08); border: 1px solid rgba(255,179,0,0.2); border-radius: 14px; text-decoration: none; transition: all 0.15s; }
         .po-banner:active { transform: scale(0.98); }
         .po-banner-icon { font-size: 22px; flex-shrink: 0; }
@@ -43,8 +55,15 @@ export default function PayoutSection({ payoutSetupComplete, last4, accountType,
         .po-change-btn:disabled { opacity: 0.5; cursor: not-allowed; }
       `}</style>
 
-      <div className="po-section">
-        <div className="po-section-title">Payouts</div>
+      <details className="po-section">
+        <summary className="po-section-title">
+          <span>Payouts</span>
+          {!payoutSetupComplete && (
+            <span className="po-summary-right">
+              <span className="po-setup-pill">Setup Needed</span>
+            </span>
+          )}
+        </summary>
 
         {!payoutSetupComplete ? (
           <Link href="/driver/payout-setup" className="po-banner">
@@ -106,7 +125,7 @@ export default function PayoutSection({ payoutSetupComplete, last4, accountType,
             )}
           </>
         )}
-      </div>
+      </details>
     </>
   );
 }

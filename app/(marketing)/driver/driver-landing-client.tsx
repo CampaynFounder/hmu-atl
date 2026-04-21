@@ -103,6 +103,64 @@ function DriverLandingInner({ brandLabel, brandCity }: { brandLabel: string; bra
     { emoji: '🚗', quote: 'They not ready? Still paid', author: 'Midtown' },
     { emoji: '⭐', quote: '92% Chill rating after 40 rides', author: 'OG Driver' },
   ]);
+  // Tier cards — strikethrough / offerLabel fields are injected by the server
+  // from active public_offers when one exists for the current funnel stage.
+  const tierFree = useZone<{
+    name: string;
+    desc: string;
+    features: string[];
+    lockedFeatures: string[];
+    strikethroughBefore?: string | null;
+    strikethroughAfter?: string | null;
+    offerLabel?: string | null;
+  }>('tier_free', {
+    name: 'Free',
+    desc: 'Start earning with zero upfront cost',
+    features: [
+      'Progressive rate — starts at 10%, first $50/day',
+      'Daily cap: $40 max platform fee',
+      'Weekly cap: $150 max platform fee',
+      'Set your own price',
+      'Payment secured upfront',
+      'No-show protection',
+      'Payout next morning (6am batch)',
+      '3 cash rides/month included',
+    ],
+    lockedFeatures: [
+      'Priority placement in driver feed',
+      'Instant payouts',
+      'Read rider comments',
+      'Unlimited cash rides',
+    ],
+  });
+  const tierHmuFirst = useZone<{
+    badge: string;
+    price: string;
+    priceSub: string;
+    desc: string;
+    features: string[];
+    savingsCallout: string;
+    strikethroughBefore?: string | null;
+    strikethroughAfter?: string | null;
+    offerLabel?: string | null;
+  }>('tier_hmu_first', {
+    badge: 'HMU First',
+    price: '$9.99',
+    priceSub: '/mo',
+    desc: 'Flat 12% — lower cap — instant money',
+    features: [
+      'Flat 12% rate on every ride — never more',
+      'Daily cap: $25 max platform fee (lower)',
+      'Weekly cap: $100 max platform fee (lower)',
+      'Instant payout the second ride ends',
+      'Priority placement — shown first to riders',
+      'Read what riders said about you',
+      'HMU First badge on your profile',
+      'Unlimited cash rides — no counter, no packs needed',
+    ],
+    savingsCallout: '3 rides/day at $20? HMU First pays for itself and you pocket ~$180 more per month vs free.',
+  });
+
   const ctaEyebrow = useZone('cta_eyebrow', 'Ready to Run It?');
   const ctaHeadline = useZone('cta_headline', 'Start Earning More Per Ride');
   const ctaSub = useZone('cta_subheadline', 'No subscription required to start. Sign up, set your price, post your first HMU.');
@@ -568,41 +626,56 @@ function DriverLandingInner({ brandLabel, brandCity }: { brandLabel: string; bra
         <p className={`${styles.sectionLabel} ${styles.reveal}`} style={{ marginTop: 40 }}>Free vs HMU First</p>
         <div className={styles.tiersGrid}>
           <div className={`${styles.tierCard} ${styles.reveal}`}>
-            <div className={styles.tierName}>Free</div>
-            <div className={styles.tierDesc}>Start earning with zero upfront cost</div>
+            {tierFree.offerLabel && (
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--green)', marginBottom: 6 }}>
+                {tierFree.offerLabel}
+              </div>
+            )}
+            <div className={styles.tierName}>
+              {tierFree.strikethroughBefore && tierFree.strikethroughAfter ? (
+                <>
+                  <span style={{ textDecoration: 'line-through', color: 'var(--gray)', fontSize: '0.65em', marginRight: 10 }}>
+                    {tierFree.strikethroughBefore}
+                  </span>
+                  {tierFree.strikethroughAfter}
+                </>
+              ) : (
+                tierFree.name
+              )}
+            </div>
+            <div className={styles.tierDesc}>{tierFree.desc}</div>
             <ul className={styles.tierFeatures}>
-              <li>Progressive rate — starts at 10%, first $50/day</li>
-              <li>Daily cap: $40 max platform fee</li>
-              <li>Weekly cap: $150 max platform fee</li>
-              <li>Set your own price</li>
-              <li>Payment secured upfront</li>
-              <li>No-show protection</li>
-              <li>Payout next morning (6am batch)</li>
-              <li>3 cash rides/month included</li>
-              <li className={styles.featureLocked}>Priority placement in driver feed</li>
-              <li className={styles.featureLocked}>Instant payouts</li>
-              <li className={styles.featureLocked}>Read rider comments</li>
-              <li className={styles.featureLocked}>Unlimited cash rides</li>
+              {tierFree.features.map((f, i) => <li key={`f-${i}`}>{f}</li>)}
+              {tierFree.lockedFeatures.map((f, i) => (
+                <li key={`l-${i}`} className={styles.featureLocked}>{f}</li>
+              ))}
             </ul>
           </div>
           <div className={`${styles.tierCard} ${styles.tierCardFeatured} ${styles.reveal}`}>
-            <div className={styles.tierBadge}>HMU First</div>
-            <div className={styles.tierName}>$9.99<span className={styles.tierNameSub}>/mo</span></div>
-            <div className={styles.tierDesc}>Flat 12% — lower cap — instant money</div>
-            <ul className={styles.tierFeatures}>
-              <li>Flat 12% rate on every ride — never more</li>
-              <li>Daily cap: $25 max platform fee (lower)</li>
-              <li>Weekly cap: $100 max platform fee (lower)</li>
-              <li>Instant payout the second ride ends</li>
-              <li>Priority placement — shown first to riders</li>
-              <li>Read what riders said about you</li>
-              <li>HMU First badge on your profile</li>
-              <li>Unlimited cash rides — no counter, no packs needed</li>
-            </ul>
-            <div className={styles.savingsCallout}>
-              3 rides/day at $20? HMU First pays for itself and you pocket{' '}
-              <strong style={{ color: 'var(--green)' }}>~$180 more per month</strong> vs free.
+            <div className={styles.tierBadge}>{tierHmuFirst.badge}</div>
+            {tierHmuFirst.offerLabel && (
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--green)', marginBottom: 6 }}>
+                {tierHmuFirst.offerLabel}
+              </div>
+            )}
+            <div className={styles.tierName}>
+              {tierHmuFirst.strikethroughBefore && tierHmuFirst.strikethroughAfter ? (
+                <>
+                  <span style={{ textDecoration: 'line-through', color: 'var(--gray)', fontSize: '0.65em', marginRight: 10 }}>
+                    {tierHmuFirst.strikethroughBefore}
+                  </span>
+                  {tierHmuFirst.strikethroughAfter}
+                </>
+              ) : (
+                tierHmuFirst.price
+              )}
+              <span className={styles.tierNameSub}>{tierHmuFirst.priceSub}</span>
             </div>
+            <div className={styles.tierDesc}>{tierHmuFirst.desc}</div>
+            <ul className={styles.tierFeatures}>
+              {tierHmuFirst.features.map((f, i) => <li key={`hf-${i}`}>{f}</li>)}
+            </ul>
+            <div className={styles.savingsCallout}>{tierHmuFirst.savingsCallout}</div>
           </div>
         </div>
       </section>
