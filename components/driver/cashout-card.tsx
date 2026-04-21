@@ -152,14 +152,38 @@ export default function CashoutCard() {
         .co-amount { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 48px; color: #00E676; line-height: 1; margin-bottom: 4px; }
         .co-amount--zero { color: #555; }
         .co-pending { font-size: 12px; color: #888; margin-bottom: 20px; }
-        .co-methods { display: flex; gap: 8px; margin-bottom: 16px; }
-        .co-method { flex: 1; padding: 14px 12px; border-radius: 14px; border: 2px solid rgba(255,255,255,0.08); background: #1a1a1a; cursor: pointer; text-align: center; transition: all 0.15s; }
-        .co-method:active { transform: scale(0.97); }
-        .co-method--selected { border-color: #00E676; background: rgba(0,230,118,0.06); }
-        .co-method-label { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 2px; }
-        .co-method-sub { font-size: 11px; color: #888; }
-        .co-method-fee { font-size: 11px; color: #00E676; font-weight: 600; margin-top: 4px; }
-        .co-method-fee--paid { color: #FFB300; }
+        /* Segmented toggle — compact iOS-style two-option picker for
+           Standard / Instant. Active segment gets the green pill; inactive
+           is transparent. Active method details show in co-seg-detail. */
+        .co-seg {
+          display: flex; gap: 4px;
+          background: #1a1a1a;
+          border: 1px solid rgba(255,255,255,0.06);
+          border-radius: 100px;
+          padding: 4px;
+          margin-bottom: 8px;
+        }
+        .co-seg-btn {
+          flex: 1; padding: 10px 16px;
+          border: none; background: transparent;
+          color: #888;
+          font-size: 14px; font-weight: 600; line-height: 1;
+          font-family: var(--font-body, 'DM Sans', sans-serif);
+          cursor: pointer; border-radius: 100px;
+          transition: background 0.2s, color 0.2s, transform 0.15s;
+        }
+        .co-seg-btn:active:not(:disabled) { transform: scale(0.97); }
+        .co-seg-btn--active {
+          background: #00E676; color: #080808;
+          box-shadow: 0 2px 10px rgba(0,230,118,0.25);
+        }
+        .co-seg-detail {
+          text-align: center; font-size: 12px; color: #888;
+          margin-bottom: 16px; min-height: 16px;
+          font-family: var(--font-body, 'DM Sans', sans-serif);
+        }
+        .co-seg-detail--fee { color: #FFB300; }
+        .co-seg-detail--perk { color: #00E676; }
         .co-btn { width: 100%; padding: 16px; border-radius: 100px; border: none; font-weight: 700; font-size: 16px; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); transition: all 0.15s; }
         .co-btn:active { transform: scale(0.97); }
         .co-btn--green { background: #00E676; color: #080808; }
@@ -331,7 +355,7 @@ export default function CashoutCard() {
               )}
             </div>
 
-            {balance.noShowEarnings && balance.noShowEarnings.total > 0 && (
+            {balance.noShowEarnings && (
               <div style={{
                 background: 'rgba(255,64,129,0.06)', border: '1px solid rgba(255,64,129,0.18)',
                 borderRadius: 12, padding: '10px 14px', marginBottom: 12,
@@ -339,15 +363,31 @@ export default function CashoutCard() {
               }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 10, color: '#FF4081', textTransform: 'uppercase', letterSpacing: 1, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
-                    Your No Show Income
+                    {balance.noShowEarnings.total > 0 ? 'Your No-Show Income' : 'No-Show Protection'}
                   </div>
                   <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
-                    {balance.noShowEarnings.rides} no-show{balance.noShowEarnings.rides !== 1 ? 's' : ''} — collected, no ride given
+                    {balance.noShowEarnings.total > 0
+                      ? `${balance.noShowEarnings.rides} no-show${balance.noShowEarnings.rides !== 1 ? 's' : ''} — collected, no ride given`
+                      : 'You get paid when riders ghost'}
                   </div>
                 </div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: '#FF4081', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", whiteSpace: 'nowrap' }}>
-                  ${balance.noShowEarnings.total.toFixed(2)}
-                </div>
+                {balance.noShowEarnings.total > 0 ? (
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#FF4081', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", whiteSpace: 'nowrap' }}>
+                    ${balance.noShowEarnings.total.toFixed(2)}
+                  </div>
+                ) : (
+                  <div style={{
+                    fontSize: 10, fontWeight: 700, color: '#FF4081',
+                    padding: '5px 10px', borderRadius: 100,
+                    background: 'rgba(255,64,129,0.1)',
+                    border: '1px solid rgba(255,64,129,0.3)',
+                    letterSpacing: 1, textTransform: 'uppercase',
+                    fontFamily: "var(--font-mono, 'Space Mono', monospace)",
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                  }}>
+                    {'●'} Active
+                  </div>
+                )}
               </div>
             )}
           </>
@@ -491,30 +531,33 @@ export default function CashoutCard() {
           </div>
         ) : (
           <>
-            {/* Method picker */}
-            <div className="co-methods">
-              <div
-                className={`co-method ${selectedMethod === 'standard' ? 'co-method--selected' : ''}`}
+            {/* Segmented method picker */}
+            <div className="co-seg" role="tablist" aria-label="Payout method">
+              <button
+                type="button" role="tab"
+                aria-selected={selectedMethod === 'standard'}
+                className={`co-seg-btn ${selectedMethod === 'standard' ? 'co-seg-btn--active' : ''}`}
                 onClick={() => handleMethodSelect('standard')}
               >
-                <div className="co-method-label">Standard</div>
-                <div className="co-method-sub">1-2 business days</div>
-                <div className="co-method-fee">FREE</div>
-              </div>
-              <div
-                className={`co-method ${selectedMethod === 'instant' ? 'co-method--selected' : ''}`}
+                Standard
+              </button>
+              <button
+                type="button" role="tab"
+                aria-selected={selectedMethod === 'instant'}
+                className={`co-seg-btn ${selectedMethod === 'instant' ? 'co-seg-btn--active' : ''}`}
                 onClick={() => handleMethodSelect('instant')}
               >
-                <div className="co-method-label">Instant {'\u26A1'}</div>
-                <div className="co-method-sub">Arrives in minutes</div>
-                {isHmuFirst ? (
-                  <div className="co-method-fee">FREE {'\uD83E\uDD47'}</div>
-                ) : (
-                  <div className="co-method-fee co-method-fee--paid">
-                    $1 or 1%
-                  </div>
-                )}
-              </div>
+                Instant {'⚡'}
+              </button>
+            </div>
+            <div className={`co-seg-detail ${
+              selectedMethod === 'instant' && !isHmuFirst ? 'co-seg-detail--fee' : 'co-seg-detail--perk'
+            }`}>
+              {selectedMethod === 'standard'
+                ? '1–2 business days · FREE'
+                : isHmuFirst
+                  ? `Arrives in minutes · FREE ${'🥇'}`
+                  : 'Arrives in minutes · $1 or 1%'}
             </div>
 
             {/* Amount Slider — shows after selecting a method */}
