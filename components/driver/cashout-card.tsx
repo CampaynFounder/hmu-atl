@@ -241,18 +241,67 @@ export default function CashoutCard() {
         .co-slider-amount { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 36px; color: #fff; line-height: 1; }
         .co-slider-max { font-size: 11px; color: #888; cursor: pointer; padding: 4px 10px; border-radius: 100px; background: #1a1a1a; border: 1px solid rgba(255,255,255,0.08); }
         .co-slider-max:active { background: #222; }
-        .co-slider-track { position: relative; width: 100%; height: 44px; display: flex; align-items: center; }
-        .co-slider-rail { width: 100%; height: 6px; background: #222; border-radius: 3px; position: relative; overflow: hidden; }
-        .co-slider-fill { position: absolute; left: 0; top: 0; height: 100%; background: #00E676; border-radius: 3px; transition: width 0.05s; }
-        /* Invisible native range input overlaid on the custom rail/thumb.
-           opacity:0.001 keeps it present for iOS hit-testing (pure 0 is
-           dropped on some versions); touch-action:manipulation lets the
-           browser treat touches as slider drags instead of gesture candidates;
-           pointer-events:auto ensures the input wins over siblings on mobile. */
-        .co-slider-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.001; cursor: pointer; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; touch-action: manipulation; pointer-events: auto; z-index: 2; }
-        .co-slider-input::-webkit-slider-thumb { -webkit-appearance: none; width: 44px; height: 44px; background: transparent; cursor: pointer; }
-        .co-slider-input::-moz-range-thumb { width: 44px; height: 44px; background: transparent; border: none; cursor: pointer; }
-        .co-slider-thumb { position: absolute; top: 50%; width: 28px; height: 28px; background: #00E676; border: 3px solid #080808; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; box-shadow: 0 2px 8px rgba(0,230,118,0.3); transition: left 0.05s; }
+        /* Native range input styled directly — no overlay/opacity tricks.
+           iOS Safari was dropping touch events on the previous invisible-
+           overlay pattern. Restyling the actual <input type=range> via
+           pseudo-elements keeps native gesture handling while matching
+           the custom visual design exactly. */
+        .co-slider-track { position: relative; width: 100%; padding: 10px 0; }
+        .co-slider {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 100%;
+          height: 28px;
+          background: transparent;
+          cursor: pointer;
+          margin: 0;
+          padding: 0;
+          touch-action: manipulation;
+          display: block;
+        }
+        .co-slider:focus { outline: none; }
+        /* WebKit (iOS Safari, Chrome, Edge) — track is a gradient so the
+           "fill" color is encoded in the track itself. The --fill custom
+           property drives how much of the track is green. */
+        .co-slider::-webkit-slider-runnable-track {
+          height: 6px;
+          border-radius: 3px;
+          background: linear-gradient(to right, #00E676 0%, #00E676 var(--fill, 0%), #222 var(--fill, 0%), #222 100%);
+          border: none;
+        }
+        .co-slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 28px;
+          height: 28px;
+          background: #00E676;
+          border: 3px solid #080808;
+          border-radius: 50%;
+          box-shadow: 0 2px 8px rgba(0,230,118,0.3);
+          cursor: pointer;
+          margin-top: -11px;
+        }
+        /* Firefox — uses separate track/progress/thumb pseudos. */
+        .co-slider::-moz-range-track {
+          height: 6px;
+          border-radius: 3px;
+          background: #222;
+          border: none;
+        }
+        .co-slider::-moz-range-progress {
+          height: 6px;
+          border-radius: 3px;
+          background: #00E676;
+        }
+        .co-slider::-moz-range-thumb {
+          width: 28px;
+          height: 28px;
+          background: #00E676;
+          border: 3px solid #080808;
+          border-radius: 50%;
+          box-shadow: 0 2px 8px rgba(0,230,118,0.3);
+          cursor: pointer;
+        }
         .co-breakdown { margin-top: 14px; padding: 12px 14px; background: #1a1a1a; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }
         .co-breakdown-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
         .co-breakdown-label { font-size: 12px; color: #888; }
@@ -640,20 +689,22 @@ export default function CashoutCard() {
                   </button>
                 </div>
 
-                {/* Slider */}
+                {/* Slider — native range input, styled via ::-webkit-* and
+                    ::-moz-range-* pseudos. --fill drives the WebKit track
+                    gradient; Firefox uses ::-moz-range-progress automatically. */}
                 <div className="co-slider-track">
-                  <div className="co-slider-rail">
-                    <div className="co-slider-fill" style={{ width: `${sliderPercent}%` }} />
-                  </div>
-                  <div className="co-slider-thumb" style={{ left: `${sliderPercent}%` }} />
                   <input
                     type="range"
-                    className="co-slider-input"
+                    className="co-slider"
                     min={Math.round(minPayout * 100)}
                     max={Math.round(cashableAmount * 100)}
                     step={100}
                     value={Math.round(payoutAmount * 100)}
                     onChange={(e) => setPayoutAmount(parseInt(e.target.value) / 100)}
+                    onInput={(e) => setPayoutAmount(parseInt((e.target as HTMLInputElement).value) / 100)}
+                    aria-label="Payout amount"
+                    // @ts-expect-error CSS custom property for track fill
+                    style={{ '--fill': `${sliderPercent}%` }}
                   />
                 </div>
 
