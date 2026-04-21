@@ -317,7 +317,7 @@ export default function CashoutCard() {
                 borderRadius: 12, padding: '10px 12px',
               }}>
                 <div style={{ fontSize: 10, color: '#00E676', textTransform: 'uppercase', letterSpacing: 1, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
-                  Digital earned
+                  Upfront Payments/Deposits
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 700, color: '#00E676', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
                   ${balance.digitalEarnings.total.toFixed(2)}
