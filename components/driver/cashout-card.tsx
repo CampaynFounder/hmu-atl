@@ -799,7 +799,7 @@ export default function CashoutCard() {
                     ? `Lands ${formatFundsArrival(balance.fundsAvailableOn) ?? 'soon'} · FREE`
                     : '1–2 business days · FREE')
                 : balance.platformInstantEnabled === false
-                  ? `${'⏳'} Available once funds settle · see above`
+                  ? `${'⏳'} Settlement in progress · see above`
                   : isHmuFirst
                     ? `Arrives in minutes · FREE ${'🥇'}`
                     : 'Arrives in minutes · $1 or 1%'}

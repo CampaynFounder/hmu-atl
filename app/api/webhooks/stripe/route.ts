@@ -275,10 +275,12 @@ export async function POST(request: NextRequest) {
       }
 
       // Fires on a connected account whenever Stripe-available (standard
-      // payout) balance changes. We use it to SMS the driver the moment
-      // their funds clear from pending → available. Dedupe is amount-based
-      // against driver_profiles.last_notified_available_cents so webhook
-      // retries and non-positive deltas don't re-send.
+      // payout) balance changes. We SMS the driver on each positive delta
+      // (new funds cleared) and quietly track drops (driver cashed out) so
+      // the watermark never sticks high and blocks future notifications.
+      // The SMS quotes the delta — what just cleared — not the cumulative
+      // balance, so a driver who earns $10 today and $30 tomorrow sees two
+      // distinct "your $X just cleared" texts.
       case 'balance.available': {
         const balance = event.data.object as Stripe.Balance;
         const accountId = event.account; // Connect events populate this
@@ -305,18 +307,29 @@ export async function POST(request: NextRequest) {
           last_notified: number;
         } | undefined;
 
-        if (!driver || !driver.phone) break;
-        if (currentAvailableCents <= driver.last_notified) break;
+        if (!driver) break;
+
+        const deltaCents = currentAvailableCents - driver.last_notified;
+
+        // Update the watermark unconditionally — including on drops after a
+        // cashout — so a later clearing of the same or smaller amount still
+        // crosses strict ">" and fires the SMS. Previously this UPDATE only
+        // ran when an SMS was sent, leaving the watermark stuck high after
+        // cashouts and suppressing the next notification.
+        await sql`
+          UPDATE driver_profiles
+          SET last_notified_available_cents = ${currentAvailableCents}
+          WHERE user_id = ${driver.user_id}
+        `;
+
+        if (!driver.phone || deltaCents <= 0) break;
 
         const firstName =
           (driver.display_name ?? '').trim().split(/\s+/)[0] || 'Hey';
-        const dollars = (currentAvailableCents / 100).toFixed(2);
+        const clearedDollars = (deltaCents / 100).toFixed(2);
         const smsBody =
-          `HMU ATL: ${firstName}, your $${dollars} is ready to cash out! atl.hmucashride.com/driver/home`;
+          `HMU ATL: ${firstName}, your $${clearedDollars} just cleared! Cash out at atl.hmucashride.com/driver/home`;
 
-        // Fire SMS; log failures but still record the dedupe watermark so
-        // we don't spam on subsequent retries if the provider is briefly
-        // flaky. The sms_log table captures send outcomes for audit.
         const result = await sendSms(driver.phone, smsBody, {
           userId: driver.user_id,
           eventType: 'balance_available',
@@ -324,12 +337,6 @@ export async function POST(request: NextRequest) {
         if (!result.success) {
           console.error('balance.available SMS failed:', result.error);
         }
-
-        await sql`
-          UPDATE driver_profiles
-          SET last_notified_available_cents = ${currentAvailableCents}
-          WHERE user_id = ${driver.user_id}
-        `;
         break;
       }
 
