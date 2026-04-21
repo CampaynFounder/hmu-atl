@@ -20,6 +20,9 @@ interface BalanceData {
 }
 
 // Human-readable date formatter for the trust card ("Apr 22" / "Apr 22, 2026").
+// Forces UTC because Stripe returns `available_on` as midnight UTC on the
+// settlement date; converting to the browser's local timezone pushes the
+// label back a day for ET/PT and mismatches the Stripe Dashboard.
 function formatFundsDate(iso: string | null | undefined, { withYear = false } = {}): string | null {
   if (!iso) return null;
   const d = new Date(iso);
@@ -27,8 +30,25 @@ function formatFundsDate(iso: string | null | undefined, { withYear = false } = 
   return d.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
+    timeZone: 'UTC',
     ...(withYear ? { year: 'numeric' } : {}),
   });
+}
+
+// Compact "23h 45m 12s" / "2d 5h 10m" style countdown label for the trust
+// card hero. Drops the smallest units when larger ones are present so the
+// label stays readable at a glance.
+function formatCountdown(msLeft: number): string {
+  if (msLeft <= 0) return '0s';
+  const totalSeconds = Math.floor(msLeft / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
 export default function CashoutCard() {
@@ -239,22 +259,29 @@ export default function CashoutCard() {
         .co-seg-detail--locked { color: #448AFF; }
 
         /* Trust card — shown when the platform Instant limit isn't yet
-           approved by Stripe. Blue accent (trust/verification, not
-           warning). Collapsed by default so it doesn't dominate. */
+           approved by Stripe. Big countdown as hero. Blue accent (trust,
+           not warning). Collapsed by default but still a ~88px tile so
+           the countdown stays readable. */
         .co-trust { background: rgba(68,138,255,0.06); border: 1px solid rgba(68,138,255,0.22); border-radius: 14px; margin-bottom: 12px; overflow: hidden; }
-        .co-trust-header { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 14px; background: transparent; border: none; cursor: pointer; text-align: left; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .co-trust-header { display: flex; align-items: center; gap: 10px; width: 100%; padding: 14px 16px; background: transparent; border: none; cursor: pointer; text-align: left; font-family: var(--font-body, 'DM Sans', sans-serif); }
         .co-trust-header:active { background: rgba(68,138,255,0.1); }
-        .co-trust-icon { font-size: 18px; flex-shrink: 0; line-height: 1; }
-        .co-trust-copy { flex: 1; min-width: 0; }
-        .co-trust-title { font-size: 13px; font-weight: 700; color: #448AFF; line-height: 1.3; margin-bottom: 2px; }
+        .co-trust-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+        .co-trust-label { font-size: 10px; font-weight: 700; color: #448AFF; letter-spacing: 1.5px; text-transform: uppercase; line-height: 1; font-family: var(--font-mono, 'Space Mono', monospace); }
+        .co-trust-countdown { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 32px; color: #448AFF; line-height: 1; letter-spacing: 1px; display: inline-flex; align-items: center; gap: 6px; }
+        .co-trust-countdown-icon { font-size: 18px; }
         .co-trust-sub { font-size: 11px; color: #bbb; line-height: 1.4; }
-        .co-trust-chev { color: #448AFF; font-size: 12px; flex-shrink: 0; transition: transform 0.2s; }
+        .co-trust-chev { color: #448AFF; font-size: 14px; flex-shrink: 0; transition: transform 0.2s; margin-left: 4px; }
         .co-trust-chev--open { transform: rotate(180deg); }
-        .co-trust-body { padding: 0 14px 14px; border-top: 1px solid rgba(68,138,255,0.15); margin-top: 0; padding-top: 12px; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .co-trust-body { padding: 0 16px 14px; border-top: 1px solid rgba(68,138,255,0.15); padding-top: 12px; font-family: var(--font-body, 'DM Sans', sans-serif); }
         .co-trust-body p { font-size: 12px; color: #bbb; line-height: 1.6; margin: 0 0 8px; }
         .co-trust-body p:last-of-type { margin-bottom: 0; }
         .co-trust-body strong { color: #fff; font-weight: 700; }
         .co-trust-sms { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px; background: rgba(0,230,118,0.08); border: 1px solid rgba(0,230,118,0.2); border-radius: 10px; color: #00E676; font-size: 12px; font-weight: 600; }
+        /* Ready state after countdown hits zero — swap to green accent. */
+        .co-trust--ready { background: rgba(0,230,118,0.08); border-color: rgba(0,230,118,0.3); }
+        .co-trust--ready .co-trust-label,
+        .co-trust--ready .co-trust-countdown,
+        .co-trust--ready .co-trust-chev { color: #00E676; }
 
         /* Small lock chip prepended to the Instant segment label when the
            platform cap is still in effect. */
@@ -687,7 +714,10 @@ export default function CashoutCard() {
                 "funds available" date to quote from Stripe. Collapsed by
                 default so it doesn't push the Cash Out CTA below the fold. */}
             {balance.platformInstantEnabled === false && balance.fundsAvailableOn && (
-              <TrustCard fundsAvailableOn={balance.fundsAvailableOn} />
+              <TrustCard
+                fundsAvailableOn={balance.fundsAvailableOn}
+                pendingAmount={balance.pending || balance.instantAvailable || 0}
+              />
             )}
 
             {/* Segmented method picker */}
@@ -903,26 +933,56 @@ function PaymentInfoCard({ title, icon, color, items }: {
   );
 }
 
-/** Trust-building explainer shown when the platform-wide Instant Payouts
- *  daily cap is still $0 (pre-Stripe-approval). Collapsed header is a
- *  single line; tap to expand the full narrative and the SMS promise. */
-function TrustCard({ fundsAvailableOn }: { fundsAvailableOn: string }) {
+/** Trust-building explainer with a live countdown to the moment funds
+ *  clear from pending → standard-available. Shown when Stripe hasn't yet
+ *  approved the platform Instant Payouts daily cap. Collapsed card is a
+ *  ~90px tile with the countdown as the visual hero; tap the chevron to
+ *  reveal the narrative + SMS promise. */
+function TrustCard({
+  fundsAvailableOn,
+  pendingAmount,
+}: {
+  fundsAvailableOn: string;
+  pendingAmount: number;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  // Tick once per second while the card is mounted. RAF would be overkill
+  // for a second-granular countdown; setInterval is cheaper and predictable.
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const target = new Date(fundsAvailableOn).getTime();
+  const msLeft = Math.max(0, target - now);
+  const isReady = msLeft === 0;
+  const countdownLabel = formatCountdown(msLeft);
   const shortDate = formatFundsDate(fundsAvailableOn) ?? 'soon';
   const longDate = formatFundsDate(fundsAvailableOn, { withYear: true }) ?? 'soon';
 
   return (
-    <div className="co-trust">
+    <div className={`co-trust ${isReady ? 'co-trust--ready' : ''}`}>
       <button
         type="button"
         className="co-trust-header"
         onClick={() => setExpanded(v => !v)}
         aria-expanded={expanded}
       >
-        <span className="co-trust-icon">{'🔐'}</span>
         <span className="co-trust-copy">
-          <span className="co-trust-title">Instant unlocks with trust</span>
-          <span className="co-trust-sub">Your money lands {shortDate} via Standard</span>
+          <span className="co-trust-label">
+            {isReady ? 'Ready to cash out' : `$${pendingAmount.toFixed(2)} unlocks in`}
+          </span>
+          <span className="co-trust-countdown">
+            <span className="co-trust-countdown-icon">{isReady ? '🔓' : '⏳'}</span>
+            {isReady ? 'Available now' : countdownLabel}
+          </span>
+          <span className="co-trust-sub">
+            {isReady
+              ? 'Tap the refresh button to confirm the new balance'
+              : <>{shortDate} via Standard · <span style={{ whiteSpace: 'nowrap' }}>{'🔐'} Instant unlocks with trust</span></>}
+          </span>
         </span>
         <span className={`co-trust-chev ${expanded ? 'co-trust-chev--open' : ''}`}>{'▾'}</span>
       </button>
@@ -933,8 +993,8 @@ function TrustCard({ fundsAvailableOn }: { fundsAvailableOn: string }) {
             how we keep HMU safe for everyone.
           </p>
           <p>
-            Your money is <strong>100% guaranteed</strong> and arrives on{' '}
-            <strong>{longDate}</strong> via Standard.
+            Your <strong>${pendingAmount.toFixed(2)}</strong> is 100% guaranteed and
+            arrives on <strong>{longDate}</strong> via Standard.
           </p>
           <p>
             Instant Payouts unlock as you complete more rides. Most drivers
