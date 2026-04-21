@@ -62,6 +62,24 @@ function formatFundsArrivalLong(iso: string | null | undefined): string | null {
   return `${date} at ${time}`;
 }
 
+// Snap a raw cent value from the range input to the nearest 50¢ tick OR to
+// max (whichever is closer). Max is always reachable even when it isn't on
+// a 50¢ boundary — a $9.99 cashable balance yields …$9.00 → $9.50 → $9.99.
+// All inputs are integer cents; caller scales to dollars.
+function snapCents(raw: number, minCents: number, maxCents: number): number {
+  if (raw >= maxCents) return maxCents;
+  if (raw <= minCents) return minCents;
+  const nearestHalf = Math.round(raw / 50) * 50;
+  if (nearestHalf >= maxCents) {
+    const prior = Math.floor(raw / 50) * 50;
+    // Tie goes to max — the driver should be able to reach their full
+    // cashable balance with a single swipe to the end of the track.
+    return (raw - prior) >= (maxCents - raw) ? maxCents : prior;
+  }
+  if (nearestHalf < minCents) return minCents;
+  return nearestHalf;
+}
+
 // Compact "23h 45m 12s" / "2d 5h 10m" style countdown label for the trust
 // card hero. Drops the smallest units when larger ones are present so the
 // label stays readable at a glance.
@@ -821,7 +839,13 @@ export default function CashoutCard() {
 
                 {/* Slider — native range input, styled via ::-webkit-* and
                     ::-moz-range-* pseudos. --fill drives the WebKit track
-                    gradient; Firefox uses ::-moz-range-progress automatically. */}
+                    gradient; Firefox uses ::-moz-range-progress automatically.
+                    Native step stays at 1 so the thumb glides smoothly; the
+                    onInput handler snaps the committed value to the nearest
+                    50¢ tick OR to max (whichever is closer), so a $9.99
+                    balance ends …$9.00 → $9.50 → $9.99. Using native
+                    step=50 would clip the last 49¢ because the HTML range
+                    spec rounds to step multiples from min, not to max. */}
                 <div className="co-slider-track">
                   <input
                     type="range"
@@ -830,8 +854,12 @@ export default function CashoutCard() {
                     max={Math.round(cashableAmount * 100)}
                     step={1}
                     value={Math.round(payoutAmount * 100)}
-                    onChange={(e) => setPayoutAmount(parseInt(e.target.value) / 100)}
-                    onInput={(e) => setPayoutAmount(parseInt((e.target as HTMLInputElement).value) / 100)}
+                    onChange={(e) => setPayoutAmount(
+                      snapCents(parseInt(e.target.value), Math.round(minPayout * 100), Math.round(cashableAmount * 100)) / 100
+                    )}
+                    onInput={(e) => setPayoutAmount(
+                      snapCents(parseInt((e.target as HTMLInputElement).value), Math.round(minPayout * 100), Math.round(cashableAmount * 100)) / 100
+                    )}
                     aria-label="Payout amount"
                     // @ts-expect-error CSS custom property for track fill
                     style={{ '--fill': `${sliderPercent}%` }}
