@@ -85,20 +85,21 @@ export default function CashoutCard() {
   // "only Instant has funds" branch), making the toggle appear stuck.
   const userHasPickedMethodRef = useRef(false);
 
-  // On first balance load only, pick the right default. Prefer Standard when
-  // it has money (no chargeback risk on settled funds); fall through to
-  // Instant when only that has funds so the CTA lights up for eligible
-  // drivers without making them discover the toggle.
+  // On first balance load only, pick the right default method AND seed
+  // the slider at the minimum. Driver slides UP to their desired amount
+  // rather than down from max — lower-commitment UX, still one tap on
+  // the Max button to grab everything.
   useEffect(() => {
     if (!balance || payoutAmount !== 0 || userHasPickedMethodRef.current) return;
     if (balance.available > 0) {
       setSelectedMethod('standard');
-      setPayoutAmount(balance.available);
+      setPayoutAmount(Math.min(balance.available, 1));
     } else if (balance.instantAvailable > 0) {
       setSelectedMethod('instant');
-      setPayoutAmount(balance.instantAvailable);
+      const floor = isHmuFirst ? 1 : 2;
+      setPayoutAmount(Math.min(balance.instantAvailable, floor));
     }
-  }, [balance, payoutAmount]);
+  }, [balance, payoutAmount, isHmuFirst]);
 
   // Clamp payoutAmount down if the balance shrinks (e.g. after a cashout).
   useEffect(() => {
@@ -127,13 +128,14 @@ export default function CashoutCard() {
     userHasPickedMethodRef.current = true;
     setSelectedMethod(method);
     setShowSlider(true);
-    // Reset to max for the target method — cashableAmount above is still
-    // derived from the pre-change selectedMethod because React hasn't
-    // re-rendered yet, so compute fresh here.
+    // Reset to the target method's minimum — driver slides UP from here.
+    // cashableAmount/minPayout above are still derived from the pre-change
+    // selectedMethod, so compute fresh values inline.
     const newCashable = method === 'instant'
       ? (balance?.instantAvailable ?? 0)
       : (balance?.available ?? 0);
-    setPayoutAmount(newCashable);
+    const floor = (method === 'instant' && !isHmuFirst) ? 2 : 1;
+    setPayoutAmount(Math.min(newCashable, floor));
   };
 
   async function handleCashout() {
@@ -698,7 +700,7 @@ export default function CashoutCard() {
                     className="co-slider"
                     min={Math.round(minPayout * 100)}
                     max={Math.round(cashableAmount * 100)}
-                    step={100}
+                    step={1}
                     value={Math.round(payoutAmount * 100)}
                     onChange={(e) => setPayoutAmount(parseInt(e.target.value) / 100)}
                     onInput={(e) => setPayoutAmount(parseInt((e.target as HTMLInputElement).value) / 100)}
