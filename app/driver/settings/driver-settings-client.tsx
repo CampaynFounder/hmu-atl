@@ -8,6 +8,8 @@ import Link from 'next/link';
 import { ChevronLeft, Shield, Zap, Clock, MessageCircle, DollarSign, UtensilsCrossed, Star, Plus, Trash2, BarChart3, LogOut } from 'lucide-react';
 import AuthManagement from '@/components/shared/auth-management';
 import RatingsInfo from '@/components/shared/ratings-info';
+import { CountUp } from '@/components/shared/count-up';
+import { EarningsChart, type DailyBucket } from '@/components/driver/earnings-chart';
 
 interface Props {
   tier: string;
@@ -907,10 +909,12 @@ function MenuTab({ tier }: { tier: string }) {
 function AnalyticsTab({ tier }: { tier: string }) {
   const isHmuFirst = tier === 'hmu_first';
   const [data, setData] = useState<{
-    rides: { id: string; date: string; pickup: string | null; dropoff: string | null; amount: number; distanceMiles: number | null; durationMinutes: number | null; ratePerMile: number | null; ratePerMinute: number | null }[];
-    aggregate: { avgRatePerMile: number; avgRatePerMinute: number; totalMiles: number; totalMinutes: number; totalRides: number; totalEarned: number };
+    rides: { id: string; date: string; pickup: string | null; dropoff: string | null; amount: number; distanceMiles: number | null; durationMinutes: number | null; ratePerMile: number | null; ratePerMinute: number | null; isCash: boolean; incompleteGps: boolean }[];
+    aggregate: { avgRatePerMile: number; avgRatePerMinute: number; avgRatePerHour: number; totalMiles: number; totalMinutes: number; totalRides: number; totalEarned: number; ratedRides: number; excludedRides: number };
+    timeseries: DailyBucket[];
     comparison: { area: string; yourAvgPerMile: number; areaAvgPerMile: number; percentile: number; yourAvgPerMinute: number; areaAvgPerMinute: number } | null;
   } | null>(null);
+  const [drillDay, setDrillDay] = useState<DailyBucket | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -947,19 +951,54 @@ function AnalyticsTab({ tier }: { tier: string }) {
   const agg = data.aggregate;
   const comp = data.comparison;
 
+  const totalHours = Math.floor(agg.totalMinutes / 60);
+  const totalMinsRemainder = Math.round(agg.totalMinutes % 60);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Aggregate stats */}
+      {/* Aggregate stats — count-up animated */}
       <div style={{
-        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+        display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8,
       }}>
-        <StatCard label="Total Rides" value={String(agg.totalRides)} />
-        <StatCard label="Total Earned" value={`$${agg.totalEarned.toFixed(0)}`} color="#00E676" />
-        <StatCard label="Total Miles" value={`${agg.totalMiles.toFixed(0)} mi`} />
-        <StatCard label="Total Time" value={`${Math.round(agg.totalMinutes / 60)}h ${agg.totalMinutes % 60}m`} />
-        <StatCard label="Avg $/mile" value={`$${agg.avgRatePerMile.toFixed(2)}`} color="#00E676" />
-        <StatCard label="Avg $/min" value={`$${agg.avgRatePerMinute.toFixed(2)}`} color="#00E676" />
+        <StatCard label="Total Rides" delay={0}>
+          <CountUp value={agg.totalRides} decimals={0} />
+        </StatCard>
+        <StatCard label="Total Earned" color="#00E676" delay={80}>
+          <CountUp value={agg.totalEarned} decimals={0} prefix="$" />
+        </StatCard>
+        <StatCard label="Total Miles" delay={160}>
+          <CountUp value={agg.totalMiles} decimals={0} suffix=" mi" />
+        </StatCard>
+        <StatCard label="$/Hour" color="#00E676" delay={240}>
+          <CountUp value={agg.avgRatePerHour} decimals={2} prefix="$" />
+        </StatCard>
+        <StatCard label="$/Mile" color="#00E676" delay={320}>
+          <CountUp value={agg.avgRatePerMile} decimals={2} prefix="$" />
+        </StatCard>
+        <StatCard label="Total Time" delay={400}>
+          <span style={{ fontSize: 20 }}>
+            <CountUp value={totalHours} decimals={0} suffix="h " />
+            <CountUp value={totalMinsRemainder} decimals={0} suffix="m" />
+          </span>
+        </StatCard>
       </div>
+
+      {/* Earnings time-series — stacked cash vs app pay */}
+      <EarningsChart data={data.timeseries} onDrill={setDrillDay} />
+
+      {agg.excludedRides > 0 && (
+        <div style={{ fontSize: 11, color: '#666', textAlign: 'center', marginTop: -8 }}>
+          {agg.excludedRides} ride{agg.excludedRides === 1 ? '' : 's'} excluded from $/mi and $/hr (incomplete GPS trail)
+        </div>
+      )}
+
+      {drillDay && (
+        <DrillDaySheet
+          day={drillDay}
+          rides={data.rides.filter(r => r.date && r.date.slice(0, 10) === drillDay.day)}
+          onClose={() => setDrillDay(null)}
+        />
+      )}
 
       {/* Area comparison — HMU First only */}
       {comp && comp.percentile > 0 && (
@@ -974,13 +1013,21 @@ function AnalyticsTab({ tier }: { tier: string }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <div>
                 <div style={{ fontSize: 28, fontWeight: 700, color: '#00E676', fontFamily: "'Space Mono', monospace" }}>
-                  Top {Math.max(1, 100 - comp.percentile)}%
+                  Top <CountUp value={Math.max(1, 100 - comp.percentile)} decimals={0} />%
                 </div>
                 <div style={{ fontSize: 12, color: '#bbb' }}>of drivers in {comp.area}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 13, color: '#bbb' }}>Your avg: <span style={{ color: '#fff', fontWeight: 600 }}>${comp.yourAvgPerMile.toFixed(2)}/mi</span></div>
-                <div style={{ fontSize: 13, color: '#bbb' }}>Area avg: <span style={{ color: '#fff' }}>${comp.areaAvgPerMile.toFixed(2)}/mi</span></div>
+                <div style={{ fontSize: 13, color: '#bbb' }}>
+                  Your avg: <span style={{ color: '#fff', fontWeight: 600, fontFamily: "'Space Mono', monospace" }}>
+                    <CountUp value={comp.yourAvgPerMile} decimals={2} prefix="$" suffix="/mi" />
+                  </span>
+                </div>
+                <div style={{ fontSize: 13, color: '#bbb' }}>
+                  Area avg: <span style={{ color: '#fff', fontFamily: "'Space Mono', monospace" }}>
+                    <CountUp value={comp.areaAvgPerMile} decimals={2} prefix="$" suffix="/mi" />
+                  </span>
+                </div>
               </div>
             </div>
             {/* Percentile bar */}
@@ -1083,20 +1130,155 @@ function AnalyticsTab({ tier }: { tier: string }) {
   );
 }
 
-function StatCard({ label, value, color }: { label: string; value: string; color?: string }) {
+function StatCard({
+  label,
+  value,
+  color,
+  children,
+  delay,
+}: {
+  label: string;
+  value?: string;
+  color?: string;
+  children?: React.ReactNode;
+  delay?: number;
+}) {
   return (
-    <div style={{
-      background: '#141414', borderRadius: 14, padding: '14px 12px',
-      border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center',
-    }}>
+    <div
+      style={{
+        background: '#141414', borderRadius: 14, padding: '14px 8px',
+        border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center',
+        animation: `statCardIn 420ms ease-out ${delay ?? 0}ms both`,
+      }}
+    >
       <div style={{
-        fontSize: 20, fontWeight: 700, color: color || '#fff',
+        fontSize: 18, fontWeight: 700, color: color || '#fff',
         fontFamily: "'Space Mono', monospace",
+        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
       }}>
-        {value}
+        {children ?? value}
       </div>
-      <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', marginTop: 2 }}>
+      <div style={{ fontSize: 9, color: '#888', textTransform: 'uppercase', marginTop: 2, letterSpacing: 0.4 }}>
         {label}
+      </div>
+      <style jsx>{`
+        @keyframes statCardIn {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function DrillDaySheet({
+  day,
+  rides,
+  onClose,
+}: {
+  day: DailyBucket;
+  rides: { id: string; amount: number; isCash: boolean; pickup: string | null; dropoff: string | null; distanceMiles: number | null; durationMinutes: number | null }[];
+  onClose: () => void;
+}) {
+  const dayLabel = new Date(day.day + 'T12:00:00').toLocaleDateString('en-US', {
+    weekday: 'long', month: 'short', day: 'numeric',
+  });
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 100,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: '#080808', borderRadius: '20px 20px 0 0',
+          width: '100%', maxWidth: 500, maxHeight: '80vh', overflowY: 'auto',
+          padding: 20, border: '1px solid rgba(255,255,255,0.08)',
+          animation: 'sheetUp 260ms ease-out',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', fontWeight: 600 }}>
+              {dayLabel}
+            </div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: '#fff', fontFamily: "'Space Mono', monospace" }}>
+              <CountUp value={day.cash + day.nonCash} decimals={2} prefix="$" />
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'transparent', border: 'none', color: '#888', fontSize: 20, cursor: 'pointer',
+            }}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+          <div style={{ background: '#141414', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 10, color: '#00E676', textTransform: 'uppercase', fontWeight: 600 }}>Cash</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', fontFamily: "'Space Mono', monospace" }}>
+              <CountUp value={day.cash} decimals={2} prefix="$" />
+            </div>
+          </div>
+          <div style={{ background: '#141414', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 10, color: '#3B82F6', textTransform: 'uppercase', fontWeight: 600 }}>App Pay</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', fontFamily: "'Space Mono', monospace" }}>
+              <CountUp value={day.nonCash} decimals={2} prefix="$" />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', marginBottom: 8, fontWeight: 600 }}>
+          {rides.length} {rides.length === 1 ? 'Ride' : 'Rides'}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {rides.map(r => (
+            <Link
+              key={r.id}
+              href={`/ride/${r.id}`}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 12px', borderRadius: 12,
+                background: '#141414', border: '1px solid rgba(255,255,255,0.06)',
+                textDecoration: 'none', color: '#fff',
+              }}
+            >
+              <span style={{
+                width: 6, height: 32, borderRadius: 3,
+                background: r.isCash ? '#00E676' : '#3B82F6',
+              }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {r.dropoff || r.pickup || 'Ride'}
+                </div>
+                <div style={{ fontSize: 11, color: '#888' }}>
+                  {r.distanceMiles != null && `${r.distanceMiles.toFixed(1)} mi`}
+                  {r.durationMinutes != null && ` · ${r.durationMinutes} min`}
+                  {` · ${r.isCash ? 'Cash' : 'App Pay'}`}
+                </div>
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#00E676', fontFamily: "'Space Mono', monospace" }}>
+                ${r.amount.toFixed(2)}
+              </div>
+            </Link>
+          ))}
+        </div>
+
+        <style jsx>{`
+          @keyframes sheetUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+          }
+        `}</style>
       </div>
     </div>
   );
