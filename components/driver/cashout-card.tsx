@@ -222,15 +222,29 @@ export default function CashoutCard() {
         .co-rise-2 { animation-delay: 0.12s; }
         .co-rise-3 { animation-delay: 0.2s; }
 
-        /* Refresh button — small circular affordance to re-pull Stripe
-           balance without reloading the page. */
-        .co-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-        .co-refresh { background: transparent; border: 1px solid rgba(255,255,255,0.08); color: #888; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; padding: 0; transition: color 0.15s, border-color 0.15s, transform 0.15s; flex-shrink: 0; }
-        .co-refresh:hover:not(:disabled) { color: #00E676; border-color: rgba(0,230,118,0.3); }
-        .co-refresh:active:not(:disabled) { transform: scale(0.9); }
-        .co-refresh:disabled { cursor: not-allowed; }
-        .co-refresh--spinning { color: #00E676; }
-        .co-refresh--spinning > span { display: inline-block; animation: coSpin 0.8s linear infinite; }
+        /* Refresh pill — prominent affordance to re-pull Stripe balance
+           without reloading the page. Brand green, always-on. */
+        .co-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+        .co-refresh {
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 6px 12px; border-radius: 100px;
+          background: rgba(0,230,118,0.08);
+          border: 1px solid rgba(0,230,118,0.3);
+          color: #00E676;
+          font-size: 12px; font-weight: 700;
+          font-family: var(--font-body, 'DM Sans', sans-serif);
+          letter-spacing: 0.5px;
+          cursor: pointer; flex-shrink: 0; line-height: 1;
+          transition: background 0.15s, border-color 0.15s, transform 0.15s;
+        }
+        .co-refresh:hover:not(:disabled) {
+          background: rgba(0,230,118,0.14);
+          border-color: rgba(0,230,118,0.5);
+        }
+        .co-refresh:active:not(:disabled) { transform: scale(0.96); }
+        .co-refresh:disabled { cursor: not-allowed; opacity: 0.7; }
+        .co-refresh-icon { display: inline-block; font-size: 14px; }
+        .co-refresh--spinning .co-refresh-icon { animation: coSpin 0.8s linear infinite; }
         @keyframes coSpin { to { transform: rotate(360deg); } }
       `}</style>
 
@@ -263,9 +277,10 @@ export default function CashoutCard() {
             onClick={handleRefresh}
             disabled={refreshing}
             aria-label="Refresh balance"
-            title="Refresh balance"
+            title="Re-check Stripe for newly available funds"
           >
-            <span>{'↻'}</span>
+            <span className="co-refresh-icon">{'↻'}</span>
+            <span>{refreshing ? 'Checking…' : 'Refresh'}</span>
           </button>
         </div>
         <div className={`co-amount co-rise co-rise-2 ${cashableAmount <= 0 ? 'co-amount--zero' : ''}`}>
