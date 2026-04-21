@@ -65,6 +65,8 @@ export async function GET() {
     const userIdRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     const driverUserId = (userIdRows[0] as { id: string }).id;
 
+    // Cash and Deposits exclude no-show rides so the three buckets don't
+    // double-count. No-shows get their own bucket below.
     const cashRows = await sql`
       SELECT
         COUNT(*) as cash_rides,
@@ -73,6 +75,7 @@ export async function GET() {
       WHERE driver_id = ${driverUserId}
         AND is_cash = true
         AND status IN ('ended', 'completed')
+        AND (no_show_percent IS NULL OR no_show_percent = 0)
     `;
     const cashRides = Number((cashRows[0] as Record<string, unknown>).cash_rides || 0);
     const cashTotal = Number((cashRows[0] as Record<string, unknown>).cash_total || 0);
@@ -85,9 +88,22 @@ export async function GET() {
       WHERE driver_id = ${driverUserId}
         AND (is_cash IS NULL OR is_cash = false)
         AND status IN ('ended', 'completed')
+        AND (no_show_percent IS NULL OR no_show_percent = 0)
     `;
     const digitalRides = Number((digitalRows[0] as Record<string, unknown>).digital_rides || 0);
     const digitalTotal = Number((digitalRows[0] as Record<string, unknown>).digital_total || 0);
+
+    const noShowRows = await sql`
+      SELECT
+        COUNT(*) as no_show_rides,
+        COALESCE(SUM(driver_payout_amount), 0) as no_show_total
+      FROM rides
+      WHERE driver_id = ${driverUserId}
+        AND status IN ('ended', 'completed')
+        AND no_show_percent > 0
+    `;
+    const noShowRides = Number((noShowRows[0] as Record<string, unknown>).no_show_rides || 0);
+    const noShowTotal = Number((noShowRows[0] as Record<string, unknown>).no_show_total || 0);
 
     return NextResponse.json({
       available,
@@ -99,6 +115,7 @@ export async function GET() {
       payoutStatus,
       cashEarnings: { rides: cashRides, total: cashTotal },
       digitalEarnings: { rides: digitalRides, total: digitalTotal },
+      noShowEarnings: { rides: noShowRides, total: noShowTotal },
     });
   } catch (error) {
     console.error('Balance error:', error);
