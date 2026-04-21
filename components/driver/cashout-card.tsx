@@ -11,10 +11,24 @@ interface BalanceData {
   pending: number;
   instantAvailable: number;
   instantEligible: boolean;
+  platformInstantEnabled?: boolean;
+  fundsAvailableOn?: string | null;
   tier: string;
   cashEarnings?: { rides: number; total: number };
   digitalEarnings?: { rides: number; total: number };
   noShowEarnings?: { rides: number; total: number };
+}
+
+// Human-readable date formatter for the trust card ("Apr 22" / "Apr 22, 2026").
+function formatFundsDate(iso: string | null | undefined, { withYear = false } = {}): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(withYear ? { year: 'numeric' } : {}),
+  });
 }
 
 export default function CashoutCard() {
@@ -222,6 +236,29 @@ export default function CashoutCard() {
         }
         .co-seg-detail--fee { color: #FFB300; }
         .co-seg-detail--perk { color: #00E676; }
+        .co-seg-detail--locked { color: #448AFF; }
+
+        /* Trust card — shown when the platform Instant limit isn't yet
+           approved by Stripe. Blue accent (trust/verification, not
+           warning). Collapsed by default so it doesn't dominate. */
+        .co-trust { background: rgba(68,138,255,0.06); border: 1px solid rgba(68,138,255,0.22); border-radius: 14px; margin-bottom: 12px; overflow: hidden; }
+        .co-trust-header { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 14px; background: transparent; border: none; cursor: pointer; text-align: left; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .co-trust-header:active { background: rgba(68,138,255,0.1); }
+        .co-trust-icon { font-size: 18px; flex-shrink: 0; line-height: 1; }
+        .co-trust-copy { flex: 1; min-width: 0; }
+        .co-trust-title { font-size: 13px; font-weight: 700; color: #448AFF; line-height: 1.3; margin-bottom: 2px; }
+        .co-trust-sub { font-size: 11px; color: #bbb; line-height: 1.4; }
+        .co-trust-chev { color: #448AFF; font-size: 12px; flex-shrink: 0; transition: transform 0.2s; }
+        .co-trust-chev--open { transform: rotate(180deg); }
+        .co-trust-body { padding: 0 14px 14px; border-top: 1px solid rgba(68,138,255,0.15); margin-top: 0; padding-top: 12px; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .co-trust-body p { font-size: 12px; color: #bbb; line-height: 1.6; margin: 0 0 8px; }
+        .co-trust-body p:last-of-type { margin-bottom: 0; }
+        .co-trust-body strong { color: #fff; font-weight: 700; }
+        .co-trust-sms { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px; background: rgba(0,230,118,0.08); border: 1px solid rgba(0,230,118,0.2); border-radius: 10px; color: #00E676; font-size: 12px; font-weight: 600; }
+
+        /* Small lock chip prepended to the Instant segment label when the
+           platform cap is still in effect. */
+        .co-seg-lock { font-size: 11px; margin-right: 4px; }
         .co-btn { width: 100%; padding: 16px; border-radius: 100px; border: none; font-weight: 700; font-size: 16px; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); transition: all 0.15s; }
         .co-btn:active { transform: scale(0.97); }
         .co-btn--green { background: #00E676; color: #080808; }
@@ -645,6 +682,14 @@ export default function CashoutCard() {
           </div>
         ) : (
           <>
+            {/* Trust card — only renders when Stripe hasn't yet approved the
+                platform's Instant Payouts daily cap AND we have a real
+                "funds available" date to quote from Stripe. Collapsed by
+                default so it doesn't push the Cash Out CTA below the fold. */}
+            {balance.platformInstantEnabled === false && balance.fundsAvailableOn && (
+              <TrustCard fundsAvailableOn={balance.fundsAvailableOn} />
+            )}
+
             {/* Segmented method picker */}
             <div className="co-seg" role="tablist" aria-label="Payout method">
               <button
@@ -661,17 +706,28 @@ export default function CashoutCard() {
                 className={`co-seg-btn ${selectedMethod === 'instant' ? 'co-seg-btn--active' : ''}`}
                 onClick={() => handleMethodSelect('instant')}
               >
+                {balance.platformInstantEnabled === false && (
+                  <span className="co-seg-lock" aria-label="Instant unlocks with trust">{'🔐'}</span>
+                )}
                 Instant {'⚡'}
               </button>
             </div>
             <div className={`co-seg-detail ${
-              selectedMethod === 'instant' && !isHmuFirst ? 'co-seg-detail--fee' : 'co-seg-detail--perk'
+              selectedMethod === 'instant' && balance.platformInstantEnabled === false
+                ? 'co-seg-detail--locked'
+                : selectedMethod === 'instant' && !isHmuFirst
+                  ? 'co-seg-detail--fee'
+                  : 'co-seg-detail--perk'
             }`}>
               {selectedMethod === 'standard'
-                ? '1–2 business days · FREE'
-                : isHmuFirst
-                  ? `Arrives in minutes · FREE ${'🥇'}`
-                  : 'Arrives in minutes · $1 or 1%'}
+                ? (balance.fundsAvailableOn
+                    ? `Lands ${formatFundsDate(balance.fundsAvailableOn) ?? 'soon'} · FREE`
+                    : '1–2 business days · FREE')
+                : balance.platformInstantEnabled === false
+                  ? `${'🔐'} Unlocks with trust · see above for details`
+                  : isHmuFirst
+                    ? `Arrives in minutes · FREE ${'🥇'}`
+                    : 'Arrives in minutes · $1 or 1%'}
             </div>
 
             {/* Amount Slider — shows after selecting a method */}
@@ -841,6 +897,53 @@ function PaymentInfoCard({ title, icon, color, items }: {
               </span>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Trust-building explainer shown when the platform-wide Instant Payouts
+ *  daily cap is still $0 (pre-Stripe-approval). Collapsed header is a
+ *  single line; tap to expand the full narrative and the SMS promise. */
+function TrustCard({ fundsAvailableOn }: { fundsAvailableOn: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const shortDate = formatFundsDate(fundsAvailableOn) ?? 'soon';
+  const longDate = formatFundsDate(fundsAvailableOn, { withYear: true }) ?? 'soon';
+
+  return (
+    <div className="co-trust">
+      <button
+        type="button"
+        className="co-trust-header"
+        onClick={() => setExpanded(v => !v)}
+        aria-expanded={expanded}
+      >
+        <span className="co-trust-icon">{'🔐'}</span>
+        <span className="co-trust-copy">
+          <span className="co-trust-title">Instant unlocks with trust</span>
+          <span className="co-trust-sub">Your money lands {shortDate} via Standard</span>
+        </span>
+        <span className={`co-trust-chev ${expanded ? 'co-trust-chev--open' : ''}`}>{'▾'}</span>
+      </button>
+      {expanded && (
+        <div className="co-trust-body">
+          <p>
+            New accounts ride Standard first while we verify identity — it&apos;s
+            how we keep HMU safe for everyone.
+          </p>
+          <p>
+            Your money is <strong>100% guaranteed</strong> and arrives on{' '}
+            <strong>{longDate}</strong> via Standard.
+          </p>
+          <p>
+            Instant Payouts unlock as you complete more rides. Most drivers
+            get Instant access within their first week.
+          </p>
+          <div className="co-trust-sms">
+            <span>{'📱'}</span>
+            <span>We&apos;ll text you the second your funds are ready to cash out.</span>
+          </div>
         </div>
       )}
     </div>

@@ -41,13 +41,43 @@ export async function GET() {
       });
     }
 
-    const balance = await stripe.balance.retrieve({
-      stripeAccount: driver.stripe_account_id,
-    });
+    // Fetch Stripe balance + pending balance transactions in parallel — the
+    // second call powers the "$X lands on Apr 22" date the UI surfaces.
+    const [balance, txns] = await Promise.all([
+      stripe.balance.retrieve({ stripeAccount: driver.stripe_account_id }),
+      stripe.balanceTransactions.list(
+        { limit: 10 },
+        { stripeAccount: driver.stripe_account_id }
+      ),
+    ]);
 
     const available = balance.available.reduce((sum, b) => sum + b.amount, 0) / 100;
     const pending = balance.pending.reduce((sum, b) => sum + b.amount, 0) / 100;
     const instantAvailable = balance.instant_available?.reduce((sum, b) => sum + b.amount, 0) ?? 0;
+
+    // Earliest available_on across pending balance transactions = when
+    // Stripe will release the first chunk of pending funds into standard
+    // available. Null when nothing is pending.
+    const pendingUnlocks = txns.data
+      .filter(t => t.status === 'pending')
+      .map(t => t.available_on)
+      .sort((a, b) => a - b);
+    const fundsAvailableOn = pendingUnlocks[0]
+      ? new Date(pendingUnlocks[0] * 1000).toISOString()
+      : null;
+
+    // Platform-level Instant Payouts toggle. Stripe starts new Connect
+    // platforms with a $0.00/day Instant volume cap until they manually
+    // approve an increase — the flag lets the UI show "Instant unlocks
+    // with trust" messaging instead of letting the driver hit a scary
+    // Stripe rejection. Read defensively so a missing row doesn't 500.
+    const configRows = await sql`
+      SELECT config_value FROM platform_config
+      WHERE config_key = 'instant_payouts_enabled' LIMIT 1
+    `;
+    const platformInstantEnabled =
+      (configRows[0] as { config_value?: { enabled?: boolean } } | undefined)
+        ?.config_value?.enabled === true;
 
     // Determine payout readiness
     let payoutStatus: string;
@@ -110,6 +140,8 @@ export async function GET() {
       pending,
       instantAvailable: instantAvailable / 100,
       instantEligible: driver.stripe_instant_eligible || instantAvailable > 0,
+      platformInstantEnabled,
+      fundsAvailableOn,
       tier: driver.tier,
       currency: 'usd',
       payoutStatus,

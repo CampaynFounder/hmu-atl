@@ -160,9 +160,9 @@ export async function POST(req: NextRequest) {
     // Detect Stripe instant payout volume limit
     if (msg.includes('daily volume limit') || msg.includes('Instant Payouts')) {
       return NextResponse.json({
-        error: 'Instant payouts are temporarily unavailable.',
+        error: 'Instant Payouts unlock with trust',
         errorType: 'instant_limit',
-        detail: 'Use Standard payout instead — it\'s free and arrives in 1-2 business days. Your balance is safe and will be there when you\'re ready.',
+        detail: 'New accounts ride Standard first while we verify identity — it\'s how we keep HMU safe for everyone. Your money is 100% guaranteed and will arrive via Standard. We\'ll text you the second it\'s ready. Instant Payouts unlock as you complete more rides.',
       }, { status: 400 });
     }
 
