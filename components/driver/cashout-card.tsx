@@ -432,6 +432,24 @@ export default function CashoutCard() {
         .co-rise-2 { animation-delay: 0.12s; }
         .co-rise-3 { animation-delay: 0.2s; }
 
+        /* Trust card entrance — fade + 8px rise, lightly delayed so it lands
+           after the amount CountUp starts and the eye is already moving
+           downward. One-shot; does not repeat on re-render. */
+        @keyframes coTrustEnter {
+          0% { opacity: 0; transform: translateY(8px) scale(0.99); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .co-trust { animation: coTrustEnter 0.5s cubic-bezier(0.25, 0.1, 0.25, 1) 0.25s both; }
+
+        /* Countdown "breathing" on first render — two soft brightness pulses
+           to pull the eye to the dynamic info, then stop. CSS-only so the
+           per-second setNow re-render inside TrustCard can't restart it. */
+        @keyframes coCountdownPulse {
+          0%, 100% { filter: brightness(1); }
+          50% { filter: brightness(1.35); }
+        }
+        .co-trust-countdown { animation: coCountdownPulse 1.4s ease-in-out 0.7s 2 both; }
+
         /* Refresh pill — prominent affordance to re-pull Stripe balance
            without reloading the page. Brand green, always-on. */
         .co-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
@@ -764,7 +782,7 @@ export default function CashoutCard() {
                 onClick={() => handleMethodSelect('instant')}
               >
                 {balance.platformInstantEnabled === false && (
-                  <span className="co-seg-lock" aria-label="Instant unlocks with trust">{'🔐'}</span>
+                  <span className="co-seg-lock" aria-label="Instant available once funds settle">{'⏳'}</span>
                 )}
                 Instant {'⚡'}
               </button>
@@ -781,7 +799,7 @@ export default function CashoutCard() {
                     ? `Lands ${formatFundsArrival(balance.fundsAvailableOn) ?? 'soon'} · FREE`
                     : '1–2 business days · FREE')
                 : balance.platformInstantEnabled === false
-                  ? `${'🔐'} Unlocks with trust · see above for details`
+                  ? `${'⏳'} Available once funds settle · see above`
                   : isHmuFirst
                     ? `Arrives in minutes · FREE ${'🥇'}`
                     : 'Arrives in minutes · $1 or 1%'}
@@ -982,6 +1000,21 @@ function TrustCard({
     return () => clearInterval(interval);
   }, []);
 
+  // One-shot soft haptic tick the first time this session's driver sees the
+  // trust card — signals "there's time-sensitive info here" to pair with
+  // the entrance fade + countdown pulse animations. Gated by sessionStorage
+  // so repeated navigation during the same session doesn't buzz on every
+  // mount. Silent no-op on iOS Safari and desktop (no vibrate support).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const key = 'co-trust-haptic-fired';
+      if (window.sessionStorage.getItem(key)) return;
+      if ('vibrate' in navigator) navigator.vibrate(8);
+      window.sessionStorage.setItem(key, '1');
+    } catch { /* private mode or blocked — swallow */ }
+  }, []);
+
   const target = new Date(fundsAvailableOn).getTime();
   const msLeft = Math.max(0, target - now);
   const isReady = msLeft === 0;
@@ -999,7 +1032,7 @@ function TrustCard({
       >
         <span className="co-trust-copy">
           <span className="co-trust-label">
-            {isReady ? 'Ready to cash out' : `$${pendingAmount.toFixed(2)} unlocks in`}
+            {isReady ? 'Ready to cash out' : `$${pendingAmount.toFixed(2)} clears in`}
           </span>
           <span className="co-trust-countdown">
             <span className="co-trust-countdown-icon">{isReady ? '🔓' : '⏳'}</span>
@@ -1008,7 +1041,7 @@ function TrustCard({
           <span className="co-trust-sub">
             {isReady
               ? 'Tap the refresh button to confirm the new balance'
-              : <>{shortArrival} via Standard · <span style={{ whiteSpace: 'nowrap' }}>{'🔐'} Instant unlocks with trust</span></>}
+              : <>Clears {shortArrival} · <span style={{ whiteSpace: 'nowrap' }}>Drive more for faster settlement</span></>}
           </span>
         </span>
         <span className={`co-trust-chev ${expanded ? 'co-trust-chev--open' : ''}`}>{'▾'}</span>
@@ -1016,16 +1049,17 @@ function TrustCard({
       {expanded && (
         <div className="co-trust-body">
           <p>
-            New accounts ride Standard first while we verify identity — it&apos;s
-            how we keep HMU safe for everyone.
+            Stripe holds new-account payouts longer while they verify you.
+            This speeds up as you complete more rides.
           </p>
           <p>
             Your <strong>${pendingAmount.toFixed(2)}</strong> is 100% guaranteed and
-            arrives on <strong>{longArrival}</strong> via Standard.
+            clears on <strong>{longArrival}</strong>.
           </p>
           <p>
-            Instant Payouts unlock as you complete more rides. Most drivers
-            get Instant access within their first week.
+            Instant Payout is already enabled — it works the moment your
+            funds finish settling. Most new drivers hit sub-day settlement
+            within a week.
           </p>
           <div className="co-trust-sms">
             <span>{'📱'}</span>
