@@ -659,8 +659,8 @@ export default function CashoutCard() {
                 icon="&#x1F680;"
                 color="#448AFF"
                 items={[
-                  `$${balance.pending.toFixed(2)} is settling with Stripe — nobody took your money`,
-                  'Instant payout is available now — Standard follows in 1-2 days',
+                  `$${balance.pending.toFixed(2)} is settling with Stripe. Your Payout Is Safe.`,
+                  'Instant payout is available now — Standard Payouts Arrive in appr. 1-2 Days',
                   'Drivers with 10+ rides get faster fund settlement',
                   'HMU First members get free instant payouts once eligible',
                 ]}
