@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { fbCustomEvent } from '@/components/analytics/meta-pixel';
 import UpgradeOverlay from './upgrade-overlay';
@@ -18,6 +18,7 @@ interface BalanceData {
 export default function CashoutCard() {
   const [balance, setBalance] = useState<BalanceData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [cashingOut, setCashingOut] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [result, setResult] = useState<{ amount: number; method: string; fee: number; arrival: string } | null>(null);
@@ -29,13 +30,37 @@ export default function CashoutCard() {
   const [payoutAmount, setPayoutAmount] = useState<number>(0);
   const [showSlider, setShowSlider] = useState(false);
 
-  useEffect(() => {
-    fetch('/api/driver/balance')
-      .then(r => r.json())
-      .then(data => { if (!data.error) setBalance(data); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+  const loadBalance = useCallback(async () => {
+    try {
+      const r = await fetch('/api/driver/balance', { cache: 'no-store' });
+      const data = await r.json();
+      if (!data.error) setBalance(data);
+    } catch {
+      // swallow — UI keeps last-known balance
+    }
   }, []);
+
+  useEffect(() => {
+    loadBalance().finally(() => setLoading(false));
+  }, [loadBalance]);
+
+  // Belt-and-suspenders: refetch when the tab becomes visible again so a
+  // driver returning from Stripe/their bank sees current numbers without
+  // a hard reload. Cheap — one Stripe balance call per foreground.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadBalance();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [loadBalance]);
+
+  async function handleRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    await loadBalance();
+    setRefreshing(false);
+  }
 
   const isHmuFirst = balance?.tier === 'hmu_first';
   // Only show settled funds — instantAvailable may include fronted/unsettled amounts
@@ -96,8 +121,7 @@ export default function CashoutCard() {
       setShowConfetti(true);
       setShowSlider(false);
       setTimeout(() => setShowConfetti(false), 4000);
-      const balRes = await fetch('/api/driver/balance');
-      if (balRes.ok) setBalance(await balRes.json());
+      await loadBalance();
     } catch {
       setError('Network error');
     } finally {
@@ -197,6 +221,17 @@ export default function CashoutCard() {
         .co-rise-1 { animation-delay: 0.05s; }
         .co-rise-2 { animation-delay: 0.12s; }
         .co-rise-3 { animation-delay: 0.2s; }
+
+        /* Refresh button — small circular affordance to re-pull Stripe
+           balance without reloading the page. */
+        .co-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+        .co-refresh { background: transparent; border: 1px solid rgba(255,255,255,0.08); color: #888; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; padding: 0; transition: color 0.15s, border-color 0.15s, transform 0.15s; flex-shrink: 0; }
+        .co-refresh:hover:not(:disabled) { color: #00E676; border-color: rgba(0,230,118,0.3); }
+        .co-refresh:active:not(:disabled) { transform: scale(0.9); }
+        .co-refresh:disabled { cursor: not-allowed; }
+        .co-refresh--spinning { color: #00E676; }
+        .co-refresh--spinning > span { display: inline-block; animation: coSpin 0.8s linear infinite; }
+        @keyframes coSpin { to { transform: rotate(360deg); } }
       `}</style>
 
       <motion.div
@@ -220,7 +255,19 @@ export default function CashoutCard() {
           {isHmuFirst ? '\uD83E\uDD47 HMU First' : 'Free Tier'}
         </div>
 
-        <div className="co-title co-rise co-rise-1">Ready to Cash Out</div>
+        <div className="co-title-row co-rise co-rise-1">
+          <div className="co-title" style={{ marginBottom: 0 }}>Ready to Cash Out</div>
+          <button
+            type="button"
+            className={`co-refresh ${refreshing ? 'co-refresh--spinning' : ''}`}
+            onClick={handleRefresh}
+            disabled={refreshing}
+            aria-label="Refresh balance"
+            title="Refresh balance"
+          >
+            <span>{'↻'}</span>
+          </button>
+        </div>
         <div className={`co-amount co-rise co-rise-2 ${cashableAmount <= 0 ? 'co-amount--zero' : ''}`}>
           ${cashableAmount.toFixed(2)}
         </div>
