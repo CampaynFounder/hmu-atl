@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { fbCustomEvent } from '@/components/analytics/meta-pixel';
+import { CountUp } from '@/components/shared/count-up';
 import UpgradeOverlay from './upgrade-overlay';
 
 interface BalanceData {
@@ -336,13 +337,37 @@ export default function CashoutCard() {
           </button>
         </div>
         <div className={`co-amount co-rise co-rise-2 ${cashableAmount <= 0 ? 'co-amount--zero' : ''}`}>
-          ${cashableAmount.toFixed(2)}
+          <CountUp value={cashableAmount} decimals={2} prefix="$" duration={800} />
         </div>
-        {balance.pending > 0 && (
-          <div style={{ fontSize: 12, color: '#FFB300', marginBottom: 4, marginTop: -2 }}>
-            + ${balance.pending.toFixed(2)} pending (processing by Stripe)
-          </div>
-        )}
+        {/* Reframe "pending" by how much of it is already instant-cashable.
+            Same Stripe truth, clearer action: if a driver CAN cash it out
+            now via Instant, tell them that instead of implying "stuck". */}
+        {balance.pending > 0 && (() => {
+          const inst = balance.instantAvailable || 0;
+          const settling = Math.max(0, balance.pending - inst);
+          if (inst >= balance.pending) {
+            // Everything pending is fronted for Instant
+            return (
+              <div style={{ fontSize: 12, color: '#00E676', marginBottom: 4, marginTop: -2 }}>
+                {'+'}<CountUp value={balance.pending} decimals={2} prefix="$" duration={800} /> ready for Instant{' · '}
+                <span style={{ color: '#888' }}>settles to Standard in 1–2 days</span>
+              </div>
+            );
+          }
+          if (inst > 0 && settling > 0) {
+            return (
+              <div style={{ fontSize: 12, color: '#FFB300', marginBottom: 4, marginTop: -2 }}>
+                {'+'}<CountUp value={inst} decimals={2} prefix="$" duration={800} /> Instant
+                {' · +'}<CountUp value={settling} decimals={2} prefix="$" duration={800} /> settling
+              </div>
+            );
+          }
+          return (
+            <div style={{ fontSize: 12, color: '#FFB300', marginBottom: 4, marginTop: -2 }}>
+              {'+'}<CountUp value={balance.pending} decimals={2} prefix="$" duration={800} /> settling — ready for Standard in 1–2 days
+            </div>
+          );
+        })()}
 
         {/* Earnings breakdown — cash, deposits, and no-show income */}
         {(balance.cashEarnings || balance.digitalEarnings || balance.noShowEarnings) && (
@@ -361,7 +386,7 @@ export default function CashoutCard() {
                     Your Cash
                   </div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: '#FFC107', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
-                    ${balance.cashEarnings.total.toFixed(2)}
+                    <CountUp value={balance.cashEarnings.total} decimals={2} prefix="$" duration={900} />
                   </div>
                   <div style={{ fontSize: 10, color: '#888' }}>{balance.cashEarnings.rides} ride{balance.cashEarnings.rides !== 1 ? 's' : ''}</div>
                 </div>
@@ -375,7 +400,7 @@ export default function CashoutCard() {
                     Your Deposits
                   </div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: '#00E676', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
-                    ${balance.digitalEarnings.total.toFixed(2)}
+                    <CountUp value={balance.digitalEarnings.total} decimals={2} prefix="$" duration={900} />
                   </div>
                   <div style={{ fontSize: 10, color: '#888' }}>{balance.digitalEarnings.rides} ride{balance.digitalEarnings.rides !== 1 ? 's' : ''}</div>
                 </div>
@@ -400,7 +425,7 @@ export default function CashoutCard() {
                 </div>
                 {balance.noShowEarnings.total > 0 ? (
                   <div style={{ fontSize: 24, fontWeight: 700, color: '#FF4081', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", whiteSpace: 'nowrap' }}>
-                    ${balance.noShowEarnings.total.toFixed(2)}
+                    <CountUp value={balance.noShowEarnings.total} decimals={2} prefix="$" duration={900} />
                   </div>
                 ) : (
                   <div style={{
