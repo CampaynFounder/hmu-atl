@@ -64,14 +64,36 @@ export default function CashoutCard() {
   }
 
   const isHmuFirst = balance?.tier === 'hmu_first';
-  // Only show settled funds — instantAvailable may include fronted/unsettled amounts
-  const cashableAmount = balance ? balance.available : 0;
 
-  // Set default payout amount when balance loads
+  // Cashable depends on which payout method the driver is looking at:
+  //   Standard = fully settled funds (balance.available)
+  //   Instant  = funds Stripe has fronted for instant payout (balance.instantAvailable)
+  // For eligible accounts these diverge — instantAvailable can be > 0 while
+  // available is still $0 during the normal settlement window. We were
+  // previously hiding that from the driver, which looked like "funds stuck
+  // in pending" even though Stripe would pay them out instantly.
+  const cashableAmount = balance
+    ? (selectedMethod === 'instant' ? balance.instantAvailable : balance.available)
+    : 0;
+
+  // On first balance load, pick the right default. Prefer Standard when it
+  // has money (no chargeback risk on settled funds); fall through to Instant
+  // when only that has funds so the cash-out CTA lights up for an eligible
+  // driver without making them discover the toggle.
   useEffect(() => {
-    if (cashableAmount > 0 && payoutAmount === 0) {
-      setPayoutAmount(cashableAmount);
+    if (!balance || payoutAmount !== 0) return;
+    if (balance.available > 0) {
+      setSelectedMethod('standard');
+      setPayoutAmount(balance.available);
+    } else if (balance.instantAvailable > 0) {
+      setSelectedMethod('instant');
+      setPayoutAmount(balance.instantAvailable);
     }
+  }, [balance, payoutAmount]);
+
+  // Clamp payoutAmount down if the balance shrinks (e.g. after a cashout).
+  useEffect(() => {
+    if (payoutAmount > cashableAmount) setPayoutAmount(cashableAmount);
   }, [cashableAmount, payoutAmount]);
 
   // Calculate fee based on selected amount and method
@@ -93,8 +115,13 @@ export default function CashoutCard() {
   const handleMethodSelect = (method: 'standard' | 'instant') => {
     setSelectedMethod(method);
     setShowSlider(true);
-    // Reset to max when switching methods
-    setPayoutAmount(cashableAmount);
+    // Reset to max for the target method — cashableAmount above is still
+    // derived from the pre-change selectedMethod because React hasn't
+    // re-rendered yet, so compute fresh here.
+    const newCashable = method === 'instant'
+      ? (balance?.instantAvailable ?? 0)
+      : (balance?.available ?? 0);
+    setPayoutAmount(newCashable);
   };
 
   async function handleCashout() {
@@ -624,8 +651,31 @@ export default function CashoutCard() {
                 ? 'Processing...'
                 : cashableAmount > 0
                   ? `Cash Out $${driverReceives.toFixed(2)}`
-                  : 'No balance yet — complete a ride'}
+                  : (selectedMethod === 'standard' && balance.instantAvailable > 0)
+                    ? 'Funds still settling — switch to Instant below'
+                    : 'No balance yet — complete a ride'}
             </button>
+
+            {/* Nudge to Instant when Standard has $0 but funds are fronted
+                for instant payout. Clickable so the driver switches in one tap. */}
+            {cashableAmount <= 0 && selectedMethod === 'standard' && balance.instantAvailable > 0 && (
+              <button
+                type="button"
+                onClick={() => handleMethodSelect('instant')}
+                style={{
+                  width: '100%', marginTop: 10, padding: '12px 14px',
+                  background: 'rgba(0,230,118,0.08)',
+                  border: '1px solid rgba(0,230,118,0.25)',
+                  borderRadius: 12, cursor: 'pointer',
+                  color: '#00E676', fontSize: 13, fontWeight: 700,
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}
+              >
+                <span>{'⚡'}</span>
+                <span>Cash out ${balance.instantAvailable.toFixed(2)} instantly{isHmuFirst ? ' · free' : ''}</span>
+              </button>
+            )}
 
             {!isHmuFirst && (
               <button type="button" className="co-upgrade" onClick={() => setShowUpgrade(true)} style={{ width: '100%', cursor: 'pointer', background: 'transparent', fontFamily: 'var(--font-body, DM Sans, sans-serif)' }}>
