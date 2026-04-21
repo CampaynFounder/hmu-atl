@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { fbCustomEvent } from '@/components/analytics/meta-pixel';
 import { CountUp } from '@/components/shared/count-up';
@@ -77,12 +77,20 @@ export default function CashoutCard() {
     ? (selectedMethod === 'instant' ? balance.instantAvailable : balance.available)
     : 0;
 
-  // On first balance load, pick the right default. Prefer Standard when it
-  // has money (no chargeback risk on settled funds); fall through to Instant
-  // when only that has funds so the cash-out CTA lights up for an eligible
-  // driver without making them discover the toggle.
+  // Track whether the driver has manually picked a method. Once they have,
+  // we NEVER auto-override their choice — even if switching to Standard
+  // zeroes out cashableAmount. Previously this flag didn't exist, so the
+  // auto-default effect would flip Instant back on every time the user
+  // picked Standard (because Standard's cashable of $0 triggered the
+  // "only Instant has funds" branch), making the toggle appear stuck.
+  const userHasPickedMethodRef = useRef(false);
+
+  // On first balance load only, pick the right default. Prefer Standard when
+  // it has money (no chargeback risk on settled funds); fall through to
+  // Instant when only that has funds so the CTA lights up for eligible
+  // drivers without making them discover the toggle.
   useEffect(() => {
-    if (!balance || payoutAmount !== 0) return;
+    if (!balance || payoutAmount !== 0 || userHasPickedMethodRef.current) return;
     if (balance.available > 0) {
       setSelectedMethod('standard');
       setPayoutAmount(balance.available);
@@ -114,6 +122,9 @@ export default function CashoutCard() {
     : Math.min(cashableAmount, 1);
 
   const handleMethodSelect = (method: 'standard' | 'instant') => {
+    // Mark user intent FIRST so the auto-default effect above can't race us
+    // and flip the method back on the next render.
+    userHasPickedMethodRef.current = true;
     setSelectedMethod(method);
     setShowSlider(true);
     // Reset to max for the target method — cashableAmount above is still
@@ -230,10 +241,17 @@ export default function CashoutCard() {
         .co-slider-amount { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 36px; color: #fff; line-height: 1; }
         .co-slider-max { font-size: 11px; color: #888; cursor: pointer; padding: 4px 10px; border-radius: 100px; background: #1a1a1a; border: 1px solid rgba(255,255,255,0.08); }
         .co-slider-max:active { background: #222; }
-        .co-slider-track { position: relative; width: 100%; height: 40px; display: flex; align-items: center; touch-action: none; }
+        .co-slider-track { position: relative; width: 100%; height: 44px; display: flex; align-items: center; }
         .co-slider-rail { width: 100%; height: 6px; background: #222; border-radius: 3px; position: relative; overflow: hidden; }
         .co-slider-fill { position: absolute; left: 0; top: 0; height: 100%; background: #00E676; border-radius: 3px; transition: width 0.05s; }
-        .co-slider-input { position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; margin: 0; -webkit-appearance: none; }
+        /* Invisible native range input overlaid on the custom rail/thumb.
+           opacity:0.001 keeps it present for iOS hit-testing (pure 0 is
+           dropped on some versions); touch-action:manipulation lets the
+           browser treat touches as slider drags instead of gesture candidates;
+           pointer-events:auto ensures the input wins over siblings on mobile. */
+        .co-slider-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.001; cursor: pointer; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; touch-action: manipulation; pointer-events: auto; z-index: 2; }
+        .co-slider-input::-webkit-slider-thumb { -webkit-appearance: none; width: 44px; height: 44px; background: transparent; cursor: pointer; }
+        .co-slider-input::-moz-range-thumb { width: 44px; height: 44px; background: transparent; border: none; cursor: pointer; }
         .co-slider-thumb { position: absolute; top: 50%; width: 28px; height: 28px; background: #00E676; border: 3px solid #080808; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; box-shadow: 0 2px 8px rgba(0,230,118,0.3); transition: left 0.05s; }
         .co-breakdown { margin-top: 14px; padding: 12px 14px; background: #1a1a1a; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }
         .co-breakdown-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
@@ -337,34 +355,20 @@ export default function CashoutCard() {
           </button>
         </div>
         <div className={`co-amount co-rise co-rise-2 ${cashableAmount <= 0 ? 'co-amount--zero' : ''}`}>
-          <CountUp value={cashableAmount} decimals={2} prefix="$" duration={800} />
+          <CountUp value={cashableAmount} decimals={2} prefix="$" duration={800} animateOnChange />
         </div>
-        {/* Reframe "pending" by how much of it is already instant-cashable.
-            Same Stripe truth, clearer action: if a driver CAN cash it out
-            now via Instant, tell them that instead of implying "stuck". */}
-        {balance.pending > 0 && (() => {
-          const inst = balance.instantAvailable || 0;
-          const settling = Math.max(0, balance.pending - inst);
-          if (inst >= balance.pending) {
-            // Everything pending is fronted for Instant
-            return (
-              <div style={{ fontSize: 12, color: '#00E676', marginBottom: 4, marginTop: -2 }}>
-                {'+'}<CountUp value={balance.pending} decimals={2} prefix="$" duration={800} /> ready for Instant{' · '}
-                <span style={{ color: '#888' }}>settles to Standard in 1–2 days</span>
-              </div>
-            );
-          }
-          if (inst > 0 && settling > 0) {
-            return (
-              <div style={{ fontSize: 12, color: '#FFB300', marginBottom: 4, marginTop: -2 }}>
-                {'+'}<CountUp value={inst} decimals={2} prefix="$" duration={800} /> Instant
-                {' · +'}<CountUp value={settling} decimals={2} prefix="$" duration={800} /> settling
-              </div>
-            );
-          }
+        {/* Pending line shows what's NOT yet in the selected method's bucket.
+            Big number above is what's cashable right now; this line is "what's
+            still coming that you can't touch yet". Hidden when 0 so we don't
+            clutter the card with redundant info. */}
+        {(() => {
+          const stillComing = selectedMethod === 'instant'
+            ? Math.max(0, balance.pending - (balance.instantAvailable || 0))
+            : balance.pending;
+          if (stillComing <= 0) return null;
           return (
             <div style={{ fontSize: 12, color: '#FFB300', marginBottom: 4, marginTop: -2 }}>
-              {'+'}<CountUp value={balance.pending} decimals={2} prefix="$" duration={800} /> settling — ready for Standard in 1–2 days
+              {'+ '}<CountUp value={stillComing} decimals={2} prefix="$" duration={800} animateOnChange /> pending from Stripe
             </div>
           );
         })()}
@@ -386,7 +390,7 @@ export default function CashoutCard() {
                     Your Cash
                   </div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: '#FFC107', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
-                    <CountUp value={balance.cashEarnings.total} decimals={2} prefix="$" duration={900} />
+                    <CountUp value={balance.cashEarnings.total} decimals={2} prefix="$" duration={900} animateOnChange />
                   </div>
                   <div style={{ fontSize: 10, color: '#888' }}>{balance.cashEarnings.rides} ride{balance.cashEarnings.rides !== 1 ? 's' : ''}</div>
                 </div>
@@ -400,7 +404,7 @@ export default function CashoutCard() {
                     Your Deposits
                   </div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: '#00E676', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
-                    <CountUp value={balance.digitalEarnings.total} decimals={2} prefix="$" duration={900} />
+                    <CountUp value={balance.digitalEarnings.total} decimals={2} prefix="$" duration={900} animateOnChange />
                   </div>
                   <div style={{ fontSize: 10, color: '#888' }}>{balance.digitalEarnings.rides} ride{balance.digitalEarnings.rides !== 1 ? 's' : ''}</div>
                 </div>
@@ -425,7 +429,7 @@ export default function CashoutCard() {
                 </div>
                 {balance.noShowEarnings.total > 0 ? (
                   <div style={{ fontSize: 24, fontWeight: 700, color: '#FF4081', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", whiteSpace: 'nowrap' }}>
-                    <CountUp value={balance.noShowEarnings.total} decimals={2} prefix="$" duration={900} />
+                    <CountUp value={balance.noShowEarnings.total} decimals={2} prefix="$" duration={900} animateOnChange />
                   </div>
                 ) : (
                   <div style={{
@@ -444,56 +448,66 @@ export default function CashoutCard() {
             )}
           </>
         )}
-        {/* ── Payment education — contextual based on driver state ── */}
+        {/* ── Payment education ── Single adaptive card, collapsed by default
+            so it doesn't push the cash-out CTA below the fold. Title, icon,
+            color, and bullet list all switch based on balance state. */}
+        {(() => {
+          const hasPending = balance.pending > 0;
+          const hasAvailable = balance.available > 0;
+          const hasCashable = cashableAmount > 0;
 
-        {/* "Where's My Money?" — pending funds, nothing available yet */}
-        {balance.pending > 0 && balance.available <= 0 && (
-          <PaymentInfoCard
-            title="Where&apos;s My Money?"
-            icon="&#x23F3;"
-            color="#FFB300"
-            items={[
-              'Your money is safe — Stripe holds funds briefly to verify new accounts',
-              'First payout: usually 2-7 days while Stripe confirms your identity',
-              'After that: funds settle in 1-2 days (same-day with Instant payout)',
-              'More rides = faster verification. Stripe prioritizes active drivers',
-            ]}
-          />
-        )}
+          // Nothing earned yet
+          if (!hasPending && !hasCashable) {
+            return (
+              <PaymentInfoCard
+                title="How Payouts Work"
+                icon="&#x26A1;"
+                color="#00E676"
+                items={[
+                  'Complete a digital (non-cash) ride to start building your payout history',
+                  'New accounts: Stripe verifies your identity over the first ~7 days',
+                  'After 30 days of activity, most drivers qualify for same-day payouts',
+                  'Your earnings are 100% guaranteed — holds are only for fraud prevention',
+                ]}
+              />
+            );
+          }
 
-        {/* "Same-Day Payment Tips" — no digital rides yet */}
-        {cashableAmount <= 0 && balance.pending <= 0 && (
-          <PaymentInfoCard
-            title="Same-Day Payment Tips"
-            icon="&#x26A1;"
-            color="#00E676"
-            items={[
-              'Complete a digital (non-cash) ride to start building your payout history',
-              'New accounts: Stripe verifies your identity over the first ~7 days',
-              'After 30 days of activity, most drivers qualify for same-day payouts',
-              'Your earnings are 100% guaranteed — holds are only for fraud prevention',
-            ]}
-          />
-        )}
+          // Money present in both Instant and Standard — nothing to explain
+          if (hasAvailable && hasCashable) return null;
 
-        {/* "Speed Up Your Payouts" — has money but still in early window */}
-        {cashableAmount > 0 && balance.available <= 0 && balance.pending > 0 && (
-          <PaymentInfoCard
-            title="Speed Up Your Payouts"
-            icon="&#x1F680;"
-            color="#448AFF"
-            items={[
-              `$${balance.pending.toFixed(2)} is processing — nobody took your money`,
-              'Do more digital rides to build trust with Stripe faster',
-              'Drivers with 10+ rides get faster fund settlement',
-              'HMU First members get free instant payouts once eligible',
-            ]}
-          />
-        )}
+          // Cashable via Instant but still settling for Standard — "speed up"
+          if (hasCashable && !hasAvailable && hasPending) {
+            return (
+              <PaymentInfoCard
+                title="Speed Up Your Payouts"
+                icon="&#x1F680;"
+                color="#448AFF"
+                items={[
+                  `$${balance.pending.toFixed(2)} is settling with Stripe — nobody took your money`,
+                  'Instant payout is available now — Standard follows in 1-2 days',
+                  'Drivers with 10+ rides get faster fund settlement',
+                  'HMU First members get free instant payouts once eligible',
+                ]}
+              />
+            );
+          }
 
-        {cashableAmount > 0 && balance.available > 0 && balance.available === cashableAmount && (
-          <div className="co-pending" style={{ color: '#00E676' }}>Ready to cash out</div>
-        )}
+          // Pending but nothing cashable yet — "where's my money?"
+          return (
+            <PaymentInfoCard
+              title="Where&apos;s My Money?"
+              icon="&#x23F3;"
+              color="#FFB300"
+              items={[
+                'Your money is safe — Stripe holds funds briefly to verify new accounts',
+                'First payout: usually 2-7 days while Stripe confirms your identity',
+                'After that: funds settle in 1-2 days (same-day with Instant payout)',
+                'More rides = faster verification. Stripe prioritizes active drivers',
+              ]}
+            />
+          );
+        })()}
 
         {error && (
           <div style={{
