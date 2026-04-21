@@ -41,7 +41,13 @@ export function usePendingActions() {
       if (!res.ok) return;
       const data = await res.json();
       const fetched = (data.actions || []) as PendingAction[];
-      setActions(fetched);
+
+      // Only swap the array reference when the content actually changed. A
+      // naive setActions(fetched) on every 30s poll creates a new reference
+      // even for identical data, which re-renders subscribers and re-runs
+      // framer-motion's `layout` measurement in PendingActionBanner — that
+      // produces the subtle 30s visual jump users were seeing.
+      setActions(prev => actionsEqual(prev, fetched) ? prev : fetched);
 
       // Cache to localStorage
       try {
@@ -69,10 +75,39 @@ export function usePendingActions() {
 
     if (shouldFetch) fetchActions();
 
-    // Poll at interval
-    intervalRef.current = setInterval(fetchActions, POLL_INTERVAL);
+    // Visibility-gated polling: only tick while the tab is visible. Prevents
+    // wasted background fetches and keeps battery/data overhead low on PWA.
+    const start = () => {
+      if (intervalRef.current) return;
+      intervalRef.current = setInterval(fetchActions, POLL_INTERVAL);
+    };
+    const stop = () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+
+    if (typeof document === 'undefined' || !document.hidden) start();
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        // Catch up on return to foreground, then resume polling.
+        fetchActions();
+        start();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility);
+    }
+
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      stop();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility);
+      }
     };
   }, [fetchActions]);
 
@@ -92,4 +127,28 @@ export function usePendingActions() {
   }, []);
 
   return { actions, topAction, loading, refresh: fetchActions, dismiss };
+}
+
+// Identity-preserving comparison — if the list of actions is unchanged by the
+// fields the UI renders, we keep the previous array reference so React bails
+// out of re-rendering. Intentionally shallow: only the handful of fields the
+// banner displays matter for visual equality.
+function actionsEqual(a: PendingAction[], b: PendingAction[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i], y = b[i];
+    if (
+      x.id !== y.id ||
+      x.type !== y.type ||
+      x.priority !== y.priority ||
+      x.title !== y.title ||
+      x.subtitle !== y.subtitle ||
+      x.cta !== y.cta ||
+      x.href !== y.href ||
+      x.color !== y.color ||
+      x.emoji !== y.emoji
+    ) return false;
+  }
+  return true;
 }
