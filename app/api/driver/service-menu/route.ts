@@ -183,10 +183,22 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'menu_item_id is required' }, { status: 400 });
     }
 
+    // Soft-delete first so the item disappears from the driver's menu even if
+    // a hard delete is blocked. Works for both custom and platform items —
+    // deleteCustomMenuItem only touches custom rows (item_id IS NULL).
+    await removeDriverMenuItem(userId, body.menu_item_id);
+
     if (body.permanent) {
-      await deleteCustomMenuItem(userId, body.menu_item_id);
-    } else {
-      await removeDriverMenuItem(userId, body.menu_item_id);
+      try {
+        await deleteCustomMenuItem(userId, body.menu_item_id);
+      } catch (err: unknown) {
+        // 23503 = FK violation: item is referenced by ride_add_ons from a past
+        // ride. Soft delete already succeeded, so the UI is consistent. The
+        // denormalized name/price in ride_add_ons keeps that history intact.
+        const code = (err as { code?: string })?.code;
+        const msg = err instanceof Error ? err.message : '';
+        if (code !== '23503' && !msg.includes('violates foreign key')) throw err;
+      }
     }
 
     return NextResponse.json({ success: true });
