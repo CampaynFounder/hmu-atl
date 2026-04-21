@@ -30,7 +30,6 @@ export default function CashoutCard() {
   const [selectedMethod, setSelectedMethod] = useState<'standard' | 'instant'>('standard');
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [payoutAmount, setPayoutAmount] = useState<number>(0);
-  const [showSlider, setShowSlider] = useState(false);
 
   const loadBalance = useCallback(async () => {
     try {
@@ -127,7 +126,6 @@ export default function CashoutCard() {
     // and flip the method back on the next render.
     userHasPickedMethodRef.current = true;
     setSelectedMethod(method);
-    setShowSlider(true);
     // Reset to the target method's minimum — driver slides UP from here.
     // cashableAmount/minPayout above are still derived from the pre-change
     // selectedMethod, so compute fresh values inline.
@@ -161,7 +159,6 @@ export default function CashoutCard() {
       fbCustomEvent('CashoutCompleted', { amount: data.amount, method: data.method, fee: data.fee });
       setResult(data);
       setShowConfetti(true);
-      setShowSlider(false);
       setTimeout(() => setShowConfetti(false), 4000);
       await loadBalance();
     } catch {
@@ -678,7 +675,7 @@ export default function CashoutCard() {
             </div>
 
             {/* Amount Slider — shows after selecting a method */}
-            {showSlider && cashableAmount > 0 && (
+            {cashableAmount > 0 && (
               <div className="co-slider-section">
                 <div className="co-slider-header">
                   <div className="co-slider-amount">${payoutAmount.toFixed(2)}</div>
