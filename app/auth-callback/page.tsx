@@ -12,7 +12,7 @@ import { fbEvent } from '@/components/analytics/meta-pixel';
  */
 export default function AuthCallbackPage() {
   const router = useRouter();
-  const { isLoaded, isSignedIn } = useUser();
+  const { isLoaded, isSignedIn, user } = useUser();
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -56,18 +56,28 @@ export default function AuthCallbackPage() {
           data = await res.json();
           break;
         }
-      } catch {
-        // network blip — retry
+        console.error('[auth-callback] onboarding status !ok', { attempt, status: res.status });
+      } catch (err) {
+        console.error('[auth-callback] onboarding status threw', { attempt, err });
       }
       if (attempt === 0) await new Promise(r => setTimeout(r, 400));
     }
 
-    // On persistent failure, never force-redirect to /onboarding — an
-    // existing signed-in user landing on /onboarding is worse than landing
-    // on the marketing root where they can retry.
+    // On persistent API failure, route from the Clerk session's
+    // publicMetadata.profileType — a signed-in driver/rider with a live
+    // Clerk session must land on their home, not on marketing root and not
+    // on /onboarding. Only fall back to /sign-in if we somehow have no
+    // session info at all (should never happen past the isSignedIn gate).
     if (!data) {
-      console.error('[auth-callback] onboarding status unavailable after retry');
-      router.replace('/');
+      const metaType = user?.publicMetadata?.profileType as string | undefined;
+      console.error('[auth-callback] onboarding status API unavailable; routing from Clerk metadata', { metaType });
+      if (metaType === 'driver') { router.replace('/driver/home'); return; }
+      if (metaType === 'rider')  { router.replace('/rider/home');  return; }
+      if (metaType === 'admin')  { router.replace('/admin');       return; }
+      // No profileType on Clerk — could be a genuinely new user whose
+      // onboarding hasn't completed yet. Send them to onboarding so they
+      // can finish; better than stranding them on marketing root.
+      router.replace('/onboarding');
       return;
     }
 
