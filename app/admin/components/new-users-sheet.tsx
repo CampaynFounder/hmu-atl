@@ -42,7 +42,37 @@ export function NewUsersSheet({ open, onClose, bucket, onResetCursor }: Props) {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<'riders' | 'drivers'>('riders');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const { selectedMarketId } = useMarket();
+
+  async function deleteUser(userId: string, name: string) {
+    if (!confirm(`Delete incomplete signup for ${name}? This removes them from both Clerk and Neon and cannot be undone.`)) return;
+    setDeletingId(userId);
+    try {
+      const res = await fetch('/api/admin/users/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userIds: [userId] }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setToast({ kind: 'err', text: data.error || 'Delete failed' });
+        return;
+      }
+      if (data.deleted === 0) {
+        setToast({ kind: 'err', text: 'Not eligible — user has activity (rides/profile)' });
+        return;
+      }
+      setUsers(prev => prev.filter(u => u.id !== userId));
+      setToast({ kind: 'ok', text: `Deleted ${name}` });
+    } catch (e) {
+      setToast({ kind: 'err', text: e instanceof Error ? e.message : 'Network error' });
+    } finally {
+      setDeletingId(null);
+      setTimeout(() => setToast(null), 3500);
+    }
+  }
 
   // Store the latest onResetCursor in a ref so the fetch effect doesn't
   // depend on it. Without this, an inline arrow passed from the parent
@@ -156,11 +186,23 @@ export function NewUsersSheet({ open, onClose, bucket, onResetCursor }: Props) {
                   )}
                   <div className="text-xs text-neutral-500 mt-0.5">signed up {fmtDate(u.signedUpAt)}</div>
                 </div>
-                <div className="text-right shrink-0">
+                <div className="text-right shrink-0 flex flex-col items-end gap-2">
                   {u.lastTextedAt ? (
                     <span className="text-xs text-green-400">texted {fmtShortDate(u.lastTextedAt)}</span>
                   ) : (
                     <span className="text-xs text-yellow-400">not texted</span>
+                  )}
+                  {/* Delete button — only incomplete-signup bucket. New Users
+                      bucket means profile exists; don't expose delete there. */}
+                  {bucket === 'incomplete' && (
+                    <button
+                      onClick={() => deleteUser(u.id, u.displayName || 'user')}
+                      disabled={deletingId === u.id}
+                      className="text-xs text-red-400 hover:text-red-300 hover:underline disabled:opacity-50 disabled:cursor-wait"
+                      title="Remove from Clerk + Neon"
+                    >
+                      {deletingId === u.id ? 'Deleting…' : 'Delete'}
+                    </button>
                   )}
                 </div>
               </div>
@@ -168,6 +210,16 @@ export function NewUsersSheet({ open, onClose, bucket, onResetCursor }: Props) {
           </div>
         )}
       </div>
+
+      {toast && (
+        <div
+          className={`fixed bottom-6 right-6 px-4 py-3 rounded-lg text-sm font-medium shadow-lg z-50 ${
+            toast.kind === 'ok' ? 'bg-green-500 text-black' : 'bg-red-500 text-white'
+          }`}
+        >
+          {toast.text}
+        </div>
+      )}
     </AdminSheet>
   );
 }
