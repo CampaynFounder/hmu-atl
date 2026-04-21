@@ -274,6 +274,65 @@ export async function POST(request: NextRequest) {
         break;
       }
 
+      // Fires on a connected account whenever Stripe-available (standard
+      // payout) balance changes. We use it to SMS the driver the moment
+      // their funds clear from pending → available. Dedupe is amount-based
+      // against driver_profiles.last_notified_available_cents so webhook
+      // retries and non-positive deltas don't re-send.
+      case 'balance.available': {
+        const balance = event.data.object as Stripe.Balance;
+        const accountId = event.account; // Connect events populate this
+        if (!accountId) break;
+
+        const currentAvailableCents = balance.available
+          .filter(b => b.currency === 'usd')
+          .reduce((sum, b) => sum + b.amount, 0);
+
+        const rows = await sql`
+          SELECT u.id AS user_id,
+                 dp.phone,
+                 dp.display_name,
+                 COALESCE(dp.last_notified_available_cents, 0) AS last_notified
+          FROM driver_profiles dp
+          JOIN users u ON u.id = dp.user_id
+          WHERE dp.stripe_account_id = ${accountId}
+          LIMIT 1
+        `;
+        const driver = rows[0] as {
+          user_id: string;
+          phone: string | null;
+          display_name: string | null;
+          last_notified: number;
+        } | undefined;
+
+        if (!driver || !driver.phone) break;
+        if (currentAvailableCents <= driver.last_notified) break;
+
+        const firstName =
+          (driver.display_name ?? '').trim().split(/\s+/)[0] || 'Hey';
+        const dollars = (currentAvailableCents / 100).toFixed(2);
+        const smsBody =
+          `HMU ATL: ${firstName}, your $${dollars} is ready to cash out! atl.hmucashride.com/driver/home`;
+
+        // Fire SMS; log failures but still record the dedupe watermark so
+        // we don't spam on subsequent retries if the provider is briefly
+        // flaky. The sms_log table captures send outcomes for audit.
+        const result = await sendSms(driver.phone, smsBody, {
+          userId: driver.user_id,
+          eventType: 'balance_available',
+        });
+        if (!result.success) {
+          console.error('balance.available SMS failed:', result.error);
+        }
+
+        await sql`
+          UPDATE driver_profiles
+          SET last_notified_available_cents = ${currentAvailableCents}
+          WHERE user_id = ${driver.user_id}
+        `;
+        break;
+      }
+
       default:
         // Unhandled event — log and return 200 so Stripe doesn't retry
         break;
