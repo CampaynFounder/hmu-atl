@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
         COUNT(*) FILTER (WHERE status IN ('active', 'otw', 'here', 'confirming')) as active
       FROM rides
       WHERE status IN ('matched', 'active', 'otw', 'here', 'confirming')
-        AND (market_id = ${marketId} OR market_id IS NULL)
+        AND market_id = ${marketId}
     ` : sql`
       SELECT
         COUNT(*) FILTER (WHERE status = 'matched') as matched,
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
         COUNT(*) FILTER (WHERE status = 'disputed') as disputed,
         COUNT(*) as total
       FROM rides
-      WHERE (market_id = ${marketId} OR market_id IS NULL)
+      WHERE market_id = ${marketId}
     ` : sql`
       SELECT
         COUNT(*) FILTER (WHERE status IN ('completed', 'ended')) as completed,
@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
         COALESCE(SUM(COALESCE(waived_fee_amount, 0)), 0) as fees_waived
       FROM rides
       WHERE status IN ('completed', 'ended')
-        AND (market_id = ${marketId} OR market_id IS NULL)
+        AND market_id = ${marketId}
     ` : sql`
       SELECT
         COALESCE(SUM(COALESCE(final_agreed_price, amount)), 0) as total_captured,
@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
       SELECT COUNT(DISTINCT driver_id) as on_ride
       FROM rides
       WHERE status IN ('matched', 'otw', 'here', 'confirming', 'active')
-        AND (market_id = ${marketId} OR market_id IS NULL)
+        AND market_id = ${marketId}
     ` : sql`
       SELECT COUNT(DISTINCT driver_id) as on_ride
       FROM rides
@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
       FROM users u
       WHERE u.completed_rides = 0
         AND u.account_status NOT IN ('suspended', 'banned')
-        AND (u.market_id = ${marketId} OR u.market_id IS NULL)
+        AND u.market_id = ${marketId}
     ` : sql`
       SELECT
         COUNT(*) FILTER (WHERE u.account_status = 'active' AND u.profile_type = 'rider') as active_riders,
