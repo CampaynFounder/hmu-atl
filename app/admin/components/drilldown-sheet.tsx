@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { AdminSheet } from './admin-sheet';
+import { useMarket } from './market-context';
 
 type DrillType = 'matched' | 'active' | 'completed' | 'cancelled' | 'disputed' | 'revenue' | 'unconverted' | 'abandoned' | 'drivers' | null;
 
@@ -55,7 +56,8 @@ function fmt(n: number): string {
 export function DrillDownSheet({ type, onClose }: DrillDownSheetProps) {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
-  const lastType = useRef<DrillType>(null);
+  const lastKey = useRef<string | null>(null);
+  const { selectedMarketId } = useMarket();
 
   // SMS state for unconverted users
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -71,21 +73,25 @@ export function DrillDownSheet({ type, onClose }: DrillDownSheetProps) {
 
   useEffect(() => {
     if (!type) return;
-    if (type === lastType.current && items.length > 0) return;
-    lastType.current = type;
+    // Re-fetch when type OR market changes — was only watching type before,
+    // which kept stale cross-market data after a switcher change.
+    const key = `${type}:${selectedMarketId ?? ''}`;
+    if (key === lastKey.current && items.length > 0) return;
+    lastKey.current = key;
     setLoading(true);
     setSelected(new Set());
     setSmsMessage('');
     setSmsResult(null);
-    fetch(`/api/admin/drilldown?type=${type}`)
+    const mq = selectedMarketId ? `&marketId=${selectedMarketId}` : '';
+    fetch(`/api/admin/drilldown?type=${type}${mq}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.items) setItems(data.items); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [type]);
+  }, [type, selectedMarketId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!type) { setItems([]); lastType.current = null; setSelected(new Set()); setSmsMessage(''); setSmsResult(null); setDeleteConfirm(false); setDeleteResult(null); setAgeFilter(null); }
+    if (!type) { setItems([]); lastKey.current = null; setSelected(new Set()); setSmsMessage(''); setSmsResult(null); setDeleteConfirm(false); setDeleteResult(null); setAgeFilter(null); }
   }, [type]);
 
   // Abandoned users — filtered by age

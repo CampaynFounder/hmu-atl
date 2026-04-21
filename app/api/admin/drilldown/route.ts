@@ -10,6 +10,11 @@ export async function GET(req: NextRequest) {
   const type = req.nextUrl.searchParams.get('type');
   if (!type) return NextResponse.json({ error: 'type param required' }, { status: 400 });
 
+  // Market scope — matches the semantics of /api/admin/stats so card totals
+  // equal drill-down list counts. NULL market_id rows are included when a
+  // market is selected (legacy data), same as stats does.
+  const marketId = req.nextUrl.searchParams.get('marketId');
+
   switch (type) {
     case 'matched':
     case 'active': {
@@ -28,6 +33,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
         LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
         WHERE r.status = ANY(${statuses})
+          AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId} OR r.market_id IS NULL)
         ORDER BY r.created_at DESC
         LIMIT 50
       `;
@@ -60,6 +66,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
         LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
         WHERE r.status = ANY(${statuses})
+          AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId} OR r.market_id IS NULL)
         ORDER BY r.created_at DESC
         LIMIT 50
       `;
@@ -90,6 +97,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
         LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
         WHERE r.status IN ('completed', 'ended')
+          AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId} OR r.market_id IS NULL)
         ORDER BY COALESCE(r.final_agreed_price, r.amount) DESC
         LIMIT 50
       `;
@@ -116,6 +124,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         WHERE u.completed_rides = 0 AND u.account_status = 'active'
+          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId} OR u.market_id IS NULL)
         ORDER BY u.created_at DESC
         LIMIT 50
       `;
@@ -139,6 +148,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         WHERE u.completed_rides = 0 AND u.account_status = 'pending_activation'
+          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId} OR u.market_id IS NULL)
         ORDER BY u.created_at DESC
         LIMIT 100
       `;
@@ -164,6 +174,7 @@ export async function GET(req: NextRequest) {
         JOIN driver_profiles dp ON dp.user_id = r.driver_id
         LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
         WHERE r.status IN ('matched', 'otw', 'here', 'confirming', 'active')
+          AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId} OR r.market_id IS NULL)
         ORDER BY r.created_at DESC
         LIMIT 50
       `;
