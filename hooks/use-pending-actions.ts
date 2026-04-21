@@ -34,19 +34,20 @@ export function usePendingActions() {
   const [loading, setLoading] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchActions = useCallback(async () => {
+  // Background polls must NEVER toggle `loading`. Flipping loading on each 30s
+  // tick re-renders subscribers (even with stable `actions` reference), which
+  // re-runs framer-motion's `layout` measurement in PendingActionBanner and
+  // reads to the user as a full-screen "reset" every 30s. Only user-initiated
+  // or cold-cache fetches surface loading state.
+  const fetchActions = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const res = await fetch('/api/users/pending-actions');
       if (!res.ok) return;
       const data = await res.json();
       const fetched = (data.actions || []) as PendingAction[];
 
-      // Only swap the array reference when the content actually changed. A
-      // naive setActions(fetched) on every 30s poll creates a new reference
-      // even for identical data, which re-renders subscribers and re-runs
-      // framer-motion's `layout` measurement in PendingActionBanner — that
-      // produces the subtle 30s visual jump users were seeing.
+      // Only swap the array reference when the content actually changed.
       setActions(prev => actionsEqual(prev, fetched) ? prev : fetched);
 
       // Cache to localStorage
@@ -57,7 +58,7 @@ export function usePendingActions() {
         }));
       } catch { /* quota */ }
     } catch { /* offline */ }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -79,7 +80,7 @@ export function usePendingActions() {
     // wasted background fetches and keeps battery/data overhead low on PWA.
     const start = () => {
       if (intervalRef.current) return;
-      intervalRef.current = setInterval(fetchActions, POLL_INTERVAL);
+      intervalRef.current = setInterval(() => { fetchActions({ silent: true }); }, POLL_INTERVAL);
     };
     const stop = () => {
       if (intervalRef.current) {
@@ -94,8 +95,9 @@ export function usePendingActions() {
       if (document.hidden) {
         stop();
       } else {
-        // Catch up on return to foreground, then resume polling.
-        fetchActions();
+        // Catch up on return to foreground, then resume polling. Silent so the
+        // catch-up fetch doesn't flash a loading state on every tab focus.
+        fetchActions({ silent: true });
         start();
       }
     };
