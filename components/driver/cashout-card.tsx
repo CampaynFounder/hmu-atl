@@ -19,20 +19,47 @@ interface BalanceData {
   noShowEarnings?: { rides: number; total: number };
 }
 
-// Human-readable date formatter for the trust card ("Apr 22" / "Apr 22, 2026").
-// Forces UTC because Stripe returns `available_on` as midnight UTC on the
-// settlement date; converting to the browser's local timezone pushes the
-// label back a day for ET/PT and mismatches the Stripe Dashboard.
-function formatFundsDate(iso: string | null | undefined, { withYear = false } = {}): string | null {
+// Arrival label in the driver's local timezone. Must agree with a live
+// countdown to the same instant — e.g. "3h 50m" counting down shouldn't
+// sit next to a date label that reads the following day. Returns one of:
+//   "Today at 8:00 PM"
+//   "Tomorrow at 3:00 AM"
+//   "Thu, Apr 24 at 8:00 PM"
+function formatFundsArrival(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
+
+  const now = new Date();
+  const sameDay = d.getFullYear() === now.getFullYear()
+    && d.getMonth() === now.getMonth()
+    && d.getDate() === now.getDate();
+  const tmr = new Date(now);
+  tmr.setDate(now.getDate() + 1);
+  const isTomorrow = d.getFullYear() === tmr.getFullYear()
+    && d.getMonth() === tmr.getMonth()
+    && d.getDate() === tmr.getDate();
+
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  if (sameDay) return `Today at ${time}`;
+  if (isTomorrow) return `Tomorrow at ${time}`;
+  const date = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return `${date} at ${time}`;
+}
+
+// Long-form arrival label for expanded body copy: "Tuesday, April 21, 2026 at 8:00 PM".
+function formatFundsArrivalLong(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const date = d.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
     day: 'numeric',
-    timeZone: 'UTC',
-    ...(withYear ? { year: 'numeric' } : {}),
+    year: 'numeric',
   });
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return `${date} at ${time}`;
 }
 
 // Compact "23h 45m 12s" / "2d 5h 10m" style countdown label for the trust
@@ -751,7 +778,7 @@ export default function CashoutCard() {
             }`}>
               {selectedMethod === 'standard'
                 ? (balance.fundsAvailableOn
-                    ? `Lands ${formatFundsDate(balance.fundsAvailableOn) ?? 'soon'} · FREE`
+                    ? `Lands ${formatFundsArrival(balance.fundsAvailableOn) ?? 'soon'} · FREE`
                     : '1–2 business days · FREE')
                 : balance.platformInstantEnabled === false
                   ? `${'🔐'} Unlocks with trust · see above for details`
@@ -959,8 +986,8 @@ function TrustCard({
   const msLeft = Math.max(0, target - now);
   const isReady = msLeft === 0;
   const countdownLabel = formatCountdown(msLeft);
-  const shortDate = formatFundsDate(fundsAvailableOn) ?? 'soon';
-  const longDate = formatFundsDate(fundsAvailableOn, { withYear: true }) ?? 'soon';
+  const shortArrival = formatFundsArrival(fundsAvailableOn) ?? 'soon';
+  const longArrival = formatFundsArrivalLong(fundsAvailableOn) ?? 'soon';
 
   return (
     <div className={`co-trust ${isReady ? 'co-trust--ready' : ''}`}>
@@ -981,7 +1008,7 @@ function TrustCard({
           <span className="co-trust-sub">
             {isReady
               ? 'Tap the refresh button to confirm the new balance'
-              : <>{shortDate} via Standard · <span style={{ whiteSpace: 'nowrap' }}>{'🔐'} Instant unlocks with trust</span></>}
+              : <>{shortArrival} via Standard · <span style={{ whiteSpace: 'nowrap' }}>{'🔐'} Instant unlocks with trust</span></>}
           </span>
         </span>
         <span className={`co-trust-chev ${expanded ? 'co-trust-chev--open' : ''}`}>{'▾'}</span>
@@ -994,7 +1021,7 @@ function TrustCard({
           </p>
           <p>
             Your <strong>${pendingAmount.toFixed(2)}</strong> is 100% guaranteed and
-            arrives on <strong>{longDate}</strong> via Standard.
+            arrives on <strong>{longArrival}</strong> via Standard.
           </p>
           <p>
             Instant Payouts unlock as you complete more rides. Most drivers
