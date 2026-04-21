@@ -5,6 +5,21 @@ import { sql } from '@/lib/db/client';
 
 const R2_PUBLIC_URL = 'https://pub-649c30e78a62433eb6ed9cb1209d112a.r2.dev';
 
+// Resolve the uploader's market slug for R2 key prefixing. Existing objects
+// uploaded before market prefixing (2026-04 and earlier) have keys without a
+// market prefix — those URLs are stored in the DB as full R2 public URLs and
+// continue to serve without any migration. Only NEW uploads get prefixed.
+async function getMarketSlugForClerkUser(clerkId: string): Promise<string> {
+  const rows = await sql`
+    SELECT COALESCE(m.slug, 'atl') AS slug
+    FROM users u
+    LEFT JOIN markets m ON m.id = u.market_id
+    WHERE u.clerk_id = ${clerkId}
+    LIMIT 1
+  `;
+  return ((rows[0] as { slug?: string } | undefined)?.slug) || 'atl';
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { userId: clerkId } = await auth();
@@ -49,7 +64,11 @@ export async function POST(request: NextRequest) {
     };
     const ext = mimeToExt[file.type] || file.name.split('.').pop() || (isVideo ? 'mp4' : 'jpg');
     const folder = isVideo ? 'videos' : 'photos';
-    const fileName = `${profileType}/${clerkId}/${folder}/${timestamp}.${ext}`;
+    // Market-prefixed keys: <market>/<profile>/<user>/<folder>/<ts>.<ext>
+    // Enables per-market listing, lifecycle policy, and future migration to
+    // dedicated per-market buckets without touching upload code.
+    const marketSlug = await getMarketSlugForClerkUser(clerkId);
+    const fileName = `${marketSlug}/${profileType}/${clerkId}/${folder}/${timestamp}.${ext}`;
 
     // Get R2 bucket via Cloudflare context
     const { env } = getCloudflareContext();
@@ -68,6 +87,7 @@ export async function POST(request: NextRequest) {
       customMetadata: {
         userId: clerkId,
         profileType,
+        market: marketSlug,
         uploadedAt: new Date().toISOString(),
       },
     });

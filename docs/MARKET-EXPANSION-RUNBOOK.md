@@ -166,6 +166,32 @@
 - Ably keys (channel names are market-scoped: `market:<slug>:feed`)
 - Clerk instance (satellite/root handling done once at Phase 3)
 - Database schema (all multi-market scaffolding already in place)
+- **R2 bucket layout** — single `hmu-atl-media` bucket, objects are keyed by
+  `<market_slug>/<profile_type>/<user>/<folder>/<ts>.<ext>`. New markets
+  automatically namespace their uploads. No new bucket per market.
+
+## R2 media bucket — prefix convention
+
+Objects in the `hmu-atl-media` bucket are prefixed by the uploader's market:
+
+```
+atl/driver/user_abc/videos/1234.mp4
+atl/driver/user_abc/photos/1234.jpg
+nola/driver/user_xyz/videos/1234.mp4
+```
+
+- **Upload site** (`app/api/upload/video/route.ts`) resolves the uploader's
+  `users.market_id → markets.slug` and prepends it to the object key.
+- **Pre-prefix legacy objects** (uploaded before 2026-04-20) have no market
+  prefix. Their full public URLs are stored in the DB; they continue to serve
+  without any migration. Only new uploads get prefixed.
+- **Per-market listing:** in R2 dashboard or via wrangler r2, filter by
+  prefix (`r2 object list --prefix nola/`).
+- **Future dedicated bucket per market:** copy the prefix (`aws s3 sync`
+  equivalent) and flip the upload code to pick a bucket based on market.
+  One-time migration if/when a market outgrows shared infra.
+- **Admin content (data-room, pitch-videos)** is **not** prefixed — that's
+  investor-facing corp content, not market-scoped user media.
 
 ---
 
