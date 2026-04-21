@@ -82,7 +82,7 @@ export function NewUsersSheet({ open, onClose, bucket, onResetCursor }: Props) {
     // Deliberately excluding onResetCursor — we read it from the ref to
     // avoid re-fetching every time the parent re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, bucket]);
+  }, [open, bucket, selectedMarketId]);
 
   const riders = users.filter((u) => u.profileType === 'rider');
   const drivers = users.filter((u) => u.profileType === 'driver');
