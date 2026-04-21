@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { useUser, useClerk } from '@clerk/nextjs';
 import UpgradeOverlay from '@/components/driver/upgrade-overlay';
 import CashPackCard from '@/components/driver/cash-pack-card';
@@ -1130,7 +1130,11 @@ function AnalyticsTab({ tier }: { tier: string }) {
   );
 }
 
-function StatCard({
+// Memoized: label/color/delay are stable primitives; `children` is a CountUp
+// which is itself idempotent after first mount. Bailing out on parent re-renders
+// prevents any chance of the CSS keyframe being re-applied when upstream state
+// (Clerk token refresh, PostHog, Ably reconnect) triggers a reconcile.
+const StatCard = memo(function StatCard({
   label,
   value,
   color,
@@ -1169,7 +1173,7 @@ function StatCard({
       `}</style>
     </div>
   );
-}
+});
 
 function DrillDaySheet({
   day,
