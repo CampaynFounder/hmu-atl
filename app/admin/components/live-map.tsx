@@ -166,6 +166,21 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
     };
   }, []);
 
+  // Re-center the map when the admin flips the market switcher. flyTo gives
+  // an animated pan — instant jarring jumps would disorient the admin. The
+  // initial map init above runs only once; this effect handles every switch
+  // after that.
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded || !selectedMarket) return;
+    const m = selectedMarket as { centerLat?: number | null; centerLng?: number | null };
+    if (m.centerLat == null || m.centerLng == null) return;
+    (mapRef.current as { flyTo: (opts: { center: [number, number]; zoom?: number; duration?: number }) => void }).flyTo({
+      center: [Number(m.centerLng), Number(m.centerLat)],
+      zoom: 11,
+      duration: 1200,
+    });
+  }, [selectedMarket, mapLoaded]);
+
   // Update markers when rides or filter changes
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return;
