@@ -19,18 +19,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Category and message are required' }, { status: 400 });
     }
 
-    const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    const userRows = await sql`SELECT id, market_id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     const userId = (userRows[0] as { id: string }).id;
+    const userMarketId = (userRows[0] as { market_id: string | null }).market_id;
 
     // Determine priority based on category
     const priority = ['safety', 'report_driver'].includes(category) ? 'urgent'
       : ['refund', 'overcharged'].includes(category) ? 'high'
       : 'normal';
 
+    // Stamp the filer's market on the ticket so admin queries can filter by
+    // the currently-selected market.
     const result = await sql`
-      INSERT INTO support_tickets (user_id, ride_id, category, message, priority)
-      VALUES (${userId}, ${rideId || null}, ${category}, ${message.trim()}, ${priority})
+      INSERT INTO support_tickets (user_id, ride_id, category, message, priority, market_id)
+      VALUES (${userId}, ${rideId || null}, ${category}, ${message.trim()}, ${priority}, ${userMarketId})
       RETURNING id
     `;
 
@@ -54,7 +57,7 @@ export async function POST(req: NextRequest) {
 }
 
 // GET — admin fetches all tickets
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const { userId: clerkId } = await auth();
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -64,6 +67,8 @@ export async function GET() {
     if (!userRows.length || !(userRows[0] as { is_admin: boolean }).is_admin) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
+
+    const marketId = req.nextUrl.searchParams.get('marketId');
 
     const tickets = await sql`
       SELECT
@@ -88,6 +93,7 @@ export async function GET() {
       LEFT JOIN rides r ON r.id = t.ride_id
       LEFT JOIN driver_profiles r_dp ON r_dp.user_id = r.driver_id
       LEFT JOIN rider_profiles r_rp ON r_rp.user_id = r.rider_id
+      WHERE (${marketId}::uuid IS NULL OR t.market_id = ${marketId})
       ORDER BY
         CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
         CASE t.status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,

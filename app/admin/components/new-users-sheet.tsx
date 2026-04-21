@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AdminSheet } from './admin-sheet';
+import { useMarket } from './market-context';
 
 type Bucket = 'new_users' | 'incomplete';
 
@@ -41,6 +42,7 @@ export function NewUsersSheet({ open, onClose, bucket, onResetCursor }: Props) {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<'riders' | 'drivers'>('riders');
+  const { selectedMarketId } = useMarket();
 
   // Store the latest onResetCursor in a ref so the fetch effect doesn't
   // depend on it. Without this, an inline arrow passed from the parent
@@ -53,7 +55,8 @@ export function NewUsersSheet({ open, onClose, bucket, onResetCursor }: Props) {
   useEffect(() => {
     if (!open) return;
     setLoading(true);
-    fetch('/api/admin/users/new-since', {
+    const qs = selectedMarketId ? `?marketId=${selectedMarketId}` : '';
+    fetch(`/api/admin/users/new-since${qs}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bucket }),

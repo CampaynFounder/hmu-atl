@@ -19,43 +19,72 @@ async function getCursor(adminId: string): Promise<string> {
   return raw || TWENTY_FOUR_HOURS_AGO();
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
 
   const cursor = await getCursor(admin.id);
+  const marketId = req.nextUrl.searchParams.get('marketId');
 
   // Two separate queries so the counts match the POST drill-in semantics:
   // - new_users counts are cursor-scoped ("since last visit")
   // - incomplete counts are all-time (outreach queue — stays relevant until contacted)
-  const [newUsersRow] = await sql`
-    SELECT
-      COUNT(*) FILTER (
-        WHERE u.profile_type = 'rider'
-          AND EXISTS (SELECT 1 FROM rider_profiles rp WHERE rp.user_id = u.id)
-      )::int AS new_riders,
-      COUNT(*) FILTER (
-        WHERE u.profile_type = 'driver'
-          AND EXISTS (SELECT 1 FROM driver_profiles dp WHERE dp.user_id = u.id)
-      )::int AS new_drivers
-    FROM users u
-    WHERE u.created_at > ${cursor}
-      AND u.is_admin = false
-  `;
+  const [newUsersRow] = marketId
+    ? await sql`
+        SELECT
+          COUNT(*) FILTER (
+            WHERE u.profile_type = 'rider'
+              AND EXISTS (SELECT 1 FROM rider_profiles rp WHERE rp.user_id = u.id)
+          )::int AS new_riders,
+          COUNT(*) FILTER (
+            WHERE u.profile_type = 'driver'
+              AND EXISTS (SELECT 1 FROM driver_profiles dp WHERE dp.user_id = u.id)
+          )::int AS new_drivers
+        FROM users u
+        WHERE u.created_at > ${cursor} AND u.is_admin = false
+          AND u.market_id = ${marketId}
+      `
+    : await sql`
+        SELECT
+          COUNT(*) FILTER (
+            WHERE u.profile_type = 'rider'
+              AND EXISTS (SELECT 1 FROM rider_profiles rp WHERE rp.user_id = u.id)
+          )::int AS new_riders,
+          COUNT(*) FILTER (
+            WHERE u.profile_type = 'driver'
+              AND EXISTS (SELECT 1 FROM driver_profiles dp WHERE dp.user_id = u.id)
+          )::int AS new_drivers
+        FROM users u
+        WHERE u.created_at > ${cursor} AND u.is_admin = false
+      `;
 
-  const [incompleteRow] = await sql`
-    SELECT
-      COUNT(*) FILTER (
-        WHERE u.profile_type = 'rider'
-          AND NOT EXISTS (SELECT 1 FROM rider_profiles rp WHERE rp.user_id = u.id)
-      )::int AS incomplete_riders,
-      COUNT(*) FILTER (
-        WHERE u.profile_type = 'driver'
-          AND NOT EXISTS (SELECT 1 FROM driver_profiles dp WHERE dp.user_id = u.id)
-      )::int AS incomplete_drivers
-    FROM users u
-    WHERE u.is_admin = false
-  `;
+  const [incompleteRow] = marketId
+    ? await sql`
+        SELECT
+          COUNT(*) FILTER (
+            WHERE u.profile_type = 'rider'
+              AND NOT EXISTS (SELECT 1 FROM rider_profiles rp WHERE rp.user_id = u.id)
+          )::int AS incomplete_riders,
+          COUNT(*) FILTER (
+            WHERE u.profile_type = 'driver'
+              AND NOT EXISTS (SELECT 1 FROM driver_profiles dp WHERE dp.user_id = u.id)
+          )::int AS incomplete_drivers
+        FROM users u
+        WHERE u.is_admin = false AND u.market_id = ${marketId}
+      `
+    : await sql`
+        SELECT
+          COUNT(*) FILTER (
+            WHERE u.profile_type = 'rider'
+              AND NOT EXISTS (SELECT 1 FROM rider_profiles rp WHERE rp.user_id = u.id)
+          )::int AS incomplete_riders,
+          COUNT(*) FILTER (
+            WHERE u.profile_type = 'driver'
+              AND NOT EXISTS (SELECT 1 FROM driver_profiles dp WHERE dp.user_id = u.id)
+          )::int AS incomplete_drivers
+        FROM users u
+        WHERE u.is_admin = false
+      `;
 
   const r = {
     new_riders: (newUsersRow as { new_riders: number }).new_riders,
@@ -90,45 +119,85 @@ export async function POST(req: NextRequest) {
   }
 
   const cursor = await getCursor(admin.id);
+  const marketId = req.nextUrl.searchParams.get('marketId');
 
-  // Two branches — avoid sql fragment composition (not supported by the tag).
+  // Four branches — avoid sql fragment composition (not supported by the tag).
   // new_users = cursor-gated AND has a profile row.
   // incomplete = all-time AND has no profile row (outreach queue).
+  // Optional market scoping applies to both.
   const rows = bucket === 'new_users'
-    ? await sql`
-        SELECT
-          u.id, u.profile_type, u.signup_source, u.referred_by_driver_id, u.created_at,
-          COALESCE(rp.display_name, dp.display_name) AS display_name,
-          COALESCE(rp.phone, dp.phone) AS phone,
-          u.completed_rides,
-          ref.display_name AS referring_driver_name,
-          ref.handle AS referring_driver_handle
-        FROM users u
-        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-        LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-        LEFT JOIN driver_profiles ref ON ref.user_id = u.referred_by_driver_id
-        WHERE u.is_admin = false
-          AND u.created_at > ${cursor}
-          AND (rp.user_id IS NOT NULL OR dp.user_id IS NOT NULL)
-        ORDER BY u.created_at DESC
-        LIMIT 500
-      `
-    : await sql`
-        SELECT
-          u.id, u.profile_type, u.signup_source, u.referred_by_driver_id, u.created_at,
-          NULL::text AS display_name,
-          NULL::text AS phone,
-          u.completed_rides,
-          ref.display_name AS referring_driver_name,
-          ref.handle AS referring_driver_handle
-        FROM users u
-        LEFT JOIN driver_profiles ref ON ref.user_id = u.referred_by_driver_id
-        WHERE u.is_admin = false
-          AND NOT EXISTS (SELECT 1 FROM rider_profiles rp WHERE rp.user_id = u.id)
-          AND NOT EXISTS (SELECT 1 FROM driver_profiles dp WHERE dp.user_id = u.id)
-        ORDER BY u.created_at ASC
-        LIMIT 500
-      `;
+    ? (marketId
+        ? await sql`
+            SELECT
+              u.id, u.profile_type, u.signup_source, u.referred_by_driver_id, u.created_at,
+              COALESCE(rp.display_name, dp.display_name) AS display_name,
+              COALESCE(rp.phone, dp.phone) AS phone,
+              u.completed_rides,
+              ref.display_name AS referring_driver_name,
+              ref.handle AS referring_driver_handle
+            FROM users u
+            LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+            LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+            LEFT JOIN driver_profiles ref ON ref.user_id = u.referred_by_driver_id
+            WHERE u.is_admin = false
+              AND u.created_at > ${cursor}
+              AND u.market_id = ${marketId}
+              AND (rp.user_id IS NOT NULL OR dp.user_id IS NOT NULL)
+            ORDER BY u.created_at DESC
+            LIMIT 500
+          `
+        : await sql`
+            SELECT
+              u.id, u.profile_type, u.signup_source, u.referred_by_driver_id, u.created_at,
+              COALESCE(rp.display_name, dp.display_name) AS display_name,
+              COALESCE(rp.phone, dp.phone) AS phone,
+              u.completed_rides,
+              ref.display_name AS referring_driver_name,
+              ref.handle AS referring_driver_handle
+            FROM users u
+            LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+            LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+            LEFT JOIN driver_profiles ref ON ref.user_id = u.referred_by_driver_id
+            WHERE u.is_admin = false
+              AND u.created_at > ${cursor}
+              AND (rp.user_id IS NOT NULL OR dp.user_id IS NOT NULL)
+            ORDER BY u.created_at DESC
+            LIMIT 500
+          `)
+    : (marketId
+        ? await sql`
+            SELECT
+              u.id, u.profile_type, u.signup_source, u.referred_by_driver_id, u.created_at,
+              NULL::text AS display_name,
+              NULL::text AS phone,
+              u.completed_rides,
+              ref.display_name AS referring_driver_name,
+              ref.handle AS referring_driver_handle
+            FROM users u
+            LEFT JOIN driver_profiles ref ON ref.user_id = u.referred_by_driver_id
+            WHERE u.is_admin = false
+              AND u.market_id = ${marketId}
+              AND NOT EXISTS (SELECT 1 FROM rider_profiles rp WHERE rp.user_id = u.id)
+              AND NOT EXISTS (SELECT 1 FROM driver_profiles dp WHERE dp.user_id = u.id)
+            ORDER BY u.created_at ASC
+            LIMIT 500
+          `
+        : await sql`
+            SELECT
+              u.id, u.profile_type, u.signup_source, u.referred_by_driver_id, u.created_at,
+              NULL::text AS display_name,
+              NULL::text AS phone,
+              u.completed_rides,
+              ref.display_name AS referring_driver_name,
+              ref.handle AS referring_driver_handle
+            FROM users u
+            LEFT JOIN driver_profiles ref ON ref.user_id = u.referred_by_driver_id
+            WHERE u.is_admin = false
+              AND NOT EXISTS (SELECT 1 FROM rider_profiles rp WHERE rp.user_id = u.id)
+              AND NOT EXISTS (SELECT 1 FROM driver_profiles dp WHERE dp.user_id = u.id)
+            ORDER BY u.created_at ASC
+            LIMIT 500
+          `);
 
   const list = rows as Array<{
     id: string;

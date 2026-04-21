@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
   const url = req.nextUrl;
   const statusParam = url.searchParams.get('status'); // 'active' | 'expired' | 'declined_awaiting_rider' | 'all'
   const typeParam = url.searchParams.get('post_type'); // 'rider_seeking_driver' | 'driver_offering_ride' | 'direct_booking' | 'all'
+  const marketId = url.searchParams.get('marketId');
   const limit = Math.min(Number(url.searchParams.get('limit') || '200'), 500);
 
   const allowedStatuses = new Set(['active', 'expired', 'declined_awaiting_rider']);
@@ -91,6 +92,7 @@ export async function GET(req: NextRequest) {
     WHERE p.status IN ('active','expired','declined_awaiting_rider')
       AND (${filterStatus}::text IS NULL OR p.status = ${filterStatus})
       AND (${filterType}::text IS NULL OR p.post_type = ${filterType})
+      AND (${marketId}::uuid IS NULL OR p.market_id = ${marketId})
     ORDER BY
       CASE p.status WHEN 'active' THEN 1 WHEN 'declined_awaiting_rider' THEN 2 ELSE 3 END,
       p.created_at DESC
@@ -107,6 +109,7 @@ export async function GET(req: NextRequest) {
       COUNT(*) FILTER (WHERE post_type = 'direct_booking')::int AS direct_booking
     FROM hmu_posts
     WHERE status IN ('active','expired','declined_awaiting_rider')
+      AND (${marketId}::uuid IS NULL OR market_id = ${marketId})
   `;
 
   return NextResponse.json({ rows: rows as RideRequestRow[], stats: stats[0] });

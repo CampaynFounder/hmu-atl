@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAbly } from '@/hooks/use-ably';
+import { useMarket } from '@/app/admin/components/market-context';
 
 interface Thread {
   phone: string;
@@ -54,6 +55,8 @@ export function MessageHistory() {
   const [retrying, setRetrying] = useState<Record<string, 'sending' | 'sent' | 'failed'>>({});
   const [threadsCollapsed, setThreadsCollapsed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { selectedMarketId } = useMarket();
+  const mq = selectedMarketId ? `&marketId=${selectedMarketId}` : '';
 
   const totalUnread = threads.reduce((sum, t) => sum + t.unreadCount, 0);
 
@@ -89,7 +92,10 @@ export function MessageHistory() {
 
   const fetchThreads = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/messages');
+      const url = selectedMarketId
+        ? `/api/admin/messages?marketId=${selectedMarketId}`
+        : '/api/admin/messages';
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setThreads(data.threads ?? []);
@@ -97,7 +103,7 @@ export function MessageHistory() {
       }
     } catch {}
     setLoading(false);
-  }, []);
+  }, [selectedMarketId]);
 
   useEffect(() => { fetchThreads(); }, [fetchThreads]);
 
@@ -105,14 +111,14 @@ export function MessageHistory() {
     setDrillFilter(filter);
     setDrillLoading(true);
     try {
-      const res = await fetch(`/api/admin/messages?filter=${filter}`);
+      const res = await fetch(`/api/admin/messages?filter=${filter}${mq}`);
       if (res.ok) {
         const data = await res.json();
         setDrillMessages(data.messages ?? []);
       }
     } catch {}
     setDrillLoading(false);
-  }, []);
+  }, [mq]);
 
   const retrySms = useCallback(async (smsLogId: string, overrideMessage?: string) => {
     setRetrying(prev => ({ ...prev, [smsLogId]: 'sending' }));

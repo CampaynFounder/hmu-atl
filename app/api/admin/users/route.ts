@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get('search');
   const type = searchParams.get('type');
   const status = searchParams.get('status');
+  const marketId = searchParams.get('marketId');
 
   try {
     // Build filtered query — use separate queries instead of sql.unsafe
@@ -35,6 +36,7 @@ export async function GET(req: NextRequest) {
           AND (dp.display_name ILIKE ${pattern} OR dp.first_name ILIKE ${pattern}
                OR rp.display_name ILIKE ${pattern} OR rp.first_name ILIKE ${pattern}
                OR dp.phone ILIKE ${pattern} OR u.clerk_id ILIKE ${pattern})
+          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else if (search && type) {
@@ -52,6 +54,7 @@ export async function GET(req: NextRequest) {
           AND (dp.display_name ILIKE ${pattern} OR dp.first_name ILIKE ${pattern}
                OR rp.display_name ILIKE ${pattern} OR rp.first_name ILIKE ${pattern}
                OR dp.phone ILIKE ${pattern} OR u.clerk_id ILIKE ${pattern})
+          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else if (search && status) {
@@ -69,6 +72,7 @@ export async function GET(req: NextRequest) {
           AND (dp.display_name ILIKE ${pattern} OR dp.first_name ILIKE ${pattern}
                OR rp.display_name ILIKE ${pattern} OR rp.first_name ILIKE ${pattern}
                OR dp.phone ILIKE ${pattern} OR u.clerk_id ILIKE ${pattern})
+          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else if (type && status) {
@@ -82,6 +86,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         WHERE u.profile_type = ${type} AND u.account_status = ${status}
+          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else if (search) {
@@ -95,9 +100,10 @@ export async function GET(req: NextRequest) {
         FROM users u
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-        WHERE dp.display_name ILIKE ${pattern} OR dp.first_name ILIKE ${pattern}
+        WHERE (dp.display_name ILIKE ${pattern} OR dp.first_name ILIKE ${pattern}
               OR rp.display_name ILIKE ${pattern} OR rp.first_name ILIKE ${pattern}
-              OR dp.phone ILIKE ${pattern} OR u.clerk_id ILIKE ${pattern}
+              OR dp.phone ILIKE ${pattern} OR u.clerk_id ILIKE ${pattern})
+          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else if (type) {
@@ -111,6 +117,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         WHERE u.profile_type = ${type}
+          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else if (status) {
@@ -124,6 +131,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         WHERE u.account_status = ${status}
+          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else {
@@ -136,6 +144,7 @@ export async function GET(req: NextRequest) {
         FROM users u
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+        WHERE (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     }

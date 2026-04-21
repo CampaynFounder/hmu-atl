@@ -86,7 +86,7 @@ export function LiveOpsDashboard() {
         fetch(`/api/admin/stats${mq}`),
         fetch(`/api/admin/rides/active${mq}`),
         fetch(`/api/admin/alerts${mq}`),
-        fetch(`/api/admin/users/new-since`),
+        fetch(`/api/admin/users/new-since${mq}`),
       ]);
 
       if (statsRes.ok) setStats(await statsRes.json());

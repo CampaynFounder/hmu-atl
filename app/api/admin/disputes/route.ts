@@ -11,7 +11,9 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = req.nextUrl;
   const status = searchParams.get('status') ?? 'open';
+  const marketId = searchParams.get('marketId');
 
+  // disputes.market_id doesn't exist — scope via the rides JOIN (r.market_id).
   const disputes = await sql`
     SELECT
       d.id, d.ride_id, d.filed_by, d.reason, d.status,
@@ -35,6 +37,7 @@ export async function GET(req: NextRequest) {
     LEFT JOIN driver_profiles driver_p ON driver_p.user_id = r.driver_id
     LEFT JOIN rider_profiles rider_p ON rider_p.user_id = r.rider_id
     WHERE d.status = ${status}
+      AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId})
     ORDER BY d.created_at ASC
     LIMIT 50
   `;

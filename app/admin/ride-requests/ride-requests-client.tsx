@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useMarket } from '@/app/admin/components/market-context';
 
 interface RideRequestRow {
   source: 'hmu_post' | 'ride';
@@ -65,6 +66,7 @@ export default function RideRequestsClient() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [composing, setComposing] = useState<{ row: RideRequestRow; target: 'rider' | 'driver' } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const { selectedMarketId } = useMarket();
 
   async function load() {
     setLoading(true);
@@ -72,6 +74,7 @@ export default function RideRequestsClient() {
       const params = new URLSearchParams({ limit: '200' });
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (typeFilter !== 'all') params.set('post_type', typeFilter);
+      if (selectedMarketId) params.set('marketId', selectedMarketId);
       const res = await fetch(`/api/admin/ride-requests?${params.toString()}`);
       if (!res.ok) return;
       const data = await res.json() as { rows: RideRequestRow[]; stats: Stats };
@@ -82,7 +85,7 @@ export default function RideRequestsClient() {
     }
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [statusFilter, typeFilter]);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [statusFilter, typeFilter, selectedMarketId]);
 
   function showToast(msg: string) {
     setToast(msg);

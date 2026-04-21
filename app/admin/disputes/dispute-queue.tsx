@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { DisputeDetail } from './dispute-detail';
+import { useMarket } from '@/app/admin/components/market-context';
 
 interface DisputeItem {
   id: string;
@@ -38,11 +39,13 @@ export function DisputeQueue() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const { selectedMarketId } = useMarket();
 
   const fetchDisputes = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/disputes?status=${statusFilter}`);
+      const mq = selectedMarketId ? `&marketId=${selectedMarketId}` : '';
+      const res = await fetch(`/api/admin/disputes?status=${statusFilter}${mq}`);
       if (res.ok) {
         const data = await res.json();
         setDisputes(data.disputes ?? []);
@@ -52,7 +55,7 @@ export function DisputeQueue() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, selectedMarketId]);
 
   useEffect(() => {
     fetchDisputes();

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { UserProfile } from './user-profile';
 import { PendingQueue } from './pending-queue';
 import { UserGrowthChart } from './user-growth-chart';
+import { useMarket } from '@/app/admin/components/market-context';
 
 interface UserItem {
   id: string;
@@ -26,6 +27,7 @@ export function UserManagement() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [tab, setTab] = useState<'search' | 'growth' | 'pending'>('search');
   const [loading, setLoading] = useState(false);
+  const { selectedMarketId } = useMarket();
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -34,6 +36,7 @@ export function UserManagement() {
       if (search) params.set('search', search);
       if (typeFilter) params.set('type', typeFilter);
       if (statusFilter) params.set('status', statusFilter);
+      if (selectedMarketId) params.set('marketId', selectedMarketId);
 
       const res = await fetch(`/api/admin/users?${params}`);
       if (res.ok) {
@@ -47,7 +50,7 @@ export function UserManagement() {
     } finally {
       setLoading(false);
     }
-  }, [search, typeFilter, statusFilter]);
+  }, [search, typeFilter, statusFilter, selectedMarketId]);
 
   useEffect(() => {
     if (tab === 'search') fetchUsers();
