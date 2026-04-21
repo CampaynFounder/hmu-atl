@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useUser } from '@clerk/nextjs';
+import { useUser, useReverification } from '@clerk/nextjs';
 import { Key, Phone, Lock, Trash2, Check, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 
 // ── Styles ──
@@ -374,9 +374,14 @@ function PasskeySection() {
   const [msg, setMsg] = useState('');
   const [isError, setIsError] = useState(false);
 
+  const createPasskeyReverified = useReverification(() => {
+    if (!user) throw new Error('Not signed in');
+    return user.createPasskey();
+  });
+
   async function handleAddPasskey() {
     try {
-      await user?.createPasskey();
+      await createPasskeyReverified();
       await user?.reload();
       setMsg('Passkey added');
       setIsError(false);
