@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 
+// <input type="date"> requires exactly YYYY-MM-DD. Neon returns DATE columns
+// as either Date objects or ISO timestamps, so normalize both here.
+function toDateString(v: unknown): string | null {
+  if (!v) return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v).slice(0, 10);
+}
+
 // GET — fetch all notification configs
 export async function GET() {
   const admin = await requireAdmin();
@@ -19,8 +27,8 @@ export async function GET() {
       enabled: r.enabled,
       adminPhone: r.admin_phone,
       excludedUserIds: r.excluded_user_ids || [],
-      signupAfter: r.signup_after || null,
-      excludeBefore: r.exclude_before || null,
+      signupAfter: toDateString(r.signup_after),
+      excludeBefore: toDateString(r.exclude_before),
       updatedAt: r.updated_at,
     })),
   });
