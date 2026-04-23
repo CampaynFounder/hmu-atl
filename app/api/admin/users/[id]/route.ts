@@ -28,6 +28,7 @@ export async function GET(
         dp.first_name as driver_first, dp.last_name as driver_last,
         dp.display_name as driver_display, dp.handle, dp.stripe_account_id,
         dp.video_url, dp.thumbnail_url as driver_thumbnail, dp.areas as driver_areas, dp.vehicle_info, dp.phone as driver_phone,
+        dp.profile_visible,
         rp.first_name as rider_first, rp.last_name as rider_last,
         rp.display_name as rider_display, rp.stripe_customer_id, rp.phone as rider_phone,
         rp.avatar_url as rider_avatar, rp.thumbnail_url as rider_thumbnail,
@@ -107,6 +108,7 @@ export async function GET(
       videoUrl: u.video_url,
       driverAreas: u.driver_areas,
       vehicleInfo: u.vehicle_info,
+      profileVisible: u.profile_visible ?? null,
       phone: u.driver_phone || u.rider_phone,
       avatarUrl: u.rider_avatar || u.driver_thumbnail || u.video_url,
       signupSource: u.signup_source,
@@ -164,7 +166,7 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await req.json();
-  const { accountStatus, tier, ogStatus, chillScore, adminNotes } = body;
+  const { accountStatus, tier, ogStatus, chillScore, profileVisible, adminNotes } = body;
 
   // Use COALESCE to only update provided fields
   const rows = await sql`
@@ -180,6 +182,15 @@ export async function PATCH(
 
   if (!rows.length) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  }
+
+  if (profileVisible !== undefined) {
+    await sql`
+      UPDATE driver_profiles SET
+        profile_visible = ${profileVisible},
+        updated_at = NOW()
+      WHERE user_id = ${id}
+    `;
   }
 
   const user = rows[0];

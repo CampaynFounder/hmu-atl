@@ -17,6 +17,7 @@ interface UserItem {
   completedRides: number;
   disputeCount: number;
   createdAt: string;
+  profileVisible: boolean | null;
 }
 
 export function UserManagement() {
@@ -24,6 +25,7 @@ export function UserManagement() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [visibilityFilter, setVisibilityFilter] = useState(''); // '' | 'visible' | 'hidden'
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [tab, setTab] = useState<'search' | 'growth' | 'pending'>('search');
   const [loading, setLoading] = useState(false);
@@ -37,6 +39,7 @@ export function UserManagement() {
       if (typeFilter) params.set('type', typeFilter);
       if (statusFilter) params.set('status', statusFilter);
       if (selectedMarketId) params.set('marketId', selectedMarketId);
+      if (visibilityFilter && typeFilter === 'driver') params.set('visibility', visibilityFilter);
 
       const res = await fetch(`/api/admin/users?${params}`);
       if (res.ok) {
@@ -50,7 +53,7 @@ export function UserManagement() {
     } finally {
       setLoading(false);
     }
-  }, [search, typeFilter, statusFilter, selectedMarketId]);
+  }, [search, typeFilter, statusFilter, visibilityFilter, selectedMarketId]);
 
   useEffect(() => {
     if (tab === 'search') fetchUsers();
@@ -130,6 +133,17 @@ export function UserManagement() {
               <option value="suspended">Suspended</option>
               <option value="banned">Banned</option>
             </select>
+            {typeFilter === 'driver' && (
+              <select
+                value={visibilityFilter}
+                onChange={(e) => setVisibilityFilter(e.target.value)}
+                className="bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-white"
+              >
+                <option value="">All Visibility</option>
+                <option value="visible">Visible in browse</option>
+                <option value="hidden">Hidden from browse</option>
+              </select>
+            )}
             <button
               onClick={fetchUsers}
               className="bg-white/10 hover:bg-white/20 text-white text-xs font-medium px-4 py-2 rounded-lg transition-colors"
@@ -147,6 +161,9 @@ export function UserManagement() {
                     <th className="text-left p-3 font-medium">Name</th>
                     <th className="text-left p-3 font-medium">Type</th>
                     <th className="text-left p-3 font-medium">Status</th>
+                    {typeFilter === 'driver' && (
+                      <th className="text-left p-3 font-medium">Visible</th>
+                    )}
                     <th className="text-left p-3 font-medium">Tier</th>
                     <th className="text-right p-3 font-medium">Rides</th>
                     <th className="text-right p-3 font-medium">Disputes</th>
@@ -156,11 +173,11 @@ export function UserManagement() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-neutral-500">Searching...</td>
+                      <td colSpan={typeFilter === 'driver' ? 8 : 7} className="p-8 text-center text-neutral-500">Searching...</td>
                     </tr>
                   ) : users.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-neutral-500">No users found</td>
+                      <td colSpan={typeFilter === 'driver' ? 8 : 7} className="p-8 text-center text-neutral-500">No users found</td>
                     </tr>
                   ) : (
                     users.map((user) => (
@@ -192,6 +209,17 @@ export function UserManagement() {
                             {user.accountStatus}
                           </span>
                         </td>
+                        {typeFilter === 'driver' && (
+                          <td className="p-3">
+                            {user.profileVisible === false ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-700/40 text-neutral-400">Hidden</span>
+                            ) : user.profileVisible === true ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-500/20 text-green-400">Visible</span>
+                            ) : (
+                              <span className="text-[10px] text-neutral-600">—</span>
+                            )}
+                          </td>
+                        )}
                         <td className="p-3">
                           <span className={`text-[10px] ${user.tier === 'hmu_first' ? 'text-blue-400' : 'text-neutral-500'}`}>
                             {user.tier === 'hmu_first' ? 'HMU First' : 'Free'}

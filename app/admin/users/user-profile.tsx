@@ -31,6 +31,7 @@ interface UserData {
     lastSignInAt: string | null;
     signInCount: number;
     firstReturnAt: string | null;
+    profileVisible: boolean | null;
   };
   rides: {
     id: string;
@@ -359,6 +360,33 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             controls
             className="w-full max-w-md rounded-lg"
           />
+        </div>
+      )}
+
+      {/* Browse Visibility — separate from account status */}
+      {user.profileType === 'driver' && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold">Browse Visibility</h3>
+              <p className="text-[11px] text-neutral-500 mt-1 max-w-md">
+                {user.profileVisible === false
+                  ? 'Hidden from /rider/browse. Direct HMU link still works and bookings still flow.'
+                  : 'Shown in /rider/browse. Riders discover this driver in the list.'}
+              </p>
+            </div>
+            <button
+              onClick={() => updateUser({ profileVisible: !(user.profileVisible !== false) })}
+              disabled={saving}
+              className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 shrink-0 ${
+                user.profileVisible === false
+                  ? 'bg-[#00E676] hover:bg-[#00C864] text-black'
+                  : 'bg-neutral-700 hover:bg-neutral-600 text-white'
+              }`}
+            >
+              {user.profileVisible === false ? 'Show in browse' : 'Hide from browse'}
+            </button>
+          </div>
         </div>
       )}
 

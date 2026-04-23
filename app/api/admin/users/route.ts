@@ -16,6 +16,9 @@ export async function GET(req: NextRequest) {
   const type = searchParams.get('type');
   const status = searchParams.get('status');
   const marketId = searchParams.get('marketId');
+  const visibility = searchParams.get('visibility'); // 'visible' | 'hidden' | null (drivers only)
+  const visibilityBool: boolean | null =
+    visibility === 'visible' ? true : visibility === 'hidden' ? false : null;
 
   try {
     // Build filtered query — use separate queries instead of sql.unsafe
@@ -27,7 +30,8 @@ export async function GET(req: NextRequest) {
                COALESCE(u.completed_rides, 0) as completed_rides,
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name
+               COALESCE(rp.display_name, rp.first_name) as rider_name,
+               dp.profile_visible
         FROM users u
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
@@ -37,6 +41,7 @@ export async function GET(req: NextRequest) {
                OR rp.display_name ILIKE ${pattern} OR rp.first_name ILIKE ${pattern}
                OR dp.phone ILIKE ${pattern} OR u.clerk_id ILIKE ${pattern})
           AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
+          AND (${visibilityBool}::boolean IS NULL OR dp.profile_visible = ${visibilityBool})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else if (search && type) {
@@ -46,7 +51,8 @@ export async function GET(req: NextRequest) {
                COALESCE(u.completed_rides, 0) as completed_rides,
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name
+               COALESCE(rp.display_name, rp.first_name) as rider_name,
+               dp.profile_visible
         FROM users u
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
@@ -55,6 +61,7 @@ export async function GET(req: NextRequest) {
                OR rp.display_name ILIKE ${pattern} OR rp.first_name ILIKE ${pattern}
                OR dp.phone ILIKE ${pattern} OR u.clerk_id ILIKE ${pattern})
           AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
+          AND (${visibilityBool}::boolean IS NULL OR dp.profile_visible = ${visibilityBool})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else if (search && status) {
@@ -64,7 +71,8 @@ export async function GET(req: NextRequest) {
                COALESCE(u.completed_rides, 0) as completed_rides,
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name
+               COALESCE(rp.display_name, rp.first_name) as rider_name,
+               dp.profile_visible
         FROM users u
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
@@ -73,6 +81,7 @@ export async function GET(req: NextRequest) {
                OR rp.display_name ILIKE ${pattern} OR rp.first_name ILIKE ${pattern}
                OR dp.phone ILIKE ${pattern} OR u.clerk_id ILIKE ${pattern})
           AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
+          AND (${visibilityBool}::boolean IS NULL OR dp.profile_visible = ${visibilityBool})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else if (type && status) {
@@ -81,12 +90,14 @@ export async function GET(req: NextRequest) {
                COALESCE(u.completed_rides, 0) as completed_rides,
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name
+               COALESCE(rp.display_name, rp.first_name) as rider_name,
+               dp.profile_visible
         FROM users u
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         WHERE u.profile_type = ${type} AND u.account_status = ${status}
           AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
+          AND (${visibilityBool}::boolean IS NULL OR dp.profile_visible = ${visibilityBool})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else if (search) {
@@ -96,7 +107,8 @@ export async function GET(req: NextRequest) {
                COALESCE(u.completed_rides, 0) as completed_rides,
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name
+               COALESCE(rp.display_name, rp.first_name) as rider_name,
+               dp.profile_visible
         FROM users u
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
@@ -104,6 +116,7 @@ export async function GET(req: NextRequest) {
               OR rp.display_name ILIKE ${pattern} OR rp.first_name ILIKE ${pattern}
               OR dp.phone ILIKE ${pattern} OR u.clerk_id ILIKE ${pattern})
           AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
+          AND (${visibilityBool}::boolean IS NULL OR dp.profile_visible = ${visibilityBool})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else if (type) {
@@ -112,12 +125,14 @@ export async function GET(req: NextRequest) {
                COALESCE(u.completed_rides, 0) as completed_rides,
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name
+               COALESCE(rp.display_name, rp.first_name) as rider_name,
+               dp.profile_visible
         FROM users u
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         WHERE u.profile_type = ${type}
           AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
+          AND (${visibilityBool}::boolean IS NULL OR dp.profile_visible = ${visibilityBool})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else if (status) {
@@ -126,12 +141,14 @@ export async function GET(req: NextRequest) {
                COALESCE(u.completed_rides, 0) as completed_rides,
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name
+               COALESCE(rp.display_name, rp.first_name) as rider_name,
+               dp.profile_visible
         FROM users u
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         WHERE u.account_status = ${status}
           AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
+          AND (${visibilityBool}::boolean IS NULL OR dp.profile_visible = ${visibilityBool})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     } else {
@@ -140,11 +157,13 @@ export async function GET(req: NextRequest) {
                COALESCE(u.completed_rides, 0) as completed_rides,
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name
+               COALESCE(rp.display_name, rp.first_name) as rider_name,
+               dp.profile_visible
         FROM users u
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         WHERE (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
+          AND (${visibilityBool}::boolean IS NULL OR dp.profile_visible = ${visibilityBool})
         ORDER BY u.created_at DESC LIMIT 50
       `;
     }
@@ -160,6 +179,7 @@ export async function GET(req: NextRequest) {
       completedRides: Number(r.completed_rides ?? 0),
       disputeCount: 0,
       createdAt: r.created_at,
+      profileVisible: r.profile_visible ?? null,
     }));
 
     return NextResponse.json({ users });
