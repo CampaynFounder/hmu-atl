@@ -38,39 +38,45 @@ HMU ATL is a **mobile-first PWA** peer-to-peer ride platform for Metro Atlanta.
 ## DEPLOYMENT (CRITICAL — READ BEFORE ANY DEPLOY)
 
 > **Production is served by the `hmu-atl` Cloudflare Worker, NOT Cloudflare Pages.**
-> The custom domain `atl.hmucashride.com` routes to this worker.
+> The custom domains `atl.hmucashride.com` and `nola.hmucashride.com` route to this worker (plus `hmucashride.com/*`).
 > Deploying to the wrong target causes **Clerk handshake errors** because Clerk is configured for `atl.hmucashride.com` only.
+
+### Deploys are MANUAL — `git push` does nothing on its own
+There is no CI/CD auto-deploy. Pushing to `origin/main` does not ship code to prod. You must run the deploy command yourself after pushing (or before — the worker build is independent of the remote).
 
 ### How to deploy to production
 ```bash
 npm run build && npx opennextjs-cloudflare build && npx wrangler deploy --config wrangler.worker.jsonc
+```
+Or the npm shortcut (skips the bare `next build` since OpenNext does it):
+```bash
+npm run deploy:worker
 ```
 
 ### What each piece does
 | Step | Command | Purpose |
 |---|---|---|
 | 1 | `npm run build` | Next.js production build |
-| 2 | `npx opennextjs-cloudflare build` | Converts Next.js output to Cloudflare Worker format |
+| 2 | `npx opennextjs-cloudflare build` | Converts Next.js output to Cloudflare Worker format (`.open-next/worker.js`) |
 | 3 | `npx wrangler deploy --config wrangler.worker.jsonc` | Deploys to `hmu-atl` worker → `atl.hmucashride.com` |
 
+### How to verify a deploy shipped
+```bash
+npx wrangler deployments list --name hmu-atl | head -20
+```
+Compare the top timestamp to your deploy time. If it's older than your last run, your deploy didn't land.
+
 ### DO NOT
-- **DO NOT** deploy to `hmu-atlp` Pages project — that is not the production target
 - **DO NOT** use `wrangler pages deploy` — that deploys to Pages, not the Worker
 - **DO NOT** deploy without `--config wrangler.worker.jsonc` — the default `wrangler.jsonc` is for Pages
 - **DO NOT** omit the custom domain route from `wrangler.worker.jsonc`
+- **DO NOT** assume `git push` deploys anything — it only updates GitHub
 
 ### Clerk domain configuration
 - Clerk publishable key is bound to `clerk.atl.hmucashride.com`
 - `NEXT_PUBLIC_CLERK_DOMAIN=clerk.atl.hmucashride.com` must be set as a Worker secret
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` must be set as a Worker secret
 - If the site is accessed on any other domain (e.g. `*.workers.dev`), Clerk handshake will fail
-
-### Cloudflare Pages auto-deploy (dashboard)
-The Pages project `hmu-atlp` auto-deploys on git push. Its deploy command should be:
-```
-npx wrangler deploy --config wrangler.worker.jsonc
-```
-Build command: `npm run build && npx opennextjs-cloudflare build`
 
 ---
 
