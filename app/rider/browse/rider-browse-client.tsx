@@ -189,9 +189,9 @@ export default function RiderBrowseClient({ drivers }: Props) {
                   transition: 'all 0.15s',
                 }}
               >
-                {/* Media thumbnail */}
+                {/* Media thumbnail — aspect-ratio container keeps every card the same shape regardless of viewport */}
                 {(driver.photoUrl || driver.videoUrl) && (
-                  <div style={{ width: '100%', height: '180px', overflow: 'hidden', position: 'relative' }}>
+                  <div style={{ width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', position: 'relative', background: '#0A0A0A' }}>
                     {driver.videoUrl ? (
                       <video
                         src={driver.videoUrl}
@@ -199,13 +199,13 @@ export default function RiderBrowseClient({ drivers }: Props) {
                         playsInline
                         loop
                         autoPlay
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }}
                       />
                     ) : driver.photoUrl ? (
                       <img
                         src={driver.photoUrl}
                         alt={driver.displayName}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }}
                       />
                     ) : null}
                   </div>
