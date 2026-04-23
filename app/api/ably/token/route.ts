@@ -10,9 +10,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const { rideId } = body as { rideId?: string };
 
-    const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    const userRows = await sql`SELECT id, profile_type FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    const userId = (userRows[0] as { id: string }).id;
+    const userRow = userRows[0] as { id: string; profile_type: string };
+    const userId = userRow.id;
 
     // Build capability — what channels this token can access
     const capability: Record<string, string[]> = {
@@ -30,6 +31,15 @@ export async function POST(req: NextRequest) {
     // Legacy area:*:feed subscription kept during transition so any unmigrated
     // client code doesn't silently drop realtime events.
     capability['area:*:feed'] = ['subscribe'];
+
+    // Drivers can enter presence on their market's drivers_available channel —
+    // this is what gates HMU-send on the server. Only drivers get publish+presence;
+    // everyone else only gets subscribe so admins & riders can read availability.
+    if (userRow.profile_type === 'driver') {
+      capability['market:*:drivers_available'] = ['subscribe', 'publish', 'presence'];
+    } else {
+      capability['market:*:drivers_available'] = ['subscribe'];
+    }
 
     // If rideId provided, scope to that ride channel
     if (rideId) {

@@ -8,6 +8,7 @@ import { VideoRecorder } from './video-recorder';
 import { RiderPreferencesStep, type RiderPreferences } from './rider-preferences';
 import { LocationPermission } from './location-permission';
 import RatingsInfo from '@/components/shared/ratings-info';
+import CelebrationConfetti from '@/components/shared/celebration-confetti';
 import { ArrowRight, ArrowLeft, Check } from 'lucide-react';
 
 interface DriverOnboardingProps {
@@ -704,15 +705,6 @@ function LicensePlateStep({
 
 function ConfirmationScreen({ name, onContinue }: { name: string; onContinue: () => void }) {
   const [navigating, setNavigating] = useState(false);
-  const colors = ['#00E676', '#FFD600', '#FF4081', '#448AFF', '#E040FB', '#FF6E40', '#00E5FF'];
-  const particles = Array.from({ length: 50 }, (_, i) => ({
-    id: i,
-    x: Math.random() * 100,
-    delay: Math.random() * 1.5,
-    color: colors[i % colors.length],
-    size: Math.random() * 8 + 4,
-    drift: (Math.random() - 0.5) * 100,
-  }));
 
   return (
     <div style={{
@@ -721,33 +713,12 @@ function ConfirmationScreen({ name, onContinue }: { name: string; onContinue: ()
       background: '#080808', overflow: 'hidden',
     }}>
       <style>{`
-        @keyframes confetti {
-          0% { transform: translateY(-20px) translateX(0) rotate(0deg); opacity: 0; }
-          10% { opacity: 1; }
-          100% { transform: translateY(100vh) translateX(var(--drift)) rotate(720deg); opacity: 0; }
-        }
         @keyframes scaleIn { 0% { transform: scale(0); } 60% { transform: scale(1.1); } 100% { transform: scale(1); } }
         @keyframes fadeUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
 
-      {particles.map((p) => (
-        <div
-          key={p.id}
-          style={{
-            position: 'absolute',
-            top: '-20px',
-            left: `${p.x}%`,
-            width: `${p.size}px`,
-            height: `${p.size * 1.5}px`,
-            backgroundColor: p.color,
-            borderRadius: '2px',
-            // @ts-expect-error CSS custom property
-            '--drift': `${p.drift}px`,
-            animation: `confetti ${2 + Math.random()}s ease-in ${p.delay}s forwards`,
-          }}
-        />
-      ))}
+      <CelebrationConfetti active variant="cannon" />
 
       <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', padding: '0 24px', maxWidth: '360px' }}>
         <div style={{ animation: 'scaleIn 0.5s ease-out', marginBottom: '24px' }}>

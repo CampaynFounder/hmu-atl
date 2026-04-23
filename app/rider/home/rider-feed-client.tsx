@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAbly } from '@/hooks/use-ably';
 import { posthog } from '@/components/analytics/posthog-provider';
 import DriverProfileOverlay from '@/components/driver/driver-profile-overlay';
+import HmuInbox from '@/components/hmu/hmu-inbox';
 
 interface Props {
   displayName: string;
@@ -62,6 +63,7 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const [interestedDrivers, setInterestedDrivers] = useState<Map<string, InterestedDriver[]>>(new Map());
   const [selectingDriver, setSelectingDriver] = useState(false);
+  const [hmuInboxRefetchKey, setHmuInboxRefetchKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const activePosts = posts.filter(p => ACTIVE_STATUSES.includes(p.status));
@@ -120,6 +122,10 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
             });
         }
       }
+    }
+    if (msg.name === 'hmu_received') {
+      // New directed HMU landed — refetch the inbox so the card surfaces live.
+      setHmuInboxRefetchKey((k) => k + 1);
     }
     if (msg.name === 'driver_interested') {
       const postId = data.postId as string;
@@ -369,6 +375,17 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
             </div>
           </div>
         )}
+
+        {/* ── HMU INBOX ── directed HMUs from drivers, surfaces above active requests */}
+        <HmuInbox
+          refetchKey={hmuInboxRefetchKey}
+          onResolved={({ action }) => {
+            if (action === 'link') {
+              // Small delay so the user sees the celebration before route change
+              window.setTimeout(() => { window.location.href = '/rider/linked'; }, 1200);
+            }
+          }}
+        />
 
         {/* ── ACTIVE REQUESTS ── */}
         {activePosts.length > 0 && (

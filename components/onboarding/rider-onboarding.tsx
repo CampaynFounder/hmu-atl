@@ -6,6 +6,7 @@ import { Welcome } from './welcome';
 import { RatingIntro } from './rating-intro';
 import { LocationPermission } from './location-permission';
 import { ArrowRight, ArrowLeft, Check } from 'lucide-react';
+import CelebrationConfetti from '@/components/shared/celebration-confetti';
 
 interface OnboardingStep {
   id: string;
@@ -317,12 +318,6 @@ function TrustInfo() {
 }
 
 function RiderConfirmation({ name, onContinue }: { name: string; onContinue: () => void }) {
-  const colors = ['#00E676', '#FFD600', '#FF4081', '#448AFF', '#E040FB'];
-  const particles = Array.from({ length: 50 }, (_, i) => ({
-    id: i, x: Math.random() * 100, delay: Math.random() * 1.5,
-    color: colors[i % colors.length], drift: (Math.random() - 0.5) * 100,
-  }));
-
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 50,
@@ -330,20 +325,11 @@ function RiderConfirmation({ name, onContinue }: { name: string; onContinue: () 
       background: '#080808', overflow: 'hidden',
     }}>
       <style>{`
-        @keyframes rconfetti { 0% { transform: translateY(-20px) translateX(0) rotate(0); opacity: 0; } 10% { opacity: 1; } 100% { transform: translateY(100vh) translateX(var(--drift)) rotate(720deg); opacity: 0; } }
         @keyframes rscaleIn { 0% { transform: scale(0); } 60% { transform: scale(1.1); } 100% { transform: scale(1); } }
         @keyframes rfadeUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
       `}</style>
 
-      {particles.map((p) => (
-        <div key={p.id} style={{
-          position: 'absolute', top: '-20px', left: `${p.x}%`,
-          width: '6px', height: '9px', backgroundColor: p.color, borderRadius: '2px',
-          // @ts-expect-error CSS custom property
-          '--drift': `${p.drift}px`,
-          animation: `rconfetti ${2 + Math.random()}s ease-in ${p.delay}s forwards`,
-        }} />
-      ))}
+      <CelebrationConfetti active variant="cannon" />
 
       <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', padding: '0 24px', maxWidth: '360px' }}>
         <div style={{ animation: 'rscaleIn 0.5s ease-out', marginBottom: '24px' }}>
