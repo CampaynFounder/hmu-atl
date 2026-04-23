@@ -7,7 +7,22 @@ export default async function RiderBrowsePage() {
   const { userId: clerkId } = await auth();
   if (!clerkId) redirect('/sign-in');
 
-  // Fetch visible drivers + their active availability posts
+  // Resolve the viewing rider's strict gender preference (women_only / men_only).
+  // Soft prefs (prefer_*) and no_preference don't filter — they're sort hints at best.
+  const riderRows = await sql`
+    SELECT rp.driver_preference
+    FROM users u
+    LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+    WHERE u.clerk_id = ${clerkId}
+    LIMIT 1
+  `;
+  const pref = (riderRows[0]?.driver_preference as string | null) ?? null;
+  const strictFilter: 'female' | 'male' | null =
+    pref === 'women_only' || pref === 'female' ? 'female' :
+    pref === 'men_only' || pref === 'male' ? 'male' : null;
+
+  // Fetch visible drivers + their active availability posts.
+  // Gender filter tolerates legacy (male/female) + new (man/woman) values on driver_profiles.gender.
   const drivers = await sql`
     SELECT dp.handle, dp.display_name, dp.areas, dp.pricing, dp.video_url,
            dp.vehicle_info, dp.lgbtq_friendly, dp.enforce_minimum, dp.fwu, dp.accepts_cash, dp.cash_only,
@@ -27,6 +42,11 @@ export default async function RiderBrowsePage() {
       AND hp.expires_at > NOW()
     WHERE dp.profile_visible = true
       AND u.account_status = 'active'
+      AND (
+        ${strictFilter}::text IS NULL
+        OR (${strictFilter} = 'female' AND LOWER(dp.gender) IN ('female','woman'))
+        OR (${strictFilter} = 'male'   AND LOWER(dp.gender) IN ('male','man'))
+      )
     ORDER BY
       CASE WHEN hp.id IS NOT NULL THEN 0 ELSE 1 END,
       u.tier DESC, u.chill_score DESC

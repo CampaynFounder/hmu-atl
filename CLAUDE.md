@@ -815,6 +815,28 @@ These are built in schema but NOT yet implemented in code:
 | P3 | Dots integration | Blocked on Dots API access ($999/mo) — evaluate alternatives |
 | P3 | Price auto-calculator with Turf.js | lib/payments/price-calculator.ts |
 
+### HMU/Link feature (Phase 1 — schema shipped 2026-04-23, UI/API pending)
+
+Driver-to-rider directed interest signal with match-on-link unmasking. Schema is live; full spec at `memory/hmu_link_feature_phase1.md`.
+
+| Priority | Piece | Status |
+|---|---|---|
+| P0 | `POST /api/driver/hmu` — send HMU (enforce cap via `platform_config`, insert into `driver_to_rider_hmus`, Ably push to rider, insert `user_notifications` row) | New |
+| P0 | `POST /api/rider/hmu/[id]/link` — flip status to `linked`, set `linked_at`, notify driver | New |
+| P0 | `POST /api/rider/hmu/[id]/dismiss` — status `dismissed`, insert `blocked_users` row (rider → driver, one-way) | New |
+| P0 | `POST /api/rider/linked/[driverId]/unlink` — status `unlinked`, re-masks rider | New |
+| P0 | `/driver/find-riders` page — masked rider cards, HMU button, daily cap counter | New — reuse 4:3 media container from `/rider/browse` |
+| P0 | `/rider/linked` page — accepted drivers, existing booking flow CTA | New |
+| P0 | `/rider/home` — "HMU'd you" inbox section with badge count from `user_notifications` | Extend |
+| P1 | Driver Ably presence on `market:{slug}:drivers_available` (token already permits subscription; publisher missing) | New |
+| P1 | `/admin/hmu-config` + `/admin/hmus` — market-filtered via `useMarket()` pattern | New |
+| P1 | Gender data normalization — `driver_profiles.gender` has mixed legacy (`male`/`female`) + new (`man`/`woman`) values. Normalize to one vocab, backfill `users.gender`. | Data cleanup |
+| P2 | Rider `home_areas` picker in settings (reuse driver area-picker) | New |
+| P2 | Cloudflare Images blurhash for masked avatars (MVP uses CSS blur which is DevTools-bypassable) | Upgrade |
+| P2 | voip.ms proxy pair for in-HMU messaging (Phase 2 of the feature) | New |
+
+**Phase 1 status (2026-04-23):** schema + gender filter on `/rider/browse` shipped. API + UI to be picked up in dedicated session — do NOT wedge into unrelated work.
+
 ---
 
 ## POST-MVP ROADMAP (Schema Must Accommodate)
