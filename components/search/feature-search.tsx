@@ -40,7 +40,8 @@ const RIDER_FEATURES: Feature[] = [
 const DRIVER_FEATURES: Feature[] = [
   // GO
   { label: 'Go Live', description: 'Start broadcasting your availability to riders', breadcrumb: 'Go > Go Live', href: '/driver/go-live', keywords: ['live', 'broadcast', 'available', 'start', 'hmu', 'online'], icon: '🟢' },
-  { label: 'Find Riders', description: 'Browse ride requests from riders in your area', breadcrumb: 'Go > Find Riders', href: '/driver/feed', keywords: ['feed', 'riders', 'requests', 'browse', 'find', 'search', 'area'], icon: '🔍' },
+  { label: 'Find Riders', description: 'Browse riders in your market and send a directed HMU', breadcrumb: 'Go > Find Riders', href: '/driver/find-riders', keywords: ['riders', 'find', 'browse', 'hmu', 'directed', 'search', 'discover'], icon: '🔍' },
+  { label: 'Ride Requests', description: 'Browse pending ride requests in your area', breadcrumb: 'Go > Ride Requests', href: '/driver/feed', keywords: ['feed', 'requests', 'pending', 'browse', 'ride requests', 'area'], icon: '📋' },
 
   // RIDES
   { label: 'My Rides', description: 'View your ride history and active requests', breadcrumb: 'Rides > My Rides', href: '/driver/rides', keywords: ['rides', 'history', 'requests', 'active', 'past', 'completed', 'cancelled'], icon: '📋' },

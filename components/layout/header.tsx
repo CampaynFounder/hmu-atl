@@ -113,7 +113,8 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
                     <>
                       <NavSection label="GO" />
                       <NavItem href="/driver/go-live" label="Go Live" icon="🟢" active={pathname.startsWith('/driver/go-live')} accent onClick={close} />
-                      <NavItem href="/driver/feed" label="Find Riders" icon="🔍" active={pathname.startsWith('/driver/feed')} onClick={close} />
+                      <NavItem href="/driver/find-riders" label="Find Riders" icon="🔍" active={pathname.startsWith('/driver/find-riders')} onClick={close} />
+                      <NavItem href="/driver/feed" label="Ride Requests" icon="📋" active={pathname.startsWith('/driver/feed')} onClick={close} />
                       <NavSection label="RIDES" />
                       <NavItem href="/driver/dashboard" label="Dashboard" icon="📊" active={pathname.startsWith('/driver/dashboard')} onClick={close} />
                       <NavItem href="/driver/rides" label="My Rides" icon="📋" active={pathname.startsWith('/driver/rides') || pathname.startsWith('/ride/')} onClick={close} />

@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { readHmuConfig, hmuCapKey } from '@/lib/hmu/helpers';
+import ActiveRideBanner from '@/components/driver/active-ride-banner';
 import FindRidersClient from './find-riders-client';
 
 export const dynamic = 'force-dynamic';
@@ -95,6 +96,7 @@ export default async function FindRidersPage() {
       sentToday={sentToday}
       dailyLimit={dailyLimit}
       driverId={driverId}
+      activeRideBanner={<ActiveRideBanner userId={driverId} />}
     />
   );
 }

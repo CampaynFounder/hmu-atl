@@ -17,9 +17,10 @@ interface Props {
   sentToday: number;
   dailyLimit: number | null;
   driverId: string;
+  activeRideBanner?: React.ReactNode;
 }
 
-export default function FindRidersClient({ riders, sentToday: initialSent, dailyLimit, driverId }: Props) {
+export default function FindRidersClient({ riders, sentToday: initialSent, dailyLimit, driverId, activeRideBanner }: Props) {
   const [list, setList] = useState(riders);
   const [sentToday, setSentToday] = useState(initialSent);
   const [sending, setSending] = useState<string | null>(null);
@@ -103,6 +104,8 @@ export default function FindRidersClient({ riders, sentToday: initialSent, daily
       `}</style>
 
       <CelebrationConfetti active={celebrateRiderId !== null} variant="cannon" />
+
+      {activeRideBanner}
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
