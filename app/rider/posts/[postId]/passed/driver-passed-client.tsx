@@ -48,11 +48,19 @@ export default function DriverPassedClient({
     .map(c => ({ cardinal: c, rows: areas.filter(a => a.cardinal === c) }))
     .filter(g => g.rows.length);
 
+  // Drop the pending-actions localStorage cache before nav so the rider
+  // feed banner doesn't hydrate with the stale driver_passed entry while
+  // the silent on-mount refetch is still in flight.
+  const clearPendingActionsCache = () => {
+    try { localStorage.removeItem('hmu_pending_actions'); } catch { /* ignore */ }
+  };
+
   const handleCancel = async () => {
     setBusy('cancel'); setError(null);
     try {
       const res = await fetch(`/api/rider/posts/${postId}/cancel-after-decline`, { method: 'POST' });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Cancel failed');
+      clearPendingActionsCache();
       router.replace('/rider/home');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Cancel failed');
@@ -69,6 +77,7 @@ export default function DriverPassedClient({
         body: JSON.stringify({ pickup_area_slug: pickup, dropoff_area_slug: dropoff }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Broadcast failed');
+      clearPendingActionsCache();
       router.replace('/rider/home');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Broadcast failed');

@@ -67,19 +67,14 @@ export function usePendingActions() {
   }, []);
 
   useEffect(() => {
-    // Check if cache is stale
-    let shouldFetch = true;
-    try {
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (cached) {
-        const parsed: CachedActions = JSON.parse(cached);
-        if (Date.now() - parsed.fetchedAt < CACHE_TTL) {
-          shouldFetch = false;
-        }
-      }
-    } catch { /* ignore */ }
-
-    if (shouldFetch) fetchActions();
+    // ALWAYS refresh on mount — the cache is for instant first paint only.
+    // Skipping the fetch when the cache was <15s old caused stale entries to
+    // linger when the user navigated back from a status-changing page (e.g.
+    // /rider/posts/[id]/passed → cancel → /rider/home). The Ably push fires
+    // during the cancel request but the banner instance remounts with a
+    // disconnected Ably client; the rewind-replay fix that was relied on
+    // isn't fast enough to feel real-time. Silent so no loading flash.
+    fetchActions({ silent: true });
 
     // Visibility-gated polling: only tick while the tab is visible. Prevents
     // wasted background fetches and keeps battery/data overhead low on PWA.
