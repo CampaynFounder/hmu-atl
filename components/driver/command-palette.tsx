@@ -106,16 +106,39 @@ export function CommandPalette({ open, onClose }: Props) {
             style={{ background: '#141414', border: '1px solid rgba(255,255,255,0.08)' }}
             onClick={e => e.stopPropagation()}
           >
-            {/* Input */}
-            <div className="p-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+            {/* Drag handle — mobile-only affordance signaling the sheet is dismissible */}
+            <div className="sm:hidden flex justify-center pt-2 pb-1">
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="w-10 h-1.5 rounded-full"
+                style={{ background: 'rgba(255,255,255,0.15)' }}
+              />
+            </div>
+
+            {/* Input + close */}
+            <div
+              className="p-4 border-b flex items-center gap-3"
+              style={{ borderColor: 'rgba(255,255,255,0.06)' }}
+            >
               <input
                 autoFocus
                 type="text"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 placeholder="Search playbook, groups, tips…"
-                className="w-full bg-transparent outline-none text-white placeholder-white/30 text-base"
+                className="flex-1 min-w-0 bg-transparent outline-none text-white placeholder-white/30 text-base"
               />
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+                style={{ background: 'rgba(255,255,255,0.04)', fontSize: 18, lineHeight: 1 }}
+              >
+                ×
+              </button>
             </div>
 
             {/* Results */}
@@ -158,7 +181,8 @@ export function CommandPalette({ open, onClose }: Props) {
               className="px-4 py-2 text-[10px] text-white/30 flex items-center justify-between"
               style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
             >
-              <span>Esc to close</span>
+              <span className="hidden sm:inline">Esc to close</span>
+              <span className="sm:hidden">Tap × to close</span>
               <span>{filtered.length} result{filtered.length === 1 ? '' : 's'}</span>
             </div>
           </motion.div>
