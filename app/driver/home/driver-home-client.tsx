@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useAbly } from '@/hooks/use-ably';
 import CashoutCard from '@/components/driver/cashout-card';
 import { PendingActionBanner } from '@/components/pending-action-banner';
+import PassReasonSheet, { type PassReason } from '@/components/driver/pass-reason-sheet';
 
 interface BookingRequest {
   id: string;
@@ -54,6 +55,8 @@ export default function DriverHomeClient({
   const [requests, setRequests] = useState<BookingRequest[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [pendingPassPostId, setPendingPassPostId] = useState<string | null>(null);
+  const [actionToast, setActionToast] = useState<string | null>(null);
 
   const fetchRequests = useCallback(async () => {
     try {
@@ -128,18 +131,20 @@ export default function DriverHomeClient({
   };
 
   const handleAction = async (postId: string, action: 'accept' | 'decline') => {
+    // Pass routes through the reason sheet — same payload contract as /driver/feed
+    // so riders see the reason chip + note on the "driver passed" card.
+    if (action === 'decline') {
+      setPendingPassPostId(postId);
+      return;
+    }
     setActionLoading(postId);
     try {
-      const res = await fetch(`/api/bookings/${postId}/${action}`, { method: 'POST' });
+      const res = await fetch(`/api/bookings/${postId}/accept`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
-        if (action === 'accept' && data.rideId) {
-          // Direct booking — instant match
+        if (data.rideId) {
           setRequests((prev) => prev.filter((r) => r.id !== postId));
           window.location.replace(`/ride/${data.rideId}`);
-        } else if (action === 'accept' && data.status === 'interested') {
-          // Open request — interest registered, remove card
-          setRequests((prev) => prev.filter((r) => r.id !== postId));
         } else {
           setRequests((prev) => prev.filter((r) => r.id !== postId));
         }
@@ -152,6 +157,34 @@ export default function DriverHomeClient({
       // silent
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const submitPass = async (reason: PassReason | null, message: string) => {
+    const postId = pendingPassPostId;
+    if (!postId) return;
+    setActionLoading(postId);
+    try {
+      const res = await fetch(`/api/bookings/${postId}/decline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason, message }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setRequests((prev) => prev.filter((r) => r.id !== postId));
+        setActionToast(data.status === 'declined_awaiting_rider' ? 'Passed — rider notified' : 'Passed');
+        setTimeout(() => setActionToast(null), 2000);
+      } else {
+        setActionToast(data.error || `Couldn't pass (${res.status})`);
+        setTimeout(() => setActionToast(null), 3000);
+      }
+    } catch {
+      setActionToast('Network error — try again');
+      setTimeout(() => setActionToast(null), 3000);
+    } finally {
+      setActionLoading(null);
+      setPendingPassPostId(null);
     }
   };
 
@@ -425,6 +458,23 @@ export default function DriverHomeClient({
         )}
 
       </div>
+
+      <PassReasonSheet
+        open={pendingPassPostId !== null}
+        onClose={() => setPendingPassPostId(null)}
+        onConfirm={submitPass}
+      />
+
+      {actionToast && (
+        <div style={{
+          position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+          background: '#00E676', color: '#080808', fontWeight: 700, fontSize: 14,
+          padding: '12px 24px', borderRadius: 100, zIndex: 200,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+        }}>
+          {actionToast}
+        </div>
+      )}
     </>
   );
 }

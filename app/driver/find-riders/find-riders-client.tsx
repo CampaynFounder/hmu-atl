@@ -1,9 +1,14 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAbly } from '@/hooks/use-ably';
 import CelebrationConfetti from '@/components/shared/celebration-confetti';
+import HmuBrowseStyles from '@/components/hmu/browse/styles';
+import ViewToggle, { useViewMode } from '@/components/hmu/browse/view-toggle';
+import Chip from '@/components/hmu/browse/chip';
+import { FeedSkeleton, GridSkeleton } from '@/components/hmu/browse/skeletons';
+import { useInfiniteList } from '@/components/hmu/browse/use-infinite-list';
 
 interface MaskedRider {
   id: string;
@@ -27,7 +32,6 @@ interface Props {
   activeRideBanner?: React.ReactNode;
 }
 
-type ViewMode = 'feed' | 'grid';
 const VIEW_STORAGE_KEY = 'hmu_find_riders_view';
 const PAGE_SIZE = 12;
 
@@ -80,39 +84,31 @@ export default function FindRidersClient({
   driverId,
   activeRideBanner,
 }: Props) {
-  const [list, setList] = useState(initialRiders);
   const [sentToday, setSentToday] = useState(initialSent);
   const [sending, setSending] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [celebrateRiderId, setCelebrateRiderId] = useState<string | null>(null);
-  const [view, setView] = useState<ViewMode>('feed');
-  const [hasMore, setHasMore] = useState(initialRiders.length === initialBatchSize);
-  const [fetchingMore, setFetchingMore] = useState(false);
-  // Whether the initial hydration has applied the persisted view setting.
-  // Stays 'feed' during SSR → no flash for the default case; flips to the
-  // stored value (if any) after mount.
-  const [hydrated, setHydrated] = useState(false);
-  // When pagination exhausts (hasMore=false), we keep re-fetching from
-  // offset=0 so the feed loops. If the API ever returns an empty loop,
-  // we stop — nothing to recycle.
-  const [canLoop, setCanLoop] = useState(true);
 
-  const offsetRef = useRef(initialRiders.length);
-  const lastFetchRef = useRef(0);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const { view, setView, hydrated } = useViewMode(VIEW_STORAGE_KEY);
 
-  useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem(VIEW_STORAGE_KEY);
-      if (saved === 'feed' || saved === 'grid') setView(saved);
-    } catch { /* Storage disabled — fall back to default */ }
-    setHydrated(true);
-  }, []);
-
-  const updateView = useCallback((next: ViewMode) => {
-    setView(next);
-    try { sessionStorage.setItem(VIEW_STORAGE_KEY, next); } catch { /* silent */ }
-  }, []);
+  const {
+    items: list,
+    setItems: setList,
+    fetchingMore,
+    sentinelRef,
+  } = useInfiniteList<MaskedRider>({
+    initialItems: initialRiders,
+    initialBatchSize,
+    pageSize: PAGE_SIZE,
+    allowLoop: true,
+    getId: (r) => r.id,
+    fetchPage: useCallback(async (offset, limit) => {
+      const res = await fetch(`/api/driver/find-riders/list?offset=${offset}&limit=${limit}`);
+      if (!res.ok) throw new Error('fetch failed');
+      const data = await res.json();
+      return { items: (data.riders as MaskedRider[]) ?? [], hasMore: !!data.hasMore };
+    }, []),
+  });
 
   const atCap = dailyLimit !== null && sentToday >= dailyLimit;
 
@@ -128,65 +124,6 @@ export default function FindRidersClient({
       window.setTimeout(() => setToast(null), 4000);
     },
   });
-
-  const fetchMore = useCallback(async () => {
-    if (fetchingMore) return;
-    // Throttle so a single near-end position doesn't storm the API.
-    if (Date.now() - lastFetchRef.current < 400) return;
-    // Normal pagination as long as the API reports more pages.
-    // Once exhausted, loop from offset=0 to give the feed an infinite feel.
-    const looping = !hasMore;
-    if (looping && (!canLoop || list.length === 0)) return;
-
-    setFetchingMore(true);
-    lastFetchRef.current = Date.now();
-    try {
-      const offset = looping ? 0 : offsetRef.current;
-      const res = await fetch(`/api/driver/find-riders/list?offset=${offset}&limit=${PAGE_SIZE}`);
-      if (!res.ok) throw new Error('fetch failed');
-      const data = await res.json();
-      const next: MaskedRider[] = data.riders || [];
-
-      if (looping) {
-        if (next.length === 0) {
-          setCanLoop(false);
-        } else {
-          // Append the loop payload verbatim — duplicate riders are fine,
-          // React keys are computed from (index, id) so React doesn't complain.
-          setList((prev) => prev.concat(next));
-        }
-      } else {
-        setList((prev) => {
-          const seen = new Set(prev.map((r) => r.id));
-          const fresh = next.filter((r) => !seen.has(r.id));
-          offsetRef.current += next.length;
-          return prev.concat(fresh);
-        });
-        setHasMore(!!data.hasMore);
-      }
-    } catch {
-      // Silent — the sentinel retries on next scroll intersection.
-    } finally {
-      setFetchingMore(false);
-    }
-  }, [fetchingMore, hasMore, canLoop, list.length]);
-
-  // IntersectionObserver-based infinite scroll. Fires both for normal
-  // pagination (hasMore) and for end-of-list loop re-fetch (!hasMore but
-  // canLoop). In feed mode the scroller itself is the root; in grid mode
-  // the document is. Both are handled by passing `root: null` + the same
-  // ancestor-chain walk the browser does.
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    if (!hasMore && !canLoop) return;
-    const io = new IntersectionObserver(
-      (entries) => { if (entries[0]?.isIntersecting) fetchMore(); },
-      { rootMargin: '600px 0px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [fetchMore, hasMore, canLoop, view, list.length]);
 
   const handleHmu = useCallback(async (riderId: string) => {
     if (sending) return;
@@ -220,7 +157,7 @@ export default function FindRidersClient({
       setSending(null);
       window.setTimeout(() => setToast(null), 2800);
     }
-  }, [sending, atCap]);
+  }, [sending, atCap, setList]);
 
   const capDisplay = useMemo(() => {
     if (dailyLimit === null) return `${sentToday} sent today`;
@@ -229,11 +166,7 @@ export default function FindRidersClient({
 
   const isFeed = view === 'feed';
   const frameStyle: React.CSSProperties = isFeed
-    // Feed mode: fixed-viewport frame. Document doesn't scroll. The scroller
-    // child owns all scrolling, so cards can be sized off that container and
-    // the HMU button is guaranteed visible at the bottom of every card.
     ? { height: '100dvh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }
-    // Grid mode: normal document flow.
     : { minHeight: '100svh' };
 
   return (
@@ -245,50 +178,9 @@ export default function FindRidersClient({
         ...frameStyle,
       }}
     >
-      <style>{`
-        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-        @keyframes glow { 0% { box-shadow: 0 0 0 rgba(0,230,118,0); } 50% { box-shadow: 0 0 24px rgba(0,230,118,0.55); } 100% { box-shadow: 0 0 0 rgba(0,230,118,0); } }
-        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
-        @keyframes cardIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-
-        .fr-card-in { animation: cardIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; }
-
-        /* Feed view — the flex:1 child owns scrolling; each card is 100% of its height */
-        .fr-feed-scroller {
-          flex: 1; min-height: 0;
-          overflow-y: scroll;
-          scroll-snap-type: y mandatory;
-          scroll-behavior: smooth;
-          scrollbar-width: none;
-          -webkit-overflow-scrolling: touch;
-        }
-        .fr-feed-scroller::-webkit-scrollbar { display: none; }
-        .fr-feed-card {
-          height: 100%;
-          scroll-snap-align: start;
-          scroll-snap-stop: always;
-          position: relative;
-          overflow: hidden;
-        }
-        .fr-feed-bg {
-          position: absolute; inset: 0;
-          background-size: cover; background-position: center;
-          filter: blur(30px); transform: scale(1.15);
-        }
-        .fr-feed-overlay {
-          position: absolute; inset: 0;
-          background: linear-gradient(180deg, rgba(8,8,8,0.55) 0%, rgba(8,8,8,0.15) 40%, rgba(8,8,8,0.85) 100%);
-        }
-        .fr-skeleton {
-          background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.04) 100%);
-          background-size: 200% 100%;
-          animation: shimmer 1.4s ease-in-out infinite;
-        }
-      `}</style>
-
+      <HmuBrowseStyles />
       <CelebrationConfetti active={celebrateRiderId !== null} variant="cannon" />
 
-      {/* Toast */}
       {toast && (
         <div style={{
           position: 'fixed', top: 80, left: 20, right: 20, zIndex: 100,
@@ -301,7 +193,6 @@ export default function FindRidersClient({
         </div>
       )}
 
-      {/* Header — static block in feed mode (frame is fixed-viewport), sticky in grid. */}
       <div
         style={{
           ...(isFeed
@@ -316,7 +207,7 @@ export default function FindRidersClient({
             fontSize: 28, margin: 0,
           }}>Find Riders</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <ViewToggle view={view} onChange={updateView} hydrated={hydrated} />
+            <ViewToggle view={view} onChange={setView} hydrated={hydrated} />
             <Link href="/driver/home" style={{ fontSize: 14, color: '#00E676', fontWeight: 600, textDecoration: 'none' }}>
               Back
             </Link>
@@ -335,7 +226,6 @@ export default function FindRidersClient({
         </div>
       </div>
 
-      {/* Banner + empty state shown only when relevant */}
       {list.length === 0 && !fetchingMore ? (
         <div style={{ padding: '20px' }}>
           {activeRideBanner}
@@ -346,26 +236,20 @@ export default function FindRidersClient({
           </div>
         </div>
       ) : isFeed ? (
-        <div className="fr-feed-scroller">
+        <div className="hmu-feed-scroller">
           {list.map((rider, i) => (
             <FeedCard
-              // Key includes index so looped duplicates get distinct React identities.
               key={`${i}-${rider.id}`}
               rider={rider}
               sending={sending === rider.id}
               disabled={atCap}
               celebrating={celebrateRiderId === rider.id}
               onHmu={() => handleHmu(rider.id)}
-              // Stagger the first few entry animations so the TikTok stack
-              // reveals itself instead of popping in all at once.
               animationDelayMs={i < 4 ? i * 60 : 0}
               activeRideBanner={i === 0 ? activeRideBanner : undefined}
             />
           ))}
           {fetchingMore && <FeedSkeleton />}
-          {/* Sentinel sits inline with cards so IntersectionObserver fires when it
-              comes within rootMargin of the scroller's bottom. Height=0 keeps it
-              from consuming a snap slot. */}
           <div ref={sentinelRef} style={{ height: 1, scrollSnapAlign: 'none' }} />
         </div>
       ) : (
@@ -392,43 +276,6 @@ export default function FindRidersClient({
   );
 }
 
-// ─── View toggle ───
-
-function ViewToggle({ view, onChange, hydrated }: { view: ViewMode; onChange: (v: ViewMode) => void; hydrated: boolean }) {
-  const btn = (mode: ViewMode, label: string, icon: string) => (
-    <button
-      onClick={() => onChange(mode)}
-      aria-label={`${label} view`}
-      aria-pressed={view === mode}
-      style={{
-        padding: '6px 10px',
-        borderRadius: 100,
-        border: 'none',
-        background: view === mode ? 'rgba(0,230,118,0.15)' : 'transparent',
-        color: view === mode ? '#00E676' : '#888',
-        fontSize: 14, fontWeight: 600, cursor: 'pointer',
-        opacity: hydrated ? 1 : 0.0,
-        transition: 'opacity 0.15s, background 0.15s, color 0.15s',
-        fontFamily: 'inherit',
-      }}
-    >
-      {icon}
-    </button>
-  );
-  return (
-    <div style={{
-      display: 'flex', gap: 2,
-      background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: 100, padding: 2,
-    }}>
-      {btn('feed', 'Feed', '▤')}
-      {btn('grid', 'Grid', '▦')}
-    </div>
-  );
-}
-
-// ─── Feed (TikTok) card ───
-
 function FeedCard({
   rider, sending, disabled, celebrating, onHmu, animationDelayMs, activeRideBanner,
 }: {
@@ -444,29 +291,27 @@ function FeedCard({
   const gender = genderLabel(rider.gender);
 
   return (
-    <div className="fr-feed-card">
-      {/* Blurred avatar backdrop */}
+    <div className="hmu-feed-card">
       {rider.avatarUrl ? (
-        <div className="fr-feed-bg" style={{ backgroundImage: `url("${rider.avatarUrl}")` }} />
+        <div className="hmu-feed-bg" style={{ backgroundImage: `url("${rider.avatarUrl}")` }} />
       ) : (
-        <div className="fr-feed-bg" style={{ background: 'radial-gradient(circle at 50% 40%, #1a1a1a, #080808)' }} />
+        <div className="hmu-feed-bg" style={{ background: 'radial-gradient(circle at 50% 40%, #1a1a1a, #080808)' }} />
       )}
-      <div className="fr-feed-overlay" />
+      <div className="hmu-feed-overlay" />
 
       {activeRideBanner && (
-        <div style={{
-          position: 'absolute', top: 16, left: 16, right: 16, zIndex: 5,
-        }}>{activeRideBanner}</div>
+        <div style={{ position: 'absolute', top: 16, left: 16, right: 16, zIndex: 5 }}>
+          {activeRideBanner}
+        </div>
       )}
 
-      {/* Big initials medallion — anchored center-upper */}
       <div style={{
         position: 'absolute', inset: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         pointerEvents: 'none',
       }}>
         <div
-          className="fr-card-in"
+          className="hmu-card-in"
           style={{
             animationDelay: `${animationDelayMs}ms`,
             width: 140, height: 140, borderRadius: '50%',
@@ -484,9 +329,8 @@ function FeedCard({
         </div>
       </div>
 
-      {/* Bottom info / CTA card */}
       <div
-        className="fr-card-in"
+        className="hmu-card-in"
         style={{
           position: 'absolute', left: 16, right: 16, bottom: 28,
           animationDelay: `${animationDelayMs + 60}ms`,
@@ -537,29 +381,6 @@ function FeedCard({
   );
 }
 
-function FeedSkeleton() {
-  return (
-    <div className="fr-feed-card">
-      <div className="fr-feed-bg fr-skeleton" />
-      <div className="fr-feed-overlay" />
-      <div style={{
-        position: 'absolute', inset: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <div className="fr-skeleton" style={{
-          width: 140, height: 140, borderRadius: '50%',
-          transform: 'translateY(-40px)',
-        }} />
-      </div>
-      <div style={{ position: 'absolute', left: 16, right: 16, bottom: 28 }}>
-        <div className="fr-skeleton" style={{ height: 120, borderRadius: 22 }} />
-      </div>
-    </div>
-  );
-}
-
-// ─── Grid card (compact zoom-out) ───
-
 function GridCard({
   rider, sending, disabled, celebrating, onHmu, animationDelayMs,
 }: {
@@ -575,7 +396,7 @@ function GridCard({
 
   return (
     <div
-      className="fr-card-in"
+      className="hmu-card-in"
       style={{
         animationDelay: `${animationDelayMs}ms`,
         background: '#141414',
@@ -583,7 +404,7 @@ function GridCard({
         borderRadius: 20,
         overflow: 'hidden',
         transition: 'all 0.2s',
-        animation: celebrating ? 'glow 2s ease-in-out' : undefined,
+        animation: celebrating ? 'hmuBrowseGlow 2s ease-in-out' : undefined,
       }}
     >
       <div style={{
@@ -604,7 +425,6 @@ function GridCard({
             background: 'radial-gradient(circle at 50% 40%, #1a1a1a, #0a0a0a)',
           }} />
         )}
-        {/* Initials medallion overlay */}
         <div style={{
           position: 'absolute', inset: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -672,26 +492,6 @@ function GridCard({
   );
 }
 
-function GridSkeleton() {
-  return (
-    <div style={{
-      background: '#141414',
-      border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: 20,
-      overflow: 'hidden',
-    }}>
-      <div className="fr-skeleton" style={{ width: '100%', aspectRatio: '4 / 3' }} />
-      <div style={{ padding: '12px 14px 14px' }}>
-        <div className="fr-skeleton" style={{ height: 14, borderRadius: 4, marginBottom: 6, width: '60%' }} />
-        <div className="fr-skeleton" style={{ height: 10, borderRadius: 4, marginBottom: 10, width: '40%' }} />
-        <div className="fr-skeleton" style={{ height: 32, borderRadius: 100 }} />
-      </div>
-    </div>
-  );
-}
-
-// ─── Shared pieces ───
-
 function StatRow({ rider }: { rider: MaskedRider }) {
   const rides = rider.completedRides;
   return (
@@ -708,24 +508,5 @@ function StatRow({ rider }: { rider: MaskedRider }) {
         </div>
       </div>
     </div>
-  );
-}
-
-function Chip({ label, tone, compact }: { label: string; tone?: 'neutral' | 'lgbtq'; compact?: boolean }) {
-  const palette = {
-    neutral: { bg: 'rgba(255,255,255,0.06)', border: 'rgba(255,255,255,0.1)', color: '#bbb' },
-    lgbtq: { bg: 'rgba(168,85,247,0.14)', border: 'rgba(168,85,247,0.3)', color: '#D9B5FF' },
-  }[tone || 'neutral'];
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center',
-      background: palette.bg, border: `1px solid ${palette.border}`, color: palette.color,
-      borderRadius: 100,
-      padding: compact ? '2px 8px' : '4px 10px',
-      fontSize: compact ? 10 : 11, fontWeight: 600,
-      letterSpacing: 0.3,
-    }}>
-      {label}
-    </span>
   );
 }
