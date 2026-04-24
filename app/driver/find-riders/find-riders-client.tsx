@@ -211,9 +211,6 @@ export default function FindRidersClient({
       } else if (res.status === 403) {
         const body = await res.json().catch(() => ({}));
         setToast(body.error === 'blocked' ? 'You can’t HMU this rider.' : 'Not allowed.');
-      } else if (res.status === 409) {
-        const body = await res.json().catch(() => ({}));
-        setToast(body.error === 'not_present' ? 'Go live first to send HMUs.' : 'Not allowed.');
       } else {
         setToast('Something went wrong.');
       }
