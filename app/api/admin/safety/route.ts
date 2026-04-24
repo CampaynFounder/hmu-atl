@@ -37,6 +37,9 @@ export async function GET(req: NextRequest) {
   const q = (url.searchParams.get('q') ?? '').trim().slice(0, 80) || null;
   const startDate = url.searchParams.get('start_date');
   const endDate = url.searchParams.get('end_date');
+  // Market scoping — when the admin switches markets in the sidebar, client
+  // passes the selected ID here. null/empty = all markets (super admin view).
+  const marketId = (url.searchParams.get('market_id') ?? '').trim() || null;
   const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') ?? '50')));
   const offset = Math.max(0, Number(url.searchParams.get('offset') ?? '0'));
 
@@ -82,6 +85,7 @@ export async function GET(req: NextRequest) {
       AND (${party}::text IS NULL     OR e.party = ${party})
       AND (${startDate}::timestamptz IS NULL OR e.detected_at >= ${startDate}::timestamptz)
       AND (${endDate}::timestamptz IS NULL   OR e.detected_at <= ${endDate}::timestamptz)
+      AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId}::uuid)
       AND (
         ${qLike}::text IS NULL
         OR rp.display_name ILIKE ${qLike}
@@ -98,9 +102,13 @@ export async function GET(req: NextRequest) {
   `) as Array<Record<string, unknown>>;
 
   // Always return the open ride-ids set — live-map needs it regardless of filters.
+  // Also market-scope this: the live map itself is already market-scoped, so
+  // decorating markers for rides in other markets would be moot.
   const openRideIds = (await sql`
-    SELECT DISTINCT ride_id FROM ride_safety_events
-    WHERE admin_resolved_at IS NULL
+    SELECT DISTINCT e.ride_id FROM ride_safety_events e
+    INNER JOIN rides r ON r.id = e.ride_id
+    WHERE e.admin_resolved_at IS NULL
+      AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId}::uuid)
   `) as Array<{ ride_id: string }>;
 
   const totalCount = rows.length ? Number(rows[0].total_count) : 0;

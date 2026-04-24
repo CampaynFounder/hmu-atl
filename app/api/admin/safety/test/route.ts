@@ -49,12 +49,15 @@ export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
 
-  const q = (new URL(req.url).searchParams.get('q') ?? '').trim().slice(0, 80);
+  const params = new URL(req.url).searchParams;
+  const q = (params.get('q') ?? '').trim().slice(0, 80);
   const qLike = q ? `%${q}%` : null;
   const qPrefix = q ? `${q}%` : null;
+  const marketId = (params.get('market_id') ?? '').trim() || null;
 
   // Show in-progress rides first (those are the useful ones to test against),
-  // then everything else by recency.
+  // then everything else by recency. Market-scoped when the admin has a
+  // market selected.
   const rows = (await sql`
     SELECT
       r.id, r.status, r.created_at,
@@ -68,6 +71,7 @@ export async function GET(req: NextRequest) {
       OR dp.display_name ILIKE ${qLike}
       OR r.id::text LIKE ${qPrefix}
     )
+      AND (${marketId}::uuid IS NULL OR r.market_id = ${marketId}::uuid)
     ORDER BY
       CASE WHEN r.status = 'in_progress' THEN 0 ELSE 1 END,
       r.created_at DESC

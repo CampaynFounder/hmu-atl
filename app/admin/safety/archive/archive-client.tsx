@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useMarket } from '@/app/admin/components/market-context';
 import SafetyEventCard, { type SafetyEventRow, EVENT_LABEL } from '@/components/admin/safety/safety-event-card';
 import SafetySubNav from '@/components/admin/safety/safety-subnav';
 import type { SafetyEventType, SafetyEventSeverity, SafetyParty } from '@/lib/db/types';
@@ -47,6 +48,7 @@ export function SafetyArchive() {
   // Bump on every filter apply so effect refetches fresh.
   const appliedRef = useRef(0);
   const [applied, setApplied] = useState(0);
+  const { selectedMarketId } = useMarket();
 
   const fetchPage = useCallback(async (reset: boolean) => {
     setLoading(true);
@@ -61,6 +63,7 @@ export function SafetyArchive() {
       if (severity) params.set('severity', severity);
       if (party) params.set('party', party);
       if (resolved) params.set('resolved', resolved);
+      if (selectedMarketId) params.set('market_id', selectedMarketId);
       if (startDate) params.set('start_date', new Date(startDate).toISOString());
       if (endDate) {
         // end of day (inclusive of the whole endDate day)
@@ -79,15 +82,15 @@ export function SafetyArchive() {
     } finally {
       setLoading(false);
     }
-  }, [q, eventType, severity, party, resolved, startDate, endDate, offset]);
+  }, [q, eventType, severity, party, resolved, startDate, endDate, offset, selectedMarketId]);
 
-  // Initial load + every filter apply.
+  // Initial load + every filter apply + market switch.
   useEffect(() => {
     appliedRef.current = applied;
     setOffset(0);
     fetchPage(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applied]);
+  }, [applied, selectedMarketId]);
 
   const apply = () => setApplied((n) => n + 1);
 

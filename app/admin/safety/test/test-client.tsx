@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useMarket } from '@/app/admin/components/market-context';
 import SafetySubNav from '@/components/admin/safety/safety-subnav';
 import { EVENT_LABEL } from '@/components/admin/safety/safety-event-card';
 import type {
@@ -61,22 +62,30 @@ export function SafetyTestHarness() {
 
   const [firing, setFiring] = useState(false);
   const [log, setLog] = useState<FireLogEntry[]>([]);
+  const { selectedMarketId } = useMarket();
 
-  // Ride search (debounced)
+  // Ride search (debounced). Market switch clears the current pick because
+  // that ride might not belong to the new market.
   const fetchRides = useCallback(async (q: string) => {
     const params = new URLSearchParams();
     if (q) params.set('q', q);
+    if (selectedMarketId) params.set('market_id', selectedMarketId);
     const res = await fetch(`/api/admin/safety/test?${params.toString()}`);
     if (res.ok) {
       const data = await res.json();
       setRides(data.rides ?? []);
     }
-  }, []);
+  }, [selectedMarketId]);
 
   useEffect(() => {
     const handle = setTimeout(() => fetchRides(rideQuery), 220);
     return () => clearTimeout(handle);
   }, [rideQuery, fetchRides]);
+
+  // When market changes, drop the selected ride (it may be out-of-scope now).
+  useEffect(() => {
+    setSelectedRide(null);
+  }, [selectedMarketId]);
 
   async function fire() {
     if (!selectedRide) return;

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useAbly } from '@/hooks/use-ably';
+import { useMarket } from '@/app/admin/components/market-context';
 import SafetyEventCard, { type SafetyEventRow, EVENT_LABEL } from '@/components/admin/safety/safety-event-card';
 import SafetySubNav from '@/components/admin/safety/safety-subnav';
 import type { SafetyEventType, SafetyEventSeverity, SafetyParty } from '@/lib/db/types';
@@ -33,6 +34,7 @@ export function SafetyQueue() {
   const [eventType, setEventType] = useState<'' | SafetyEventType>('');
   const [severity, setSeverity] = useState<'' | SafetyEventSeverity>('');
   const [party, setParty] = useState<'' | SafetyParty>('');
+  const { selectedMarketId } = useMarket();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -41,6 +43,7 @@ export function SafetyQueue() {
       if (eventType) params.set('event_type', eventType);
       if (severity) params.set('severity', severity);
       if (party) params.set('party', party);
+      if (selectedMarketId) params.set('market_id', selectedMarketId);
       const res = await fetch(`/api/admin/safety?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
@@ -49,7 +52,7 @@ export function SafetyQueue() {
     } finally {
       setLoading(false);
     }
-  }, [scope, eventType, severity, party]);
+  }, [scope, eventType, severity, party, selectedMarketId]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
