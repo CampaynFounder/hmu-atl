@@ -6,6 +6,7 @@ import { useAbly } from '@/hooks/use-ably';
 import { posthog } from '@/components/analytics/posthog-provider';
 import DriverProfileOverlay from '@/components/driver/driver-profile-overlay';
 import HmuInbox from '@/components/hmu/hmu-inbox';
+import { PendingActionBanner } from '@/components/pending-action-banner';
 
 interface Props {
   displayName: string;
@@ -275,6 +276,12 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
           <h1 className="rf-greeting">Where you headed, @{displayName}?</h1>
           <p className="rf-sub">Post what you need. Drivers online now sayin HMU.</p>
         </div>
+
+        {/* Real-time pending actions — driver_passed lands here within 1s of the
+            decline endpoint publishing, so the rider always has a persistent
+            entry point to /rider/posts/[id]/passed even after dismissing the
+            full-screen alert. */}
+        <PendingActionBanner maxActions={2} />
 
         {/* Composer */}
         <div className="rf-composer">

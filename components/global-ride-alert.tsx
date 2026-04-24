@@ -62,9 +62,15 @@ export function GlobalRideAlert() {
   }, [isLoaded, isSignedIn]);
 
   const handleMessage = useCallback((msg: { name: string; data: unknown; timestamp?: number }) => {
-    // Suppress Ably rewind replays — only fire alerts for genuinely fresh events.
-    // See ALERT_MAX_AGE_MS comment above.
-    if (msg.timestamp && Date.now() - msg.timestamp > ALERT_MAX_AGE_MS) {
+    // Suppress Ably rewind replays for transient ride-state events. State that
+    // moves on its own (otw → here → ended) gets stale fast, so a 30s-old
+    // replay would re-fire "Driver is here!" after the ride already ended.
+    // booking_declined is exempt: the post sits in declined_awaiting_rider
+    // until the rider explicitly cancels or broadcasts, so the rider needs
+    // to see it even if they only just opened the app minutes later.
+    const isStateEvent = msg.name === 'ride_update' || msg.name === 'status_change'
+      || msg.name === 'booking_accepted' || msg.name === 'booking_cancelled';
+    if (isStateEvent && msg.timestamp && Date.now() - msg.timestamp > ALERT_MAX_AGE_MS) {
       return;
     }
 
