@@ -71,10 +71,19 @@ export function useInfiniteList<T>({
       const next = page.items;
 
       if (looping) {
+        // End-of-list loop must still de-dupe — without this, thin lists show
+        // the same card twice in grid view (and back-to-back in feed). Once a
+        // loop returns zero NEW ids, we've truly seen everyone and stop.
         if (next.length === 0) {
           setCanLoop(false);
         } else {
-          setItems((prev) => prev.concat(next));
+          const seen = new Set(items.map(getId));
+          const fresh = next.filter((r) => !seen.has(getId(r)));
+          if (fresh.length === 0) {
+            setCanLoop(false);
+          } else {
+            setItems((prev) => prev.concat(fresh));
+          }
         }
       } else {
         setItems((prev) => {
