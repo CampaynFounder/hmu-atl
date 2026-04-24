@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useUser } from '@clerk/nextjs';
+import { useAbly } from '@/hooks/use-ably';
 import type { PendingAction } from '@/app/api/users/pending-actions/route';
 
 const POLL_INTERVAL = 30_000; // 30 seconds
@@ -32,7 +34,9 @@ export function usePendingActions() {
     return [];
   });
   const [loading, setLoading] = useState(false);
+  const [internalUserId, setInternalUserId] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { isLoaded, isSignedIn } = useUser();
 
   // Background polls must NEVER toggle `loading`. Flipping loading on each 30s
   // tick re-renders subscribers (even with stable `actions` reference), which
@@ -112,6 +116,28 @@ export function usePendingActions() {
       }
     };
   }, [fetchActions]);
+
+  // Resolve internal user ID for the Ably channel name. Same pattern as
+  // GlobalRideAlert — Clerk gives us a clerk_id but the notify channel uses
+  // our internal users.id.
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) { setInternalUserId(null); return; }
+    let cancelled = false;
+    fetch('/api/users/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (!cancelled && data?.id) setInternalUserId(data.id); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isLoaded, isSignedIn]);
+
+  // Refresh pending actions immediately when ANY notify event lands. The
+  // 30s poll is the floor; this gives us sub-second response so the
+  // 'driver_passed' (and every other) banner appears the moment the server
+  // publishes, not on the next tick.
+  useAbly({
+    channelName: internalUserId ? `user:${internalUserId}:notify` : null,
+    onMessage: useCallback(() => { fetchActions({ silent: true }); }, [fetchActions]),
+  });
 
   const topAction = actions.length > 0 ? actions[0] : null;
 

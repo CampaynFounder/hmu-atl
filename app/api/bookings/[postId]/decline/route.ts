@@ -84,6 +84,7 @@ export async function POST(
     notifyUser(post.user_id, 'booking_declined', {
       postId,
       driverName,
+      price: Number(post.price || 0),
       reason,          // 'price' | 'distance' | 'booked' | 'other' | null
       message: messageOrNull,
       // Kept for backwards-compatibility with clients that still read `message`

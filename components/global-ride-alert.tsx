@@ -12,7 +12,21 @@ interface RideAlert {
   riderName?: string;
   price?: number;
   message?: string;
+  // booking_declined extras — surfaced from the API payload so the rider can
+  // see WHY the driver passed and what to do next without leaving the page.
+  postId?: string;
+  reason?: 'price' | 'distance' | 'booked' | 'other' | null;
+  driverMessage?: string | null;
 }
+
+// Reason key → human label for the chip on the booking_declined alert.
+// Matches PassReasonSheet on the driver side so the rider sees the same words.
+const REASON_LABEL: Record<string, string> = {
+  price: 'Price too low',
+  distance: 'Too far / wrong way',
+  booked: 'Already booked',
+  other: 'Something else',
+};
 
 // Ably's rewind=2m delivers recent messages on reconnect, so a rider who
 // navigates back to the app after a ride has already ended can get a
@@ -93,6 +107,29 @@ export function GlobalRideAlert() {
       }
     }
 
+    // Driver passed on a direct booking. Server publishes this with reason +
+    // optional 140-char note. Surface it as a full-screen prompt so the rider
+    // can decide (cancel vs broadcast) wherever they are in the app.
+    if (msg.name === 'booking_declined') {
+      const postId = data.postId as string | undefined;
+      if (postId) {
+        const reason = data.reason as RideAlert['reason'];
+        setAlert({
+          type: 'booking_declined',
+          rideId: '',
+          postId,
+          driverName: (data.driverName as string) || undefined,
+          price: data.price ? Number(data.price) : undefined,
+          reason: reason ?? null,
+          driverMessage: (data.message as string) || null,
+        });
+        if (dismissTimer.current) clearTimeout(dismissTimer.current);
+        // Longer auto-dismiss than other alerts — rider needs time to read the
+        // reason + note before deciding. Pending-action banner persists either way.
+        dismissTimer.current = setTimeout(() => setAlert(null), 45000);
+      }
+    }
+
     // Booking cancelled by rider (driver side)
     if (msg.name === 'booking_cancelled') {
       setAlert({
@@ -114,6 +151,15 @@ export function GlobalRideAlert() {
 
   const isAccepted = alert.type === 'booking_accepted';
   const isCancelled = alert.type === 'ride_cancelled' || alert.type === 'booking_cancelled';
+  const isDeclined = alert.type === 'booking_declined';
+  const reasonLabel = alert.reason ? REASON_LABEL[alert.reason] : null;
+
+  const accentColor = isDeclined
+    ? '#FF9100'
+    : isCancelled ? '#FF5252' : '#00E676';
+  const accentBg = isDeclined
+    ? 'rgba(255,145,0,0.15)'
+    : isCancelled ? 'rgba(255,82,82,0.15)' : 'rgba(0,230,118,0.15)';
 
   return (
     <div style={{
@@ -132,12 +178,16 @@ export function GlobalRideAlert() {
       {/* Icon */}
       <div style={{
         width: 80, height: 80, borderRadius: '50%',
-        background: isCancelled ? 'rgba(255,82,82,0.15)' : isAccepted ? 'rgba(0,230,118,0.15)' : 'rgba(255,145,0,0.15)',
+        background: accentBg,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         marginBottom: 24, animation: isCancelled ? 'none' : 'alertPulse 2s ease-in-out infinite',
       }}>
         <span style={{ fontSize: 40 }}>
-          {isCancelled ? '\u274C' : isAccepted ? '\u{1F91D}' : alert.message?.includes('here') ? '\u{1F4CD}' : '\u{1F697}'}
+          {isCancelled ? '\u274C'
+            : isDeclined ? '\u{1F914}'
+            : isAccepted ? '\u{1F91D}'
+            : alert.message?.includes('here') ? '\u{1F4CD}'
+            : '\u{1F697}'}
         </span>
       </div>
 
@@ -147,16 +197,49 @@ export function GlobalRideAlert() {
         fontSize: 36, color: '#fff', textAlign: 'center',
         lineHeight: 1, marginBottom: 8,
       }}>
-        {isCancelled ? 'RIDE CANCELLED' : isAccepted ? 'RIDE ACCEPTED!' : alert.message?.toUpperCase() || 'RIDE UPDATE'}
+        {isCancelled ? 'RIDE CANCELLED'
+          : isDeclined ? `${(alert.driverName || 'DRIVER').toUpperCase()} PASSED`
+          : isAccepted ? 'RIDE ACCEPTED!'
+          : alert.message?.toUpperCase() || 'RIDE UPDATE'}
       </h1>
+
+      {isDeclined && reasonLabel && (
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          padding: '6px 14px', borderRadius: 100,
+          background: 'rgba(255,145,0,0.14)',
+          border: '1px solid rgba(255,145,0,0.35)',
+          color: '#FFB366',
+          fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase',
+          marginBottom: 12,
+        }}>
+          {reasonLabel}
+        </span>
+      )}
+
+      {isDeclined && alert.driverMessage && (
+        <p style={{
+          fontSize: 14, color: '#fff', fontStyle: 'italic',
+          textAlign: 'center', lineHeight: 1.45,
+          padding: '12px 16px', maxWidth: 320,
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 14,
+          marginBottom: 14,
+        }}>
+          &ldquo;{alert.driverMessage}&rdquo;
+        </p>
+      )}
 
       {/* Subtitle */}
       <p style={{
         fontSize: 15, color: '#bbb', textAlign: 'center',
-        lineHeight: 1.5, marginBottom: 8, maxWidth: 300,
+        lineHeight: 1.5, marginBottom: 8, maxWidth: 320,
       }}>
         {isCancelled
           ? alert.message || 'This ride has been cancelled. No charge was made.'
+          : isDeclined
+          ? `Cancel your ${alert.price ? `$${alert.price} ` : ''}ride or blast it to all active drivers?`
           : isAccepted
           ? `${alert.driverName || 'Your driver'} accepted your ride${alert.price ? ` — $${alert.price}` : ''}. Tap below to confirm your pickup.`
           : alert.message || 'Check your ride for updates.'}
@@ -178,6 +261,23 @@ export function GlobalRideAlert() {
           }}
         >
           Got it
+        </button>
+      ) : isDeclined ? (
+        <button
+          onClick={() => {
+            setAlert(null);
+            if (dismissTimer.current) clearTimeout(dismissTimer.current);
+            if (alert.postId) router.push(`/rider/posts/${alert.postId}/passed`);
+          }}
+          style={{
+            width: '100%', maxWidth: 320, padding: 18, borderRadius: 100,
+            border: 'none', background: accentColor, color: '#080808',
+            fontSize: 17, fontWeight: 800, cursor: 'pointer',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            marginTop: 16, animation: 'alertBounce 2s ease-in-out infinite',
+          }}
+        >
+          Decide What&apos;s Next
         </button>
       ) : (
         <button
