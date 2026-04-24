@@ -379,7 +379,7 @@ export default function BookingDrawer({ driver, open, onClose, prefill, isSigned
                     {defaultMethod?.brand ? defaultMethod.brand.charAt(0).toUpperCase() + defaultMethod.brand.slice(1) : 'Card'} •••• {defaultMethod?.last4 || '????'}
                   </div>
                   <div className="payment-row__sub">
-                    Held when {driver.displayName} accepts. Charged when you&apos;re in the ride.
+                    Payment Method Validated. We will Confirm You are in the ride before you are Charged.
                   </div>
                 </div>
                 <button
