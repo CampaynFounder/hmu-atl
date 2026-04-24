@@ -30,6 +30,7 @@ export default function BookingDrawer({ driver, onClose }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [hasPaymentMethod, setHasPaymentMethod] = useState<boolean | null>(null);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
@@ -87,6 +88,7 @@ export default function BookingDrawer({ driver, onClose }: Props) {
         posthog.capture('direct_booking_sent', {
           driverHandle: handle, price: parsedAmount, destination: destination.trim(), isCash,
         });
+        setExpiresAt((data.expiresAt as string) || null);
         setSuccess(true);
       } else if (data.code === 'no_payment_method') {
         setShowPaymentForm(true);
@@ -162,9 +164,13 @@ export default function BookingDrawer({ driver, onClose }: Props) {
             }}>
               SENT TO {displayName.toUpperCase()}
             </div>
-            <div style={{ fontSize: 13, color: '#888', marginBottom: 18 }}>
-              They have 15 min to accept. You&apos;ll get a notification.
-            </div>
+            {expiresAt ? (
+              <ExpiryCountdown expiresAt={expiresAt} driverName={displayName} />
+            ) : (
+              <div style={{ fontSize: 13, color: '#888', marginBottom: 18 }}>
+                They have 15 min to accept. You&apos;ll get a notification.
+              </div>
+            )}
             <button
               onClick={onClose}
               style={{
@@ -191,12 +197,17 @@ export default function BookingDrawer({ driver, onClose }: Props) {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <input
-                value={destination}
-                onChange={(e) => setDestination(e.target.value)}
-                placeholder="Where you headed? (e.g. midtown > airport)"
-                style={inputStyle}
-              />
+              <div>
+                <input
+                  value={destination}
+                  onChange={(e) => setDestination(e.target.value)}
+                  placeholder="Pickup > Dropoff (e.g. airport > buckhead)"
+                  style={{ ...inputStyle, width: '100%' }}
+                />
+                <div style={{ fontSize: 11, color: '#888', marginTop: 4, paddingLeft: 4 }}>
+                  Add stops & details later.
+                </div>
+              </div>
 
               <div style={{ display: 'flex', gap: 10 }}>
                 <input
@@ -363,6 +374,54 @@ export default function BookingDrawer({ driver, onClose }: Props) {
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ExpiryCountdown({ expiresAt, driverName }: { expiresAt: string; driverName: string }) {
+  const [remainingMs, setRemainingMs] = useState(() =>
+    Math.max(0, new Date(expiresAt).getTime() - Date.now()),
+  );
+
+  useEffect(() => {
+    const tick = () => {
+      setRemainingMs(Math.max(0, new Date(expiresAt).getTime() - Date.now()));
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [expiresAt]);
+
+  const expired = remainingMs <= 0;
+  const mins = Math.floor(remainingMs / 60000);
+  const secs = Math.floor((remainingMs % 60000) / 1000);
+  const label = expired ? 'Expired' : `${mins}:${String(secs).padStart(2, '0')}`;
+  // Under 2 minutes → urgent orange. Expired → red.
+  const accent = expired ? '#FF5252' : remainingMs < 2 * 60 * 1000 ? '#FF9100' : '#00E676';
+
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: 8,
+        padding: '8px 16px', borderRadius: 100,
+        background: `${accent}1A`, border: `1px solid ${accent}4D`,
+        fontFamily: "'Space Mono', monospace",
+        fontSize: 18, fontWeight: 700, color: accent,
+        letterSpacing: 1,
+      }}>
+        <span style={{
+          width: 8, height: 8, borderRadius: '50%',
+          background: accent,
+          animation: expired ? 'none' : 'bookingPulse 1.2s ease-in-out infinite',
+        }} />
+        {label}
+      </div>
+      <style>{`@keyframes bookingPulse { 0%,100%{opacity:1} 50%{opacity:0.35} }`}</style>
+      <div style={{ fontSize: 13, color: '#888', marginTop: 8, lineHeight: 1.5 }}>
+        {expired
+          ? `${driverName} didn't respond in time. Try another driver or HMU all drivers.`
+          : `Time left for ${driverName} to accept. You'll get a notification.`}
       </div>
     </div>
   );
