@@ -92,8 +92,13 @@ export default function FindRidersClient({
   // Stays 'feed' during SSR → no flash for the default case; flips to the
   // stored value (if any) after mount.
   const [hydrated, setHydrated] = useState(false);
+  // When pagination exhausts (hasMore=false), we keep re-fetching from
+  // offset=0 so the feed loops. If the API ever returns an empty loop,
+  // we stop — nothing to recycle.
+  const [canLoop, setCanLoop] = useState(true);
 
   const offsetRef = useRef(initialRiders.length);
+  const lastFetchRef = useRef(0);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -125,40 +130,63 @@ export default function FindRidersClient({
   });
 
   const fetchMore = useCallback(async () => {
-    if (fetchingMore || !hasMore) return;
+    if (fetchingMore) return;
+    // Throttle so a single near-end position doesn't storm the API.
+    if (Date.now() - lastFetchRef.current < 400) return;
+    // Normal pagination as long as the API reports more pages.
+    // Once exhausted, loop from offset=0 to give the feed an infinite feel.
+    const looping = !hasMore;
+    if (looping && (!canLoop || list.length === 0)) return;
+
     setFetchingMore(true);
+    lastFetchRef.current = Date.now();
     try {
-      const res = await fetch(`/api/driver/find-riders/list?offset=${offsetRef.current}&limit=${PAGE_SIZE}`);
+      const offset = looping ? 0 : offsetRef.current;
+      const res = await fetch(`/api/driver/find-riders/list?offset=${offset}&limit=${PAGE_SIZE}`);
       if (!res.ok) throw new Error('fetch failed');
       const data = await res.json();
       const next: MaskedRider[] = data.riders || [];
-      setList((prev) => {
-        const seen = new Set(prev.map((r) => r.id));
-        const fresh = next.filter((r) => !seen.has(r.id));
-        offsetRef.current += next.length;
-        return prev.concat(fresh);
-      });
-      setHasMore(!!data.hasMore);
+
+      if (looping) {
+        if (next.length === 0) {
+          setCanLoop(false);
+        } else {
+          // Append the loop payload verbatim — duplicate riders are fine,
+          // React keys are computed from (index, id) so React doesn't complain.
+          setList((prev) => prev.concat(next));
+        }
+      } else {
+        setList((prev) => {
+          const seen = new Set(prev.map((r) => r.id));
+          const fresh = next.filter((r) => !seen.has(r.id));
+          offsetRef.current += next.length;
+          return prev.concat(fresh);
+        });
+        setHasMore(!!data.hasMore);
+      }
     } catch {
-      // Silent — the sentinel will retry on next scroll intersection.
+      // Silent — the sentinel retries on next scroll intersection.
     } finally {
       setFetchingMore(false);
     }
-  }, [fetchingMore, hasMore]);
+  }, [fetchingMore, hasMore, canLoop, list.length]);
 
-  // IntersectionObserver-based infinite scroll. Works in both feed & grid
-  // modes because the sentinel is rendered at the end of the scroll container
-  // in either layout.
+  // IntersectionObserver-based infinite scroll. Fires both for normal
+  // pagination (hasMore) and for end-of-list loop re-fetch (!hasMore but
+  // canLoop). In feed mode the scroller itself is the root; in grid mode
+  // the document is. Both are handled by passing `root: null` + the same
+  // ancestor-chain walk the browser does.
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasMore) return;
+    if (!el) return;
+    if (!hasMore && !canLoop) return;
     const io = new IntersectionObserver(
       (entries) => { if (entries[0]?.isIntersecting) fetchMore(); },
       { rootMargin: '600px 0px' },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [fetchMore, hasMore, view, list.length]);
+  }, [fetchMore, hasMore, canLoop, view, list.length]);
 
   const handleHmu = useCallback(async (riderId: string) => {
     if (sending) return;
@@ -202,13 +230,22 @@ export default function FindRidersClient({
     return `${sentToday}/${dailyLimit} today`;
   }, [sentToday, dailyLimit]);
 
+  const isFeed = view === 'feed';
+  const frameStyle: React.CSSProperties = isFeed
+    // Feed mode: fixed-viewport frame. Document doesn't scroll. The scroller
+    // child owns all scrolling, so cards can be sized off that container and
+    // the HMU button is guaranteed visible at the bottom of every card.
+    ? { height: '100dvh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }
+    // Grid mode: normal document flow.
+    : { minHeight: '100svh' };
+
   return (
     <div
       style={{
         background: '#080808',
         color: '#fff',
-        minHeight: '100svh',
         fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+        ...frameStyle,
       }}
     >
       <style>{`
@@ -216,22 +253,21 @@ export default function FindRidersClient({
         @keyframes glow { 0% { box-shadow: 0 0 0 rgba(0,230,118,0); } 50% { box-shadow: 0 0 24px rgba(0,230,118,0.55); } 100% { box-shadow: 0 0 0 rgba(0,230,118,0); } }
         @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
         @keyframes cardIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes skeletonPulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
 
         .fr-card-in { animation: cardIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; }
 
-        /* Feed (TikTok) view — full-viewport snap scrolling */
+        /* Feed view — the flex:1 child owns scrolling; each card is 100% of its height */
         .fr-feed-scroller {
-          height: 100svh;
+          flex: 1; min-height: 0;
           overflow-y: scroll;
           scroll-snap-type: y mandatory;
           scroll-behavior: smooth;
-          /* Hide scrollbar on iOS; we have snap + native scroll hints */
           scrollbar-width: none;
+          -webkit-overflow-scrolling: touch;
         }
         .fr-feed-scroller::-webkit-scrollbar { display: none; }
         .fr-feed-card {
-          height: 100svh;
+          height: 100%;
           scroll-snap-align: start;
           scroll-snap-stop: always;
           position: relative;
@@ -268,13 +304,12 @@ export default function FindRidersClient({
         </div>
       )}
 
-      {/* Header — same in both views, floats on top of feed view */}
+      {/* Header — static block in feed mode (frame is fixed-viewport), sticky in grid. */}
       <div
         style={{
-          position: 'sticky', top: 0, zIndex: 30,
-          background: view === 'feed'
-            ? 'linear-gradient(180deg, rgba(8,8,8,0.85) 0%, rgba(8,8,8,0) 100%)'
-            : '#080808',
+          ...(isFeed
+            ? { flexShrink: 0, zIndex: 30, background: '#080808' }
+            : { position: 'sticky', top: 0, zIndex: 30, background: '#080808' }),
           padding: '56px 20px 12px',
         }}
       >
@@ -313,14 +348,12 @@ export default function FindRidersClient({
             <div style={{ fontSize: 14, color: '#888' }}>Check back soon.</div>
           </div>
         </div>
-      ) : view === 'feed' ? (
+      ) : isFeed ? (
         <div className="fr-feed-scroller">
-          {activeRideBanner && (
-            <div style={{ padding: '0 20px', maxWidth: 720, margin: '0 auto' }}>{activeRideBanner}</div>
-          )}
           {list.map((rider, i) => (
             <FeedCard
-              key={rider.id}
+              // Key includes index so looped duplicates get distinct React identities.
+              key={`${i}-${rider.id}`}
               rider={rider}
               sending={sending === rider.id}
               disabled={atCap}
@@ -329,10 +362,14 @@ export default function FindRidersClient({
               // Stagger the first few entry animations so the TikTok stack
               // reveals itself instead of popping in all at once.
               animationDelayMs={i < 4 ? i * 60 : 0}
+              activeRideBanner={i === 0 ? activeRideBanner : undefined}
             />
           ))}
           {fetchingMore && <FeedSkeleton />}
-          <div ref={sentinelRef} style={{ height: 1 }} />
+          {/* Sentinel sits inline with cards so IntersectionObserver fires when it
+              comes within rootMargin of the scroller's bottom. Height=0 keeps it
+              from consuming a snap slot. */}
+          <div ref={sentinelRef} style={{ height: 1, scrollSnapAlign: 'none' }} />
         </div>
       ) : (
         <div style={{ padding: '0 20px 40px' }}>
@@ -340,7 +377,7 @@ export default function FindRidersClient({
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
             {list.map((rider, i) => (
               <GridCard
-                key={rider.id}
+                key={`${i}-${rider.id}`}
                 rider={rider}
                 sending={sending === rider.id}
                 disabled={atCap}
@@ -396,7 +433,7 @@ function ViewToggle({ view, onChange, hydrated }: { view: ViewMode; onChange: (v
 // ─── Feed (TikTok) card ───
 
 function FeedCard({
-  rider, sending, disabled, celebrating, onHmu, animationDelayMs,
+  rider, sending, disabled, celebrating, onHmu, animationDelayMs, activeRideBanner,
 }: {
   rider: MaskedRider;
   sending: boolean;
@@ -404,6 +441,7 @@ function FeedCard({
   celebrating: boolean;
   onHmu: () => void;
   animationDelayMs: number;
+  activeRideBanner?: React.ReactNode;
 }) {
   const prefLabel = rider.driverPreference ? PREF_LABEL[rider.driverPreference] ?? null : null;
   const gender = genderLabel(rider.gender);
@@ -417,6 +455,12 @@ function FeedCard({
         <div className="fr-feed-bg" style={{ background: 'radial-gradient(circle at 50% 40%, #1a1a1a, #080808)' }} />
       )}
       <div className="fr-feed-overlay" />
+
+      {activeRideBanner && (
+        <div style={{
+          position: 'absolute', top: 16, left: 16, right: 16, zIndex: 5,
+        }}>{activeRideBanner}</div>
+      )}
 
       {/* Big initials medallion — anchored center-upper */}
       <div style={{
