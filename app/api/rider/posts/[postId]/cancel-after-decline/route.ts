@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { cancelTentativeBooking } from '@/lib/schedule/conflicts';
-import { publishToChannel } from '@/lib/ably/server';
+import { publishToChannel, notifyUser } from '@/lib/ably/server';
 import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
 
 /**
@@ -27,18 +27,31 @@ export async function POST(
     WHERE id = ${postId}
       AND user_id = ${riderId}
       AND status = 'declined_awaiting_rider'
-    RETURNING id
+    RETURNING id, last_declined_by
   `;
 
   if (!result.length) {
     return NextResponse.json({ error: 'Nothing to cancel' }, { status: 404 });
   }
 
+  const lastDeclinedBy = (result[0] as { last_declined_by: string | null }).last_declined_by;
+
   cancelTentativeBooking(postId).catch(() => {});
 
-  // Drop the locked preview from other drivers' feeds promptly.
+  // Realtime fan-out — every subscriber that was looking at this post needs
+  // to know it's gone:
+  //   1. market feed       → drivers seeing the locked preview drop the card
+  //   2. rider's own notify → usePendingActions refetch clears driver_passed
+  //                            within 1s instead of waiting for the 30s poll
+  //   3. original driver's  → /driver/home + /driver/feed refetch so the
+  //      notify              passed card / locked preview goes away even if
+  //                          they aren't on the market-feed surface
   const market = await resolveMarketForUser(riderId);
   publishToChannel(feedChannelForMarket(market.slug), 'post_cancelled', { postId }).catch(() => {});
+  notifyUser(riderId, 'post_cancelled', { postId, status: 'cancelled' }).catch(() => {});
+  if (lastDeclinedBy) {
+    notifyUser(lastDeclinedBy, 'post_cancelled', { postId, status: 'cancelled' }).catch(() => {});
+  }
 
   return NextResponse.json({ status: 'cancelled', postId });
 }

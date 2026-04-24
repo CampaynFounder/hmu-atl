@@ -7,13 +7,19 @@ export default async function DriverHomePage() {
   const { userId: clerkId } = await auth();
   if (!clerkId) redirect('/sign-in');
 
-  // Fetch user + driver profile
+  // Fetch user + driver profile. Joining markets so we can pass the slug
+  // down for the market-feed Ably subscription (same pattern as /driver/feed).
   const userRows = await sql`
-    SELECT id, tier, completed_rides FROM users WHERE clerk_id = ${clerkId} LIMIT 1
+    SELECT u.id, u.tier, u.completed_rides, m.slug AS market_slug
+    FROM users u
+    LEFT JOIN markets m ON m.id = u.market_id
+    WHERE u.clerk_id = ${clerkId}
+    LIMIT 1
   `;
   if (!userRows.length) redirect('/onboarding?type=driver');
 
-  const user = userRows[0] as { id: string; tier: string; completed_rides: number };
+  const user = userRows[0] as { id: string; tier: string; completed_rides: number; market_slug: string | null };
+  const marketSlug = user.market_slug || 'atl';
 
   // Auto-expire stale live posts
   await sql`
@@ -57,6 +63,7 @@ export default async function DriverHomePage() {
       completedRides={Number(user.completed_rides ?? 0)}
       payoutSetup={!!profile.payout_setup_complete}
       cashOnly={!!profile.cash_only}
+      marketSlug={marketSlug}
     />
   );
 }

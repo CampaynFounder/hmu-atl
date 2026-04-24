@@ -39,6 +39,7 @@ interface Props {
   completedRides: number;
   payoutSetup: boolean;
   cashOnly: boolean;
+  marketSlug: string;
 }
 
 export default function DriverHomeClient({
@@ -51,6 +52,7 @@ export default function DriverHomeClient({
   completedRides,
   payoutSetup,
   cashOnly,
+  marketSlug,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [requests, setRequests] = useState<BookingRequest[]>([]);
@@ -87,8 +89,26 @@ export default function DriverHomeClient({
     fetchRequests();
   }, [fetchRequests]);
 
+  // Local prune when a request's countdown hits 0. Time-based expiry has no
+  // server event (no cron flips status on the second), so the next refetch
+  // would already drop it server-side — this just gets it off the screen
+  // immediately. Brief delay so the driver sees the "Expired" flash first.
+  const handleRequestExpired = useCallback((postId: string) => {
+    setRequests((prev) => prev.filter((r) => r.id !== postId));
+  }, []);
+
   useAbly({
     channelName: `user:${userId}:notify`,
+    onMessage: handleAblyMessage,
+  });
+
+  // Also subscribe to the market feed — drives a refetch when posts change
+  // status across the market (rider cancels-after-decline → locked preview
+  // disappears, rider broadcasts → preview becomes active rider_request,
+  // etc). Without this, /driver/home would stay stale until visibility
+  // change or the next personal notify event.
+  useAbly({
+    channelName: `market:${marketSlug}:feed`,
     onMessage: handleAblyMessage,
   });
 
@@ -348,6 +368,7 @@ export default function DriverHomeClient({
                 actionLoading={actionLoading}
                 onAction={handleAction}
                 focused={focusedPostId === req.id}
+                onExpired={handleRequestExpired}
               />
             ))}
           </motion.div>
@@ -562,29 +583,41 @@ function getTimeAgo(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function RequestCard({ req, actionLoading, onAction, focused }: {
+function RequestCard({ req, actionLoading, onAction, focused, onExpired }: {
   req: BookingRequest;
   actionLoading: string | null;
   onAction: (id: string, action: 'accept' | 'decline') => void;
   focused?: boolean;
+  onExpired?: (postId: string) => void;
 }) {
   const [showRider, setShowRider] = useState(false);
   const [countdown, setCountdown] = useState('');
 
-  // Countdown timer
+  // Countdown timer. When it hits 0 we briefly show "Expired" then call
+  // onExpired so the parent prunes the card from state.
   useEffect(() => {
     if (!req.expiresAt) return;
+    let removeTimer: ReturnType<typeof setTimeout> | null = null;
     const tick = () => {
       const remaining = new Date(req.expiresAt).getTime() - Date.now();
-      if (remaining <= 0) { setCountdown('Expired'); return; }
+      if (remaining <= 0) {
+        setCountdown('Expired');
+        if (!removeTimer && onExpired) {
+          removeTimer = setTimeout(() => onExpired(req.id), 2400);
+        }
+        return;
+      }
       const mins = Math.floor(remaining / 60000);
       const secs = Math.floor((remaining % 60000) / 1000);
       setCountdown(`${mins}:${String(secs).padStart(2, '0')}`);
     };
     tick();
     const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [req.expiresAt]);
+    return () => {
+      clearInterval(interval);
+      if (removeTimer) clearTimeout(removeTimer);
+    };
+  }, [req.expiresAt, req.id, onExpired]);
 
   const isExpired = countdown === 'Expired';
 

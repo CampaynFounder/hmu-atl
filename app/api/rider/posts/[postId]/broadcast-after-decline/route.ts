@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-import { publishToChannel } from '@/lib/ably/server';
+import { publishToChannel, notifyUser } from '@/lib/ably/server';
 import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
 import { resolveProvidedSlugs } from '@/lib/markets/parse-areas';
 
@@ -94,7 +94,9 @@ export async function POST(
     `;
   }
 
-  // Publish to the market feed so other drivers see it live
+  // Realtime fan-out — same principle as cancel-after-decline. Subscribers
+  // need to know the post moved from declined_awaiting_rider to active
+  // rider_request so their UI re-syncs.
   const market = await resolveMarketForUser(riderId);
   const tw = post.time_window || {};
   publishToChannel(feedChannelForMarket(market.slug), 'rider_request', {
@@ -104,6 +106,14 @@ export async function POST(
     pickup_area_slug: pickupSlug,
     dropoff_area_slug: dropoffSlug,
   }).catch(() => {});
+  // Rider notify → pending-actions refetch drops the driver_passed banner
+  // and (eventually) surfaces the active broadcast state.
+  notifyUser(riderId, 'post_broadcast', { postId, status: 'active' }).catch(() => {});
+  // Notify the original target driver so their stale 'declined_awaiting_rider'
+  // preview clears across surfaces.
+  if (post.last_declined_by) {
+    notifyUser(post.last_declined_by, 'post_broadcast', { postId, status: 'active' }).catch(() => {});
+  }
 
   return NextResponse.json({
     status: 'broadcast',
