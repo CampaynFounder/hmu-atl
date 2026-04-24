@@ -49,7 +49,8 @@ export function usePendingActions() {
       const res = await fetch('/api/users/pending-actions');
       if (!res.ok) return;
       const data = await res.json();
-      const fetched = (data.actions || []) as PendingAction[];
+      const raw = (data.actions || []) as PendingAction[];
+      const fetched = dedupeMutuallyExclusive(raw);
 
       // Only swap the array reference when the content actually changed.
       setActions(prev => actionsEqual(prev, fetched) ? prev : fetched);
@@ -155,6 +156,18 @@ export function usePendingActions() {
   }, []);
 
   return { actions, topAction, loading, refresh: fetchActions, dismiss };
+}
+
+// SQL-side, pending_booking (status='active') and driver_passed (status=
+// 'declined_awaiting_rider') are mutually exclusive per post. But during the
+// brief window between the driver tapping Pass and the rider's tab refetching,
+// a stale cached pending_booking can sit alongside a fresh driver_passed for
+// the same post — looks like a double-notification bug. Suppress the
+// pending_booking whenever a driver_passed exists in the same response.
+function dedupeMutuallyExclusive(actions: PendingAction[]): PendingAction[] {
+  const hasDriverPassed = actions.some((a) => a.type === 'driver_passed');
+  if (!hasDriverPassed) return actions;
+  return actions.filter((a) => a.type !== 'pending_booking');
 }
 
 // Identity-preserving comparison — if the list of actions is unchanged by the

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useUser } from '@clerk/nextjs';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAbly } from '@/hooks/use-ably';
 
 interface RideAlert {
@@ -45,9 +45,18 @@ const ALERT_MAX_AGE_MS = 30 * 1000;
 export function GlobalRideAlert() {
   const { isLoaded, isSignedIn, user } = useUser();
   const router = useRouter();
+  const pathname = usePathname();
   const [alert, setAlert] = useState<RideAlert | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Dedup key for the most recently shown alert. Prevents the same cancel
+  // event from firing twice if the server publishes both ride_update +
+  // status_change in quick succession, or if a stale rewind replay slips
+  // past the timestamp gate. Cleared when the alert dismisses.
+  const lastAlertKeyRef = useRef<{ key: string; at: number } | null>(null);
+  const DEDUP_WINDOW_MS = 60_000;
+  const pathRef = useRef(pathname);
+  pathRef.current = pathname;
 
   // Resolve internal user ID from Clerk
   useEffect(() => {
@@ -92,7 +101,16 @@ export function GlobalRideAlert() {
     if (msg.name === 'ride_update' || msg.name === 'status_change') {
       const status = data.status as string;
       const rideId = data.rideId as string;
+      // If the user is already on /ride/{rideId}, the ride page renders its
+      // own per-status notification. Showing the global one too creates a
+      // visible duplicate (rider sees "Ride cancelled" twice). Skip — the
+      // page surface owns notifications for its own ride.
+      if (rideId && pathRef.current?.startsWith(`/ride/${rideId}`)) return;
       if (rideId && status === 'cancelled') {
+        const key = `ride_cancelled:${rideId}`;
+        const last = lastAlertKeyRef.current;
+        if (last && last.key === key && Date.now() - last.at < DEDUP_WINDOW_MS) return;
+        lastAlertKeyRef.current = { key, at: Date.now() };
         setAlert({
           type: 'ride_cancelled',
           rideId,

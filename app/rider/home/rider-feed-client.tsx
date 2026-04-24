@@ -277,11 +277,11 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
           <p className="rf-sub">Post what you need. Drivers online now sayin HMU.</p>
         </div>
 
-        {/* Real-time pending actions — driver_passed lands here within 1s of the
-            decline endpoint publishing, so the rider always has a persistent
-            entry point to /rider/posts/[id]/passed even after dismissing the
-            full-screen alert. */}
-        <PendingActionBanner maxActions={2} />
+        {/* Real-time pending actions. maxActions=1 keeps the surface tidy —
+            the top action (driver_passed > active_ride > pending_booking, by
+            priority in the API) leads, the rest collapse under "+N more" so
+            the rider never sees two cards for what looks like the same flow. */}
+        <PendingActionBanner maxActions={1} />
 
         {/* Composer */}
         <div className="rf-composer">

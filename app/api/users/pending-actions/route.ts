@@ -364,7 +364,10 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
       title: `${req.rider_name || 'Rider'} wants a ride`,
       subtitle: `$${Number(req.price || 0)}${req.is_cash ? ' cash' : ''} — ${tw.destination || 'ride'} — ${minutesLeft}min left`,
       cta: 'Respond',
-      href: '/driver/home',
+      // Focus param drives the driver-home scroll+pulse for the matching
+      // request card. Same-page clicks now reveal the card instead of being
+      // a silent no-op when the driver is already on /driver/home.
+      href: `/driver/home?focus=${req.id}`,
       color: '#FF9100',
       emoji: '\u{1F514}',
       meta: { postId: req.id, price: req.price, minutesLeft },

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useSearchParams } from 'next/navigation';
 import { useAbly } from '@/hooks/use-ably';
 import CashoutCard from '@/components/driver/cashout-card';
 import { PendingActionBanner } from '@/components/pending-action-banner';
@@ -57,6 +58,10 @@ export default function DriverHomeClient({
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [pendingPassPostId, setPendingPassPostId] = useState<string | null>(null);
   const [actionToast, setActionToast] = useState<string | null>(null);
+  const [focusedPostId, setFocusedPostId] = useState<string | null>(null);
+
+  const searchParams = useSearchParams();
+  const focusParam = searchParams.get('focus');
 
   const fetchRequests = useCallback(async () => {
     try {
@@ -95,6 +100,24 @@ export default function DriverHomeClient({
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [fetchRequests]);
+
+  // Focus + pulse a specific request when the driver lands here from the
+  // pending-action banner's Respond button. Waits until requests have loaded
+  // (or the param matches a request that's already in state) before scrolling
+  // so the target element actually exists in the DOM.
+  useEffect(() => {
+    if (!focusParam) return;
+    const target = requests.find((r) => r.id === focusParam);
+    if (!target) return;
+    setFocusedPostId(focusParam);
+    // Two RAFs to ensure layout has settled after request render.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const el = document.getElementById(`request-${focusParam}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
+    const timer = setTimeout(() => setFocusedPostId(null), 2400);
+    return () => clearTimeout(timer);
+  }, [focusParam, requests]);
 
   const handleCopy = async () => {
     try {
@@ -319,7 +342,13 @@ export default function DriverHomeClient({
           >
             <h2 className="section-title">Incoming Requests</h2>
             {requests.map((req) => (
-              <RequestCard key={req.id} req={req} actionLoading={actionLoading} onAction={handleAction} />
+              <RequestCard
+                key={req.id}
+                req={req}
+                actionLoading={actionLoading}
+                onAction={handleAction}
+                focused={focusedPostId === req.id}
+              />
             ))}
           </motion.div>
         )}
@@ -533,10 +562,11 @@ function getTimeAgo(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function RequestCard({ req, actionLoading, onAction }: {
+function RequestCard({ req, actionLoading, onAction, focused }: {
   req: BookingRequest;
   actionLoading: string | null;
   onAction: (id: string, action: 'accept' | 'decline') => void;
+  focused?: boolean;
 }) {
   const [showRider, setShowRider] = useState(false);
   const [countdown, setCountdown] = useState('');
@@ -559,7 +589,17 @@ function RequestCard({ req, actionLoading, onAction }: {
   const isExpired = countdown === 'Expired';
 
   return (
-    <div className="request-card" style={{ opacity: isExpired ? 0.5 : 1 }}>
+    <div
+      id={`request-${req.id}`}
+      className="request-card"
+      style={{
+        opacity: isExpired ? 0.5 : 1,
+        ...(focused ? {
+          boxShadow: '0 0 0 2px rgba(255,145,0,0.85), 0 0 32px rgba(255,145,0,0.45)',
+          transition: 'box-shadow 0.3s ease-out',
+        } : { transition: 'box-shadow 0.6s ease-out' }),
+      }}
+    >
       {/* Rider header — clickable */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <button
