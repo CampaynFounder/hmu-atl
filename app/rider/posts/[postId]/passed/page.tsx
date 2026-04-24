@@ -22,6 +22,7 @@ export default async function DriverPassedPage({
   const postRows = await sql`
     SELECT hp.id, hp.price, hp.status, hp.time_window, hp.market_id,
            hp.pickup_area_slug, hp.dropoff_area_slug, hp.dropoff_in_market,
+           hp.last_declined_reason, hp.last_declined_message,
            (SELECT display_name FROM driver_profiles WHERE user_id = hp.last_declined_by LIMIT 1) AS driver_name
     FROM hmu_posts hp
     WHERE hp.id = ${postId} AND hp.user_id = ${riderId}
@@ -33,6 +34,8 @@ export default async function DriverPassedPage({
     id: string; price: number; status: string; time_window: Record<string, unknown>;
     market_id: string; pickup_area_slug: string | null; dropoff_area_slug: string | null;
     dropoff_in_market: boolean; driver_name: string | null;
+    last_declined_reason: 'price' | 'distance' | 'booked' | 'other' | null;
+    last_declined_message: string | null;
   };
 
   // If the post has been resolved elsewhere, bail back to home
@@ -40,13 +43,13 @@ export default async function DriverPassedPage({
 
   const areas = await getMarketAreas(post.market_id);
 
-  const tw = post.time_window || {};
   return (
     <DriverPassedClient
       postId={post.id}
       price={Number(post.price || 0)}
       driverName={post.driver_name || 'The driver'}
-      message={(tw.message as string) || (tw.destination as string) || ''}
+      passReason={post.last_declined_reason}
+      passMessage={post.last_declined_message}
       pickupSlug={post.pickup_area_slug}
       dropoffSlug={post.dropoff_area_slug}
       areas={areas.map(a => ({ slug: a.slug, name: a.name, cardinal: a.cardinal }))}

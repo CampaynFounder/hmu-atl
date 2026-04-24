@@ -8,22 +8,36 @@ import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolv
  * Driver passes on a post. Two branches:
  *
  * - `direct_booking` targeting this driver: flip to `declined_awaiting_rider`,
- *   clear target, stamp `last_declined_by`. Rider gets a "driver passed" card
- *   with Cancel / Broadcast actions. Tentative hold stays in place until the
- *   rider decides (timeout caller should release it).
+ *   clear target, stamp `last_declined_by`, persist pass_reason / pass_message.
+ *   Rider gets a "driver passed" card with Cancel / Broadcast actions. Tentative
+ *   hold stays in place until the rider decides (timeout caller should release
+ *   it).
  *
- * - `rider_request` (broadcast): insert a `ride_interests` row with
- *   status='passed' so the feed query excludes it for this driver. Post stays
- *   active for other drivers.
+ * - `rider_request` (broadcast): insert / upsert a `ride_interests` row with
+ *   status='passed' plus reason/message so the feed query excludes it for
+ *   this driver. Post stays active for other drivers. Rider is NOT notified
+ *   per-pass on broadcast flows (would be noisy; see backlog for targeting).
+ *
+ * Body (all optional):
+ *   reason  — 'price' | 'distance' | 'booked' | 'other'
+ *   message — ≤140 chars free text
  */
+
+const ALLOWED_REASONS = new Set(['price', 'distance', 'booked', 'other']);
+
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ postId: string }> }
 ) {
   const { userId: clerkId } = await auth();
   if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { postId } = await params;
+
+  const body = (await req.json().catch(() => ({}))) as { reason?: string; message?: string };
+  const reason = typeof body.reason === 'string' && ALLOWED_REASONS.has(body.reason) ? body.reason : null;
+  const message = typeof body.message === 'string' ? body.message.trim().slice(0, 140) : '';
+  const messageOrNull = message.length > 0 ? message : null;
 
   const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
   if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -58,6 +72,8 @@ export async function POST(
       UPDATE hmu_posts SET
         status = 'declined_awaiting_rider',
         last_declined_by = ${driverUserId},
+        last_declined_reason = ${reason},
+        last_declined_message = ${messageOrNull},
         target_driver_id = NULL
       WHERE id = ${postId}
     `;
@@ -68,7 +84,11 @@ export async function POST(
     notifyUser(post.user_id, 'booking_declined', {
       postId,
       driverName,
-      message: `${driverName} passed — keep it private or broadcast to all drivers?`,
+      reason,          // 'price' | 'distance' | 'booked' | 'other' | null
+      message: messageOrNull,
+      // Kept for backwards-compatibility with clients that still read `message`
+      // as the UI copy. New clients should prefer `driverMessage` above.
+      copy: `${driverName} passed — keep it private or broadcast to all drivers?`,
       awaitingRiderDecision: true,
     }).catch(() => {});
 
@@ -85,11 +105,16 @@ export async function POST(
   }
 
   if (post.post_type === 'rider_request') {
-    // Broadcast pass — many drivers may pass independently, post stays active
+    // Broadcast pass — many drivers may pass independently, post stays active.
+    // Reason + message stored for analytics and future targeting (see backlog).
     await sql`
-      INSERT INTO ride_interests (post_id, driver_id, status)
-      VALUES (${postId}, ${driverUserId}, 'passed')
-      ON CONFLICT (post_id, driver_id) DO UPDATE SET status = 'passed'
+      INSERT INTO ride_interests (post_id, driver_id, status, pass_reason, pass_message)
+      VALUES (${postId}, ${driverUserId}, 'passed', ${reason}, ${messageOrNull})
+      ON CONFLICT (post_id, driver_id) DO UPDATE SET
+        status = 'passed',
+        pass_reason = ${reason},
+        pass_message = ${messageOrNull},
+        updated_at = NOW()
     `;
 
     return NextResponse.json({ status: 'passed', postId });

@@ -9,11 +9,14 @@ interface Area {
   cardinal: 'westside' | 'eastside' | 'northside' | 'southside' | 'central';
 }
 
+type PassReason = 'price' | 'distance' | 'booked' | 'other';
+
 interface Props {
   postId: string;
   price: number;
   driverName: string;
-  message: string;
+  passReason: PassReason | null;
+  passMessage: string | null;
   pickupSlug: string | null;
   dropoffSlug: string | null;
   areas: Area[];
@@ -25,8 +28,15 @@ const CARDINAL_LABEL: Record<Area['cardinal'], string> = {
   southside: 'Southside', westside: 'Westside',
 };
 
+const REASON_LABEL: Record<PassReason, string> = {
+  price: 'Price was too low',
+  distance: 'Too far / wrong direction',
+  booked: 'Already booked',
+  other: 'Other',
+};
+
 export default function DriverPassedClient({
-  postId, price, driverName, message, pickupSlug, dropoffSlug, areas,
+  postId, price, driverName, passReason, passMessage, pickupSlug, dropoffSlug, areas,
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<'cancel' | 'broadcast' | null>(null);
@@ -84,13 +94,27 @@ export default function DriverPassedClient({
           No hard feelings. You can cancel, or broadcast your ${price} ride to every nearby driver.
         </p>
 
-        {message && (
+        {(passReason || passMessage) && (
           <div style={{
             background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
             borderRadius: 14, padding: 14, marginBottom: 24,
-            fontSize: 14, color: '#ddd',
           }}>
-            &ldquo;{message}&rdquo;
+            {passReason && (
+              <div style={{
+                display: 'inline-block',
+                background: 'rgba(255,107,53,0.14)', color: '#FF6B35',
+                padding: '4px 10px', borderRadius: 100,
+                fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase',
+                marginBottom: passMessage ? 10 : 0,
+              }}>
+                {REASON_LABEL[passReason]}
+              </div>
+            )}
+            {passMessage && (
+              <div style={{ fontSize: 14, color: '#ddd', lineHeight: 1.5 }}>
+                &ldquo;{passMessage}&rdquo;
+              </div>
+            )}
           </div>
         )}
 

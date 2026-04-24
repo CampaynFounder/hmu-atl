@@ -7,6 +7,7 @@ import DealPill from '@/components/driver/deal-pill';
 import { MapPin, Clock, DollarSign, ArrowRight, ChevronLeft } from 'lucide-react';
 import RiderProfileOverlay from '@/components/rider/rider-profile-overlay';
 import CashPackCard from '@/components/driver/cash-pack-card';
+import PassReasonSheet, { type PassReason } from '@/components/driver/pass-reason-sheet';
 import { useAbly } from '@/hooks/use-ably';
 
 interface RiderRequest {
@@ -44,6 +45,12 @@ export default function DriverFeedClient({ driverAreas, marketSlug }: Props) {
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [viewingRiderHandle, setViewingRiderHandle] = useState<string | null>(null);
   const [showCashPackPurchase, setShowCashPackPurchase] = useState(false);
+  // Pass flow: SwipeableCard.onDecline calls openPassSheet(postId). The sheet
+  // collects reason + optional message, then calls submitPass() which hits
+  // /api/bookings/[postId]/decline with the payload. `resolvePendingPass` is
+  // how we signal true/false back to SwipeableCard's animation.
+  const [pendingPassPostId, setPendingPassPostId] = useState<string | null>(null);
+  const [pendingPassResolver, setPendingPassResolver] = useState<((ok: boolean) => void) | null>(null);
 
   const fetchRequests = useCallback(async () => {
     try {
@@ -95,24 +102,49 @@ export default function DriverFeedClient({ driverAreas, marketSlug }: Props) {
     }
   };
 
-  const handleDecline = async (postId: string): Promise<boolean> => {
+  // Open the pass-reason sheet. Returns a promise so SwipeableCard can await
+  // the final outcome (accept the swipe animation only after the pass lands).
+  const handleDecline = (postId: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setPendingPassPostId(postId);
+      setPendingPassResolver(() => resolve);
+    });
+  };
+
+  const submitPass = async (reason: PassReason | null, message: string) => {
+    const postId = pendingPassPostId;
+    if (!postId) return;
     try {
-      const res = await fetch(`/api/bookings/${postId}/decline`, { method: 'POST' });
+      const res = await fetch(`/api/bookings/${postId}/decline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason, message }),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setActionFeedback(data.error || `Couldn't pass (${res.status})`);
         setTimeout(() => setActionFeedback(null), 3000);
-        return false;
+        pendingPassResolver?.(false);
+        return;
       }
       setRequests((prev) => prev.filter((r) => r.id !== postId));
       setActionFeedback(data.status === 'declined_awaiting_rider' ? 'Passed — rider notified' : 'Passed');
       setTimeout(() => setActionFeedback(null), 2000);
-      return true;
+      pendingPassResolver?.(true);
     } catch {
       setActionFeedback('Network error — try again');
       setTimeout(() => setActionFeedback(null), 3000);
-      return false;
+      pendingPassResolver?.(false);
+    } finally {
+      setPendingPassPostId(null);
+      setPendingPassResolver(null);
     }
+  };
+
+  const cancelPass = () => {
+    pendingPassResolver?.(false);
+    setPendingPassPostId(null);
+    setPendingPassResolver(null);
   };
 
   const current = requests[currentIndex];
@@ -256,6 +288,13 @@ export default function DriverFeedClient({ driverAreas, marketSlug }: Props) {
 
         {/* Feedback toast */}
         {actionFeedback && <div className="feed-toast">{actionFeedback}</div>}
+
+        {/* Pass-reason sheet — opens when SwipeableCard triggers onDecline */}
+        <PassReasonSheet
+          open={pendingPassPostId !== null}
+          onClose={cancelPass}
+          onConfirm={submitPass}
+        />
       </div>
 
       {/* Cash pack purchase overlay */}
