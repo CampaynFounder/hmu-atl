@@ -44,7 +44,7 @@ export default async function FindRidersPage() {
   // driver_profiles.gender has mixed legacy (`male`/`female`) + new (`man`/`woman`) values — tolerate both.
   const riders = await sql`
     SELECT u.id, rp.handle, rp.avatar_url, rp.thumbnail_url, rp.home_areas,
-           rp.first_name, rp.driver_preference,
+           rp.first_name, rp.display_name, rp.driver_preference,
            rp.gender AS rider_gender
     FROM users u
     JOIN rider_profiles rp ON rp.user_id = u.id
@@ -90,6 +90,7 @@ export default async function FindRidersPage() {
       riders={riders.map((r: Record<string, unknown>) => ({
         id: r.id as string,
         handle: (r.handle as string) || '',
+        firstName: (r.first_name as string) || (r.display_name as string) || '',
         homeAreas: Array.isArray(r.home_areas) ? (r.home_areas as string[]) : [],
         avatarUrl: (r.avatar_url as string) || (r.thumbnail_url as string) || null,
       }))}

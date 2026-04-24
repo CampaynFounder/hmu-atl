@@ -8,6 +8,7 @@ import CelebrationConfetti from '@/components/shared/celebration-confetti';
 interface MaskedRider {
   id: string;
   handle: string;
+  firstName: string;
   homeAreas: string[];
   avatarUrl: string | null;
 }
@@ -221,7 +222,9 @@ export default function FindRidersClient({ riders, sentToday: initialSent, daily
                     fontSize: '15px', fontWeight: 700, color: '#fff',
                     marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}>
-                    @{rider.handle || 'rider'}
+                    {rider.handle
+                      ? `@${rider.handle}`
+                      : (rider.firstName || 'Rider')}
                   </div>
                   <div style={{
                     fontSize: '11px', color: '#888', marginBottom: '10px',

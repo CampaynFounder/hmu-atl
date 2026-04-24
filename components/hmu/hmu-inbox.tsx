@@ -157,7 +157,7 @@ export default function HmuInbox({ refetchKey, onResolved }: Props) {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', marginBottom: 2,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                @{h.handle || 'driver'}
+                {h.handle ? `@${h.handle}` : (h.displayName || 'Driver')}
               </div>
               <div style={{ fontSize: 11, color: '#888',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

@@ -7,6 +7,7 @@ import { getCurrentUser } from '@/lib/auth/guards';
 import { sql } from '@/lib/db/client';
 import { sendHmu } from '@/lib/hmu/helpers';
 import { notifyUser, isClientInPresence } from '@/lib/ably/server';
+import { sendSms } from '@/lib/sms/textbee';
 
 export const runtime = 'nodejs';
 
@@ -77,5 +78,33 @@ export async function POST(req: NextRequest) {
   // Real-time Ably push so an open rider session reflects the badge immediately
   await notifyUser(body.riderId, 'hmu_received', { hmuId: result.hmuId, driverId: user.id });
 
-  return NextResponse.json({ ok: true, hmuId: result.hmuId });
+  // SMS to the rider — only on a fresh send (isNewSend), not on an UPSERT
+  // refresh, so we don't spam on repeat taps. Failures are non-fatal.
+  if (result.isNewSend) {
+    try {
+      const riderRows = await sql`
+        SELECT u.phone AS user_phone, rp.phone AS profile_phone, rp.first_name
+        FROM users u LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+        WHERE u.id = ${body.riderId} LIMIT 1
+      `;
+      const driverRows = await sql`
+        SELECT dp.display_name, dp.handle
+        FROM driver_profiles dp WHERE dp.user_id = ${user.id} LIMIT 1
+      `;
+      const riderPhone = (riderRows[0]?.user_phone as string | null) || (riderRows[0]?.profile_phone as string | null);
+      const firstName = (riderRows[0]?.first_name as string | null) || 'there';
+      const driverName = (driverRows[0]?.display_name as string | null) || (driverRows[0]?.handle as string | null) || 'A driver';
+
+      if (riderPhone) {
+        const marketRows = await sql`SELECT slug FROM markets WHERE id = ${driverMarketId} LIMIT 1`;
+        const marketSlug = (marketRows[0]?.slug as string | null) || 'atl';
+        const message = `Hey ${firstName}! ${driverName} just HMU'd you on HMU ATL. Link up → atl.hmucashride.com/rider/home`;
+        await sendSms(riderPhone, message, { market: marketSlug, eventType: 'hmu_received' });
+      }
+    } catch (err) {
+      console.error('[hmu-send] SMS notify failed (non-fatal):', err);
+    }
+  }
+
+  return NextResponse.json({ ok: true, hmuId: result.hmuId, isNewSend: !!result.isNewSend });
 }

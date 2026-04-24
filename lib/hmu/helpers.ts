@@ -51,6 +51,11 @@ export interface HmuSendResult {
   count?: number;
   limit?: number | null;
   hmuId?: string;
+  // True when the UPSERT actually inserted (first time this driver has HMU'd
+  // this rider, or re-engaging after an expired/unlinked row). False when the
+  // existing row was updated — callers can use this to suppress SMS/notify
+  // spam on rapid re-sends of an already-active HMU.
+  isNewSend?: boolean;
 }
 
 // Send or refresh an HMU from driver → rider. Idempotent via UNIQUE(driver_id, rider_id):
@@ -96,6 +101,9 @@ export async function sendHmu(params: {
   }
 
   // UPSERT — resend updates existing row, preserving audit lineage.
+  // xmax = 0 is a Postgres trick for distinguishing a fresh insert from an
+  // ON CONFLICT DO UPDATE: freshly-inserted rows have xmax=0 because no
+  // concurrent transaction has marked them for update.
   const expiresAt = new Date(Date.now() + config.expiryHours * 3_600_000).toISOString();
   const inserted = await sql`
     INSERT INTO driver_to_rider_hmus (driver_id, rider_id, market_id, status, message, expires_at)
@@ -108,8 +116,12 @@ export async function sendHmu(params: {
       dismissed_at = NULL,
       unlinked_at = NULL,
       created_at = NOW()
-    RETURNING id
+    RETURNING id, (xmax = 0) AS was_insert
   `;
 
-  return { ok: true, hmuId: inserted[0].id as string };
+  return {
+    ok: true,
+    hmuId: inserted[0].id as string,
+    isNewSend: inserted[0].was_insert as boolean,
+  };
 }
