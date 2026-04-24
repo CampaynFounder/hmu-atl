@@ -41,7 +41,18 @@ export default async function DriverPassedPage({
   // If the post has been resolved elsewhere, bail back to home
   if (post.status !== 'declined_awaiting_rider') redirect('/rider/home');
 
+  // Resolve area slugs to display names so the client doesn't have to ship
+  // the whole area catalog just to render "Buckhead" instead of "buckhead".
   const areas = await getMarketAreas(post.market_id);
+  const areaName = (slug: string | null): string | null => {
+    if (!slug) return null;
+    const match = areas.find((a) => a.slug === slug);
+    return match?.name || slug;
+  };
+
+  const tw = post.time_window || {};
+  const destinationText = (tw.destination as string) || (tw.message as string) || null;
+  const timeText = (tw.time as string) || null;
 
   return (
     <DriverPassedClient
@@ -50,9 +61,10 @@ export default async function DriverPassedPage({
       driverName={post.driver_name || 'The driver'}
       passReason={post.last_declined_reason}
       passMessage={post.last_declined_message}
-      pickupSlug={post.pickup_area_slug}
-      dropoffSlug={post.dropoff_area_slug}
-      areas={areas.map(a => ({ slug: a.slug, name: a.name, cardinal: a.cardinal }))}
+      pickupName={areaName(post.pickup_area_slug)}
+      dropoffName={areaName(post.dropoff_area_slug)}
+      destinationText={destinationText}
+      timeText={timeText}
     />
   );
 }
