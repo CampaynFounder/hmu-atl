@@ -72,11 +72,23 @@ export default function DriverPassedClient({
     }
   };
 
-  const routeText = (() => {
-    if (pickupName && dropoffName) return `${pickupName} → ${dropoffName}`;
-    if (pickupName) return pickupName;
-    if (destinationText) return destinationText;
-    return null;
+  // Resolve pickup + dropoff to show as separate rows. Prefer slug-resolved
+  // names (server already mapped them). Fall back to parsing the rider's
+  // free-text destination, which our booking flow expects to be "X > Y" /
+  // "X to Y" / "X → Y" — same syntax the area parser ingests on the way in.
+  const { pickupDisplay, dropoffDisplay } = (() => {
+    if (pickupName && dropoffName) {
+      return { pickupDisplay: pickupName, dropoffDisplay: dropoffName };
+    }
+    if (destinationText) {
+      const split = destinationText.split(/\s*(?:>|→|->|\bto\b)\s*/i).filter(Boolean);
+      if (split.length >= 2) {
+        return { pickupDisplay: pickupName ?? split[0], dropoffDisplay: dropoffName ?? split[1] };
+      }
+      // Single-segment destination — treat as dropoff only, leave pickup blank.
+      return { pickupDisplay: pickupName, dropoffDisplay: dropoffName ?? destinationText };
+    }
+    return { pickupDisplay: pickupName, dropoffDisplay: dropoffName };
   })();
 
   return (
@@ -129,9 +141,8 @@ export default function DriverPassedClient({
           borderRadius: 14, padding: '14px 16px', marginBottom: 18,
           display: 'flex', flexDirection: 'column', gap: 10,
         }}>
-          {routeText && (
-            <DetailRow label="Where" value={routeText} />
-          )}
+          <DetailRow label="Pickup" value={pickupDisplay || 'Not specified'} />
+          <DetailRow label="Dropoff" value={dropoffDisplay || 'Not specified'} />
           {timeText && (
             <DetailRow label="When" value={timeText} />
           )}
@@ -171,7 +182,7 @@ export default function DriverPassedClient({
             letterSpacing: 0.5,
           }}
         >
-          {busy === 'broadcast' ? 'HMU…' : `HMU ALL DRIVERS · $${price}`}
+          {busy === 'broadcast' ? 'HMU…' : `OTHER DRIVERS HMU · $${price}`}
         </button>
 
         {/* Secondary: Cancel */}

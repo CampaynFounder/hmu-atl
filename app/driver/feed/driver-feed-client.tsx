@@ -38,7 +38,7 @@ interface Props {
   marketSlug: string;
 }
 
-export default function DriverFeedClient({ driverAreas, marketSlug }: Props) {
+export default function DriverFeedClient({ driverUserId, driverAreas, marketSlug }: Props) {
   const [requests, setRequests] = useState<RiderRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -72,6 +72,15 @@ export default function DriverFeedClient({ driverAreas, marketSlug }: Props) {
   // Subscribe to the market feed channel for real-time rider request notifications
   useAbly({
     channelName: `market:${marketSlug}:feed`,
+    onMessage: useCallback(() => { fetchRequests(); }, [fetchRequests]),
+  });
+
+  // Also subscribe to the driver's personal notify so cross-surface events
+  // (e.g. they pass a request from /driver/home in another tab → server
+  // emits pass_committed → /driver/feed refetches and the card disappears
+  // here too) propagate without a manual refresh.
+  useAbly({
+    channelName: `user:${driverUserId}:notify`,
     onMessage: useCallback(() => { fetchRequests(); }, [fetchRequests]),
   });
 

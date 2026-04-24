@@ -97,6 +97,10 @@ export async function POST(
     // so they see the demand and can pounce the moment the rider broadcasts.
     const market = await resolveMarketForUser(post.user_id);
     publishToChannel(feedChannelForMarket(market.slug), 'post_locked', { postId }).catch(() => {});
+    // Also ping the passing driver's own notify so any other surface they
+    // have open (driver-home in another tab, /driver/feed mid-stack) drops
+    // the card without waiting for the next visibility-change refetch.
+    notifyUser(driverUserId, 'pass_committed', { postId }).catch(() => {});
 
     return NextResponse.json({
       status: 'declined_awaiting_rider',
@@ -117,6 +121,9 @@ export async function POST(
         pass_message = ${messageOrNull},
         updated_at = NOW()
     `;
+    // Cross-surface sync for the passing driver only — other drivers are
+    // unaffected since the broadcast post stays active for them.
+    notifyUser(driverUserId, 'pass_committed', { postId }).catch(() => {});
 
     return NextResponse.json({ status: 'passed', postId });
   }

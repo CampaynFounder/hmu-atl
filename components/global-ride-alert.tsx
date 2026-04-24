@@ -137,6 +137,13 @@ export function GlobalRideAlert() {
     if (msg.name === 'booking_declined') {
       const postId = data.postId as string | undefined;
       if (postId) {
+        // Dedup against rewind replays — Ably can replay the same message
+        // after the live publish already fired (especially on reconnect).
+        // Without this the alert visibly fires twice in quick succession.
+        const key = `booking_declined:${postId}`;
+        const last = lastAlertKeyRef.current;
+        if (last && last.key === key && Date.now() - last.at < DEDUP_WINDOW_MS) return;
+        lastAlertKeyRef.current = { key, at: Date.now() };
         const reason = data.reason as RideAlert['reason'];
         setAlert({
           type: 'booking_declined',
