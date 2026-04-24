@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { Check } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import CelebrationConfetti from '@/components/shared/celebration-confetti';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
@@ -106,6 +107,7 @@ export function ExpressRiderOnboarding({ onComplete, isCash }: Props) {
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         padding: '0 24px',
       }}>
+        <CelebrationConfetti active variant="cannon" />
         <div style={{
           width: 80, height: 80, borderRadius: '50%',
           background: 'rgba(0,230,118,0.15)', display: 'flex',
