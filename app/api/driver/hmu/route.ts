@@ -69,17 +69,21 @@ export async function POST(req: NextRequest) {
         WHERE u.id = ${body.riderId} LIMIT 1
       `;
       const driverRows = await sql`
-        SELECT dp.display_name, dp.handle
+        SELECT dp.display_name, dp.handle, dp.areas
         FROM driver_profiles dp WHERE dp.user_id = ${user.id} LIMIT 1
       `;
       const riderPhone = (riderRows[0]?.user_phone as string | null) || (riderRows[0]?.profile_phone as string | null);
       const firstName = (riderRows[0]?.first_name as string | null) || 'there';
       const driverName = (driverRows[0]?.display_name as string | null) || (driverRows[0]?.handle as string | null) || 'A driver';
+      const driverAreas = Array.isArray(driverRows[0]?.areas) ? (driverRows[0]?.areas as string[]) : [];
+      // Cap at 2 areas so a driver with a long list doesn't blow past the 155-char
+      // GSM-7 cap sendSms enforces. If the driver has no areas, drop the clause.
+      const areaPart = driverAreas.length ? ` in ${driverAreas.slice(0, 2).join(', ')}` : '';
 
       if (riderPhone) {
         const marketRows = await sql`SELECT slug FROM markets WHERE id = ${driverMarketId} LIMIT 1`;
         const marketSlug = (marketRows[0]?.slug as string | null) || 'atl';
-        const message = `Hey ${firstName}! ${driverName} just HMU'd you on HMU ATL. Link up → atl.hmucashride.com/rider/home`;
+        const message = `Hey ${firstName}! ${driverName} said HMU on HMU ATL for Cash Rides${areaPart}. Link Up atl.hmucashride.com/rider/home`;
         await sendSms(riderPhone, message, { market: marketSlug, eventType: 'hmu_received' });
       }
     } catch (err) {
