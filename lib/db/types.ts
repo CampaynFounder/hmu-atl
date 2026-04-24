@@ -388,3 +388,92 @@ export interface SignupPricingSnapshot {
   auto_applied_coupon_id: string | null;
   captured_at: Date;
 }
+
+// ============================================================================
+// Ride Safety Checks — periodic in-ride check-ins + anomaly/distress events
+// ============================================================================
+
+export type SafetyParty = 'rider' | 'driver' | 'system';
+
+export type SafetyCheckParty = Exclude<SafetyParty, 'system'>;
+
+export type SafetyCheckTrigger = 'scheduled' | 'anomaly_followup' | 'manual_admin';
+
+export type SafetyCheckResponse = 'ok' | 'alert' | 'ignored';
+
+export type SafetyEventType =
+  | 'off_route'
+  | 'stopped_too_long'
+  | 'gps_silence'
+  | 'wrong_direction'
+  | 'speed_extreme'
+  | 'check_in_alert'
+  | 'distress_admin'
+  | 'distress_911'
+  | 'distress_contact'
+  | 'ignored_streak';
+
+export type SafetyEventSeverity = 'info' | 'warn' | 'high' | 'critical';
+
+export interface RideSafetyCheck {
+  id: string;
+  ride_id: string;
+  user_id: string;
+  party: SafetyCheckParty;
+  trigger: SafetyCheckTrigger;
+  sent_at: Date;
+  responded_at: Date | null;
+  response: SafetyCheckResponse | null;
+  location_lat: number | null;
+  location_lng: number | null;
+  related_event_id: string | null;
+  created_at: Date;
+}
+
+export interface RideSafetyEvent {
+  id: string;
+  ride_id: string;
+  event_type: SafetyEventType;
+  severity: SafetyEventSeverity;
+  party: SafetyParty;
+  triggered_by_user_id: string | null;
+  detected_at: Date;
+  evidence: Record<string, unknown>;
+  location_lat: number | null;
+  location_lng: number | null;
+  admin_resolved_at: Date | null;
+  admin_resolved_by: string | null;
+  admin_notes: string | null;
+  created_at: Date;
+}
+
+// User-facing safety prefs (read from user_preferences, merged with platform defaults).
+// interval_minutes null on the DB row means "use platform default"; the resolved
+// value is always a number when returned to clients.
+export interface SafetyPrefs {
+  enabled: boolean;
+  interval_minutes: number;
+  interval_is_default: boolean;
+  min_interval_minutes: number;
+  max_interval_minutes: number;
+}
+
+export interface PlatformSafetyConfig {
+  enabled: boolean;
+  default_interval_minutes_rider: number;
+  default_interval_minutes_driver: number;
+  min_interval_minutes: number;
+  max_interval_minutes: number;
+  first_check_delay_minutes: number;
+  prompt_auto_dismiss_seconds: number;
+  ignored_streak_threshold: number;
+  anomaly: {
+    off_route_distance_meters: number;
+    off_route_duration_seconds: number;
+    stopped_duration_seconds: number;
+    stopped_radius_meters: number;
+    gps_silence_seconds: number;
+    wrong_direction_duration_seconds: number;
+    speed_max_mph: number;
+  };
+}

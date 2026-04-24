@@ -18,6 +18,7 @@ name: Scheduled crons
 on:
   schedule:
     - cron: '*/5 * * * *'   # conversation-agent queue drain + follow-up scan
+                            # + safety-scheduler (scheduled check-ins + anomaly scan)
     - cron: '0 17 * * 1'    # driver-nudges weekly — Mondays 17:00 UTC (12pm ET)
   workflow_dispatch:
     inputs:
@@ -29,6 +30,7 @@ on:
         options:
           - conversation-agent
           - driver-nudges
+          - safety-scheduler
 
 jobs:
   conversation-agent:
@@ -69,4 +71,26 @@ jobs:
             --max-time 60 \
             -H "X-Cron-Secret: $CRON_SECRET" \
             https://atl.hmucashride.com/api/cron/driver-nudges)
+          echo "$response"
+
+  safety-scheduler:
+    name: Ride safety scheduler
+    # Fires on the same 5-min schedule as conversation-agent. Independent job
+    # so a failure in one doesn't block the other.
+    if: github.event.schedule == '*/5 * * * *' || github.event.inputs.job == 'safety-scheduler'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Send due check-ins + scan for anomalies
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is not set"
+            exit 1
+          fi
+          response=$(curl --fail-with-body --silent --show-error \
+            --max-time 60 \
+            -H "X-Cron-Secret: $CRON_SECRET" \
+            https://atl.hmucashride.com/api/cron/safety-scheduler)
           echo "$response"

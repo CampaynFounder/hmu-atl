@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { VideoRecorder } from '@/components/onboarding/video-recorder';
+import SafetySettings from '@/components/profile/safety-settings';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
@@ -322,6 +323,9 @@ export default function RiderProfileClient({ profile }: Props) {
         </div>
       </div>
       )}
+
+      {/* Safety Check-ins — user-configurable opt-out + interval */}
+      <SafetySettings />
 
       {/* Settings Link */}
       <Link

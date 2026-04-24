@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic';
 import { VideoRecorder } from '@/components/onboarding/video-recorder';
 import PayoutSection from './payout-section';
 import DealPill from '@/components/driver/deal-pill';
+import SafetySettings from '@/components/profile/safety-settings';
 
 const DriverPaymentForm = dynamic(() => import('@/components/payments/driver-payment-form'), { ssr: false });
 
@@ -562,6 +563,9 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
 
           <div className="save-status">{saving ? 'Saving...' : saved}</div>
         </div>
+
+        {/* Safety Check-ins — user-configurable opt-out + interval */}
+        <SafetySettings />
 
         {/* Visibility */}
         <div className="dp-section">

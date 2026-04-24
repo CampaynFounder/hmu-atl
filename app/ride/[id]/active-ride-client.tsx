@@ -12,6 +12,8 @@ import { AddressAutocomplete } from '@/components/ride/address-autocomplete';
 import type { ValidatedAddress, ValidatedStop } from '@/lib/db/types';
 import AddOnMenuSheet from '@/components/ride/add-on-menu-sheet';
 import DriverAddOnApproval from '@/components/ride/driver-add-on-approval';
+import SafetyCheckOverlay from '@/components/ride/safety-check-overlay';
+import SafetyTile from '@/components/ride/safety-tile';
 import dynamic from 'next/dynamic';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
@@ -195,6 +197,14 @@ export default function ActiveRideClient({
     emoji: string;
     color: string;
     sub?: string;
+  } | null>(null);
+
+  // Safety check-in prompt — server pushes via Ably when a check is due.
+  // Overlay mounts while pendingCheck is non-null; it clears via onResolved.
+  const [pendingCheck, setPendingCheck] = useState<{
+    checkId: string;
+    party: 'rider' | 'driver';
+    autoDismissSeconds: number;
   } | null>(null);
 
   const [headingUp, setHeadingUp] = useState(true); // heading-up mode for driver during OTW/active
@@ -610,6 +620,33 @@ export default function ActiveRideClient({
         if (!isDriver) {
           showNotification('Driver kept the original address', '❌', COLORS.red);
         }
+        break;
+      }
+      case 'safety_check_prompt': {
+        // Server fires a prompt targeted at one party. Ignore prompts meant
+        // for the other side; the overlay is only meaningful for the person
+        // who is being asked.
+        const targetParty = data.party as 'rider' | 'driver' | undefined;
+        const myParty: 'rider' | 'driver' = isDriver ? 'driver' : 'rider';
+        if (targetParty !== myParty) break;
+        const checkId = data.checkId as string | undefined;
+        if (!checkId) break;
+        // Drop duplicate prompts for the same check (Ably rewind can replay).
+        setPendingCheck((prev) => {
+          if (prev && prev.checkId === checkId) return prev;
+          return {
+            checkId,
+            party: myParty,
+            autoDismissSeconds: (data.autoDismissSeconds as number | undefined) ?? 60,
+          };
+        });
+        try { navigator.vibrate?.(60); } catch { /* ignore */ }
+        break;
+      }
+      case 'safety_check_response': {
+        // Counterparty acknowledged their own check. Not surfaced to the
+        // other side today — kept here so admin-facing tooling can filter on
+        // message name if needed.
         break;
       }
       default:
@@ -1452,6 +1489,8 @@ export default function ActiveRideClient({
   })();
 
   // ── Render ──
+  const safetyUiActive = ['otw', 'here', 'confirming', 'active'].includes(ride.status);
+
   return (
     <div style={{
       position: 'fixed',
@@ -1466,6 +1505,30 @@ export default function ActiveRideClient({
       fontFamily: FONTS.body,
       color: COLORS.white,
     }}>
+      {/* Always-available distress pill — top-left, outside status bar area.
+          Non-modal until tapped. Uses fixed position so it persists as child
+          components scroll. */}
+      {safetyUiActive && (
+        <div style={{
+          position: 'absolute',
+          top: 'max(16px, env(safe-area-inset-top))',
+          left: 12,
+          zIndex: 45,
+        }}>
+          <SafetyTile rideId={rideId} />
+        </div>
+      )}
+
+      {/* Scheduled check-in prompt — modal. Mounts only when server-pushed. */}
+      {pendingCheck && safetyUiActive && (
+        <SafetyCheckOverlay
+          rideId={rideId}
+          checkId={pendingCheck.checkId}
+          autoDismissSeconds={pendingCheck.autoDismissSeconds}
+          onResolved={() => setPendingCheck(null)}
+        />
+      )}
+
       {/* Animated notification toast */}
       <style>{`
         @keyframes notifSlideIn {

@@ -83,6 +83,24 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
   const historySourceAdded = useRef(false);
   // Live GPS positions from Ably — keyed by rideId
   const livePositions = useRef<Map<string, { lat: number; lng: number; timestamp: number }>>(new Map());
+  // Rides with any open safety event — decorated with a red pulse ring on the
+  // driver marker until the admin resolves the event. Fetched once; then
+  // maintained via admin:feed.
+  const [safetyAlertRides, setSafetyAlertRides] = useState<Set<string>>(new Set());
+  const safetyAlertRidesRef = useRef<Set<string>>(new Set());
+  safetyAlertRidesRef.current = safetyAlertRides;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/admin/safety?scope=open&limit=100')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setSafetyAlertRides(new Set<string>(data.openRideIds ?? []));
+      })
+      .catch(() => { /* non-fatal — admin can open the Safety page */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // Handle real-time admin feed events — GPS updates move markers without full refetch
   const handleAdminEvent = useCallback((msg: { name: string; data: unknown }) => {
@@ -102,6 +120,37 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
       if (marker) {
         (marker as { setLngLat(coords: [number, number]): void }).setLngLat([lng, lat]);
       }
+    } else if (msg.name === 'safety_alert') {
+      const rideId = data.rideId as string;
+      if (!rideId) return;
+      setSafetyAlertRides((prev) => {
+        if (prev.has(rideId)) return prev;
+        const next = new Set(prev); next.add(rideId); return next;
+      });
+      // Force marker repaint so the ring appears without waiting for a ride refetch.
+      const marker = markersRef.current.get(rideId);
+      if (marker) {
+        const el = (marker as { getElement(): HTMLDivElement }).getElement();
+        el.classList.add('safety-alert-pulse');
+      }
+    } else if (msg.name === 'safety_event_resolved') {
+      const rideId = data.rideId as string;
+      if (!rideId) return;
+      // Best-effort: refetch open set rather than tracking individual events
+      fetch('/api/admin/safety?scope=open&limit=100')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!d) return;
+          const next = new Set<string>(d.openRideIds ?? []);
+          setSafetyAlertRides(next);
+          // Clear rings on any marker whose ride is no longer in the set.
+          for (const [id, marker] of markersRef.current) {
+            const el = (marker as { getElement(): HTMLDivElement }).getElement();
+            if (next.has(id)) el.classList.add('safety-alert-pulse');
+            else el.classList.remove('safety-alert-pulse');
+          }
+        })
+        .catch(() => { /* ignore */ });
     } else {
       // Status changes, new rides, etc. — trigger a full refetch
       onRidesRefresh?.();
@@ -250,11 +299,13 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
       if (hasDriver) {
         const existing = markersRef.current.get(ride.id);
         const driverColor = isStale ? STALE_COLOR : color;
+        const hasAlert = safetyAlertRidesRef.current.has(ride.id);
         if (existing) {
           (existing as { setLngLat(c: [number, number]): void }).setLngLat([driverLng!, driverLat!]);
           const el = (existing as { getElement(): HTMLDivElement }).getElement();
           el.style.background = driverColor;
           el.style.boxShadow = `0 0 12px ${driverColor}80`;
+          el.classList.toggle('safety-alert-pulse', hasAlert);
         } else {
           const el = document.createElement('div');
           el.style.cssText = `
@@ -266,6 +317,7 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
             z-index: 2;
           `;
           el.textContent = '🚗';
+          if (hasAlert) el.classList.add('safety-alert-pulse');
           el.addEventListener('click', (e) => { e.stopPropagation(); setSelectedRide(ride); });
           const m = new mapboxgl.Marker({ element: el })
             .setLngLat([driverLng!, driverLat!])
@@ -344,7 +396,7 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
         routeLinesRef.current.delete(lineId);
       }
     }
-  }, [rides, mapLoaded, statusFilter]);
+  }, [rides, mapLoaded, statusFilter, safetyAlertRides]);
 
   // ── Ride history overlay ──
   useEffect(() => {
@@ -459,6 +511,19 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
 
   return (
     <div className="relative">
+      {/* Safety alert pulse — red ring around drivers with an open safety event. */}
+      <style>{`
+        @keyframes hmuSafetyPulse {
+          0%   { box-shadow: 0 0 0 0 rgba(255,45,45,0.65), 0 0 12px rgba(255,45,45,0.6); }
+          70%  { box-shadow: 0 0 0 18px rgba(255,45,45,0),    0 0 18px rgba(255,45,45,0.4); }
+          100% { box-shadow: 0 0 0 0 rgba(255,45,45,0),       0 0 12px rgba(255,45,45,0.6); }
+        }
+        .safety-alert-pulse {
+          animation: hmuSafetyPulse 1.6s ease-out infinite;
+          border-color: rgba(255,45,45,0.9) !important;
+        }
+      `}</style>
+
       <div ref={mapContainer} className="h-96" />
 
       {/* Status filter toggles */}

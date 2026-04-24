@@ -29,6 +29,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/support', label: 'Support', icon: '🎫', permission: 'act.support', badgeCategory: 'support', badgeColor: 'amber' },
       { href: '/admin/notifications', label: 'Notifications', icon: '🔔', permission: 'act.notifications' },
       { href: '/admin/disputes', label: 'Disputes', icon: '⚖️', permission: 'act.disputes', badgeCategory: 'disputes', badgeColor: 'red' },
+      { href: '/admin/safety', label: 'Safety', icon: '🛡️', badgeCategory: 'safety', badgeColor: 'red' },
       { href: '/admin/users', label: 'Users', icon: '👥', permission: 'act.users', badgeCategory: 'users', badgeColor: 'green' },
       { href: '/admin/ride-requests', label: 'Ride Requests', icon: '🚖' },
       { href: '/admin/hmus', label: 'HMUs', icon: '📣' },
@@ -128,6 +129,9 @@ export function AdminSidebar() {
 
   const handleAdminEvent = useCallback((msg: { name: string }) => {
     if (msg.name === 'sms_inbound' || msg.name === 'action_item_created' || msg.name === 'action_item_resolved') {
+      fetchCounts();
+    }
+    if (msg.name === 'safety_alert' || msg.name === 'safety_event_resolved') {
       fetchCounts();
     }
   }, [fetchCounts]);
