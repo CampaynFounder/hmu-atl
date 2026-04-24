@@ -3,6 +3,7 @@ import { Metadata } from 'next';
 import { auth } from '@clerk/nextjs/server';
 import { getDriverProfileByHandle } from '@/lib/db/profiles';
 import { sql } from '@/lib/db/client';
+import { isChatBookingEnabledForDriver } from '@/lib/chat/config';
 import DriverShareProfileClient from './driver-share-profile-client';
 
 interface Props {
@@ -116,6 +117,11 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
 
   if (!userRows.length) notFound();
 
+  // Chat booking kill-switch + per-driver override. Resolved SSR-side so
+  // the client doesn't flash the chat UI on disabled drivers before the
+  // flag round-trips.
+  const chatBookingEnabled = await isChatBookingEnabledForDriver(profile.user_id);
+
   const user = userRows[0] as {
     tier: string;
     chill_score: number;
@@ -181,6 +187,7 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
       autoOpenBooking={bookingOpen === '1'}
       isLoggedIn={isLoggedIn}
       isPromo={promo === 'driver'}
+      chatBookingEnabled={chatBookingEnabled}
     />
   );
 }

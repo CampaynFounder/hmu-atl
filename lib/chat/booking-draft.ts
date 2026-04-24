@@ -150,22 +150,42 @@ export function mergeExtract(
   return m;
 }
 
+export interface MissingSlotsOptions {
+  /** When false, don't require riderPrice >= driverMinimum. Default true. */
+  enforceMinPrice?: boolean;
+  /** When false, don't require explicit payment choice from accepts-both drivers. Default true. */
+  requirePaymentSlot?: boolean;
+}
+
 /** Which required slots the draft is still missing, in the order we should ask.
  *
  *  When driverPayment is supplied and the driver accepts BOTH cash and card,
  *  the rider must explicitly pick one — `isCash` typed as boolean. Cash-only
  *  and digital-only drivers don't surface a payment slot; the caller should
- *  pre-seed `isCash` from the driver's config in those cases. */
+ *  pre-seed `isCash` from the driver's config in those cases.
+ *
+ *  Options let admin config disable the price / payment gates without
+ *  touching the rest of the flow. */
 export function missingSlots(
   d: BookingDraft,
   driverPayment?: DriverPaymentConfig,
+  opts: MissingSlotsOptions = {},
 ): DraftSlot[] {
+  const enforceMinPrice = opts.enforceMinPrice !== false;
+  const requirePaymentSlot = opts.requirePaymentSlot !== false;
+
   const missing: DraftSlot[] = [];
   if (!d.pickup) missing.push('pickup');
   if (!d.dropoff) missing.push('dropoff');
   if (!d.timeIso) missing.push('time');
-  if (!priceValid(d)) missing.push('price');
-  if (driverPayment) {
+  if (enforceMinPrice) {
+    if (!priceValid(d)) missing.push('price');
+  } else if (typeof d.riderPrice !== 'number') {
+    // Even when admin turns off the floor check, the rider still has to name
+    // a number — we just don't compare it to driverMinimum.
+    missing.push('price');
+  }
+  if (driverPayment && requirePaymentSlot) {
     const acceptsBoth = driverPayment.acceptsCash && !driverPayment.cashOnly;
     if (acceptsBoth && typeof d.isCash !== 'boolean') missing.push('payment');
   }
@@ -173,8 +193,12 @@ export function missingSlots(
 }
 
 /** Draft has everything we need to submit the booking. */
-export function isComplete(d: BookingDraft, driverPayment?: DriverPaymentConfig): boolean {
-  return missingSlots(d, driverPayment).length === 0;
+export function isComplete(
+  d: BookingDraft,
+  driverPayment?: DriverPaymentConfig,
+  opts: MissingSlotsOptions = {},
+): boolean {
+  return missingSlots(d, driverPayment, opts).length === 0;
 }
 
 /** Rider price meets or beats the driver minimum. */

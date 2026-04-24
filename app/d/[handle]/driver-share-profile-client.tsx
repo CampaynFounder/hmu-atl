@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic';
 import { posthog } from '@/components/analytics/posthog-provider';
 import GptChatBooking from './gpt-chat-booking';
 import BookingDrawer from './booking-drawer';
+import AuthPromptSheet from './auth-prompt-sheet';
 import { DriverBlockerModal } from './driver-blocker-modal';
 import type { EligibilityResult } from '@/lib/db/direct-bookings';
 
@@ -40,14 +41,16 @@ interface Props {
   autoOpenBooking: boolean;
   isLoggedIn?: boolean;
   isPromo?: boolean;
+  chatBookingEnabled: boolean;
 }
 
-export default function DriverShareProfileClient({ driver, autoOpenBooking, isLoggedIn, isPromo }: Props) {
+export default function DriverShareProfileClient({ driver, autoOpenBooking, isLoggedIn, isPromo, chatBookingEnabled }: Props) {
   const { isLoaded, isSignedIn } = useUser();
   const [eligibility, setEligibility] = useState<EligibilityResult | null>(null);
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [bookingFormOpen, setBookingFormOpen] = useState(false);
+  const [authSheetOpen, setAuthSheetOpen] = useState(false);
   // Viewer's own profile type + driver handle, used to decide whether the
   // HMU button opens the chat or shows the soft blocker modal.
   const [viewerProfile, setViewerProfile] = useState<{ profileType: string; driverHandle: string | null } | null>(null);
@@ -213,17 +216,32 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
       driverName: driver.displayName,
       isSignedIn,
       viewerProfileType: viewerProfile?.profileType,
+      chatBookingEnabled,
     });
 
-    // Logged-out or rider viewers: open chat immediately.
-    if (!isSignedIn || !viewerProfile || viewerProfile.profileType !== 'driver') {
-      setDrawerOpen(true);
+    // Signed-in driver lands on the soft-blocker regardless of chat state.
+    if (isSignedIn && viewerProfile?.profileType === 'driver') {
+      const isOwnPage = viewerProfile.driverHandle === driver.handle;
+      setBlockerVariant(isOwnPage ? 'own' : 'other');
       return;
     }
 
-    // Signed-in driver: branch on own vs other handle.
-    const isOwnPage = viewerProfile.driverHandle === driver.handle;
-    setBlockerVariant(isOwnPage ? 'own' : 'other');
+    // Chat disabled for this driver → send rider straight to the booking
+    // path instead. Signed-in rider gets the BookingDrawer; logged-out rider
+    // gets the auth sheet which routes through existing sign-up/sign-in →
+    // returnTo=?bookingOpen=1 flow.
+    if (!chatBookingEnabled) {
+      if (isSignedIn) {
+        setPrefillData(null); // no chat draft to hand off
+        setBookingFormOpen(true);
+      } else {
+        setAuthSheetOpen(true);
+      }
+      return;
+    }
+
+    // Chat enabled: default behavior for logged-out / rider viewers.
+    setDrawerOpen(true);
   };
 
   const renderCtaButton = () => {
@@ -597,11 +615,25 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
         <div className="cta-sticky">{renderCtaButton()}</div>
       </div>
 
-      {/* GPT discovery chat — for all visitors */}
-      <GptChatBooking
-        driver={driver}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+      {/* GPT discovery chat — only rendered when the admin flag is on for
+          this driver. Keeps the bundle leaner on disabled drivers and avoids
+          any chance of the chat modal mounting on a disabled profile. */}
+      {chatBookingEnabled && (
+        <GptChatBooking
+          driver={driver}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+        />
+      )}
+
+      {/* Chat-disabled fallback sheet for logged-out riders — routes through
+          the existing sign-up/sign-in → returnTo=?bookingOpen=1 flow. */}
+      <AuthPromptSheet
+        open={authSheetOpen}
+        driverDisplayName={driver.displayName}
+        driverHandle={driver.handle}
+        isCashOnly={!!driver.cashOnly}
+        onClose={() => setAuthSheetOpen(false)}
       />
 
       {/* Booking form — for signed-in users (after chat handoff or return from sign-up) */}
