@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useAbly } from '@/hooks/use-ably';
 import CelebrationConfetti from '@/components/shared/celebration-confetti';
@@ -9,31 +9,108 @@ interface MaskedRider {
   id: string;
   handle: string;
   firstName: string;
+  lastName: string;
   homeAreas: string[];
   avatarUrl: string | null;
+  gender: string | null;
+  driverPreference: string | null;
+  lgbtqFriendly: boolean;
+  completedRides: number;
 }
 
 interface Props {
-  riders: MaskedRider[];
+  initialRiders: MaskedRider[];
+  initialBatchSize: number;
   sentToday: number;
   dailyLimit: number | null;
   driverId: string;
   activeRideBanner?: React.ReactNode;
 }
 
-export default function FindRidersClient({ riders, sentToday: initialSent, dailyLimit, driverId, activeRideBanner }: Props) {
-  const [list, setList] = useState(riders);
+type ViewMode = 'feed' | 'grid';
+const VIEW_STORAGE_KEY = 'hmu_find_riders_view';
+const PAGE_SIZE = 12;
+
+// Human labels for rider driver_preference values. The column mixes old
+// (male/female/any) and new (women_only/men_only/no_preference/prefer_*)
+// shapes, so this map tolerates both.
+const PREF_LABEL: Record<string, string> = {
+  no_preference: 'Any driver',
+  any: 'Any driver',
+  women_only: 'Women only',
+  men_only: 'Men only',
+  female: 'Women only',
+  male: 'Men only',
+  prefer_women: 'Prefers women',
+  prefer_men: 'Prefers men',
+};
+
+function initialsFor(rider: MaskedRider): string {
+  const f = rider.firstName?.trim() || '';
+  const l = rider.lastName?.trim() || '';
+  if (f && l) return (f[0] + l[0]).toUpperCase();
+  if (f.length >= 2) return f.slice(0, 2).toUpperCase();
+  if (f) return (f[0] + f[0]).toUpperCase();
+  return '??';
+}
+
+function displayNameFor(rider: MaskedRider): string {
+  if (rider.handle) return `@${rider.handle}`;
+  const f = rider.firstName?.trim() || '';
+  const l = rider.lastName?.trim() || '';
+  if (f && l) return `${f} ${l[0]}.`;
+  if (f) return f;
+  return initialsFor(rider);
+}
+
+function genderLabel(gender: string | null): string | null {
+  if (!gender) return null;
+  const g = gender.toLowerCase();
+  if (g === 'woman' || g === 'female') return 'Woman';
+  if (g === 'man' || g === 'male') return 'Man';
+  if (g === 'nonbinary' || g === 'nb') return 'Non-binary';
+  return gender;
+}
+
+export default function FindRidersClient({
+  initialRiders,
+  initialBatchSize,
+  sentToday: initialSent,
+  dailyLimit,
+  driverId,
+  activeRideBanner,
+}: Props) {
+  const [list, setList] = useState(initialRiders);
   const [sentToday, setSentToday] = useState(initialSent);
   const [sending, setSending] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [celebrateRiderId, setCelebrateRiderId] = useState<string | null>(null);
+  const [view, setView] = useState<ViewMode>('feed');
+  const [hasMore, setHasMore] = useState(initialRiders.length === initialBatchSize);
+  const [fetchingMore, setFetchingMore] = useState(false);
+  // Whether the initial hydration has applied the persisted view setting.
+  // Stays 'feed' during SSR → no flash for the default case; flips to the
+  // stored value (if any) after mount.
+  const [hydrated, setHydrated] = useState(false);
+
+  const offsetRef = useRef(initialRiders.length);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(VIEW_STORAGE_KEY);
+      if (saved === 'feed' || saved === 'grid') setView(saved);
+    } catch { /* Storage disabled — fall back to default */ }
+    setHydrated(true);
+  }, []);
+
+  const updateView = useCallback((next: ViewMode) => {
+    setView(next);
+    try { sessionStorage.setItem(VIEW_STORAGE_KEY, next); } catch { /* silent */ }
+  }, []);
 
   const atCap = dailyLimit !== null && sentToday >= dailyLimit;
 
-  // Subscribe to driver's personal notify channel for `hmu_linked` events — when a
-  // rider on the other side taps Link on one of our HMUs, their id surfaces here.
-  // We fire celebration confetti (via CSS burst for now; see confetti-rework merge note)
-  // and mark the card briefly before it falls off on the next reload.
   useAbly({
     channelName: `user:${driverId}:notify`,
     onMessage: (msg) => {
@@ -46,6 +123,42 @@ export default function FindRidersClient({ riders, sentToday: initialSent, daily
       window.setTimeout(() => setToast(null), 4000);
     },
   });
+
+  const fetchMore = useCallback(async () => {
+    if (fetchingMore || !hasMore) return;
+    setFetchingMore(true);
+    try {
+      const res = await fetch(`/api/driver/find-riders/list?offset=${offsetRef.current}&limit=${PAGE_SIZE}`);
+      if (!res.ok) throw new Error('fetch failed');
+      const data = await res.json();
+      const next: MaskedRider[] = data.riders || [];
+      setList((prev) => {
+        const seen = new Set(prev.map((r) => r.id));
+        const fresh = next.filter((r) => !seen.has(r.id));
+        offsetRef.current += next.length;
+        return prev.concat(fresh);
+      });
+      setHasMore(!!data.hasMore);
+    } catch {
+      // Silent — the sentinel will retry on next scroll intersection.
+    } finally {
+      setFetchingMore(false);
+    }
+  }, [fetchingMore, hasMore]);
+
+  // IntersectionObserver-based infinite scroll. Works in both feed & grid
+  // modes because the sentinel is rendered at the end of the scroll container
+  // in either layout.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore) return;
+    const io = new IntersectionObserver(
+      (entries) => { if (entries[0]?.isIntersecting) fetchMore(); },
+      { rootMargin: '600px 0px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [fetchMore, hasMore, view, list.length]);
 
   const handleHmu = useCallback(async (riderId: string) => {
     if (sending) return;
@@ -96,60 +209,56 @@ export default function FindRidersClient({ riders, sentToday: initialSent, daily
         color: '#fff',
         minHeight: '100svh',
         fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-        padding: '72px 20px 40px',
       }}
     >
       <style>{`
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
         @keyframes glow { 0% { box-shadow: 0 0 0 rgba(0,230,118,0); } 50% { box-shadow: 0 0 24px rgba(0,230,118,0.55); } 100% { box-shadow: 0 0 0 rgba(0,230,118,0); } }
+        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        @keyframes cardIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes skeletonPulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+        .fr-card-in { animation: cardIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+        /* Feed (TikTok) view — full-viewport snap scrolling */
+        .fr-feed-scroller {
+          height: 100svh;
+          overflow-y: scroll;
+          scroll-snap-type: y mandatory;
+          scroll-behavior: smooth;
+          /* Hide scrollbar on iOS; we have snap + native scroll hints */
+          scrollbar-width: none;
+        }
+        .fr-feed-scroller::-webkit-scrollbar { display: none; }
+        .fr-feed-card {
+          height: 100svh;
+          scroll-snap-align: start;
+          scroll-snap-stop: always;
+          position: relative;
+          overflow: hidden;
+        }
+        .fr-feed-bg {
+          position: absolute; inset: 0;
+          background-size: cover; background-position: center;
+          filter: blur(30px); transform: scale(1.15);
+        }
+        .fr-feed-overlay {
+          position: absolute; inset: 0;
+          background: linear-gradient(180deg, rgba(8,8,8,0.55) 0%, rgba(8,8,8,0.15) 40%, rgba(8,8,8,0.85) 100%);
+        }
+        .fr-skeleton {
+          background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.04) 100%);
+          background-size: 200% 100%;
+          animation: shimmer 1.4s ease-in-out infinite;
+        }
       `}</style>
 
       <CelebrationConfetti active={celebrateRiderId !== null} variant="cannon" />
 
-      {activeRideBanner}
-
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-        <h1
-          style={{
-            fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-            fontSize: '32px',
-            margin: 0,
-          }}
-        >
-          Find Riders
-        </h1>
-        <Link
-          href="/driver/home"
-          style={{
-            fontSize: '14px',
-            color: '#00E676',
-            textDecoration: 'none',
-            fontWeight: 600,
-          }}
-        >
-          Back
-        </Link>
-      </div>
-
-      {/* Cap counter */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20,
-        fontSize: 12, color: atCap ? '#FF5252' : '#888',
-      }}>
-        <span style={{
-          width: 8, height: 8, borderRadius: 4,
-          background: atCap ? '#FF5252' : '#00E676',
-          display: 'inline-block',
-        }} />
-        <span>{capDisplay}</span>
-        {atCap && <span style={{ marginLeft: 'auto', color: '#FF5252' }}>Cap reached</span>}
-      </div>
-
       {/* Toast */}
       {toast && (
         <div style={{
-          position: 'fixed', top: 80, left: 20, right: 20, zIndex: 50,
+          position: 'fixed', top: 80, left: 20, right: 20, zIndex: 100,
           background: '#141414', border: '1px solid rgba(0,230,118,0.3)',
           borderRadius: 14, padding: '12px 16px',
           fontSize: 14, color: '#fff', textAlign: 'center',
@@ -159,103 +268,423 @@ export default function FindRidersClient({ riders, sentToday: initialSent, daily
         </div>
       )}
 
-      {/* Empty state */}
-      {list.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '80px 20px' }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.4 }}>{'👋'}</div>
-          <div style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px' }}>
-            No riders here yet
-          </div>
-          <div style={{ fontSize: '14px', color: '#888', lineHeight: 1.5 }}>
-            Check back soon.
+      {/* Header — same in both views, floats on top of feed view */}
+      <div
+        style={{
+          position: 'sticky', top: 0, zIndex: 30,
+          background: view === 'feed'
+            ? 'linear-gradient(180deg, rgba(8,8,8,0.85) 0%, rgba(8,8,8,0) 100%)'
+            : '#080808',
+          padding: '56px 20px 12px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <h1 style={{
+            fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+            fontSize: 28, margin: 0,
+          }}>Find Riders</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ViewToggle view={view} onChange={updateView} hydrated={hydrated} />
+            <Link href="/driver/home" style={{ fontSize: 14, color: '#00E676', fontWeight: 600, textDecoration: 'none' }}>
+              Back
+            </Link>
           </div>
         </div>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          fontSize: 12, color: atCap ? '#FF5252' : '#bbb',
+        }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: 4,
+            background: atCap ? '#FF5252' : '#00E676', display: 'inline-block',
+          }} />
+          <span>{capDisplay}</span>
+          {atCap && <span style={{ marginLeft: 'auto', color: '#FF5252' }}>Cap reached</span>}
+        </div>
+      </div>
+
+      {/* Banner + empty state shown only when relevant */}
+      {list.length === 0 && !fetchingMore ? (
+        <div style={{ padding: '20px' }}>
+          {activeRideBanner}
+          <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+            <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.4 }}>{'👋'}</div>
+            <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>No riders here yet</div>
+            <div style={{ fontSize: 14, color: '#888' }}>Check back soon.</div>
+          </div>
+        </div>
+      ) : view === 'feed' ? (
+        <div className="fr-feed-scroller">
+          {activeRideBanner && (
+            <div style={{ padding: '0 20px', maxWidth: 720, margin: '0 auto' }}>{activeRideBanner}</div>
+          )}
+          {list.map((rider, i) => (
+            <FeedCard
+              key={rider.id}
+              rider={rider}
+              sending={sending === rider.id}
+              disabled={atCap}
+              celebrating={celebrateRiderId === rider.id}
+              onHmu={() => handleHmu(rider.id)}
+              // Stagger the first few entry animations so the TikTok stack
+              // reveals itself instead of popping in all at once.
+              animationDelayMs={i < 4 ? i * 60 : 0}
+            />
+          ))}
+          {fetchingMore && <FeedSkeleton />}
+          <div ref={sentinelRef} style={{ height: 1 }} />
+        </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
-          {list.map((rider) => {
-            const celebrating = celebrateRiderId === rider.id;
-            return (
-              <div
+        <div style={{ padding: '0 20px 40px' }}>
+          {activeRideBanner}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+            {list.map((rider, i) => (
+              <GridCard
                 key={rider.id}
-                style={{
-                  background: '#141414',
-                  border: celebrating
-                    ? '1px solid rgba(0,230,118,0.55)'
-                    : '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
-                  overflow: 'hidden',
-                  transition: 'all 0.2s',
-                  animation: celebrating ? 'glow 2s ease-in-out' : undefined,
-                }}
-              >
-                {/* Masked avatar — 4:3 container mirrors /rider/browse pattern */}
-                <div style={{
-                  width: '100%', aspectRatio: '4 / 3', overflow: 'hidden',
-                  position: 'relative', background: '#0A0A0A',
-                }}>
-                  {rider.avatarUrl ? (
-                    <img
-                      src={rider.avatarUrl}
-                      alt=""
-                      aria-hidden="true"
-                      style={{
-                        width: '100%', height: '100%', objectFit: 'cover',
-                        objectPosition: 'center', display: 'block',
-                        filter: 'blur(18px)', transform: 'scale(1.15)',
-                      }}
-                    />
-                  ) : (
-                    <div style={{
-                      width: '100%', height: '100%',
-                      background: 'linear-gradient(135deg, #1a1a1a, #0a0a0a)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: '40px', opacity: 0.3,
-                    }}>
-                      {'👤'}
-                    </div>
-                  )}
-                </div>
-
-                {/* Card content */}
-                <div style={{ padding: '12px 14px 14px' }}>
-                  <div style={{
-                    fontSize: '15px', fontWeight: 700, color: '#fff',
-                    marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>
-                    {rider.handle
-                      ? `@${rider.handle}`
-                      : (rider.firstName || 'Rider')}
-                  </div>
-                  <div style={{
-                    fontSize: '11px', color: '#888', marginBottom: '10px',
-                    minHeight: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>
-                    {rider.homeAreas.length ? rider.homeAreas.join(', ') : 'Area not set'}
-                  </div>
-
-                  <button
-                    onClick={() => handleHmu(rider.id)}
-                    disabled={sending === rider.id || atCap}
-                    style={{
-                      width: '100%', padding: '10px',
-                      borderRadius: '100px', border: 'none',
-                      background: atCap ? '#333' : '#00E676',
-                      color: atCap ? '#888' : '#080808',
-                      fontWeight: 700, fontSize: '13px',
-                      cursor: (sending === rider.id || atCap) ? 'not-allowed' : 'pointer',
-                      opacity: sending === rider.id ? 0.5 : 1,
-                      fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    {sending === rider.id ? 'Sending…' : 'HMU'}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+                rider={rider}
+                sending={sending === rider.id}
+                disabled={atCap}
+                celebrating={celebrateRiderId === rider.id}
+                onHmu={() => handleHmu(rider.id)}
+                animationDelayMs={i < 8 ? i * 40 : 0}
+              />
+            ))}
+            {fetchingMore && Array.from({ length: 4 }).map((_, i) => <GridSkeleton key={`sk-${i}`} />)}
+          </div>
+          <div ref={sentinelRef} style={{ height: 1, marginTop: 24 }} />
         </div>
       )}
     </div>
+  );
+}
+
+// ─── View toggle ───
+
+function ViewToggle({ view, onChange, hydrated }: { view: ViewMode; onChange: (v: ViewMode) => void; hydrated: boolean }) {
+  const btn = (mode: ViewMode, label: string, icon: string) => (
+    <button
+      onClick={() => onChange(mode)}
+      aria-label={`${label} view`}
+      aria-pressed={view === mode}
+      style={{
+        padding: '6px 10px',
+        borderRadius: 100,
+        border: 'none',
+        background: view === mode ? 'rgba(0,230,118,0.15)' : 'transparent',
+        color: view === mode ? '#00E676' : '#888',
+        fontSize: 14, fontWeight: 600, cursor: 'pointer',
+        opacity: hydrated ? 1 : 0.0,
+        transition: 'opacity 0.15s, background 0.15s, color 0.15s',
+        fontFamily: 'inherit',
+      }}
+    >
+      {icon}
+    </button>
+  );
+  return (
+    <div style={{
+      display: 'flex', gap: 2,
+      background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: 100, padding: 2,
+    }}>
+      {btn('feed', 'Feed', '▤')}
+      {btn('grid', 'Grid', '▦')}
+    </div>
+  );
+}
+
+// ─── Feed (TikTok) card ───
+
+function FeedCard({
+  rider, sending, disabled, celebrating, onHmu, animationDelayMs,
+}: {
+  rider: MaskedRider;
+  sending: boolean;
+  disabled: boolean;
+  celebrating: boolean;
+  onHmu: () => void;
+  animationDelayMs: number;
+}) {
+  const prefLabel = rider.driverPreference ? PREF_LABEL[rider.driverPreference] ?? null : null;
+  const gender = genderLabel(rider.gender);
+
+  return (
+    <div className="fr-feed-card">
+      {/* Blurred avatar backdrop */}
+      {rider.avatarUrl ? (
+        <div className="fr-feed-bg" style={{ backgroundImage: `url("${rider.avatarUrl}")` }} />
+      ) : (
+        <div className="fr-feed-bg" style={{ background: 'radial-gradient(circle at 50% 40%, #1a1a1a, #080808)' }} />
+      )}
+      <div className="fr-feed-overlay" />
+
+      {/* Big initials medallion — anchored center-upper */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        pointerEvents: 'none',
+      }}>
+        <div
+          className="fr-card-in"
+          style={{
+            animationDelay: `${animationDelayMs}ms`,
+            width: 140, height: 140, borderRadius: '50%',
+            border: '2px solid rgba(255,255,255,0.08)',
+            background: 'rgba(20,20,20,0.5)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+            fontSize: 48, color: '#fff', letterSpacing: 2,
+            boxShadow: celebrating ? '0 0 48px rgba(0,230,118,0.55)' : '0 4px 20px rgba(0,0,0,0.4)',
+            transform: 'translateY(-40px)',
+          }}
+        >
+          {initialsFor(rider)}
+        </div>
+      </div>
+
+      {/* Bottom info / CTA card */}
+      <div
+        className="fr-card-in"
+        style={{
+          position: 'absolute', left: 16, right: 16, bottom: 28,
+          animationDelay: `${animationDelayMs + 60}ms`,
+        }}
+      >
+        <div style={{
+          background: 'rgba(20,20,20,0.78)',
+          backdropFilter: 'blur(18px)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 22, padding: '18px 18px 16px',
+        }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 4 }}>
+            {displayNameFor(rider)}
+          </div>
+          <div style={{ fontSize: 12, color: '#bbb', marginBottom: 10 }}>
+            {rider.homeAreas.length ? rider.homeAreas.join(' · ') : 'Area not set'}
+          </div>
+
+          <StatRow rider={rider} />
+
+          {(prefLabel || gender || rider.lgbtqFriendly) && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+              {gender && <Chip label={gender} />}
+              {prefLabel && <Chip label={prefLabel} tone="neutral" />}
+              {rider.lgbtqFriendly && <Chip label="🏳️‍🌈 LGBTQ+ friendly" tone="lgbtq" />}
+            </div>
+          )}
+
+          <button
+            onClick={onHmu}
+            disabled={sending || disabled}
+            style={{
+              marginTop: 14, width: '100%',
+              padding: '14px', borderRadius: 100, border: 'none',
+              background: disabled ? '#333' : '#00E676',
+              color: disabled ? '#888' : '#080808',
+              fontWeight: 800, fontSize: 16,
+              cursor: (sending || disabled) ? 'not-allowed' : 'pointer',
+              opacity: sending ? 0.5 : 1,
+              fontFamily: 'inherit',
+            }}
+          >
+            {sending ? 'Sending…' : 'HMU'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FeedSkeleton() {
+  return (
+    <div className="fr-feed-card">
+      <div className="fr-feed-bg fr-skeleton" />
+      <div className="fr-feed-overlay" />
+      <div style={{
+        position: 'absolute', inset: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <div className="fr-skeleton" style={{
+          width: 140, height: 140, borderRadius: '50%',
+          transform: 'translateY(-40px)',
+        }} />
+      </div>
+      <div style={{ position: 'absolute', left: 16, right: 16, bottom: 28 }}>
+        <div className="fr-skeleton" style={{ height: 120, borderRadius: 22 }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Grid card (compact zoom-out) ───
+
+function GridCard({
+  rider, sending, disabled, celebrating, onHmu, animationDelayMs,
+}: {
+  rider: MaskedRider;
+  sending: boolean;
+  disabled: boolean;
+  celebrating: boolean;
+  onHmu: () => void;
+  animationDelayMs: number;
+}) {
+  const prefLabel = rider.driverPreference ? PREF_LABEL[rider.driverPreference] ?? null : null;
+  const gender = genderLabel(rider.gender);
+
+  return (
+    <div
+      className="fr-card-in"
+      style={{
+        animationDelay: `${animationDelayMs}ms`,
+        background: '#141414',
+        border: celebrating ? '1px solid rgba(0,230,118,0.55)' : '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 20,
+        overflow: 'hidden',
+        transition: 'all 0.2s',
+        animation: celebrating ? 'glow 2s ease-in-out' : undefined,
+      }}
+    >
+      <div style={{
+        width: '100%', aspectRatio: '4 / 3', overflow: 'hidden',
+        position: 'relative', background: '#0A0A0A',
+      }}>
+        {rider.avatarUrl ? (
+          <img
+            src={rider.avatarUrl} alt="" aria-hidden="true"
+            style={{
+              width: '100%', height: '100%', objectFit: 'cover',
+              filter: 'blur(18px)', transform: 'scale(1.15)',
+            }}
+          />
+        ) : (
+          <div style={{
+            width: '100%', height: '100%',
+            background: 'radial-gradient(circle at 50% 40%, #1a1a1a, #0a0a0a)',
+          }} />
+        )}
+        {/* Initials medallion overlay */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            width: 64, height: 64, borderRadius: '50%',
+            border: '2px solid rgba(255,255,255,0.12)',
+            background: 'rgba(20,20,20,0.55)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+            fontSize: 22, color: '#fff', letterSpacing: 1,
+          }}>
+            {initialsFor(rider)}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: '12px 14px 14px' }}>
+        <div style={{
+          fontSize: 14, fontWeight: 700, color: '#fff',
+          marginBottom: 2,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {displayNameFor(rider)}
+        </div>
+        <div style={{
+          fontSize: 11, color: '#888',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {rider.homeAreas.length ? rider.homeAreas.join(', ') : 'Area not set'}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#bbb', margin: '8px 0' }}>
+          <span>{rider.completedRides} ride{rider.completedRides === 1 ? '' : 's'}</span>
+          {gender && <span style={{ color: '#666' }}>·</span>}
+          {gender && <span>{gender}</span>}
+        </div>
+
+        {(prefLabel || rider.lgbtqFriendly) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {prefLabel && <Chip label={prefLabel} tone="neutral" compact />}
+            {rider.lgbtqFriendly && <Chip label="🏳️‍🌈" tone="lgbtq" compact />}
+          </div>
+        )}
+
+        <button
+          onClick={onHmu}
+          disabled={sending || disabled}
+          style={{
+            width: '100%', padding: '10px',
+            borderRadius: 100, border: 'none',
+            background: disabled ? '#333' : '#00E676',
+            color: disabled ? '#888' : '#080808',
+            fontWeight: 700, fontSize: 13,
+            cursor: (sending || disabled) ? 'not-allowed' : 'pointer',
+            opacity: sending ? 0.5 : 1,
+            fontFamily: 'inherit',
+          }}
+        >
+          {sending ? 'Sending…' : 'HMU'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GridSkeleton() {
+  return (
+    <div style={{
+      background: '#141414',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: 20,
+      overflow: 'hidden',
+    }}>
+      <div className="fr-skeleton" style={{ width: '100%', aspectRatio: '4 / 3' }} />
+      <div style={{ padding: '12px 14px 14px' }}>
+        <div className="fr-skeleton" style={{ height: 14, borderRadius: 4, marginBottom: 6, width: '60%' }} />
+        <div className="fr-skeleton" style={{ height: 10, borderRadius: 4, marginBottom: 10, width: '40%' }} />
+        <div className="fr-skeleton" style={{ height: 32, borderRadius: 100 }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Shared pieces ───
+
+function StatRow({ rider }: { rider: MaskedRider }) {
+  const rides = rider.completedRides;
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginTop: 4 }}>
+      <div>
+        <div style={{
+          fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+          fontSize: 24, color: '#00E676', lineHeight: 1,
+        }}>
+          {rides}
+        </div>
+        <div style={{ fontSize: 10, color: '#888', letterSpacing: 1, textTransform: 'uppercase' }}>
+          {rides === 1 ? 'Ride' : 'Rides'}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Chip({ label, tone, compact }: { label: string; tone?: 'neutral' | 'lgbtq'; compact?: boolean }) {
+  const palette = {
+    neutral: { bg: 'rgba(255,255,255,0.06)', border: 'rgba(255,255,255,0.1)', color: '#bbb' },
+    lgbtq: { bg: 'rgba(168,85,247,0.14)', border: 'rgba(168,85,247,0.3)', color: '#D9B5FF' },
+  }[tone || 'neutral'];
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center',
+      background: palette.bg, border: `1px solid ${palette.border}`, color: palette.color,
+      borderRadius: 100,
+      padding: compact ? '2px 8px' : '4px 10px',
+      fontSize: compact ? 10 : 11, fontWeight: 600,
+      letterSpacing: 0.3,
+    }}>
+      {label}
+    </span>
   );
 }
