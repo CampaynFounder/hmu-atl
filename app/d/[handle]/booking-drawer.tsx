@@ -45,13 +45,17 @@ interface Props {
   open: boolean;
   onClose: () => void;
   prefill?: { price?: string; pickup?: string; dropoff?: string; time?: string; resolvedTime?: string; timeDisplay?: string; stops?: string; roundTrip?: boolean; isCash?: boolean; driverMinimum?: number; estimatedRideMinutes?: number } | null;
+  /** Gate the real booking POST + payment UI. When false, submit saves to
+   *  localStorage and redirects to /sign-up — the returnTo=?bookingOpen=1
+   *  flow restores the draft after auth. */
+  isSignedIn?: boolean;
 }
 
 type DrawerState = 'form' | 'pending' | 'accepted' | 'expired' | 'error';
 
 const EXPIRY_MINUTES = 15;
 
-export default function BookingDrawer({ driver, open, onClose, prefill }: Props) {
+export default function BookingDrawer({ driver, open, onClose, prefill, isSignedIn = true }: Props) {
   const [state, setState] = useState<DrawerState>('form');
   const [price, setPrice] = useState(
     prefill?.price || String(driver.pricing.minimum ?? driver.pricing.base_rate ?? '')
@@ -84,7 +88,9 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
   // will be charged. If they have none, we inline the Stripe form so they
   // can link a card without leaving the drawer.
   useEffect(() => {
-    if (!open || isCashRide) {
+    // Anonymous riders don't have payment methods yet — skip the fetch.
+    // Payment gets linked after they sign up and return.
+    if (!open || isCashRide || !isSignedIn) {
       setPaymentMethods(null);
       setShowAddPayment(false);
       return;
@@ -100,10 +106,12 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
       })
       .catch(() => { if (!cancelled) { setPaymentMethods([]); setShowAddPayment(true); } });
     return () => { cancelled = true; };
-  }, [open, isCashRide]);
+  }, [open, isCashRide, isSignedIn]);
 
   const hasSavedMethod = !isCashRide && (paymentMethods?.length ?? 0) > 0;
-  const paymentReady = isCashRide || hasSavedMethod;
+  // Signed-out riders are considered "payment ready" from the form's
+  // perspective — the real payment gate fires after they come back authed.
+  const paymentReady = !isSignedIn || isCashRide || hasSavedMethod;
   const defaultMethod = paymentMethods?.find(m => m.isDefault) || paymentMethods?.[0] || null;
 
   // Countdown timer
@@ -130,7 +138,7 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
 
   const driverMinimum = prefill?.driverMinimum || Number(driver.pricing.minimum) || 0;
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (opts: { authMode?: 'sign-up' | 'sign-in' } = {}) => {
     if (!price || !dropoff) {
       setError('Set a price and drop-off location.');
       return;
@@ -139,6 +147,42 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
       setError(`${driver.displayName}'s minimum is $${driverMinimum} — bump it up to book.`);
       return;
     }
+
+    // Logged-out path: save ride details locally and route through
+    // sign-up (ExpressRiderOnboarding) or sign-in. returnTo lands them back
+    // at /d/<handle>?bookingOpen=1 where the autoOpenBooking effect restores
+    // the draft and re-renders this drawer with prefill populated. Same
+    // localStorage key the chat flow uses — existing resume code handles it.
+    if (!isSignedIn) {
+      try {
+        const draft = {
+          extracted: {
+            price,
+            pickup,
+            dropoff,
+            time: timeWindow,
+            timeDisplay: (prefill as Record<string, unknown>)?.timeDisplay || timeWindow,
+            resolvedTime: (prefill as Record<string, unknown>)?.resolvedTime || null,
+            stops: prefill?.stops || '',
+            roundTrip: prefill?.roundTrip || false,
+            isCash: prefill?.isCash || false,
+            driverMinimum,
+            estimatedRideMinutes: prefill?.estimatedRideMinutes,
+          },
+        };
+        localStorage.setItem(`hmu_chat_booking_${driver.handle}`, JSON.stringify(draft));
+        // Legacy cross-driver key — the autoOpenBooking effect falls back to
+        // this when the per-driver key is missing.
+        localStorage.setItem('hmu_chat_booking', JSON.stringify(draft));
+      } catch { /* storage full or private mode — proceed anyway */ }
+
+      const returnPath = `/d/${driver.handle}?bookingOpen=1`;
+      const cashParam = prefill?.isCash ? '&cash=1' : '';
+      const route = opts.authMode === 'sign-in' ? '/sign-in' : '/sign-up';
+      window.location.href = `${route}?type=rider&returnTo=${encodeURIComponent(returnPath)}${cashParam}`;
+      return;
+    }
+
     if (!paymentReady) {
       setError('Link a payment method to confirm the booking.');
       setShowAddPayment(true);
@@ -210,6 +254,9 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
         .drawer-submit { margin-top: 24px; width: 100%; padding: 18px; background: #00E676; color: #080808; font-weight: 700; font-size: 17px; border: none; border-radius: 100px; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); transition: transform 0.15s; }
         .drawer-submit:hover { transform: scale(1.02); }
         .drawer-submit:disabled { background: rgba(0,230,118,0.3); cursor: not-allowed; }
+        .drawer-signin-link { margin-top: 12px; width: 100%; padding: 10px; background: transparent; color: #aaa; font-size: 13px; border: none; cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif); }
+        .drawer-signin-link strong { color: #00E676; font-weight: 700; }
+        .drawer-signin-link:disabled { opacity: 0.5; cursor: not-allowed; }
         .drawer-error { font-size: 13px; color: #FF4444; margin-top: 10px; }
         .pending-state { text-align: center; padding: 20px 0; color: #fff; }
         .pending-timer { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 64px; color: #00E676; line-height: 1; }
@@ -225,6 +272,7 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
         .payment-row { display: flex; align-items: center; gap: 12px; background: #1f1f1f; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px 16px; }
         .payment-row--cash { border-color: rgba(0,230,118,0.25); background: rgba(0,230,118,0.06); }
         .payment-row--loading { color: #888; font-size: 13px; justify-content: center; }
+        .payment-row--pending { border-color: rgba(255,255,255,0.12); background: rgba(255,255,255,0.03); }
         .payment-row__icon { font-size: 22px; line-height: 1; }
         .payment-row__title { color: #fff; font-size: 14px; font-weight: 600; }
         .payment-row__sub { color: #888; font-size: 12px; margin-top: 2px; line-height: 1.4; }
@@ -299,7 +347,21 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
             />
 
             <div className="drawer-label">Payment</div>
-            {isCashRide ? (
+            {!isSignedIn ? (
+              <div className="payment-row payment-row--pending">
+                <span className="payment-row__icon">🔒</span>
+                <div>
+                  <div className="payment-row__title">
+                    {isCashRide ? 'Cash to driver' : 'Card added after sign-up'}
+                  </div>
+                  <div className="payment-row__sub">
+                    {isCashRide
+                      ? `Hand $${price || '?'} to ${driver.displayName} at pickup.`
+                      : `Your ride details are saved — link payment after you sign up to lock in ${driver.displayName}.`}
+                  </div>
+                </div>
+              </div>
+            ) : isCashRide ? (
               <div className="payment-row payment-row--cash">
                 <span className="payment-row__icon">💵</span>
                 <div>
@@ -346,15 +408,28 @@ export default function BookingDrawer({ driver, open, onClose, prefill }: Props)
 
             <button
               className="drawer-submit"
-              onClick={handleSubmit}
+              onClick={() => handleSubmit()}
               disabled={submitting || !paymentReady}
             >
               {submitting
                 ? 'Sending...'
+                : !isSignedIn
+                ? `Sign Up to Book — $${price || '?'}`
                 : !paymentReady
                 ? 'Link Payment to Continue'
                 : `Send Booking Request — $${price || '?'}`}
             </button>
+
+            {!isSignedIn && (
+              <button
+                className="drawer-signin-link"
+                type="button"
+                onClick={() => handleSubmit({ authMode: 'sign-in' })}
+                disabled={submitting}
+              >
+                Already have an account? <strong>Sign in</strong>
+              </button>
+            )}
           </>
         )}
 

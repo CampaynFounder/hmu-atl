@@ -7,7 +7,6 @@ import dynamic from 'next/dynamic';
 import { posthog } from '@/components/analytics/posthog-provider';
 import GptChatBooking from './gpt-chat-booking';
 import BookingDrawer from './booking-drawer';
-import AuthPromptSheet from './auth-prompt-sheet';
 import { DriverBlockerModal } from './driver-blocker-modal';
 import type { EligibilityResult } from '@/lib/db/direct-bookings';
 
@@ -50,7 +49,6 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [bookingFormOpen, setBookingFormOpen] = useState(false);
-  const [authSheetOpen, setAuthSheetOpen] = useState(false);
   // Viewer's own profile type + driver handle, used to decide whether the
   // HMU button opens the chat or shows the soft blocker modal.
   const [viewerProfile, setViewerProfile] = useState<{ profileType: string; driverHandle: string | null } | null>(null);
@@ -226,17 +224,13 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
       return;
     }
 
-    // Chat disabled for this driver → send rider straight to the booking
-    // path instead. Signed-in rider gets the BookingDrawer; logged-out rider
-    // gets the auth sheet which routes through existing sign-up/sign-in →
-    // returnTo=?bookingOpen=1 flow.
+    // Chat disabled for this driver → skip chat entirely. BookingDrawer
+    // renders for logged-out riders too now: they fill in ride details, the
+    // drawer saves to localStorage and redirects to sign-up/sign-in, and the
+    // existing autoOpenBooking effect restores the draft on return.
     if (!chatBookingEnabled) {
-      if (isSignedIn) {
-        setPrefillData(null); // no chat draft to hand off
-        setBookingFormOpen(true);
-      } else {
-        setAuthSheetOpen(true);
-      }
+      setPrefillData(null);
+      setBookingFormOpen(true);
       return;
     }
 
@@ -626,25 +620,17 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
         />
       )}
 
-      {/* Chat-disabled fallback sheet for logged-out riders — routes through
-          the existing sign-up/sign-in → returnTo=?bookingOpen=1 flow. */}
-      <AuthPromptSheet
-        open={authSheetOpen}
-        driverDisplayName={driver.displayName}
-        driverHandle={driver.handle}
-        isCashOnly={!!driver.cashOnly}
-        onClose={() => setAuthSheetOpen(false)}
-      />
 
-      {/* Booking form — for signed-in users (after chat handoff or return from sign-up) */}
-      {isSignedIn && (
-        <BookingDrawer
-          driver={driver}
-          open={bookingFormOpen}
-          onClose={() => { setBookingFormOpen(false); setPrefillData(null); }}
-          prefill={prefillData}
-        />
-      )}
+      {/* Booking form — renders for logged-out riders too. The drawer gates
+          the real POST and payment UI on isSignedIn, and falls back to
+          "save ride details + route to sign-up" for anonymous callers. */}
+      <BookingDrawer
+        driver={driver}
+        open={bookingFormOpen}
+        onClose={() => { setBookingFormOpen(false); setPrefillData(null); }}
+        prefill={prefillData}
+        isSignedIn={!!isSignedIn}
+      />
 
       {/* Soft blocker — driver tapped HMU on a driver profile */}
       <DriverBlockerModal
