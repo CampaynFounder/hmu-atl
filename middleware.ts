@@ -120,6 +120,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/og/(.*)',
   '/api/content/(.*)',
   '/driver',
+  '/driver/express(.*)',
   '/rider',
   '/rider/home',
   '/privacy',

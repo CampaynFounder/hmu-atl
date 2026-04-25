@@ -1,51 +1,112 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// Hand-curated mock rider profiles. Names + neighborhoods chosen to mirror
-// the kind of demand a new driver actually sees. Avatars use Unicode
-// initials with a deterministic gradient background — no PII, no third-party
-// asset cost.
+// Pool of mock rider personas. We display VISIBLE_COUNT at a time and rotate
+// one in / one out on a timer so the page feels live across visits and within
+// a single session. Avatars are CSS gradients keyed off `hue` — no PII, no
+// network round-trips, no third-party assets.
 interface MockRider {
   handle: string;
   initials: string;
   area: string;
   vibe: string;
   price: string;
-  minutesAgo: number;
-  hue: number; // for avatar gradient
+  baseMinutesAgo: number;
+  hue: number;
 }
 
-const MOCK_RIDERS: MockRider[] = [
-  { handle: 'tay', initials: 'T',  area: 'Eastside',          vibe: 'HMU $20 to Midtown',   price: '$20',  minutesAgo: 2,  hue: 162 },
-  { handle: 'jaz', initials: 'JZ', area: 'Lenox',             vibe: 'Ride to airport ASAP', price: '$35',  minutesAgo: 4,  hue: 200 },
-  { handle: 'kayla', initials: 'K', area: 'East Atlanta',     vibe: 'Need a chill driver',  price: '$18',  minutesAgo: 5,  hue: 32  },
-  { handle: 'dre', initials: 'D',  area: 'West End',           vibe: 'HMU $15 grocery run',  price: '$15',  minutesAgo: 7,  hue: 280 },
-  { handle: 'brittany', initials: 'B', area: 'Buckhead',      vibe: 'Out the spot in 15',   price: '$25',  minutesAgo: 9,  hue: 340 },
-  { handle: 'mar', initials: 'M',  area: 'Decatur',            vibe: 'Pull up please',       price: '$22',  minutesAgo: 11, hue: 100 },
-  { handle: 'sav', initials: 'SV', area: 'Old Fourth Ward',    vibe: 'HMU sis it’s late', price: '$30',  minutesAgo: 13, hue: 210 },
-  { handle: 'jordan', initials: 'J', area: 'Smyrna',          vibe: 'Need a ride to work',  price: '$17',  minutesAgo: 14, hue: 150 },
+const POOL: MockRider[] = [
+  { handle: 'tay',       initials: 'T',  area: 'Eastside',           vibe: 'HMU $20 to Midtown',   price: '$20', baseMinutesAgo: 2,  hue: 162 },
+  { handle: 'jaz',       initials: 'JZ', area: 'Lenox',              vibe: 'Ride to airport ASAP', price: '$35', baseMinutesAgo: 4,  hue: 200 },
+  { handle: 'kayla',     initials: 'K',  area: 'East Atlanta',       vibe: 'Need a chill driver',  price: '$18', baseMinutesAgo: 5,  hue: 32  },
+  { handle: 'dre',       initials: 'D',  area: 'West End',           vibe: 'HMU $15 grocery run',  price: '$15', baseMinutesAgo: 7,  hue: 280 },
+  { handle: 'brittany',  initials: 'B',  area: 'Buckhead',           vibe: 'Out the spot in 15',   price: '$25', baseMinutesAgo: 9,  hue: 340 },
+  { handle: 'mar',       initials: 'M',  area: 'Decatur',            vibe: 'Pull up please',       price: '$22', baseMinutesAgo: 11, hue: 100 },
+  { handle: 'sav',       initials: 'SV', area: 'Old Fourth Ward',    vibe: 'HMU sis it’s late', price: '$30', baseMinutesAgo: 13, hue: 210 },
+  { handle: 'jordan',    initials: 'J',  area: 'Smyrna',             vibe: 'Need a ride to work',  price: '$17', baseMinutesAgo: 14, hue: 150 },
+  { handle: 'malia',     initials: 'ML', area: 'Atlantic Station',   vibe: 'Heading downtown',     price: '$19', baseMinutesAgo: 3,  hue: 12  },
+  { handle: 'reggie',    initials: 'R',  area: 'College Park',       vibe: 'Airport in 30',        price: '$28', baseMinutesAgo: 6,  hue: 250 },
+  { handle: 'nia',       initials: 'N',  area: 'Vinings',            vibe: 'Pull up — quick run',  price: '$16', baseMinutesAgo: 8,  hue: 320 },
+  { handle: 'kj',        initials: 'KJ', area: 'Sandy Springs',      vibe: 'Need a chill aunty',   price: '$22', baseMinutesAgo: 10, hue: 180 },
+  { handle: 'shay',      initials: 'S',  area: 'Inman Park',         vibe: 'HMU after the show',   price: '$24', baseMinutesAgo: 12, hue: 60  },
+  { handle: 'cam',       initials: 'C',  area: 'Midtown',            vibe: 'Need a ride home',     price: '$18', baseMinutesAgo: 4,  hue: 130 },
+  { handle: 'destiny',   initials: 'DS', area: 'East Point',         vibe: 'HMU $25 round trip',   price: '$25', baseMinutesAgo: 9,  hue: 300 },
+  { handle: 'amir',      initials: 'A',  area: 'Edgewood',           vibe: 'Pulling up to work',   price: '$15', baseMinutesAgo: 1,  hue: 200 },
+  { handle: 'quinn',     initials: 'Q',  area: 'Cabbagetown',        vibe: 'Late night ride',      price: '$22', baseMinutesAgo: 6,  hue: 90  },
+  { handle: 'taj',       initials: 'TJ', area: 'Kirkwood',           vibe: 'Need a vibe driver',   price: '$20', baseMinutesAgo: 11, hue: 230 },
 ];
+
+const VISIBLE_COUNT = 8;
+// One card swaps every 7s so the feed always feels alive but never frantic.
+const ROTATION_MS = 7_000;
+// Age tick — drives "minutes ago" forward so the same card grows older
+// while it's on screen.
+const AGE_TICK_MS = 30_000;
+
+// Time-seeded shuffle — different visit, different order, but stable for the
+// life of one session so cards don't jump on every render.
+function seededShuffle<T>(arr: T[], seed: number): T[] {
+  const a = arr.slice();
+  let s = seed | 0;
+  for (let i = a.length - 1; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) | 0;
+    const j = Math.abs(s) % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 
 export function ExpressLandingClient() {
   const router = useRouter();
-  const [now, setNow] = useState<number>(0);
 
-  // Tick once a minute so the "minutes ago" counters drift forward —
-  // sells the live-feed feeling without doing any work.
+  // Everyone in the same minute sees the same order, but the next minute
+  // (or the next visitor) gets a freshly shuffled deck.
+  const seed = useMemo(() => Math.floor(Date.now() / 60_000), []);
+  const ordered = useMemo(() => seededShuffle(POOL, seed), [seed]);
+
+  const [visibleIds, setVisibleIds] = useState<string[]>(() =>
+    ordered.slice(0, VISIBLE_COUNT).map((r) => r.handle),
+  );
+  const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+
+  // Live age — bumps every AGE_TICK_MS. The visible "Xm ago" reads off this
+  // counter so it ages forward in real time.
   useEffect(() => {
-    setNow(Date.now());
-    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    const id = window.setInterval(() => setTick((t) => t + 1), AGE_TICK_MS);
     return () => window.clearInterval(id);
   }, []);
+
+  // Card rotation — pop the oldest card off, push a fresh one from the pool.
+  // The new card flashes a "JUST POSTED" highlight for ~3s, then fades to
+  // normal so the eye is drawn to it without being distracting.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setVisibleIds((prev) => {
+        const offdeck = ordered.filter((r) => !prev.includes(r.handle));
+        if (offdeck.length === 0) return prev;
+        const incoming = offdeck[Math.floor(Math.random() * offdeck.length)];
+        const next = [incoming.handle, ...prev.slice(0, -1)];
+        setRecentlyAdded(incoming.handle);
+        window.setTimeout(() => setRecentlyAdded((cur) => (cur === incoming.handle ? null : cur)), 3_000);
+        return next;
+      });
+    }, ROTATION_MS);
+    return () => window.clearInterval(id);
+  }, [ordered]);
 
   function goSignUp() {
     // Single funnel for any tap. mode=express + type=driver routes through
     // sign-up → auth-callback → /onboarding?mode=express → DriverOnboardingExpress.
     router.push('/sign-up?type=driver&mode=express');
   }
+
+  const visible = visibleIds
+    .map((id) => POOL.find((r) => r.handle === id))
+    .filter((r): r is MockRider => !!r);
 
   return (
     <div
@@ -61,7 +122,9 @@ export function ExpressLandingClient() {
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div
             style={{
-              display: 'inline-block',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
               padding: '4px 12px',
               borderRadius: 999,
               background: 'rgba(0,230,118,0.12)',
@@ -73,6 +136,11 @@ export function ExpressLandingClient() {
               marginBottom: 12,
             }}
           >
+            <motion.span
+              animate={{ opacity: [0.4, 1, 0.4] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              style={{ width: 6, height: 6, borderRadius: 999, background: '#00E676' }}
+            />
             Live in ATL
           </div>
           <h1
@@ -92,9 +160,16 @@ export function ExpressLandingClient() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <AnimatePresence>
-            {MOCK_RIDERS.map((r, i) => (
-              <RiderCard key={r.handle} rider={r} index={i} now={now} onTap={goSignUp} />
+          <AnimatePresence initial={false} mode="popLayout">
+            {visible.map((r, i) => (
+              <RiderCard
+                key={r.handle}
+                rider={r}
+                index={i}
+                tick={tick}
+                isFresh={recentlyAdded === r.handle}
+                onTap={goSignUp}
+              />
             ))}
           </AnimatePresence>
         </div>
@@ -133,41 +208,46 @@ export function ExpressLandingClient() {
 function RiderCard({
   rider,
   index,
-  now,
+  tick,
+  isFresh,
   onTap,
 }: {
   rider: MockRider;
   index: number;
-  now: number;
+  tick: number;
+  isFresh: boolean;
   onTap: () => void;
 }) {
-  // Scale the "minutes ago" forward by however long the page has been open.
-  const elapsed = now ? Math.floor((now - performance.timeOrigin) / 60_000) : 0;
-  const drifted = rider.minutesAgo + elapsed;
+  // Each tick is 30s; we age in 1m increments after every other tick.
+  const drifted = rider.baseMinutesAgo + Math.floor(tick / 2);
+  const ageLabel = isFresh ? 'Just now' : `${drifted}m ago`;
 
   return (
     <motion.button
       type="button"
       onClick={onTap}
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -16 }}
-      transition={{ delay: 0.08 * index, duration: 0.4, ease: 'easeOut' }}
+      layout
+      initial={{ opacity: 0, y: 18, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -18, scale: 0.96 }}
+      transition={{ delay: 0.06 * Math.min(index, 4), duration: 0.4, ease: 'easeOut' }}
       whileTap={{ scale: 0.97 }}
       whileHover={{ y: -2 }}
       style={{
         textAlign: 'left',
         background: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%)',
-        border: '1px solid rgba(255,255,255,0.08)',
+        border: isFresh ? '1px solid rgba(0,230,118,0.4)' : '1px solid rgba(255,255,255,0.08)',
         borderRadius: 16,
         padding: 14,
         color: '#fff',
         cursor: 'pointer',
         position: 'relative',
         overflow: 'hidden',
+        boxShadow: isFresh ? '0 0 0 4px rgba(0,230,118,0.08)' : 'none',
+        transition: 'border 0.4s ease, box-shadow 0.4s ease',
       }}
     >
-      {/* subtle "live" pulse */}
+      {/* live pulse */}
       <motion.div
         animate={{ opacity: [0.4, 0.9, 0.4] }}
         transition={{ duration: 2.5, repeat: Infinity, delay: index * 0.3 }}
@@ -183,7 +263,30 @@ function RiderCard({
         }}
       />
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+      {isFresh && (
+        <motion.div
+          initial={{ opacity: 0, x: -6 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0 }}
+          style={{
+            position: 'absolute',
+            top: 10,
+            left: 10,
+            background: '#00E676',
+            color: '#0a0a0a',
+            fontSize: 9,
+            fontWeight: 800,
+            letterSpacing: 0.6,
+            textTransform: 'uppercase',
+            padding: '2px 6px',
+            borderRadius: 6,
+          }}
+        >
+          Just posted
+        </motion.div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, marginTop: isFresh ? 12 : 0 }}>
         <div
           style={{
             width: 36,
@@ -232,7 +335,7 @@ function RiderCard({
           {rider.price}
         </span>
         <span style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          {drifted}m ago
+          {ageLabel}
         </span>
       </div>
     </motion.button>
