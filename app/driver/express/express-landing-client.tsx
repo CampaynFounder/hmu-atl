@@ -186,16 +186,16 @@ export function ExpressLandingClient() {
           <h1
             style={{
               fontFamily: "'Bebas Neue', sans-serif",
-              fontSize: 44,
+              fontSize: 40,
               lineHeight: 1,
               letterSpacing: 1,
               marginBottom: 10,
             }}
           >
-            MAKE MORE $$$
+            HMU HOLDS RIDER DEPOSITS
           </h1>
           <p style={{ fontSize: 14, color: '#bbb', lineHeight: 1.5, padding: '0 8px' }}>
-            Real riders looking for a ride right now. Tap one to start &mdash; sign up in under a minute.
+            If a rider no shows, HMU still pays. Free to sign up.
           </p>
         </div>
 
