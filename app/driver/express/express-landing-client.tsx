@@ -6,8 +6,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 // Pool of mock rider personas. We display VISIBLE_COUNT at a time and rotate
 // one in / one out on a timer so the page feels live across visits and within
-// a single session. Avatars are CSS gradients keyed off `hue` — no PII, no
-// network round-trips, no third-party assets.
+// a single session. Avatars are blurred AI-generated portraits stored under
+// /public/express-avatars/{NN}.jpg — no real people are depicted. The hash
+// from `handle` selects a stable photo so the same persona always reuses the
+// same face across renders.
 interface MockRider {
   handle: string;
   initials: string;
@@ -16,6 +18,20 @@ interface MockRider {
   price: string;
   baseMinutesAgo: number;
   hue: number;
+}
+
+// 24 synthetic faces resized to 256px JPEGs, ~18KB each. Refresh by re-running
+// the curl loop in scripts/fetch-express-avatars.sh.
+const AVATAR_COUNT = 24;
+function avatarUrlFor(handle: string): string {
+  // FNV-ish stable hash → index. Same handle → same photo across mounts.
+  let h = 2166136261;
+  for (let i = 0; i < handle.length; i++) {
+    h ^= handle.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const idx = (Math.abs(h) % AVATAR_COUNT) + 1;
+  return `/express-avatars/${idx.toString().padStart(2, '0')}.jpg`;
 }
 
 const POOL: MockRider[] = [
@@ -311,23 +327,54 @@ function RiderCard({
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, marginTop: isFresh ? 12 : 0 }}>
+        {/* Blurred AI-generated portrait — no real person depicted. The
+            gradient ring + initials overlay reads as "real but private",
+            in line with how rider avatars are masked elsewhere in the app. */}
         <div
           style={{
             width: 36,
             height: 36,
             borderRadius: 999,
+            position: 'relative',
+            overflow: 'hidden',
             background: `linear-gradient(135deg, hsl(${rider.hue} 70% 55%) 0%, hsl(${(rider.hue + 30) % 360} 70% 35%) 100%)`,
-            color: '#fff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontWeight: 800,
-            fontSize: 14,
-            fontFamily: "'Bebas Neue', sans-serif",
-            letterSpacing: 1,
+            flexShrink: 0,
           }}
         >
-          {rider.initials}
+          <img
+            src={avatarUrlFor(rider.handle)}
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            decoding="async"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              filter: 'blur(7px) saturate(0.85)',
+              transform: 'scale(1.2)',
+              opacity: 0.85,
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              fontWeight: 800,
+              fontSize: 14,
+              fontFamily: "'Bebas Neue', sans-serif",
+              letterSpacing: 1,
+              textShadow: '0 1px 4px rgba(0,0,0,0.5)',
+            }}
+          >
+            {rider.initials}
+          </div>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700 }}>@{rider.handle}</div>
