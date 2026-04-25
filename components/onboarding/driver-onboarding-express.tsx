@@ -308,9 +308,14 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
   }
 
   return (
+    // 100dvh > 100vh on iOS Safari — uses the *visible* viewport height
+    // (excludes browser chrome) so the bottom nav doesn't slide under the
+    // home indicator. Bottom safe-area is paid by the nav bar itself, not
+    // the outer container, so the nav can render its own background up to
+    // the very edge of the screen.
     <div
-      className="flex min-h-screen flex-col"
-      style={{ paddingTop: 56, paddingBottom: 'max(24px, env(safe-area-inset-bottom))', background: '#0a0a0a' }}
+      className="flex flex-col"
+      style={{ minHeight: '100dvh', paddingTop: 56, background: '#0a0a0a' }}
     >
       <div className="sticky z-10 bg-zinc-900/80 backdrop-blur-sm border-b border-zinc-800" style={{ top: 56 }}>
         <div className="mx-auto max-w-2xl px-4 py-4">
@@ -339,8 +344,11 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
         </div>
       </div>
 
+      {/* Scrollable content. pb-40 reserves room above the sticky bottom
+          nav so the last form field is reachable when the content is
+          taller than the viewport. */}
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-2xl px-4 py-8">
+        <div className="mx-auto max-w-2xl px-4 py-8 pb-40">
           <AnimatePresence mode="wait">
             <motion.div
               key={currentStep}
@@ -356,62 +364,67 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
               </div>
 
               <div className="rounded-2xl bg-zinc-800 border border-zinc-700 p-6">{cur?.component}</div>
-
-              <div className="flex items-center justify-between gap-4">
-                <button
-                  onClick={() => { setCurrentStep(s => Math.max(0, s - 1)); window.scrollTo(0, 0); }}
-                  disabled={currentStep === 0}
-                  className="flex items-center gap-2 rounded-full px-6 py-3 font-semibold text-zinc-400 transition-all hover:bg-zinc-800 disabled:opacity-0"
-                >
-                  <ArrowLeft className="h-5 w-5" /> Back
-                </button>
-                <div className="flex flex-col items-end gap-2">
-                  {isLast && (
-                    <p className="text-[10px] text-zinc-500 text-right max-w-[260px] leading-tight">
-                      By tapping Let&apos;s Go, you agree to our{' '}
-                      <a href="/terms" className="text-[#00E676]">Terms</a> &amp;{' '}
-                      <a href="/privacy" className="text-[#00E676]">Privacy</a>.
-                    </p>
-                  )}
-                  <button
-                    onClick={handleNext}
-                    disabled={!canProceed || saving || data.isUploading}
-                    className="flex items-center gap-2 rounded-full bg-[#00E676] px-8 py-3 font-black text-black shadow-lg transition-all hover:shadow-[0_0_24px_rgba(0,230,118,0.3)] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
-                  >
-                    {saving ? (
-                      <>
-                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-black border-t-transparent" /> Setting up...
-                      </>
-                    ) : isLast ? (
-                      <><Check className="h-5 w-5" /> Let&apos;s Go</>
-                    ) : (
-                      <>Next <ArrowRight className="h-5 w-5" /></>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {!cur?.required && (
-                <div className="text-center">
-                  <button
-                    onClick={() => { if (!data.isUploading) { setCurrentStep(s => s + 1); window.scrollTo(0, 0); } }}
-                    className={`text-sm transition-colors ${data.isUploading ? 'text-zinc-700 cursor-not-allowed' : 'text-zinc-500 hover:text-zinc-300'}`}
-                  >
-                    {data.isUploading ? 'Uploading...' : 'Skip for now'}
-                  </button>
-                </div>
-              )}
-
-              {saveError && (
-                <div
-                  role="alert"
-                  className="rounded-xl bg-red-950/60 border border-red-800/60 p-3 text-sm text-red-300 text-center"
-                >
-                  {saveError}
-                </div>
-              )}
             </motion.div>
           </AnimatePresence>
+        </div>
+      </div>
+
+      {/* Sticky bottom nav. Lives outside the scroll area so the buttons
+          are always reachable, regardless of step height. Pays its own
+          safe-area-inset-bottom so the home indicator never overlaps the
+          tap target on iOS. */}
+      <div
+        className="sticky bottom-0 z-20 bg-zinc-900/95 backdrop-blur-sm border-t border-zinc-800"
+        style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
+      >
+        <div className="mx-auto max-w-2xl px-4 pt-3 space-y-2">
+          {saveError && (
+            <div
+              role="alert"
+              className="rounded-xl bg-red-950/60 border border-red-800/60 p-3 text-sm text-red-300 text-center"
+            >
+              {saveError}
+            </div>
+          )}
+          {isLast && (
+            <p className="text-[10px] text-zinc-500 text-center leading-tight">
+              By tapping Let&apos;s Go, you agree to our{' '}
+              <a href="/terms" className="text-[#00E676]">Terms</a> &amp;{' '}
+              <a href="/privacy" className="text-[#00E676]">Privacy</a>.
+            </p>
+          )}
+          <div className="flex items-center justify-between gap-3">
+            <button
+              onClick={() => { setCurrentStep(s => Math.max(0, s - 1)); window.scrollTo(0, 0); }}
+              disabled={currentStep === 0}
+              className="flex items-center gap-2 rounded-full px-4 py-3 font-semibold text-zinc-400 transition-all hover:bg-zinc-800 disabled:opacity-0 disabled:pointer-events-none"
+            >
+              <ArrowLeft className="h-5 w-5" /> Back
+            </button>
+            <button
+              onClick={handleNext}
+              disabled={!canProceed || saving || data.isUploading}
+              className="flex items-center justify-center gap-2 rounded-full bg-[#00E676] px-6 py-3 font-black text-black shadow-lg transition-all hover:shadow-[0_0_24px_rgba(0,230,118,0.3)] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 flex-1 max-w-[240px]"
+            >
+              {saving ? (
+                <>
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-black border-t-transparent" /> Setting up...
+                </>
+              ) : isLast ? (
+                <><Check className="h-5 w-5" /> Let&apos;s Go</>
+              ) : (
+                <>Next <ArrowRight className="h-5 w-5" /></>
+              )}
+            </button>
+          </div>
+          {!cur?.required && (
+            <button
+              onClick={() => { if (!data.isUploading) { setCurrentStep(s => s + 1); window.scrollTo(0, 0); } }}
+              className={`w-full text-center text-sm transition-colors py-1 ${data.isUploading ? 'text-zinc-700 cursor-not-allowed' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              {data.isUploading ? 'Uploading...' : 'Skip for now'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -508,7 +521,13 @@ function YoureLiveScreen({ name, minRide, onContinue }: { name: string; minRide:
       style={{
         position: 'fixed', inset: 0, zIndex: 50,
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        background: '#080808', overflow: 'hidden',
+        background: '#080808',
+        // Respect safe areas so the CTA never lands under the iOS home
+        // indicator on small screens with long display names. overflow:auto
+        // lets it scroll instead of clipping if a future tweak adds height.
+        paddingTop: 'max(20px, env(safe-area-inset-top))',
+        paddingBottom: 'max(20px, env(safe-area-inset-bottom))',
+        overflow: 'auto',
       }}
     >
       <style>{`
