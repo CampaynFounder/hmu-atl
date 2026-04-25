@@ -61,6 +61,7 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
   const [currentStep, setCurrentStep] = useState(0);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const defaultTier = pickDefaultTier(DRIVER_EXPRESS_DEFAULTS.pricingTiers);
   const [data, setData] = useState<FormData>({
@@ -268,9 +269,20 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
     if (saving || !cur) return;
     if (isLast) {
       setSaving(true);
-      await saveExpress(data, config);
-      fbEvent('StartTrial', { content_name: 'Driver Onboarding Express Complete', content_category: 'driver_funnel' });
-      setShowConfirmation(true);
+      setSaveError(null);
+      try {
+        await saveExpress(data, config);
+        fbEvent('StartTrial', { content_name: 'Driver Onboarding Express Complete', content_category: 'driver_funnel' });
+        setShowConfirmation(true);
+      } catch (err) {
+        // Surface the failure on the same step instead of silently flipping
+        // to the confirmation screen — otherwise the next nav lands on
+        // /driver/profile which redirects back to /onboarding because no
+        // driver_profiles row was created.
+        const msg = err instanceof Error ? err.message : 'Setup failed — try again';
+        setSaveError(msg);
+        setSaving(false);
+      }
     } else {
       setCurrentStep(s => s + 1);
       window.scrollTo(0, 0);
@@ -286,7 +298,13 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
   }
 
   if (showConfirmation) {
-    return <YoureLiveScreen name={data.displayName || data.firstName || 'driver'} onContinue={onComplete} />;
+    return (
+      <YoureLiveScreen
+        name={data.displayName || data.firstName || 'driver'}
+        minRide={data.pricingTier.min}
+        onContinue={onComplete}
+      />
+    );
   }
 
   return (
@@ -383,6 +401,15 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
                   </button>
                 </div>
               )}
+
+              {saveError && (
+                <div
+                  role="alert"
+                  className="rounded-xl bg-red-950/60 border border-red-800/60 p-3 text-sm text-red-300 text-center"
+                >
+                  {saveError}
+                </div>
+              )}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -400,8 +427,10 @@ async function saveExpress(data: FormData, config: DriverExpressConfig): Promise
     end: config.scheduleDefault.end,
     wait_per_min: config.waitPerMin,
   };
+
+  let res: Response;
   try {
-    await fetch('/api/users/onboarding', {
+    res = await fetch('/api/users/onboarding', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -436,26 +465,40 @@ async function saveExpress(data: FormData, config: DriverExpressConfig): Promise
         },
       }),
     });
-
-    fetch('/api/users/activity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        event: 'driver_onboarding_express_completed',
-        properties: {
-          minRide: data.pricingTier.min,
-          maxAdults: data.maxAdults,
-          thirdRow: data.thirdRow,
-        },
-      }),
-    }).catch(console.error);
-  } catch (error) {
-    console.error('Failed to save express onboarding:', error);
-    throw error;
+  } catch (networkErr) {
+    console.error('Express onboarding network failure:', networkErr);
+    throw new Error('Network problem. Check your connection and try again.');
   }
+
+  // fetch only rejects on network errors; a 4xx/5xx still resolves. Without
+  // this guard the You're Live screen would show even when the driver_profile
+  // row was never created, which sent users back to /onboarding the moment
+  // they tapped any link to /driver/profile.
+  if (!res.ok) {
+    let detail: string | null = null;
+    try {
+      const body = await res.json();
+      detail = (body?.error as string) || (body?.details as string) || null;
+    } catch { /* non-JSON body */ }
+    console.error('Express onboarding rejected:', res.status, detail);
+    throw new Error(detail || `Setup failed (${res.status}). Try again.`);
+  }
+
+  fetch('/api/users/activity', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      event: 'driver_onboarding_express_completed',
+      properties: {
+        minRide: data.pricingTier.min,
+        maxAdults: data.maxAdults,
+        thirdRow: data.thirdRow,
+      },
+    }),
+  }).catch(console.error);
 }
 
-function YoureLiveScreen({ name, onContinue }: { name: string; onContinue: () => void }) {
+function YoureLiveScreen({ name, minRide, onContinue }: { name: string; minRide: number; onContinue: () => void }) {
   const [navigating, setNavigating] = useState(false);
 
   return (
@@ -514,12 +557,8 @@ function YoureLiveScreen({ name, onContinue }: { name: string; onContinue: () =>
             textAlign: 'left',
           }}
         >
-          <strong style={{ color: '#fff' }}>Double check your prices.</strong>{' '}
-          All drivers get a $25 minimum by default. If you offer cheaper rides, update them{' '}
-          <a href="/driver/profile?focus=pricing" style={{ color: '#00E676', textDecoration: 'underline' }}>
-            here
-          </a>
-          .
+          <strong style={{ color: '#fff' }}>Your minimum is set to ${minRide}.</strong>{' '}
+          30-min, 1hr, and 2hr rates filled in to match. Tweak any of it from your profile after you tap below.
         </div>
 
         <button
