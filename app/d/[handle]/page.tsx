@@ -4,6 +4,7 @@ import { auth } from '@clerk/nextjs/server';
 import { getDriverProfileByHandle } from '@/lib/db/profiles';
 import { sql } from '@/lib/db/client';
 import { isChatBookingEnabledForDriver } from '@/lib/chat/config';
+import { deriveVerificationStatus } from '@/lib/driver/verification';
 import DriverShareProfileClient from './driver-share-profile-client';
 
 interface Props {
@@ -179,6 +180,11 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
       pricingType: (s.pricing_type as string) || 'flat',
       unitLabel: (s.unit_label as string) || null,
     })),
+    verificationStatus: deriveVerificationStatus({
+      firstName: profileAny.first_name as string | null,
+      lastName: profileAny.last_name as string | null,
+      licensePlate: ((profile.vehicle_info as Record<string, unknown>)?.license_plate as string | null) ?? null,
+    }),
   };
 
   return (

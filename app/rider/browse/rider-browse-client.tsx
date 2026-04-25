@@ -231,6 +231,9 @@ function pillStyle(active: boolean): React.CSSProperties {
 function DriverChips({ driver, compact }: { driver: BrowseDriverRow; compact?: boolean }) {
   return (
     <>
+      {driver.verificationStatus === 'pending' && (
+        <Chip label={compact ? 'NEW' : 'NEW · Verifying'} tone="warning" compact={compact} />
+      )}
       {driver.isHmuFirst && <Chip label={`${'🥇'} HMU 1ST`} tone="first" compact={compact} />}
       {driver.fwu && <Chip label="FWU" tone="fwu" compact={compact} />}
       {driver.acceptsCash && (

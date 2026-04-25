@@ -33,6 +33,7 @@ interface DriverData {
   cashOnly: boolean;
   vehicleInfo: { label: string; maxRiders: number | null } | null;
   services: { name: string; icon: string; price: number; pricingType: string; unitLabel: string | null }[];
+  verificationStatus?: 'verified' | 'pending';
 }
 
 interface Props {
@@ -432,6 +433,36 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
             {/* Driver sign up CTA — only for logged out visitors */}
             {!isLoggedIn && <DriverSignUpCta isPromo={isPromo} />}
           </div>
+
+          {/* New-driver verification banner — appears when express drivers
+              have not yet completed legal name + license plate. Soft, not
+              fear-mongering: rider sees the trust gap up front and we point
+              at completed-rides as the social proof to look at instead. */}
+          {driver.verificationStatus === 'pending' && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 10,
+                background: 'rgba(255,193,7,0.08)',
+                border: '1px solid rgba(255,193,7,0.25)',
+                borderRadius: 12,
+                padding: '10px 12px',
+                marginBottom: 14,
+                fontSize: 12,
+                color: '#FFD86E',
+                lineHeight: 1.45,
+              }}
+            >
+              <span style={{ fontSize: 16, lineHeight: 1 }}>{'⚠️'}</span>
+              <div>
+                <strong style={{ color: '#FFE9A3' }}>New driver — verification in progress.</strong>{' '}
+                Legal name and plate not on file yet. {driver.completedRides > 0
+                  ? `${driver.completedRides} ride${driver.completedRides === 1 ? '' : 's'} completed so far.`
+                  : 'No rides completed yet.'}
+              </div>
+            </div>
+          )}
 
           {/* Vibe Meter — prominent, right below name */}
           <div style={{ marginBottom: 14 }}>

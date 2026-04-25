@@ -4,6 +4,7 @@
 // enforced no matter how the cards get loaded.
 
 import { sql } from '@/lib/db/client';
+import { deriveVerificationStatus, type VerificationStatus } from '@/lib/driver/verification';
 
 export interface BrowseRiderContext {
   /** Strict pref filter — `women_only` / `female` / `men_only` / `male` are the only
@@ -32,6 +33,7 @@ export interface BrowseDriverRow {
   vehicleSummary: { label: string; maxRiders: number | null } | null;
   hasVibeVideo: boolean;
   payoutReady: boolean;
+  verificationStatus: VerificationStatus;
 }
 
 export async function queryBrowseDrivers(
@@ -49,6 +51,7 @@ export async function queryBrowseDrivers(
            dp.vehicle_info, dp.lgbtq_friendly, dp.enforce_minimum, dp.fwu,
            dp.accepts_cash, dp.cash_only,
            dp.vibe_video_url, dp.payout_setup_complete,
+           dp.first_name, dp.last_name,
            u.chill_score, u.tier,
            hp.time_window AS live_post,
            hp.price       AS live_price,
@@ -87,6 +90,12 @@ export async function queryBrowseDrivers(
       return { label: parts, maxRiders: maxR || null };
     })();
 
+    const verificationStatus = deriveVerificationStatus({
+      firstName: d.first_name as string | null,
+      lastName: d.last_name as string | null,
+      licensePlate: (vi?.license_plate as string | null) ?? null,
+    });
+
     return {
       handle: d.handle as string,
       displayName: (d.display_name as string) || 'Driver',
@@ -109,6 +118,7 @@ export async function queryBrowseDrivers(
         ? (d.service_icons as string[]).filter(Boolean)
         : [],
       vehicleSummary,
+      verificationStatus,
     };
   });
 }

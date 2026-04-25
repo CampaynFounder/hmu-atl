@@ -1,7 +1,7 @@
 // Shared chip used on every browse-card variant. Tones map to the same accent
 // palette as the rest of the app — keep additions deliberate.
 
-export type ChipTone = 'neutral' | 'lgbtq' | 'cash' | 'fwu' | 'first' | 'success' | 'live';
+export type ChipTone = 'neutral' | 'lgbtq' | 'cash' | 'fwu' | 'first' | 'success' | 'live' | 'warning';
 
 interface Props {
   label: React.ReactNode;
@@ -17,6 +17,7 @@ const PALETTE: Record<ChipTone, { bg: string; border: string; color: string }> =
   first:   { bg: '#00E676',                border: '#00E676',               color: '#080808' },
   success: { bg: 'rgba(0,230,118,0.10)',   border: 'rgba(0,230,118,0.20)',  color: '#00E676' },
   live:    { bg: 'rgba(0,230,118,0.15)',   border: 'rgba(0,230,118,0.30)',  color: '#00E676' },
+  warning: { bg: 'rgba(255,193,7,0.12)',   border: 'rgba(255,193,7,0.30)',  color: '#FFC107' },
 };
 
 export default function Chip({ label, tone = 'neutral', compact }: Props) {
