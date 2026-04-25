@@ -26,6 +26,10 @@ export default async function SignUpPage({ searchParams }: Props) {
 
   const isDriver = type === 'driver';
   const isRider = type === 'rider';
+  // Express driver path comes from /driver/express. Same Clerk widget,
+  // different framing — leans on rider safety as the recruitment hook
+  // instead of the standard "make more $$$" earnings pitch.
+  const isExpressDriver = isDriver && mode === 'express';
 
   // Extract driver handle from returnTo (/d/<handle>[/?#...]) for attribution.
   // signup_source = 'hmu_chat' only when the user came via a driver's share profile.
@@ -70,14 +74,22 @@ export default async function SignUpPage({ searchParams }: Props) {
           lineHeight: 1.1,
           marginBottom: '8px',
         }}>
-          {isDriver ? 'MAKE MORE DOING RIDES.' : isRider ? 'GET A RIDE WITH HMU' : `JOIN HMU ${brand.cityShort}`}
+          {isExpressDriver
+            ? 'CASH RIDES NEED DRIVERS.'
+            : isDriver
+            ? 'MAKE MORE DOING RIDES.'
+            : isRider
+            ? 'GET A RIDE WITH HMU'
+            : `JOIN HMU ${brand.cityShort}`}
         </div>
         <div style={{
           fontSize: '14px',
           color: '#888',
           lineHeight: 1.4,
         }}>
-          {isDriver
+          {isExpressDriver
+            ? 'Cash rides can be dangerous. HMU for safer rides, secure deposits, same-day pay.'
+            : isDriver
             ? 'Keep More $$$. Upfront Payments. No Blank Trips. No Goofy Ish.'
             : isRider
             ? 'Sign up to ride. Skip the surge, book local drivers at your price.'
