@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -40,11 +40,19 @@ const POOL: MockRider[] = [
 ];
 
 const VISIBLE_COUNT = 8;
-// One card swaps every 7s so the feed always feels alive but never frantic.
-const ROTATION_MS = 7_000;
+// Variable rotation cadence — uniform random in [MIN, MAX]ms. The spread is
+// wide enough that the eye can't lock onto a beat, but short enough that a
+// distracted visitor still catches at least one swap. Occasional long
+// pauses make the next swap feel surprising.
+const ROTATION_MIN_MS = 3_500;
+const ROTATION_MAX_MS = 13_000;
 // Age tick — drives "minutes ago" forward so the same card grows older
 // while it's on screen.
 const AGE_TICK_MS = 30_000;
+
+function nextRotationDelay(): number {
+  return ROTATION_MIN_MS + Math.random() * (ROTATION_MAX_MS - ROTATION_MIN_MS);
+}
 
 // Time-seeded shuffle — different visit, different order, but stable for the
 // life of one session so cards don't jump on every render.
@@ -80,22 +88,38 @@ export function ExpressLandingClient() {
     return () => window.clearInterval(id);
   }, []);
 
-  // Card rotation — pop the oldest card off, push a fresh one from the pool.
-  // The new card flashes a "JUST POSTED" highlight for ~3s, then fades to
-  // normal so the eye is drawn to it without being distracting.
+  // Card rotation — pop a random visible card, push a fresh one from the
+  // pool into a random slot. The cadence itself is variable (see
+  // nextRotationDelay) so the eye can't lock onto a beat. The new card
+  // flashes a "JUST POSTED" highlight for ~3s, then fades to normal.
+  const rotationTimer = useRef<number | null>(null);
   useEffect(() => {
-    const id = window.setInterval(() => {
-      setVisibleIds((prev) => {
-        const offdeck = ordered.filter((r) => !prev.includes(r.handle));
-        if (offdeck.length === 0) return prev;
-        const incoming = offdeck[Math.floor(Math.random() * offdeck.length)];
-        const next = [incoming.handle, ...prev.slice(0, -1)];
-        setRecentlyAdded(incoming.handle);
-        window.setTimeout(() => setRecentlyAdded((cur) => (cur === incoming.handle ? null : cur)), 3_000);
-        return next;
-      });
-    }, ROTATION_MS);
-    return () => window.clearInterval(id);
+    function schedule() {
+      rotationTimer.current = window.setTimeout(() => {
+        setVisibleIds((prev) => {
+          const offdeck = ordered.filter((r) => !prev.includes(r.handle));
+          if (offdeck.length === 0) return prev;
+          const incoming = offdeck[Math.floor(Math.random() * offdeck.length)];
+          // Drop a random visible card, insert the incoming one at a random
+          // slot — keeps the eye from always tracking the top-left.
+          const dropIdx = Math.floor(Math.random() * prev.length);
+          const without = prev.filter((_, i) => i !== dropIdx);
+          const insertIdx = Math.floor(Math.random() * (without.length + 1));
+          const next = [...without.slice(0, insertIdx), incoming.handle, ...without.slice(insertIdx)];
+          setRecentlyAdded(incoming.handle);
+          window.setTimeout(
+            () => setRecentlyAdded((cur) => (cur === incoming.handle ? null : cur)),
+            3_000,
+          );
+          return next;
+        });
+        schedule();
+      }, nextRotationDelay());
+    }
+    schedule();
+    return () => {
+      if (rotationTimer.current !== null) window.clearTimeout(rotationTimer.current);
+    };
   }, [ordered]);
 
   function goSignUp() {
