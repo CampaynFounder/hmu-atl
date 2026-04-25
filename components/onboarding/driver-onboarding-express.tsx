@@ -435,9 +435,11 @@ async function saveExpress(data: FormData, config: DriverExpressConfig): Promise
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         profile_type: 'driver',
-        // Govt name is deferred in express — pass empty strings; activation
-        // checklist + Stripe payout setup will collect later.
-        first_name: data.firstName || data.displayName,
+        // Govt name is deferred in express — send empty strings so the
+        // activation checklist's "Verify your name" item correctly reads
+        // as undone. Stripe payout setup collects them when the driver
+        // is ready to cash out.
+        first_name: data.firstName || '',
         last_name: data.lastName || '',
         display_name: data.displayName,
         phone: data.phone || null,

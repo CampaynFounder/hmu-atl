@@ -62,10 +62,16 @@ export async function POST(request: NextRequest) {
       avoid_riders_with_disputes,
     } = body;
 
-    // Validate required fields
-    if (!profile_type || !first_name || !last_name) {
+    // Validate required fields. Express driver onboarding defers govt name
+    // (first_name + last_name) to the post-onboarding "Pre-Ride To-Do",
+    // so we accept a request when display_name (the handle) is present
+    // even if first/last are blank. We still require *some* identifying
+    // string so user records aren't created completely nameless.
+    const hasName = !!(first_name && last_name);
+    const hasDisplay = typeof display_name === 'string' && display_name.trim().length > 0;
+    if (!profile_type || (!hasName && !hasDisplay)) {
       return NextResponse.json(
-        { error: 'Missing required fields: profile_type, first_name, last_name' },
+        { error: 'Missing required fields: profile_type and either display_name or first_name + last_name' },
         { status: 400 }
       );
     }
