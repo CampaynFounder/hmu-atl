@@ -195,7 +195,7 @@ export function ExpressLandingClient() {
             HMU HOLDS RIDER DEPOSITS
           </h1>
           <p style={{ fontSize: 14, color: '#bbb', lineHeight: 1.5, padding: '0 8px' }}>
-            If a rider no shows, HMU still pays. Free to sign up.
+            Uber/Lyft makes sure their riders pay <strong style={{ color: '#fff' }}>THEM</strong>. HMU makes sure your riders pay <strong style={{ color: '#00E676' }}>YOU</strong>.
           </p>
         </div>
 
