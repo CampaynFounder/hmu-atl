@@ -7,11 +7,11 @@ import { MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver'
 import { getMarketBranding } from '@/lib/markets/branding';
 
 interface Props {
-  searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string }>;
+  searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string; mode?: string }>;
 }
 
 export default async function SignUpPage({ searchParams }: Props) {
-  const [{ type, returnTo, cash, persona, funnel_stage }, h] = await Promise.all([
+  const [{ type, returnTo, cash, persona, funnel_stage, mode }, h] = await Promise.all([
     searchParams,
     headers(),
   ]);
@@ -21,6 +21,7 @@ export default async function SignUpPage({ searchParams }: Props) {
   const callbackParams = new URLSearchParams();
   if (type) callbackParams.set('type', type);
   if (returnTo && returnTo.startsWith('/d/')) callbackParams.set('returnTo', returnTo);
+  if (mode === 'express') callbackParams.set('mode', 'express');
   const afterSignUpUrl = `/auth-callback${callbackParams.size ? `?${callbackParams}` : ''}`;
 
   const isDriver = type === 'driver';
@@ -44,6 +45,7 @@ export default async function SignUpPage({ searchParams }: Props) {
   if (refHandle) unsafeMetadata.ref_handle = refHandle;
   if (persona) unsafeMetadata.persona = persona;
   if (funnel_stage) unsafeMetadata.funnel_stage = funnel_stage;
+  if (mode === 'express') unsafeMetadata.onboardingMode = 'express';
 
   return (
     <InAppBrowserGate>
@@ -56,7 +58,7 @@ export default async function SignUpPage({ searchParams }: Props) {
       background: '#080808',
       padding: '60px 20px 20px',
     }}>
-      <SignUpTypeStore type={type} returnTo={returnTo} cash={cash} />
+      <SignUpTypeStore type={type} returnTo={returnTo} cash={cash} mode={mode} />
 
       {/* Type-aware header */}
       <div style={{ textAlign: 'center', marginBottom: '24px', maxWidth: '340px' }}>

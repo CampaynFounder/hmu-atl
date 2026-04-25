@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { RiderOnboarding } from '@/components/onboarding/rider-onboarding';
 import { DriverOnboarding } from '@/components/onboarding/driver-onboarding';
 import { ExpressRiderOnboarding } from '@/components/onboarding/express-rider-onboarding';
+import { DriverOnboardingExpress } from '@/components/onboarding/driver-onboarding-express';
 import { ProfileTypeSelector } from '@/components/onboarding/profile-type-selector';
 
 function OnboardingInner() {
@@ -31,6 +32,11 @@ function OnboardingInner() {
   const returnTo = searchParams.get('returnTo');
   const isFromChatBooking = !!(returnTo && returnTo.startsWith('/d/'));
   const isCashRide = searchParams.get('cash') === '1';
+  // Express driver mode is sticky: URL param wins, then Clerk unsafeMetadata
+  // (set at sign-up time from /driver/express). We accept either.
+  const urlMode = searchParams.get('mode');
+  const clerkMode = (user?.unsafeMetadata as Record<string, unknown> | undefined)?.onboardingMode as string | undefined;
+  const isExpressDriver = (urlMode === 'express' || clerkMode === 'express');
 
   const handleComplete = () => {
     // Full page reload to force Clerk to re-fetch user metadata
@@ -66,7 +72,11 @@ function OnboardingInner() {
   if (activeType === 'driver') {
     return (
       <div className="h-screen w-screen overflow-auto">
-        <DriverOnboarding onComplete={handleComplete} tier={tier} />
+        {isExpressDriver ? (
+          <DriverOnboardingExpress onComplete={handleComplete} tier={tier} />
+        ) : (
+          <DriverOnboarding onComplete={handleComplete} tier={tier} />
+        )}
       </div>
     );
   }

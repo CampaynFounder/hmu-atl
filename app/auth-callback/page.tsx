@@ -34,11 +34,13 @@ export default function AuthCallbackPage() {
     const type = params.get('type') || localStorage.getItem('hmu_signup_type');
     const returnTo = params.get('returnTo') || localStorage.getItem('hmu_signup_returnTo');
     const isCash = params.get('cash') || localStorage.getItem('hmu_signup_cash');
+    const mode = params.get('mode') || localStorage.getItem('hmu_signup_mode');
 
     // Clean up localStorage after reading — one-time use
     localStorage.removeItem('hmu_signup_type');
     localStorage.removeItem('hmu_signup_returnTo');
     localStorage.removeItem('hmu_signup_cash');
+    localStorage.removeItem('hmu_signup_mode');
 
     // Retry the onboarding-status fetch once on transient failure. A single
     // Neon/Worker cold-start blip must NEVER drop an existing user onto
@@ -108,6 +110,7 @@ export default function AuthCallbackPage() {
       if (type) onboardingParams.set('type', type);
       if (returnTo) onboardingParams.set('returnTo', returnTo);
       if (isCash === '1') onboardingParams.set('cash', '1');
+      if (mode === 'express') onboardingParams.set('mode', 'express');
       const onboardingUrl = `/onboarding${onboardingParams.size ? `?${onboardingParams}` : ''}`;
       router.replace(onboardingUrl);
     }

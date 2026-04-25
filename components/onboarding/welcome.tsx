@@ -6,6 +6,10 @@ import { useUser } from '@clerk/nextjs';
 interface WelcomeProps {
   onNext: () => void;
   userType?: 'rider' | 'driver';
+  // hideGovName=true is the express path: drivers skip first/last on the
+  // step. Stripe still needs them at payout-setup time, so they're surfaced
+  // there + in the Pre-Ride To-Do — not removed from the schema.
+  hideGovName?: boolean;
   data: {
     firstName: string;
     lastName: string;
@@ -19,7 +23,7 @@ interface WelcomeProps {
   onChange: (data: Partial<WelcomeProps['data']>) => void;
 }
 
-export function Welcome({ onNext, userType = 'rider', data, onChange }: WelcomeProps) {
+export function Welcome({ onNext, userType = 'rider', hideGovName = false, data, onChange }: WelcomeProps) {
   const otherRole = userType === 'driver' ? 'riders' : 'drivers';
   const isDriver = userType === 'driver';
   const { user } = useUser();
@@ -71,8 +75,8 @@ export function Welcome({ onNext, userType = 'rider', data, onChange }: WelcomeP
 
   return (
     <div className="space-y-6">
-      {/* Privacy notice for drivers */}
-      {isDriver && (
+      {/* Privacy notice for drivers — only when collecting govt name on this step */}
+      {isDriver && !hideGovName && (
         <div className="rounded-xl bg-zinc-900 border border-zinc-700 p-4">
           <div className="flex gap-3">
             <span className="text-xl mt-0.5">{'\uD83D\uDD12'}</span>
@@ -85,34 +89,36 @@ export function Welcome({ onNext, userType = 'rider', data, onChange }: WelcomeP
       )}
 
       {/* Govt Name */}
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-semibold text-white mb-2">
-            First Name {isDriver ? '(Government)' : ''} <span className="text-red-400">*</span>
-          </label>
-          <input
-            type="text"
-            value={data.firstName}
-            onChange={(e) => handleFirstNameChange(e.target.value)}
-            placeholder={isDriver ? 'Govt First Name' : 'First Name'}
-            className="w-full rounded-xl border border-zinc-600 bg-zinc-900 px-4 py-3 text-lg text-white placeholder:text-zinc-500 focus:border-[#00E676] focus:outline-none focus:ring-2 focus:ring-[#00E676]/20"
-            autoFocus
-          />
-        </div>
+      {!hideGovName && (
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-semibold text-white mb-2">
+              First Name {isDriver ? '(Government)' : ''} <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="text"
+              value={data.firstName}
+              onChange={(e) => handleFirstNameChange(e.target.value)}
+              placeholder={isDriver ? 'Govt First Name' : 'First Name'}
+              className="w-full rounded-xl border border-zinc-600 bg-zinc-900 px-4 py-3 text-lg text-white placeholder:text-zinc-500 focus:border-[#00E676] focus:outline-none focus:ring-2 focus:ring-[#00E676]/20"
+              autoFocus
+            />
+          </div>
 
-        <div>
-          <label className="block text-sm font-semibold text-white mb-2">
-            Last Name {isDriver ? '(Government)' : ''} <span className="text-red-400">*</span>
-          </label>
-          <input
-            type="text"
-            value={data.lastName}
-            onChange={(e) => onChange({ lastName: e.target.value })}
-            placeholder={isDriver ? 'Govt Last Name' : 'Last Name'}
-            className="w-full rounded-xl border border-zinc-600 bg-zinc-900 px-4 py-3 text-lg text-white placeholder:text-zinc-500 focus:border-[#00E676] focus:outline-none focus:ring-2 focus:ring-[#00E676]/20"
-          />
+          <div>
+            <label className="block text-sm font-semibold text-white mb-2">
+              Last Name {isDriver ? '(Government)' : ''} <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="text"
+              value={data.lastName}
+              onChange={(e) => onChange({ lastName: e.target.value })}
+              placeholder={isDriver ? 'Govt Last Name' : 'Last Name'}
+              className="w-full rounded-xl border border-zinc-600 bg-zinc-900 px-4 py-3 text-lg text-white placeholder:text-zinc-500 focus:border-[#00E676] focus:outline-none focus:ring-2 focus:ring-[#00E676]/20"
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Phone — from Clerk auth, read-only */}
       {data.phone && (

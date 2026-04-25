@@ -65,6 +65,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/markets', label: 'Markets', icon: '🌎' },
       { href: '/admin/feature-flags', label: 'Feature Flags', icon: '🚩' },
       { href: '/admin/hmu-config', label: 'HMU Config', icon: '📣' },
+      { href: '/admin/onboarding-config', label: 'Onboarding Config', icon: '🛂' },
       { href: '/admin/maintenance', label: 'Maintenance', icon: '🚧' },
       { href: '/admin/audit', label: 'Audit Log', icon: '📋', permission: 'admin.audit' },
     ],

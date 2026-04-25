@@ -29,7 +29,7 @@ export async function getActivationProgress(userId: string): Promise<ActivationP
   const rows = await sql`
     SELECT
       thumbnail_url, video_url, pricing, schedule, vehicle_info, area_slugs,
-      payout_setup_complete, cash_only
+      payout_setup_complete, cash_only, first_name, last_name
     FROM driver_profiles
     WHERE user_id = ${userId}
     LIMIT 1
@@ -43,7 +43,15 @@ export async function getActivationProgress(userId: string): Promise<ActivationP
     area_slugs: string[] | null;
     payout_setup_complete: boolean | null;
     cash_only: boolean | null;
+    first_name: string | null;
+    last_name: string | null;
   } | undefined;
+
+  // Pull license plate out of vehicle_info JSON — it lives there in both the
+  // legacy and express paths so we have one place to read.
+  const vi = (p?.vehicle_info as Record<string, unknown> | null) ?? null;
+  const hasPlate = !!(vi && typeof vi.license_plate === 'string' && (vi.license_plate as string).trim());
+  const hasGovName = !!(p?.first_name && p?.last_name);
 
   // Items are ordered by priority: the things most likely to get a driver
   // matched at top. Per-item route is what the dashboard card links to.
@@ -89,6 +97,20 @@ export async function getActivationProgress(userId: string): Promise<ActivationP
       cta: 'Add vehicle',
       route: '/driver/profile?focus=vehicle',
       done: isNonEmptyObject(p?.vehicle_info),
+    },
+    {
+      key: 'license_plate',
+      label: 'License plate',
+      cta: 'Add plate',
+      route: '/driver/profile?focus=vehicle',
+      done: hasPlate,
+    },
+    {
+      key: 'gov_name',
+      label: 'Verify your name',
+      cta: 'Add legal name',
+      route: '/driver/payout-setup',
+      done: hasGovName,
     },
   ];
 
