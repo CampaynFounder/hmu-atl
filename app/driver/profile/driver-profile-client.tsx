@@ -92,6 +92,63 @@ const DAY_LABELS: Record<string, string> = {
   friday: 'Fri', saturday: 'Sat', sunday: 'Sun',
 };
 
+// Collapsible section. Each section persists its open/closed state per
+// id under localStorage 'dp_section_<id>'. The activation checklist
+// deep-links via /driver/profile?focus=<id> — that section auto-opens
+// and scrolls into view on mount, regardless of stored state.
+function Section({
+  id,
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  id: string;
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const focus = params.get('focus');
+    if (focus === id) {
+      setOpen(true);
+      const el = document.getElementById(`dp-section-${id}`);
+      if (el) {
+        // Wait one tick so the section body has unhidden before we scroll.
+        setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+      }
+      return;
+    }
+    try {
+      const stored = window.localStorage.getItem(`dp_section_${id}`);
+      if (stored === '0') setOpen(false);
+      else if (stored === '1') setOpen(true);
+    } catch { /* localStorage may be blocked */ }
+  }, [id]);
+
+  function toggle() {
+    setOpen((prev) => {
+      const next = !prev;
+      try { window.localStorage.setItem(`dp_section_${id}`, next ? '1' : '0'); } catch { /* */ }
+      return next;
+    });
+  }
+
+  return (
+    <section id={`dp-section-${id}`} className={`dp-section ${open ? 'is-open' : 'is-closed'}`}>
+      <button type="button" className="dp-section-header" onClick={toggle} aria-expanded={open} aria-controls={`dp-section-body-${id}`}>
+        <span className="dp-section-title">{title}</span>
+        <span className="dp-section-chevron" aria-hidden="true">▾</span>
+      </button>
+      <div id={`dp-section-body-${id}`} className="dp-section-body" hidden={!open}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
 export default function DriverProfileClient({ profile, user, payout, subscription, market, marketAreas }: Props) {
   const [data, setData] = useState(profile);
   const [saving, setSaving] = useState(false);
@@ -138,6 +195,8 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
         if ('pricing' in patch) apiPatch.pricing = patch.pricing;
         if ('schedule' in patch) apiPatch.schedule = patch.schedule;
         if ('lgbtqFriendly' in patch) apiPatch.lgbtq_friendly = patch.lgbtqFriendly;
+        if ('gender' in patch) apiPatch.gender = patch.gender;
+        if ('pronouns' in patch) apiPatch.pronouns = patch.pronouns;
 
         res = await fetch('/api/users/profile', {
           method: 'PATCH',
@@ -245,8 +304,32 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
         .dp-stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; flex: 1; text-align: center; }
         .dp-stat-val { font-family: var(--font-display, 'Bebas Neue', sans-serif); font-size: 28px; color: var(--green); }
         .dp-stat-label { font-size: 11px; color: var(--gray); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
-        .dp-section { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 20px; margin-bottom: 16px; }
-        .dp-section-title { font-family: var(--font-mono, 'Space Mono', monospace); font-size: 10px; color: var(--gray); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 14px; }
+        .dp-section { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 18px 20px; margin-bottom: 14px; }
+        .dp-section-header {
+          display: flex; align-items: center; justify-content: space-between;
+          width: 100%; background: transparent; border: none; padding: 0;
+          cursor: pointer; color: #fff; text-align: left; gap: 12px;
+          font-family: inherit;
+        }
+        .dp-section-header:focus-visible { outline: 2px solid var(--green); outline-offset: 4px; border-radius: 4px; }
+        .dp-section-title {
+          font-family: var(--font-display, 'Bebas Neue', sans-serif);
+          font-size: 22px;
+          color: #fff;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          line-height: 1;
+          flex: 1;
+        }
+        .dp-section-chevron {
+          color: var(--green); font-size: 14px; transition: transform 0.2s ease;
+          display: inline-flex; align-items: center; justify-content: center;
+          width: 28px; height: 28px; border-radius: 999px;
+          background: rgba(0,230,118,0.08);
+        }
+        .dp-section.is-closed .dp-section-chevron { transform: rotate(-90deg); }
+        .dp-section.is-open .dp-section-body { margin-top: 14px; }
+        .dp-section-body[hidden] { display: none; }
         .dp-row { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
         .dp-row:last-child { border-bottom: none; }
         .dp-row-left { flex: 1; padding-right: 12px; }
@@ -344,10 +427,9 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
         </div>
 
         {/* Share Link */}
-        <div className="dp-section">
-          <div className="dp-section-title">Your HMU Link</div>
+        <Section id="hmu-link" title="Your HMU Link">
           <div className="link-pill">{shareUrl}</div>
-        </div>
+        </Section>
 
         {/* Payout */}
         <PayoutSection
@@ -363,8 +445,7 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
 
         {/* HMU First Subscription */}
         {user.tier === 'hmu_first' && (
-          <div className="dp-section">
-            <div className="dp-section-title">HMU First Subscription</div>
+          <Section id="subscription" title="HMU First Subscription">
             <div className="dp-row">
               <div className="dp-row-left">
                 <div className="dp-row-label">Status</div>
@@ -387,12 +468,11 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
                 </div>
               </div>
             )}
-          </div>
+          </Section>
         )}
 
         {/* Booking Settings */}
-        <div className="dp-section">
-          <div className="dp-section-title">Booking Settings</div>
+        <Section id="booking" title="Booking Settings">
 
           <div className="dp-row">
             <div className="dp-row-left">
@@ -562,14 +642,13 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
           </div>
 
           <div className="save-status">{saving ? 'Saving...' : saved}</div>
-        </div>
+        </Section>
 
         {/* Safety Check-ins — user-configurable opt-out + interval */}
         <SafetySettings />
 
         {/* Visibility */}
-        <div className="dp-section">
-          <div className="dp-section-title">Visibility</div>
+        <Section id="visibility" title="Visibility">
 
           <div className="dp-row">
             <div className="dp-row-left">
@@ -596,11 +675,10 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               <div className="toggle-thumb" />
             </button>
           </div>
-        </div>
+        </Section>
 
         {/* Pricing */}
-        <div className="dp-section">
-          <div className="dp-section-title">Pricing</div>
+        <Section id="pricing" title="Pricing">
           <div className="dp-row">
             <div className="dp-row-left">
               <div className="dp-row-label">Minimum ride</div>
@@ -630,11 +708,10 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             <input type="number" className="price-input" defaultValue={Number(data.pricing.out_of_town ?? 0)} onBlur={(e) => updatePricing('out_of_town', e.target.value)} placeholder="$" />
           </div>
           <div className="save-status">{saving ? 'Saving...' : saved}</div>
-        </div>
+        </Section>
 
         {/* Areas */}
-        <div className="dp-section">
-          <div className="dp-section-title">Areas You Serve — {market.name}</div>
+        <Section id="areas" title={`Areas You Serve — ${market.name}`}>
           <div className="dp-row-sub" style={{ marginBottom: '12px' }}>
             Tap to toggle. Riders pick from the same list — you&apos;ll get matched when there&apos;s overlap.
           </div>
@@ -691,11 +768,10 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               })}
             </div>
           )}
-        </div>
+        </Section>
 
         {/* Schedule */}
-        <div className="dp-section">
-          <div className="dp-section-title">Availability</div>
+        <Section id="availability" title="Availability">
           <div className="dp-row-sub" style={{ marginBottom: '12px' }}>Days you&apos;re available — shows on your HMU link</div>
           <div className="day-grid">
             {DAYS.map((day) => {
@@ -708,11 +784,10 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               );
             })}
           </div>
-        </div>
+        </Section>
 
         {/* Video Intro */}
-        <div className="dp-section">
-          <div className="dp-section-title">Video Intro</div>
+        <Section id="video" title="Video Intro">
           <p className="dp-row-sub" style={{ marginBottom: '14px' }}>
             Plays on your HMU link so riders know who&apos;s pulling up
           </p>
@@ -782,11 +857,10 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               )}
             </div>
           )}
-        </div>
+        </Section>
 
         {/* Vibe on File */}
-        <div className="dp-section">
-          <div className="dp-section-title">Vibe on File</div>
+        <Section id="vibe" title="Vibe on File" defaultOpen={false}>
           <p className="dp-row-sub" style={{ marginBottom: '14px' }}>
             Quick selfie video so riders know your vibe. Shows a &quot;Vibe on File&quot; badge on your card.
           </p>
@@ -842,11 +916,10 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               )}
             </div>
           )}
-        </div>
+        </Section>
 
         {/* Cover Photo / Ad */}
-        <div className="dp-section">
-          <div className="dp-section-title">Cover Photo / Ad</div>
+        <Section id="photo" title="Cover Photo / Ad">
           <p className="dp-row-sub" style={{ marginBottom: '14px' }}>
             Shows on your HMU link — use a vehicle photo, promo flyer, or ad
           </p>
@@ -893,11 +966,10 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             onChange={handlePhotoUpload}
             style={{ display: 'none' }}
           />
-        </div>
+        </Section>
 
         {/* Phone Number — required for booking notifications */}
-        <div className="dp-section">
-          <div className="dp-section-title">Phone Number</div>
+        <Section id="phone" title="Phone Number">
           {!data.phone && (
             <div style={{
               background: 'rgba(255,82,82,0.1)', border: '1px solid rgba(255,82,82,0.25)',
@@ -945,11 +1017,10 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               <span>&#10003;</span> Booking notifications will be sent here
             </div>
           )}
-        </div>
+        </Section>
 
         {/* License Plate */}
-        <div className="dp-section">
-          <div className="dp-section-title">License Plate</div>
+        <Section id="vehicle" title="License Plate">
           <div style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
             Riders see this when you&apos;re close. Update anytime if you switch cars.
           </div>
@@ -999,11 +1070,10 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               ))}
             </select>
           </div>
-        </div>
+        </Section>
 
         {/* Display Identity */}
-        <div className="dp-section">
-          <div className="dp-section-title">Public Identity</div>
+        <Section id="identity" title="Public Identity">
           <div className="dp-row-sub" style={{ marginBottom: '12px' }}>What riders see on your profile and HMU link</div>
           <div className="dp-row">
             <div className="dp-row-left">
@@ -1016,25 +1086,75 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             <div className="dp-row-left"><div className="dp-row-label">Handle</div></div>
             <div className="dp-row-value">@{data.handle}</div>
           </div>
-        </div>
+        </Section>
 
         {/* Legal Identity */}
-        <div className="dp-section">
-          <div className="dp-section-title">Legal Identity</div>
+        <Section id="legal" title="Legal Identity">
           <div className="dp-row-sub" style={{ marginBottom: '12px' }}>Private — used for Stripe verification &amp; payouts only. Riders never see this.</div>
           <div className="dp-row">
             <div className="dp-row-left"><div className="dp-row-label">Legal Name</div></div>
-            <div className="dp-row-value">{data.firstName} {data.lastName}</div>
+            <div className="dp-row-value">
+              {data.firstName || data.lastName
+                ? `${data.firstName} ${data.lastName}`
+                : <Link href="/driver/payout-setup" style={{ color: '#00E676', textDecoration: 'none' }}>Add at payout setup &rarr;</Link>}
+            </div>
           </div>
-          <div className="dp-row">
-            <div className="dp-row-left"><div className="dp-row-label">Gender</div></div>
-            <div className="dp-row-value">{data.gender || '\u2014'}</div>
+
+          <div className="dp-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
+            <div className="dp-row-left" style={{ width: '100%', padding: 0 }}>
+              <div className="dp-row-label">Gender</div>
+              <div className="dp-row-sub">Helps riders match with drivers they feel comfortable with</div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {[
+                { v: 'woman', l: 'Woman', i: '\u2640\ufe0f' },
+                { v: 'man', l: 'Man', i: '\u2642\ufe0f' },
+                { v: 'non-binary', l: 'Non-binary', i: '\u26a7\ufe0f' },
+                { v: 'prefer-not-to-say', l: 'Prefer not to say', i: '\ud83d\udc64' },
+              ].map(opt => {
+                const active = data.gender === opt.v;
+                return (
+                  <button
+                    key={opt.v}
+                    type="button"
+                    onClick={() => update({ gender: opt.v })}
+                    className={`area-chip${active ? ' selected' : ''}`}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', justifyContent: 'flex-start' }}
+                  >
+                    <span style={{ fontSize: 18 }}>{opt.i}</span>
+                    <span>{opt.l}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div className="dp-row">
-            <div className="dp-row-left"><div className="dp-row-label">Pronouns</div></div>
-            <div className="dp-row-value">{data.pronouns || '\u2014'}</div>
+
+          <div className="dp-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
+            <div className="dp-row-left" style={{ width: '100%', padding: 0 }}>
+              <div className="dp-row-label">Pronouns</div>
+              <div className="dp-row-sub">Free text \u2014 e.g. she/her, he/him, they/them</div>
+            </div>
+            <input
+              type="text"
+              value={data.pronouns}
+              onChange={(e) => setData(d => ({ ...d, pronouns: e.target.value }))}
+              onBlur={(e) => { if (e.target.value !== profile.pronouns) update({ pronouns: e.target.value }); }}
+              placeholder="she/her"
+              style={{
+                width: '100%',
+                background: '#1a1a1a',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 12,
+                padding: '12px 14px',
+                color: '#fff',
+                fontSize: 16,
+                outline: 'none',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            />
           </div>
-        </div>
+          <div className="save-status">{saving ? 'Saving...' : saved}</div>
+        </Section>
       </div>
 
       {/* Save toast */}
@@ -1080,8 +1200,7 @@ function PaymentMethodSection() {
   };
 
   return (
-    <div className="dp-section">
-      <div className="dp-section-title">Payment Method</div>
+    <Section id="payment" title="Payment Method">
 
       {loading ? (
         <div style={{ fontSize: 13, color: '#888', padding: '12px 0' }}>Checking...</div>
@@ -1136,6 +1255,6 @@ function PaymentMethodSection() {
           )}
         </>
       )}
-    </div>
+    </Section>
   );
 }
