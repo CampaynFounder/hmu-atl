@@ -39,7 +39,7 @@ export function UserManagement() {
       if (typeFilter) params.set('type', typeFilter);
       if (statusFilter) params.set('status', statusFilter);
       if (selectedMarketId) params.set('marketId', selectedMarketId);
-      if (visibilityFilter && typeFilter === 'driver') params.set('visibility', visibilityFilter);
+      if (visibilityFilter) params.set('visibility', visibilityFilter);
 
       const res = await fetch(`/api/admin/users?${params}`);
       if (res.ok) {
@@ -58,6 +58,27 @@ export function UserManagement() {
   useEffect(() => {
     if (tab === 'search') fetchUsers();
   }, [fetchUsers, tab]);
+
+  // Optimistic toggle of profile_visible. Reverts on API failure so the UI
+  // never lies about the persisted state.
+  const toggleVisibility = useCallback(async (id: string, next: boolean) => {
+    setUsers(prev => prev.map(u => (u.id === id ? { ...u, profileVisible: next } : u)));
+    try {
+      const res = await fetch(`/api/admin/users/${id}/visibility`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visible: next }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        console.error('Visibility toggle failed:', res.status, body);
+        setUsers(prev => prev.map(u => (u.id === id ? { ...u, profileVisible: !next } : u)));
+      }
+    } catch (err) {
+      console.error('Visibility toggle threw:', err);
+      setUsers(prev => prev.map(u => (u.id === id ? { ...u, profileVisible: !next } : u)));
+    }
+  }, []);
 
   if (selectedUserId) {
     return (
@@ -161,9 +182,7 @@ export function UserManagement() {
                     <th className="text-left p-3 font-medium">Name</th>
                     <th className="text-left p-3 font-medium">Type</th>
                     <th className="text-left p-3 font-medium">Status</th>
-                    {typeFilter === 'driver' && (
-                      <th className="text-left p-3 font-medium">Visible</th>
-                    )}
+                    <th className="text-left p-3 font-medium">Visible</th>
                     <th className="text-left p-3 font-medium">Tier</th>
                     <th className="text-right p-3 font-medium">Rides</th>
                     <th className="text-right p-3 font-medium">Disputes</th>
@@ -173,11 +192,11 @@ export function UserManagement() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={typeFilter === 'driver' ? 8 : 7} className="p-8 text-center text-neutral-500">Searching...</td>
+                      <td colSpan={8} className="p-8 text-center text-neutral-500">Searching...</td>
                     </tr>
                   ) : users.length === 0 ? (
                     <tr>
-                      <td colSpan={typeFilter === 'driver' ? 8 : 7} className="p-8 text-center text-neutral-500">No users found</td>
+                      <td colSpan={8} className="p-8 text-center text-neutral-500">No users found</td>
                     </tr>
                   ) : (
                     users.map((user) => (
@@ -209,17 +228,29 @@ export function UserManagement() {
                             {user.accountStatus}
                           </span>
                         </td>
-                        {typeFilter === 'driver' && (
-                          <td className="p-3">
-                            {user.profileVisible === false ? (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-700/40 text-neutral-400">Hidden</span>
-                            ) : user.profileVisible === true ? (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-500/20 text-green-400">Visible</span>
-                            ) : (
-                              <span className="text-[10px] text-neutral-600">—</span>
-                            )}
-                          </td>
-                        )}
+                        <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                          {user.profileVisible === null ? (
+                            <span className="text-[10px] text-neutral-600" title="No driver/rider profile yet">—</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => toggleVisibility(user.id, !user.profileVisible)}
+                              title={user.profileVisible ? 'Visible — tap to hide from feeds' : 'Hidden — tap to show'}
+                              className={`flex items-center gap-1.5 px-2 py-1 rounded-full border transition-colors ${
+                                user.profileVisible
+                                  ? 'bg-green-500/15 border-green-500/30 text-green-400 hover:bg-green-500/25'
+                                  : 'bg-neutral-800 border-neutral-700 text-neutral-400 hover:bg-neutral-700'
+                              }`}
+                            >
+                              <span className="text-sm leading-none" aria-hidden="true">
+                                {user.profileVisible ? '👁' : '🚫'}
+                              </span>
+                              <span className="text-[10px] font-medium">
+                                {user.profileVisible ? 'Visible' : 'Hidden'}
+                              </span>
+                            </button>
+                          )}
+                        </td>
                         <td className="p-3">
                           <span className={`text-[10px] ${user.tier === 'hmu_first' ? 'text-blue-400' : 'text-neutral-500'}`}>
                             {user.tier === 'hmu_first' ? 'HMU First' : 'Free'}

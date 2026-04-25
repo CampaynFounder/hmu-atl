@@ -50,6 +50,7 @@ export async function queryMaskedRiders(
     JOIN rider_profiles rp ON rp.user_id = u.id
     WHERE u.profile_type = 'rider'
       AND u.account_status = 'active'
+      AND rp.profile_visible = true
       AND u.id <> ${driver.id}
       AND (${driver.marketId}::uuid IS NULL OR u.market_id = ${driver.marketId}::uuid)
       AND NOT EXISTS (
