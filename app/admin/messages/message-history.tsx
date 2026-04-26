@@ -54,11 +54,27 @@ export function MessageHistory() {
   const [drillLoading, setDrillLoading] = useState(false);
   const [retrying, setRetrying] = useState<Record<string, 'sending' | 'sent' | 'failed'>>({});
   const [threadsCollapsed, setThreadsCollapsed] = useState(false);
+  const [threadSearch, setThreadSearch] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { selectedMarketId } = useMarket();
   const mq = selectedMarketId ? `&marketId=${selectedMarketId}` : '';
 
   const totalUnread = threads.reduce((sum, t) => sum + t.unreadCount, 0);
+
+  // Match either digits-of-phone (so "(404) 555" works the same as "404555")
+  // or a substring of the resolved name. Empty query returns all threads.
+  const filteredThreads = (() => {
+    const q = threadSearch.trim();
+    if (!q) return threads;
+    const digits = q.replace(/\D/g, '');
+    const lower = q.toLowerCase();
+    return threads.filter(t => {
+      const phoneDigits = (t.phone ?? '').replace(/\D/g, '');
+      if (digits && phoneDigits.includes(digits)) return true;
+      if (t.name && t.name.toLowerCase().includes(lower)) return true;
+      return false;
+    });
+  })();
 
   const markAllRead = async () => {
     const unreadPhones = threads.filter(t => t.unreadCount > 0).map(t => t.phone);
@@ -488,8 +504,37 @@ export function MessageHistory() {
               No message history yet. Send an SMS from Outreach or User Management to start a conversation.
             </div>
           ) : (
-            <div className="overflow-y-auto" style={{ maxHeight: 400 }}>
-              {threads.map((thread) => {
+            <>
+              <div className="px-4 py-2 border-b border-neutral-800 flex items-center gap-2">
+                <input
+                  type="search"
+                  inputMode="tel"
+                  value={threadSearch}
+                  onChange={(e) => setThreadSearch(e.target.value)}
+                  placeholder="Search by phone or name…"
+                  className="flex-1 bg-neutral-950 border border-neutral-800 rounded-full px-3 py-1.5 text-xs text-white placeholder:text-neutral-600 focus:outline-none focus:border-neutral-600"
+                />
+                {threadSearch && (
+                  <button
+                    onClick={() => setThreadSearch('')}
+                    className="text-[10px] text-neutral-500 hover:text-white px-2 py-1"
+                  >
+                    Clear
+                  </button>
+                )}
+                {threadSearch && (
+                  <span className="text-[10px] text-neutral-500 shrink-0">
+                    {filteredThreads.length} of {threads.length}
+                  </span>
+                )}
+              </div>
+              {filteredThreads.length === 0 ? (
+                <div className="p-8 text-center text-neutral-500 text-sm">
+                  No conversations match &quot;{threadSearch}&quot;.
+                </div>
+              ) : (
+                <div className="overflow-y-auto" style={{ maxHeight: 400 }}>
+                  {filteredThreads.map((thread) => {
                 const isUnread = thread.unreadCount > 0;
                 return (
                   <div
@@ -552,7 +597,9 @@ export function MessageHistory() {
                   </div>
                 );
               })}
-            </div>
+                </div>
+              )}
+            </>
           )
         )}
       </div>
