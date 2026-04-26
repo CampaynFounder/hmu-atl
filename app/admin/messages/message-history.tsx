@@ -61,17 +61,26 @@ export function MessageHistory() {
 
   const totalUnread = threads.reduce((sum, t) => sum + t.unreadCount, 0);
 
-  // Match either digits-of-phone (so "(404) 555" works the same as "404555")
-  // or a substring of the resolved name. Empty query returns all threads.
+  // Phone match is end-of-string only. People identify phones by their
+  // last digits ("ends in 1234"), and substring matching meant a search
+  // for "1234" pulled every number containing those digits anywhere.
+  // Country code differences are tolerated — both query and stored
+  // value are normalized to digits, then we suffix-match.
+  // Name match is case-insensitive substring, but only when the query
+  // contains at least one letter so a pure-digit phone search doesn't
+  // also surface names that happen to include those digits.
   const filteredThreads = (() => {
     const q = threadSearch.trim();
     if (!q) return threads;
     const digits = q.replace(/\D/g, '');
+    const hasLetters = /[a-zA-Z]/.test(q);
     const lower = q.toLowerCase();
     return threads.filter(t => {
-      const phoneDigits = (t.phone ?? '').replace(/\D/g, '');
-      if (digits && phoneDigits.includes(digits)) return true;
-      if (t.name && t.name.toLowerCase().includes(lower)) return true;
+      if (digits) {
+        const phoneDigits = (t.phone ?? '').replace(/\D/g, '');
+        if (phoneDigits.endsWith(digits)) return true;
+      }
+      if (hasLetters && t.name && t.name.toLowerCase().includes(lower)) return true;
       return false;
     });
   })();
