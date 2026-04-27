@@ -3,7 +3,11 @@
  * Handles: "now", "asap", "tomorrow 2pm", "next Friday", "this Sunday 3pm",
  * "Monday", "Saturday evening", "next week Tuesday", etc.
  *
- * All times resolved in Eastern Time (Atlanta) then stored as UTC ISO strings.
+ * Wall-clock times are interpreted in the caller-supplied IANA timezone
+ * (e.g. 'America/New_York' for ATL, 'America/Chicago' for NOLA) and stored
+ * as UTC ISO strings. Display strings echo back the time in that same zone
+ * with no TZ abbreviation — see feedback memory: rider/driver UI must not
+ * surface zone tokens.
  */
 
 const DEFAULT_TZ = 'America/New_York';
@@ -34,14 +38,12 @@ interface ParsedTime {
 }
 
 /**
- * Get current wall-clock time components in Eastern Time.
- * Returns { year, month (0-based), day, hour, minute, second, dayOfWeek }.
+ * Get current wall-clock time components in the given IANA timezone.
  */
-function nowInET(): { year: number; month: number; day: number; hour: number; minute: number; second: number; dayOfWeek: number } {
+function nowInTZ(tz: string): { year: number; month: number; day: number; hour: number; minute: number; second: number; dayOfWeek: number } {
   const now = new Date();
-  // Use Intl to get ET components
   const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: DEFAULT_TZ,
+    timeZone: tz,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
     hour12: false,
@@ -53,7 +55,7 @@ function nowInET(): { year: number; month: number; day: number; hour: number; mi
 
   return {
     year: parseInt(get('year')),
-    month: parseInt(get('month')) - 1, // 0-based
+    month: parseInt(get('month')) - 1,
     day: parseInt(get('day')),
     hour: parseInt(get('hour')),
     minute: parseInt(get('minute')),
@@ -63,134 +65,139 @@ function nowInET(): { year: number; month: number; day: number; hour: number; mi
 }
 
 /**
- * Convert a wall-clock time in Eastern to a UTC ISO string.
- * This handles EST/EDT automatically by round-tripping through Intl.
+ * Convert a wall-clock time in the given timezone to a UTC ISO string.
+ * Round-trips through Intl so DST is handled correctly.
  */
-function etToUTC(year: number, month: number, day: number, hour: number, minute: number): string {
-  // Build a date string that we can parse in ET context
-  // Use a trick: create a UTC date, then find the offset for that date in ET
+function wallToUTC(year: number, month: number, day: number, hour: number, minute: number, tz: string): string {
   const guess = new Date(Date.UTC(year, month, day, hour, minute, 0, 0));
 
-  // Get what ET thinks the time is for our guess
-  const etParts = new Intl.DateTimeFormat('en-US', {
-    timeZone: DEFAULT_TZ,
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hour12: false,
   }).formatToParts(guess);
 
-  const get = (type: string) => parseInt(etParts.find(p => p.type === type)?.value || '0');
-  const etHour = get('hour');
-  const etDay = get('day');
+  const get = (type: string) => parseInt(parts.find(p => p.type === type)?.value || '0');
+  const tzHour = get('hour');
+  const tzDay = get('day');
 
-  // Calculate the offset: how many hours ahead/behind UTC is ET for this date
-  // If we put hour=14 into UTC and ET reads it as 10, offset is -4 (EDT)
-  let hourDiff = etHour - hour;
-  let dayDiff = etDay - day;
-  if (dayDiff > 15) dayDiff -= 30; // month wrap
+  let hourDiff = tzHour - hour;
+  let dayDiff = tzDay - day;
+  if (dayDiff > 15) dayDiff -= 30;
   if (dayDiff < -15) dayDiff += 30;
   const totalOffsetHours = hourDiff + (dayDiff * 24);
 
-  // To store "9:30 AM ET" as UTC: subtract the offset
-  // If ET is UTC-4 (EDT), offset = -4, so UTC = 9:30 - (-4) = 13:30 UTC
   const utc = new Date(Date.UTC(year, month, day, hour - totalOffsetHours, minute, 0, 0));
   return utc.toISOString();
 }
 
 /**
- * Format a UTC ISO string for display in Eastern Time.
+ * Format a UTC ISO string for display in the given timezone.
+ * Drops the year when it matches the current year in that zone.
+ * Never emits a TZ abbreviation — single-market voice for the rider.
  */
-function formatDisplayET(isoUtc: string): string {
+function formatDisplay(isoUtc: string, tz: string): string {
   const d = new Date(isoUtc);
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: DEFAULT_TZ,
-    weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit', hour12: true,
-  });
-  // "Fri, Apr 11, 2026, 3:00 PM" → "Fri Apr 11, 2026 at 3:00 PM"
-  return fmt.format(d).replace(',', '').replace(/,\s*(\d)/, ' at $1');
+  const currentYear = nowInTZ(tz).year;
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).formatToParts(d);
+
+  const get = (type: string) => parts.find(p => p.type === type)?.value || '';
+  const weekday = get('weekday');
+  const month = get('month');
+  const day = get('day');
+  const year = parseInt(get('year'));
+  const hour = get('hour');
+  const minute = get('minute');
+  const dayPeriod = get('dayPeriod');
+
+  const datePart = year !== currentYear
+    ? `${weekday} ${month} ${day} ${year}`
+    : `${weekday} ${month} ${day}`;
+  return `${datePart} at ${hour}:${minute} ${dayPeriod}`;
 }
 
 /**
  * Parse a natural language time string to an ISO timestamp + display string.
  * Returns current time as fallback if unparseable.
+ *
+ * @param tz IANA timezone for wall-clock interpretation. Defaults to ET so
+ *           legacy callers (ATL-only) keep working unchanged.
  */
-export function parseNaturalTime(timeStr: string): ParsedTime {
+export function parseNaturalTime(timeStr: string, tz: string = DEFAULT_TZ): ParsedTime {
   if (!timeStr) return makeNow();
 
   const raw = timeStr.trim();
   const lower = raw.toLowerCase();
 
-  // ── Immediate ──
   if (lower === 'now' || lower === 'asap' || lower === 'rn') {
     return makeNow();
   }
 
-  const et = nowInET();
+  const tzNow = nowInTZ(tz);
 
   // ── Try ISO / standard date parse ──
-  // If the input looks like an ISO string or standard date format, parse it
-  // but interpret it as ET if it has no timezone indicator
   const directParse = new Date(raw);
   if (!isNaN(directParse.getTime()) && directParse.getTime() > Date.now() - 86400000) {
-    // Check if the raw string has a timezone indicator (Z, +, -)
     const hasTimezone = /[Zz]$|[+-]\d{2}:?\d{2}$/.test(raw.trim());
     if (hasTimezone) {
-      // Already has timezone — use as-is
-      return { iso: directParse.toISOString(), display: formatDisplayET(directParse.toISOString()), isNow: false };
+      return { iso: directParse.toISOString(), display: formatDisplay(directParse.toISOString(), tz), isNow: false };
     }
-    // No timezone — interpret as ET
-    // Extract the date components the parser found and re-resolve in ET
-    const parts = new Intl.DateTimeFormat('en-US', {
+    // No timezone in input — interpret as local wall-clock in target zone
+    const utcParts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', hour12: false,
     }).formatToParts(directParse);
-    const get = (type: string) => parseInt(parts.find(p => p.type === type)?.value || '0');
-    const iso = etToUTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'));
-    return { iso, display: formatDisplayET(iso), isNow: false };
+    const get = (type: string) => parseInt(utcParts.find(p => p.type === type)?.value || '0');
+    const iso = wallToUTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), tz);
+    return { iso, display: formatDisplay(iso, tz), isNow: false };
   }
 
-  // Working date components in ET
-  let year = et.year;
-  let month = et.month;
-  let day = et.day;
-  let hour = 12; // default noon
+  let year = tzNow.year;
+  let month = tzNow.month;
+  let day = tzNow.day;
+  let hour = 12;
   let minute = 0;
 
-  // ── "today" ──
   if (lower.startsWith('today')) {
-    applyTimeET(lower, { hour: et.hour, minute: et.minute }, (h, m) => { hour = h; minute = m; });
-    // Don't go backwards
-    if (hour < et.hour || (hour === et.hour && minute < et.minute)) {
-      hour = et.hour;
-      minute = et.minute;
+    applyTime(lower, { hour: tzNow.hour, minute: tzNow.minute }, (h, m) => { hour = h; minute = m; });
+    if (hour < tzNow.hour || (hour === tzNow.hour && minute < tzNow.minute)) {
+      hour = tzNow.hour;
+      minute = tzNow.minute;
     }
-    const iso = etToUTC(year, month, day, hour, minute);
-    return { iso, display: formatDisplayET(iso), isNow: false };
+    const iso = wallToUTC(year, month, day, hour, minute, tz);
+    return { iso, display: formatDisplay(iso, tz), isNow: false };
   }
 
-  // ── "tonight" ──
   if (lower === 'tonight') {
     hour = 20;
-    const iso = etToUTC(year, month, day, hour, 0);
-    return { iso, display: formatDisplayET(iso), isNow: false };
+    const iso = wallToUTC(year, month, day, hour, 0, tz);
+    return { iso, display: formatDisplay(iso, tz), isNow: false };
   }
 
-  // ── "tomorrow" ──
   if (lower.includes('tomorrow')) {
     const tomorrow = new Date(year, month, day + 1);
     year = tomorrow.getFullYear();
     month = tomorrow.getMonth();
     day = tomorrow.getDate();
-    applyTimeET(lower, { hour: 12, minute: 0 }, (h, m) => { hour = h; minute = m; });
-    const iso = etToUTC(year, month, day, hour, minute);
-    return { iso, display: formatDisplayET(iso), isNow: false };
+    applyTime(lower, { hour: 12, minute: 0 }, (h, m) => { hour = h; minute = m; });
+    const iso = wallToUTC(year, month, day, hour, minute, tz);
+    return { iso, display: formatDisplay(iso, tz), isNow: false };
   }
 
-  // ── Day-of-week: "Friday", "next Friday", "this Sunday", "next week Monday" ──
   const dayMatch = matchDayOfWeek(lower);
   if (dayMatch !== null) {
     const isNext = lower.includes('next');
-    const currentDay = et.dayOfWeek;
+    const currentDay = tzNow.dayOfWeek;
     let daysAhead = dayMatch - currentDay;
 
     if (isNext) {
@@ -204,12 +211,11 @@ export function parseNaturalTime(timeStr: string): ParsedTime {
     year = target.getFullYear();
     month = target.getMonth();
     day = target.getDate();
-    applyTimeET(lower, { hour: 12, minute: 0 }, (h, m) => { hour = h; minute = m; });
-    const iso = etToUTC(year, month, day, hour, minute);
-    return { iso, display: formatDisplayET(iso), isNow: false };
+    applyTime(lower, { hour: 12, minute: 0 }, (h, m) => { hour = h; minute = m; });
+    const iso = wallToUTC(year, month, day, hour, minute, tz);
+    return { iso, display: formatDisplay(iso, tz), isNow: false };
   }
 
-  // ── "in X hours/minutes/days" ──
   const inMatch = lower.match(/in\s+(\d+)\s*(hour|hr|minute|min|day)/i);
   if (inMatch) {
     const amount = parseInt(inMatch[1]);
@@ -220,25 +226,22 @@ export function parseNaturalTime(timeStr: string): ParsedTime {
     else if (unit.startsWith('min')) ms = amount * 60000;
     else if (unit.startsWith('day')) ms = amount * 86400000;
     const d = new Date(nowMs + ms);
-    return { iso: d.toISOString(), display: formatDisplayET(d.toISOString()), isNow: false };
+    return { iso: d.toISOString(), display: formatDisplay(d.toISOString(), tz), isNow: false };
   }
 
-  // ── "next week" (no specific day) ──
   if (lower.includes('next week')) {
     const target = new Date(year, month, day + 7);
     year = target.getFullYear();
     month = target.getMonth();
     day = target.getDate();
-    applyTimeET(lower, { hour: 12, minute: 0 }, (h, m) => { hour = h; minute = m; });
-    const iso = etToUTC(year, month, day, hour, minute);
-    return { iso, display: formatDisplayET(iso), isNow: false };
+    applyTime(lower, { hour: 12, minute: 0 }, (h, m) => { hour = h; minute = m; });
+    const iso = wallToUTC(year, month, day, hour, minute, tz);
+    return { iso, display: formatDisplay(iso, tz), isNow: false };
   }
 
-  // ── Fallback: return now ──
   return makeNow();
 }
 
-/** Find a day-of-week name in the string */
 function matchDayOfWeek(lower: string): number | null {
   const sorted = Object.entries(DAY_NAMES).sort((a, b) => b[0].length - a[0].length);
   for (const [name, num] of sorted) {
@@ -248,13 +251,11 @@ function matchDayOfWeek(lower: string): number | null {
   return null;
 }
 
-/** Extract time-of-day from the string and call the setter */
-function applyTimeET(
+function applyTime(
   lower: string,
   defaults: { hour: number; minute: number },
   set: (h: number, m: number) => void
 ): void {
-  // Check for explicit time like "2pm", "3:30am", "14:00"
   const hourMin = lower.match(/(\d{1,2}):(\d{2})\s*(am|pm|a|p)?/i);
   if (hourMin) {
     let hr = parseInt(hourMin[1]);
@@ -275,7 +276,6 @@ function applyTimeET(
     return;
   }
 
-  // Check for time-of-day words
   for (const [word, hour] of Object.entries(TIME_OF_DAY)) {
     if (lower.includes(word)) {
       set(hour, 0);
@@ -283,7 +283,6 @@ function applyTimeET(
     }
   }
 
-  // No time specified — use defaults
   set(defaults.hour, defaults.minute);
 }
 

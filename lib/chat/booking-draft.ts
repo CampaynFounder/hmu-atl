@@ -100,13 +100,19 @@ export function computeBookingWindow(
  *
  * Deterministic overrides:
  *  - timeIso/timeDisplay/isNow are always re-resolved from timeRaw via
- *    parseNaturalTime, so GPT can't hand us a stale or made-up ISO
+ *    parseNaturalTime in the driver's market timezone, so GPT can't hand us
+ *    a stale or made-up ISO and "5pm" parses correctly in CDT for NOLA, EDT
+ *    for ATL, etc.
  *  - route fields from calculate_route land in routeDistanceMi/routeDurationMin
  *  - riderPrice and driverMinimum are coerced to numbers
+ *
+ * @param tz IANA timezone for wall-clock interpretation. Defaults to ET so
+ *           legacy callers keep working unchanged.
  */
 export function mergeExtract(
   draft: BookingDraft,
-  extract: Record<string, unknown>
+  extract: Record<string, unknown>,
+  tz?: string,
 ): BookingDraft {
   const m: BookingDraft = { ...draft };
 
@@ -121,7 +127,7 @@ export function mergeExtract(
   }
   if (m.timeRaw) {
     try {
-      const parsed = parseNaturalTime(m.timeRaw);
+      const parsed = parseNaturalTime(m.timeRaw, tz);
       m.timeIso = parsed.iso;
       m.timeDisplay = parsed.display;
       m.isNow = parsed.isNow;

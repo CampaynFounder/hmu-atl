@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { checkDriverAvailability } from '@/lib/schedule/conflicts';
-import { parseNaturalTime } from '@/lib/schedule/parse-time';
+import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 import { logSuspectEvent } from '@/lib/admin/suspect-events';
 import {
@@ -131,6 +131,12 @@ export async function POST(req: NextRequest) {
     const pricing = (driver.pricing || {}) as Record<string, unknown>;
     const areas = Array.isArray(driver.areas) ? driver.areas : [];
 
+    // Resolve the driver's market timezone so "5pm" parses against the wall
+    // clock of the city the ride happens in (CDT for NOLA, EDT for ATL, etc).
+    // The rider never sees the zone token — display strings stay bare.
+    const driverMarket = await resolveMarketForUser(driverUserId);
+    const marketTz = driverMarket.timezone;
+
     // Admin kill-switch. Client has an SSR-rendered flag that prevents the chat
     // modal from opening in the first place, but we re-check server-side so a
     // stale client can't bypass the toggle. 200 with disabled:true is preferred
@@ -229,8 +235,9 @@ ${getStepInstructions(step, driver)}`;
             // hours + no conflict. GPT calling confirm_details is only a
             // SIGNAL that it thinks we're done — the server decides.
             const mergedForConfirm: BookingDraft = mergeExtract(
-              mergeExtract({ driverMinimum: Number(pricing.minimum) || undefined } as BookingDraft, (extractedSoFar || {}) as Record<string, unknown>),
-              args as Record<string, unknown>
+              mergeExtract({ driverMinimum: Number(pricing.minimum) || undefined } as BookingDraft, (extractedSoFar || {}) as Record<string, unknown>, marketTz),
+              args as Record<string, unknown>,
+              marketTz,
             );
 
             // Pre-seed isCash when the driver's config leaves no choice —
