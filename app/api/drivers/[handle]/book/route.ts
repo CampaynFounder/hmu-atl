@@ -18,6 +18,7 @@ import { logSuspectEvent } from '@/lib/admin/suspect-events';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { parseRoute, resolveProvidedSlugs } from '@/lib/markets/parse-areas';
+import { parseNaturalTime } from '@/lib/schedule/parse-time';
 
 // Cap total booking submissions per rider per hour. The structural
 // getActiveDirectBooking() check already prevents duplicate active bookings
@@ -206,6 +207,10 @@ export async function POST(
   }
 
   const market = await resolveMarketForUser(rider.id);
+  // Driver's market is the wall-clock anchor for the typed time. For most
+  // bookings this matches the rider's market; cross-market bookings still
+  // resolve "5pm" against where the ride actually happens.
+  const driverMarket = await resolveMarketForUser(driverUserId);
 
   // Prefer UI-picked slugs; fall back to parsing pickup/dropoff/destination
   // strings from the chat booking flow.
@@ -222,6 +227,23 @@ export async function POST(
     ? await resolveProvidedSlugs(market.market_id, body.pickup_area_slug, body.dropoff_area_slug)
     : await parseRoute(routeText, market.market_id);
 
+  // Server-side time resolution for the non-chat booking path. The chat flow
+  // already supplies resolvedTime + timeDisplay; this fills them in when the
+  // rider typed time directly into the drawer. Parser is keyed on the
+  // driver's market timezone so wall-clock matches where the ride happens.
+  const resolvedTimeWindow = { ...((timeWindow || {}) as Record<string, unknown>) };
+  const rawTime = typeof resolvedTimeWindow.time === 'string' ? resolvedTimeWindow.time.trim() : '';
+  if (rawTime && !resolvedTimeWindow.timeDisplay) {
+    try {
+      const parsed = parseNaturalTime(rawTime, driverMarket.timezone);
+      resolvedTimeWindow.resolvedTime = resolvedTimeWindow.resolvedTime || parsed.iso;
+      resolvedTimeWindow.timeDisplay = parsed.display;
+      resolvedTimeWindow.isNow = parsed.isNow;
+    } catch {
+      /* leave as raw text — drawer/SMS still render something */
+    }
+  }
+
   const post = await createDirectBookingPost({
     riderId: rider.id,
     driverUserId,
@@ -231,7 +253,7 @@ export async function POST(
     pickupAreaSlug: route.pickup_area_slug,
     dropoffAreaSlug: route.dropoff_area_slug,
     dropoffInMarket: route.dropoff_in_market,
-    timeWindow: timeWindow || {},
+    timeWindow: resolvedTimeWindow,
     isCash: resolvedIsCash,
   });
 
@@ -268,13 +290,14 @@ export async function POST(
     const riderName = (riderRow?.handle as string) || (riderRow?.display_name as string) || 'A rider';
 
     if (driverPhone) {
-      const tw = (timeWindow || {}) as Record<string, unknown>;
+      const tw = resolvedTimeWindow;
       const pickupRaw = (tw.pickup as string) || '';
       const dropoffRaw = (tw.dropoff as string) || '';
       const dest = pickupRaw && dropoffRaw
         ? `${stripAddress(pickupRaw)} > ${stripAddress(dropoffRaw)}`
         : stripAddress((tw.destination as string) || '');
-      const when = (tw.time as string) || '';
+      // Prefer market-tz display string; raw text only when parsing failed.
+      const when = (tw.timeDisplay as string) || (tw.time as string) || '';
 
       // Build cash ride suffix if applicable
       let cashSuffix = '';

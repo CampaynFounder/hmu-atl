@@ -10,6 +10,7 @@ import {
   resolveBookingWindow,
 } from '@/lib/schedule/conflicts';
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
+import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { generateRefCode } from '@/lib/rides/ref-code';
 
 export async function POST(
@@ -197,6 +198,10 @@ export async function POST(
     const waitRows = await sql`SELECT wait_minutes FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1`;
     const waitMinutes = Number((waitRows[0] as Record<string, unknown>)?.wait_minutes ?? 10);
 
+    // Driver's market timezone — only used as the fallback when the post was
+    // saved without a pre-computed timeDisplay (legacy data, edge cases).
+    const driverMarket = await resolveMarketForUser(driverUserId);
+
     // Update this post to matched
     await sql`UPDATE hmu_posts SET status = 'matched' WHERE id = ${postId}`;
 
@@ -226,7 +231,7 @@ export async function POST(
           dropoff: timeWindow.dropoff || '',
           time: timeWindow.time || 'ASAP',
           resolvedTime: timeWindow.resolvedTime || directWindow.startAt,
-          timeDisplay: timeWindow.timeDisplay || parseNaturalTime(String(timeWindow.time || '')).display,
+          timeDisplay: timeWindow.timeDisplay || parseNaturalTime(String(timeWindow.time || ''), driverMarket.timezone).display,
           stops: timeWindow.stops || 'none',
           roundTrip: timeWindow.round_trip === true,
           areas,

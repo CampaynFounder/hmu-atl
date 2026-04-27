@@ -12,25 +12,14 @@ interface SavedPaymentMethod {
   isDefault: boolean;
 }
 
-/** Format time string to short readable format: Mon 03/31/26 2:00PM */
-function formatTime(timeStr: string): string {
-  if (!timeStr) return '';
-  // If it's already short/natural (e.g. "now", "tomorrow 2pm"), keep it
-  if (timeStr.length < 20 && !timeStr.includes('T') && !timeStr.includes('2026')) return timeStr;
-  // Try parsing as date
-  const d = new Date(timeStr);
-  if (isNaN(d.getTime())) return timeStr;
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const day = days[d.getDay()];
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const yy = String(d.getFullYear()).slice(2);
-  let hr = d.getHours();
-  const ampm = hr >= 12 ? 'PM' : 'AM';
-  hr = hr % 12 || 12;
-  const min = d.getMinutes();
-  const minStr = min > 0 ? `:${String(min).padStart(2, '0')}` : '';
-  return `${day} ${mm}/${dd}/${yy} ${hr}${minStr}${ampm}`;
+/** Pick the best time string to seed the input with. Prefers the
+ *  server-computed display (already in the driver's market timezone) over
+ *  the raw text the rider typed. Falls back to the raw text when no
+ *  display string was provided (legacy chat draft, etc).
+ *  Never re-formats client-side — Date.getHours/getDate would render in
+ *  the runtime's local zone (UTC on the worker), not the market's. */
+function pickTimeDisplay(prefill?: { time?: string; timeDisplay?: string } | null): string {
+  return prefill?.timeDisplay || prefill?.time || '';
 }
 
 interface DriverData {
@@ -63,7 +52,7 @@ export default function BookingDrawer({ driver, open, onClose, prefill, isSigned
   const [areas, setAreas] = useState<string[]>(driver.areas.slice(0, 1));
   const [pickup, setPickup] = useState(prefill?.pickup || '');
   const [dropoff, setDropoff] = useState(prefill?.dropoff || '');
-  const [timeWindow, setTimeWindow] = useState(formatTime(prefill?.time || ''));
+  const [timeWindow, setTimeWindow] = useState(pickTimeDisplay(prefill));
 
   // Update fields when prefill data arrives
   useEffect(() => {
@@ -71,7 +60,7 @@ export default function BookingDrawer({ driver, open, onClose, prefill, isSigned
       if (prefill.price) setPrice(prefill.price);
       if (prefill.pickup) setPickup(prefill.pickup);
       if (prefill.dropoff) setDropoff(prefill.dropoff);
-      if (prefill.time) setTimeWindow(formatTime(prefill.time));
+      if (prefill.time || prefill.timeDisplay) setTimeWindow(pickTimeDisplay(prefill));
     }
   }, [prefill]);
   const [submitting, setSubmitting] = useState(false);
