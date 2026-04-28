@@ -65,7 +65,7 @@ export function RealtimeNotificationsClient() {
         const body = await res.json().catch(() => ({}));
         setToast(body.error || `Test failed (${res.status})`);
       } else {
-        setToast('Test event published — banner should pop up shortly');
+        setToast('Event published — banner should pop up shortly');
       }
     } catch {
       setToast('Network error');
