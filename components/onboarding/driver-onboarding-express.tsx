@@ -23,6 +23,8 @@ import {
   type PricingTier,
   pickDefaultTier,
   pricingFromTier,
+  scheduleFromDefault,
+  noticeHoursFromString,
 } from '@/lib/onboarding/config';
 
 interface Props {
@@ -433,13 +435,11 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
 
 async function saveExpress(data: FormData, config: DriverExpressConfig): Promise<void> {
   const pricing = pricingFromTier(data.pricingTier, config.stopsFee);
-  const schedule = {
-    days: config.scheduleDefault.days,
-    notice_required: config.scheduleDefault.noticeRequired,
-    start: config.scheduleDefault.start,
-    end: config.scheduleDefault.end,
-    wait_per_min: config.waitPerMin,
-  };
+  // Per-day { available } shape — matches what the driver profile + rider
+  // HMU calendar render. Without this conversion the days the admin set as
+  // defaults would never show as active in either UI.
+  const schedule = scheduleFromDefault(config.scheduleDefault);
+  const advanceNoticeHours = noticeHoursFromString(config.scheduleDefault.noticeRequired);
 
   let res: Response;
   try {
@@ -470,6 +470,7 @@ async function saveExpress(data: FormData, config: DriverExpressConfig): Promise
         plate_state: data.plateState || null,
         pricing,
         schedule,
+        advance_notice_hours: advanceNoticeHours,
         vehicle_info: {
           make: data.vehicleMake,
           model: data.vehicleModel,

@@ -90,14 +90,47 @@ export function pickDefaultTier(tiers: PricingTier[]): PricingTier {
   return tiers.find(t => t.default) ?? tiers[Math.floor(tiers.length / 2)] ?? tiers[0];
 }
 
+// Returns the canonical pricing-JSONB shape that the rest of the app reads:
+// driver profile UI, rider HMU share, booking endpoint, chat-booking, pending
+// actions. Keep these key names in sync with `app/driver/profile/driver-profile-client.tsx`
+// pricing inputs and `app/api/drivers/[handle]/book/route.ts` enforcement.
 export function pricingFromTier(tier: PricingTier, stopsFee: number) {
   return {
-    min_ride: tier.min,
-    rate_30min: tier.rate30,
-    rate_1hr: tier.rate1h,
-    rate_2hr: tier.rate2h,
-    rate_out_of_town_per_hr: tier.rate1h + 10,
+    minimum: tier.min,
+    base_rate: tier.rate30,
+    hourly: tier.rate1h,
+    two_hour: tier.rate2h,
+    out_of_town: tier.rate1h + 10,
     round_trip: false,
     stops_fee: stopsFee,
   };
+}
+
+const DAY_CODE_TO_NAME: Record<string, string> = {
+  mon: 'monday', tue: 'tuesday', wed: 'wednesday', thu: 'thursday',
+  fri: 'friday', sat: 'saturday', sun: 'sunday',
+};
+
+// Returns the canonical schedule-JSONB shape: per-day { available } objects
+// keyed by full day name, matching what the driver profile + rider HMU pages
+// read. The express config's short codes ('mon') and start/end/notice fields
+// are not consumed by any UI; they're flattened here.
+export function scheduleFromDefault(def: DriverExpressScheduleDefault): Record<string, { available: boolean }> {
+  const out: Record<string, { available: boolean }> = {};
+  for (const code of def.days) {
+    const name = DAY_CODE_TO_NAME[code];
+    if (name) out[name] = { available: true };
+  }
+  return out;
+}
+
+// Express config stores notice_required as a human string like '30min' or '1hr'.
+// The driver_profiles.advance_notice_hours column is numeric. Translate.
+export function noticeHoursFromString(notice: string): number {
+  const m = String(notice || '').trim().toLowerCase().match(/^(\d+(?:\.\d+)?)\s*(min|hr|h|hour|hours)?$/);
+  if (!m) return 0;
+  const n = parseFloat(m[1]);
+  if (!isFinite(n)) return 0;
+  const unit = m[2] || 'min';
+  return unit.startsWith('h') ? n : n / 60;
 }

@@ -109,7 +109,7 @@ export async function GET(
       } : null,
       pricing: {
         minimum: Number(pricing?.minimum ?? 0),
-        thirtyMin: Number(pricing?.['30min'] ?? 0),
+        thirtyMin: Number(pricing?.base_rate ?? 0),
         hourly: Number(pricing?.hourly ?? 0),
       },
       services: serviceRows.map((s: Record<string, unknown>) => ({

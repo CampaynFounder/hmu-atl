@@ -50,6 +50,7 @@ export async function POST(request: NextRequest) {
       areas,
       pricing,
       schedule,
+      advance_notice_hours,
       vehicle_info,
       license_plate,
       plate_state,
@@ -264,6 +265,13 @@ export async function POST(request: NextRequest) {
         // Save phone from Clerk auth
         if (phone) {
           await sql`UPDATE driver_profiles SET phone = ${phone} WHERE user_id = ${userId}`;
+        }
+
+        // advance_notice_hours is a top-level column (not in schedule JSONB)
+        // and createDriverProfile doesn't take it; patch it here so express
+        // onboarding's noticeRequired default lands in the right place.
+        if (advance_notice_hours !== undefined && advance_notice_hours !== null) {
+          await sql`UPDATE driver_profiles SET advance_notice_hours = ${Number(advance_notice_hours)} WHERE user_id = ${userId}`;
         }
 
         // Auto-enroll in active launch offer (snapshot terms at signup)
