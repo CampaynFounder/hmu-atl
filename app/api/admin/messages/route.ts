@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
+import { publishAdminEvent } from '@/lib/ably/server';
 
 async function resolveMarketSlug(marketId: string | null): Promise<string | null> {
   if (!marketId) return null;
@@ -102,10 +103,14 @@ export async function GET(req: NextRequest) {
     ]);
 
     // Mark inbound as read
-    await sql`
+    const updated = await sql`
       UPDATE sms_inbound SET read = true
       WHERE from_phone = ${normalized} AND read = false
-    `;
+      RETURNING id
+    ` as { id: string }[];
+    if (updated.length > 0) {
+      publishAdminEvent('message_read', { phone: normalized, count: updated.length }).catch(() => {});
+    }
 
     // Merge and sort
     const messages = [
@@ -267,10 +272,16 @@ export async function PATCH(req: NextRequest) {
   if (!phone) return NextResponse.json({ error: 'phone required' }, { status: 400 });
 
   if (phone === 'ALL') {
-    await sql`UPDATE sms_inbound SET read = true WHERE read = false`;
+    const updated = await sql`UPDATE sms_inbound SET read = true WHERE read = false RETURNING id` as { id: string }[];
+    if (updated.length > 0) {
+      publishAdminEvent('message_read', { phone: 'ALL', count: updated.length }).catch(() => {});
+    }
   } else {
     const normalized = phone.replace(/\D/g, '');
-    await sql`UPDATE sms_inbound SET read = true WHERE from_phone = ${normalized} AND read = false`;
+    const updated = await sql`UPDATE sms_inbound SET read = true WHERE from_phone = ${normalized} AND read = false RETURNING id` as { id: string }[];
+    if (updated.length > 0) {
+      publishAdminEvent('message_read', { phone: normalized, count: updated.length }).catch(() => {});
+    }
   }
 
   return NextResponse.json({ success: true });

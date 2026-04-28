@@ -74,16 +74,23 @@ async function logSms(
   voipmsStatus: string | null,
   error: string | null,
   retryCount: number,
-  options: SmsOptions
+  options: SmsOptions,
+  voipmsResponse: unknown = null,
+  voipmsHttpStatus: number | null = null,
 ): Promise<void> {
   try {
     await sql`
-      INSERT INTO sms_log (to_phone, from_did, message, status, voipms_status, error, retry_count, ride_id, user_id, event_type, market)
+      INSERT INTO sms_log (
+        to_phone, from_did, message, status, voipms_status, error, retry_count,
+        ride_id, user_id, event_type, market, voipms_response, voipms_http_status
+      )
       VALUES (
         ${to}, ${fromDid}, ${message}, ${status}, ${voipmsStatus},
         ${error}, ${retryCount},
         ${options.rideId || null}, ${options.userId || null},
-        ${options.eventType || null}, ${options.market || 'atl'}
+        ${options.eventType || null}, ${options.market || 'atl'},
+        ${voipmsResponse ? JSON.stringify(voipmsResponse) : null},
+        ${voipmsHttpStatus}
       )
     `;
   } catch (e) {
@@ -128,6 +135,8 @@ export async function sendSms(
   }
 
   let lastError = '';
+  let lastResponse: unknown = null;
+  let lastHttpStatus: number | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -141,21 +150,34 @@ export async function sendSms(
       });
 
       const res = await fetch(`${API_URL}?${params.toString()}`);
-      const data = await res.json() as { status: string };
+      lastHttpStatus = res.status;
 
-      if (data.status === 'success') {
+      // Read body as text first so we can persist whatever voip.ms sent,
+      // even if it's not valid JSON.
+      const rawText = await res.text();
+      let data: { status?: string; [k: string]: unknown };
+      try {
+        data = JSON.parse(rawText) as { status?: string; [k: string]: unknown };
+      } catch {
+        data = { status: 'invalid_json', raw: rawText.slice(0, 2000) };
+      }
+      lastResponse = data;
+
+      const apiStatus = typeof data.status === 'string' ? data.status : 'unknown';
+
+      if (apiStatus === 'success') {
         console.log('[SMS] Sent successfully to', dst);
-        logSms(dst, did, message, 'sent', 'success', null, attempt, options).catch(() => {});
+        logSms(dst, did, message, 'sent', 'success', null, attempt, options, data, lastHttpStatus).catch(() => {});
         return { success: true };
       }
 
-      lastError = `VoIP.ms: ${data.status}`;
-      console.error(`[SMS] Attempt ${attempt + 1} failed:`, data.status);
+      lastError = `VoIP.ms: ${apiStatus}`;
+      console.error(`[SMS] Attempt ${attempt + 1} failed:`, apiStatus, '| http:', lastHttpStatus, '| body:', rawText.slice(0, 200));
 
       // Don't retry on auth/config errors
-      if (['invalid_credentials', 'invalid_method', 'missing_did'].includes(data.status)) {
-        console.error('[SMS] Fatal error, not retrying:', data.status);
-        logSms(dst, did, message, 'failed', data.status, lastError, attempt, options).catch(() => {});
+      if (['invalid_credentials', 'invalid_method', 'missing_did'].includes(apiStatus)) {
+        console.error('[SMS] Fatal error, not retrying:', apiStatus);
+        logSms(dst, did, message, 'failed', apiStatus, lastError, attempt, options, data, lastHttpStatus).catch(() => {});
         return { success: false, error: lastError };
       }
 
@@ -165,6 +187,7 @@ export async function sendSms(
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : 'Network error';
+      lastResponse = { error: lastError, kind: 'network_or_parse_exception' };
       console.error(`[SMS] Attempt ${attempt + 1} error:`, lastError);
 
       if (attempt < MAX_RETRIES) {
@@ -174,7 +197,7 @@ export async function sendSms(
   }
 
   console.error('[SMS] All retries exhausted for', dst, '| Error:', lastError);
-  logSms(dst, did, message, 'failed', null, lastError, MAX_RETRIES, options).catch(() => {});
+  logSms(dst, did, message, 'failed', null, lastError, MAX_RETRIES, options, lastResponse, lastHttpStatus).catch(() => {});
   return { success: false, error: lastError };
 }
 

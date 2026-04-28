@@ -67,6 +67,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/hmu-config', label: 'HMU Config', icon: '📣' },
       { href: '/admin/onboarding-config', label: 'Onboarding Config', icon: '🛂' },
       { href: '/admin/maintenance', label: 'Maintenance', icon: '🚧' },
+      { href: '/admin/voip-debug', label: 'VoIP Debug', icon: '📡' },
       { href: '/admin/audit', label: 'Audit Log', icon: '📋', permission: 'admin.audit' },
     ],
   },
@@ -130,7 +131,12 @@ export function AdminSidebar() {
   useEffect(() => { fetchCounts(); }, [fetchCounts]);
 
   const handleAdminEvent = useCallback((msg: { name: string }) => {
-    if (msg.name === 'sms_inbound' || msg.name === 'action_item_created' || msg.name === 'action_item_resolved') {
+    if (
+      msg.name === 'sms_inbound' ||
+      msg.name === 'message_read' ||
+      msg.name === 'action_item_created' ||
+      msg.name === 'action_item_resolved'
+    ) {
       fetchCounts();
     }
     if (msg.name === 'safety_alert' || msg.name === 'safety_event_resolved') {
