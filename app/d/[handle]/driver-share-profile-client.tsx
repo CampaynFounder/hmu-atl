@@ -456,10 +456,7 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
             >
               <span style={{ fontSize: 16, lineHeight: 1 }}>{'⚠️'}</span>
               <div>
-                <strong style={{ color: '#FFE9A3' }}>New driver — verification in progress.</strong>{' '}
-                Legal name and plate not on file yet. {driver.completedRides > 0
-                  ? `${driver.completedRides} ride${driver.completedRides === 1 ? '' : 's'} completed so far.`
-                  : 'No rides completed yet.'}
+                <strong style={{ color: '#FFE9A3' }}>New Driver Verification in Progress</strong>
               </div>
             </div>
           )}
