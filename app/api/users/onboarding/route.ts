@@ -348,7 +348,13 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    publishAdminEvent('user_signup', { userId, profileType: profile_type, name: first_name }).catch(() => {});
+    // Express drivers defer first_name, so prefer display_name (the handle the
+    // rider sees) and fall back to first_name only when display_name is blank.
+    publishAdminEvent('user_signup', {
+      userId,
+      profileType: profile_type,
+      name: (display_name && String(display_name).trim()) || first_name || null,
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,

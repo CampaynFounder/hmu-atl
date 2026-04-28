@@ -8,6 +8,7 @@ import { SidebarProvider } from './components/sidebar-context';
 import { AdminThemeProvider } from './components/theme-context';
 import { AdminAuthProvider } from './components/admin-auth-context';
 import { SessionTimeout } from './components/session-timeout';
+import { RealtimeNotificationBanner } from './components/realtime-notification-banner';
 
 export const metadata = {
   title: 'HMU Admin',
@@ -49,6 +50,7 @@ export default async function AdminLayout({
               <AdminSidebar />
               <AdminMain>{children}</AdminMain>
               <SessionTimeout />
+              <RealtimeNotificationBanner />
             </div>
           </AdminThemeProvider>
         </SidebarProvider>

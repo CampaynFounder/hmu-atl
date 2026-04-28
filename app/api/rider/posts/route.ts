@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-import { publishToChannel } from '@/lib/ably/server';
+import { publishToChannel, publishAdminEvent } from '@/lib/ably/server';
 import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
 import { parseRoute, resolveProvidedSlugs } from '@/lib/markets/parse-areas';
 
@@ -122,6 +122,13 @@ export async function POST(req: NextRequest) {
     // Publish to market feed so driver feeds update in real-time
     publishToChannel(feedChannelForMarket(market.slug), 'rider_request', {
       postId, price, message,
+      pickup_area_slug: route.pickup_area_slug,
+      dropoff_area_slug: route.dropoff_area_slug,
+    }).catch(() => {});
+
+    // Mirror to admin:feed so super-admin banner notifications can light up.
+    publishAdminEvent('rider_request', {
+      postId, price, message, market: market.slug,
       pickup_area_slug: route.pickup_area_slug,
       dropoff_area_slug: route.dropoff_area_slug,
     }).catch(() => {});

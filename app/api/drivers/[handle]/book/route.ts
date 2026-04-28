@@ -6,7 +6,7 @@ import {
   createDirectBookingPost,
   getActiveDirectBooking,
 } from '@/lib/db/direct-bookings';
-import { notifyUser } from '@/lib/ably/server';
+import { notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyDriverNewBooking } from '@/lib/sms/textbee';
 import {
   checkDriverAvailability,
@@ -275,6 +275,16 @@ export async function POST(
   } catch (e) {
     console.error('Ably notify failed:', e);
   }
+
+  // Mirror to admin:feed so the super-admin banner can light up.
+  publishAdminEvent('direct_booking_created', {
+    postId: post.id,
+    price,
+    market: market.slug,
+    riderId: rider.id,
+    driverUserId,
+    driverHandle: handle,
+  }).catch(() => {});
 
   // SMS notification to driver — inline VoIP.ms call to bypass any env issues
   try {
