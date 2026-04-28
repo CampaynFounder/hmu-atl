@@ -45,6 +45,7 @@ export function MarketingDashboard() {
   // Recipients staged from a drill-in sheet elsewhere in /admin (e.g., Growth tab).
   // Loaded once on mount via consumeStagedRecipients() which also clears sessionStorage.
   const [stagedRecipients, setStagedRecipients] = useState<Recipient[]>([]);
+  const [stagedPhonesWithThread, setStagedPhonesWithThread] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState<SendResult[] | null>(null);
   const [summary, setSummary] = useState<{ sent: number; failed: number; total: number } | null>(null);
@@ -66,6 +67,31 @@ export function MarketingDashboard() {
       setInputMode('selected');
     }
   }, []);
+
+  // Prefetch which staged phones have existing SMS history so the Thread
+  // button shows a dot on rows that will deep-link vs start a fresh compose.
+  useEffect(() => {
+    const phones = stagedRecipients.map((r) => r.phone).filter(Boolean);
+    if (phones.length === 0) { setStagedPhonesWithThread(new Set()); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/messages/has-threads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phones }),
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json() as { withThreads?: string[] };
+        if (cancelled) return;
+        setStagedPhonesWithThread(new Set(data.withThreads ?? []));
+      } catch { /* dot stays off */ }
+    })();
+    return () => { cancelled = true; };
+  }, [stagedRecipients]);
+
+  const stagedHasThread = (phone: string): boolean =>
+    stagedPhonesWithThread.has(phone.replace(/\D/g, ''));
 
   const hasMessage = message.trim().length > 0;
   const hasLink = link.trim().length > 0;
@@ -277,14 +303,24 @@ export function MarketingDashboard() {
                         <span className="text-neutral-500 font-mono shrink-0">{r.phone}</span>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          onClick={() => openSelectedThreadOrCompose([r.phone])}
-                          disabled={openingThread}
-                          className="text-neutral-400 hover:text-blue-300 text-[11px] font-medium px-2 py-0.5 rounded border border-transparent hover:border-blue-500/30 disabled:opacity-50"
-                          title="Open thread or start one"
-                        >
-                          Thread
-                        </button>
+                        {(() => {
+                          const hasThread = stagedHasThread(r.phone);
+                          return (
+                            <button
+                              onClick={() => openSelectedThreadOrCompose([r.phone])}
+                              disabled={openingThread}
+                              className={`text-[11px] font-medium px-2 py-0.5 rounded border disabled:opacity-50 inline-flex items-center gap-1 ${
+                                hasThread
+                                  ? 'border-blue-400/50 text-blue-200 bg-blue-500/15 hover:bg-blue-500/25'
+                                  : 'border-transparent text-neutral-400 hover:text-blue-300 hover:border-blue-500/30'
+                              }`}
+                              title={hasThread ? 'Open existing thread' : 'Start a new thread'}
+                            >
+                              {hasThread && <span className="w-1.5 h-1.5 rounded-full bg-blue-300 shrink-0" aria-hidden />}
+                              Thread
+                            </button>
+                          );
+                        })()}
                         <button
                           onClick={() => removeStaged(r.phone)}
                           className="text-neutral-500 hover:text-red-400 text-sm px-1"

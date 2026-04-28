@@ -41,6 +41,10 @@ export function RecentSignups({ onPrefillCompose }: Props) {
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState(false);
+  // Phones (digits-only) with existing SMS history. Drives the "has thread"
+  // dot on the Thread button so admins can see at a glance which rows will
+  // jump into an existing conversation vs start a fresh compose.
+  const [phonesWithThread, setPhonesWithThread] = useState<Set<string>>(new Set());
 
   const saveDismissed = (ids: Set<string>) => {
     setDismissed(ids);
@@ -63,6 +67,36 @@ export function RecentSignups({ onPrefillCompose }: Props) {
   }, [days]);
 
   useEffect(() => { fetchSignups(); }, [fetchSignups]);
+
+  // Whenever the visible signup list changes, batch-check which of those
+  // phones have existing SMS history so we can light up the Thread button.
+  useEffect(() => {
+    const phones = signups.map((s) => s.phone).filter((p): p is string => !!p);
+    if (phones.length === 0) {
+      setPhonesWithThread(new Set());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/messages/has-threads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phones }),
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json() as { withThreads?: string[] };
+        if (cancelled) return;
+        setPhonesWithThread(new Set(data.withThreads ?? []));
+      } catch { /* leave the dot off — Thread click still works */ }
+    })();
+    return () => { cancelled = true; };
+  }, [signups]);
+
+  const phoneHasThread = (phone: string | null): boolean => {
+    if (!phone) return false;
+    return phonesWithThread.has(phone.replace(/\D/g, ''));
+  };
 
   // Filter out dismissed
   const visible = signups.filter(s => !dismissed.has(s.id));
@@ -332,16 +366,24 @@ export function RecentSignups({ onPrefillCompose }: Props) {
 
                     {/* Actions */}
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {signup.phone && (
-                        <button
-                          onClick={() => openThread([signup.phone!])}
-                          disabled={openingThread}
-                          className="text-xs font-medium px-2.5 py-1.5 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-300 hover:bg-blue-500/25 disabled:opacity-50"
-                          title="Open thread or start one"
-                        >
-                          Thread
-                        </button>
-                      )}
+                      {signup.phone && (() => {
+                        const hasThread = phoneHasThread(signup.phone);
+                        return (
+                          <button
+                            onClick={() => openThread([signup.phone!])}
+                            disabled={openingThread}
+                            className={`text-xs font-medium px-2.5 py-1.5 rounded-lg border disabled:opacity-50 inline-flex items-center gap-1.5 ${
+                              hasThread
+                                ? 'bg-blue-500/25 border-blue-400/50 text-blue-200 hover:bg-blue-500/35'
+                                : 'bg-blue-500/10 border-blue-500/20 text-blue-300/80 hover:bg-blue-500/20'
+                            }`}
+                            title={hasThread ? 'Open existing thread' : 'Start a new thread'}
+                          >
+                            {hasThread && <span className="w-1.5 h-1.5 rounded-full bg-blue-300 shrink-0" aria-hidden />}
+                            Thread
+                          </button>
+                        );
+                      })()}
                       {signup.phone && (
                         <button
                           onClick={() => sendSms(signup.phone!, signup.name)}

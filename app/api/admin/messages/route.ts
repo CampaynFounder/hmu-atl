@@ -131,13 +131,25 @@ export async function GET(req: NextRequest) {
       })),
     ].sort((a, b) => new Date(b.createdAt as string).getTime() - new Date(a.createdAt as string).getTime());
 
-    // Get user info for this phone
+    // Get user info for this phone. Drivers take priority over riders if a
+    // single phone number happens to be on both profiles (rare but legal).
     const userRows = await sql`
-      SELECT u.id, u.profile_type,
-        COALESCE(dp.display_name, dp.first_name) as name
-      FROM driver_profiles dp
-      JOIN users u ON u.id = dp.user_id
-      WHERE dp.phone = ${normalized} OR dp.phone = ${'+1' + normalized}
+      SELECT id, profile_type, name FROM (
+        SELECT u.id, u.profile_type,
+          COALESCE(dp.display_name, dp.first_name) as name,
+          1 as priority
+        FROM driver_profiles dp
+        JOIN users u ON u.id = dp.user_id
+        WHERE dp.phone = ${normalized} OR dp.phone = ${'+1' + normalized}
+        UNION ALL
+        SELECT u.id, u.profile_type,
+          COALESCE(rp.display_name, rp.first_name) as name,
+          2 as priority
+        FROM rider_profiles rp
+        JOIN users u ON u.id = rp.user_id
+        WHERE rp.phone = ${normalized} OR rp.phone = ${'+1' + normalized}
+      ) candidates
+      ORDER BY priority
       LIMIT 1
     `;
 
@@ -187,6 +199,9 @@ export async function GET(req: NextRequest) {
   // Thread list — grouped by phone number with latest message and unread count.
   // sms_log is market-scoped; sms_inbound is admin-global (threads may include
   // inbound replies from phones we haven't texted from this market).
+  //
+  // Identity lookup unions driver_profiles + rider_profiles. DISTINCT ON keeps
+  // the driver row when a phone is on both profiles (priority 1 < 2).
   const threads = marketSlug
     ? await sql`
         WITH all_messages AS (
@@ -202,14 +217,28 @@ export async function GET(req: NextRequest) {
             COUNT(*) FILTER (WHERE unread) as unread_count
           FROM all_messages
           GROUP BY phone
+        ),
+        identities AS (
+          SELECT DISTINCT ON (phone) phone, name, profile_type FROM (
+            SELECT dp.phone as phone,
+              COALESCE(dp.display_name, dp.first_name) as name,
+              u.profile_type, 1 as priority
+            FROM driver_profiles dp
+            JOIN users u ON u.id = dp.user_id
+            UNION ALL
+            SELECT rp.phone as phone,
+              COALESCE(rp.display_name, rp.first_name) as name,
+              u.profile_type, 2 as priority
+            FROM rider_profiles rp
+            JOIN users u ON u.id = rp.user_id
+          ) all_ids
+          ORDER BY phone, priority
         )
         SELECT
           l.phone, l.last_message_at, l.unread_count,
-          COALESCE(dp.display_name, dp.first_name) as name,
-          u.profile_type
+          i.name, i.profile_type
         FROM latest l
-        LEFT JOIN driver_profiles dp ON (dp.phone = l.phone OR dp.phone = '+1' || l.phone)
-        LEFT JOIN users u ON u.id = dp.user_id
+        LEFT JOIN identities i ON (i.phone = l.phone OR i.phone = '+1' || l.phone)
         ORDER BY l.unread_count DESC, l.last_message_at DESC
         LIMIT 50
       `
@@ -227,14 +256,28 @@ export async function GET(req: NextRequest) {
             COUNT(*) FILTER (WHERE unread) as unread_count
           FROM all_messages
           GROUP BY phone
+        ),
+        identities AS (
+          SELECT DISTINCT ON (phone) phone, name, profile_type FROM (
+            SELECT dp.phone as phone,
+              COALESCE(dp.display_name, dp.first_name) as name,
+              u.profile_type, 1 as priority
+            FROM driver_profiles dp
+            JOIN users u ON u.id = dp.user_id
+            UNION ALL
+            SELECT rp.phone as phone,
+              COALESCE(rp.display_name, rp.first_name) as name,
+              u.profile_type, 2 as priority
+            FROM rider_profiles rp
+            JOIN users u ON u.id = rp.user_id
+          ) all_ids
+          ORDER BY phone, priority
         )
         SELECT
           l.phone, l.last_message_at, l.unread_count,
-          COALESCE(dp.display_name, dp.first_name) as name,
-          u.profile_type
+          i.name, i.profile_type
         FROM latest l
-        LEFT JOIN driver_profiles dp ON (dp.phone = l.phone OR dp.phone = '+1' || l.phone)
-        LEFT JOIN users u ON u.id = dp.user_id
+        LEFT JOIN identities i ON (i.phone = l.phone OR i.phone = '+1' || l.phone)
         ORDER BY l.unread_count DESC, l.last_message_at DESC
         LIMIT 50
       `;
