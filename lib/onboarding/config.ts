@@ -125,12 +125,16 @@ export function scheduleFromDefault(def: DriverExpressScheduleDefault): Record<s
 }
 
 // Express config stores notice_required as a human string like '30min' or '1hr'.
-// The driver_profiles.advance_notice_hours column is numeric. Translate.
+// The driver_profiles.advance_notice_hours column is INTEGER, so we round up
+// to the next whole hour — '30min' → 1, '15min' → 1, '2hr' → 2. Rounding up
+// matches advance-notice semantics (driver wants at least N hours heads-up).
+// Returns 0 only when the input is missing/zero/unparseable.
 export function noticeHoursFromString(notice: string): number {
   const m = String(notice || '').trim().toLowerCase().match(/^(\d+(?:\.\d+)?)\s*(min|hr|h|hour|hours)?$/);
   if (!m) return 0;
   const n = parseFloat(m[1]);
-  if (!isFinite(n)) return 0;
+  if (!isFinite(n) || n <= 0) return 0;
   const unit = m[2] || 'min';
-  return unit.startsWith('h') ? n : n / 60;
+  const hours = unit.startsWith('h') ? n : n / 60;
+  return Math.ceil(hours);
 }

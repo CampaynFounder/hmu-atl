@@ -43,14 +43,17 @@ const DAY_CODE_TO_NAME: Record<string, string> = {
 
 const LEGACY_SCHEDULE_KEYS = ['days', 'start', 'end', 'notice_required', 'wait_per_min'] as const;
 
+// advance_notice_hours is an integer column; round up to next whole hour.
+// '30min' → 1, '1hr' → 1, '2hr' → 2. Returns null only on unparseable input.
 function noticeHoursFromString(notice: unknown): number | null {
   if (typeof notice !== 'string') return null;
   const m = notice.trim().toLowerCase().match(/^(\d+(?:\.\d+)?)\s*(min|hr|h|hour|hours)?$/);
   if (!m) return null;
   const n = parseFloat(m[1]);
-  if (!isFinite(n)) return null;
+  if (!isFinite(n) || n <= 0) return null;
   const unit = m[2] || 'min';
-  return unit.startsWith('h') ? n : n / 60;
+  const hours = unit.startsWith('h') ? n : n / 60;
+  return Math.ceil(hours);
 }
 
 type Row = {
