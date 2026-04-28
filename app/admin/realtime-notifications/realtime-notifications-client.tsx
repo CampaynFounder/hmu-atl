@@ -64,8 +64,6 @@ export function RealtimeNotificationsClient() {
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setToast(body.error || `Test failed (${res.status})`);
-      } else if (config && !config[type]) {
-        setToast('Test sent — type is OFF, so no banner will appear. Toggle it on first.');
       } else {
         setToast('Test event published — banner should pop up shortly');
       }

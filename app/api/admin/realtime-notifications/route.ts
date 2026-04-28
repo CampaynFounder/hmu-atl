@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
 import { requireAdmin, logAdminAction, unauthorizedResponse } from '@/lib/admin/helpers';
 import { invalidatePlatformConfig } from '@/lib/platform-config/get';
+import { publishAdminEvent } from '@/lib/ably/server';
 import {
   REALTIME_NOTIF_DEFAULTS,
   REALTIME_NOTIF_KEY,
@@ -63,6 +64,12 @@ export async function PATCH(req: NextRequest) {
 
   invalidatePlatformConfig(REALTIME_NOTIF_KEY);
   await logAdminAction(admin.id, 'realtime_notifications_update', 'platform_config', REALTIME_NOTIF_KEY, { newValue: next });
+
+  // Broadcast the new config to admin:feed so any open admin tab (including
+  // the one that just saved) picks it up immediately — otherwise the banner
+  // component keeps its mount-time snapshot and silently drops events for
+  // toggles the admin just turned on.
+  publishAdminEvent('realtime_notifications_config_updated', { newConfig: next }).catch(() => {});
 
   return NextResponse.json({ config: next, updated_at: updated[0]?.updated_at });
 }

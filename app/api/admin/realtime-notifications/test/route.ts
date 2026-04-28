@@ -12,18 +12,21 @@ import type { AdminRealtimeNotifType } from '@/lib/admin/realtime-notifications'
 
 export const runtime = 'nodejs';
 
+// _force: true tells the banner to render the test even if the type is
+// currently disabled in config. Real publishers never set _force, so live
+// traffic still respects the toggles.
 const TEST_PAYLOADS: Record<AdminRealtimeNotifType, { eventName: string; data: Record<string, unknown> }> = {
   user_signup: {
     eventName: 'user_signup',
-    data: { test: true, name: 'Test Driver', profileType: 'driver', userId: 'test-user' },
+    data: { _force: true, profileType: 'driver', userId: 'test-user' },
   },
   ride_request: {
     eventName: 'rider_request',
-    data: { test: true, postId: 'test-post', price: 25, message: 'Buckhead → Decatur' },
+    data: { _force: true, postId: 'test-post', price: 25, message: 'Buckhead → Decatur' },
   },
   ride_booking: {
     eventName: 'direct_booking_created',
-    data: { test: true, postId: 'test-post', price: 30, riderName: 'Test Rider', driverHandle: 'test-driver' },
+    data: { _force: true, postId: 'test-post', price: 30, driverHandle: 'test-driver' },
   },
 };
 

@@ -35,13 +35,12 @@ function formatBanner(type: AdminRealtimeNotifType, eventName: string, data: unk
   switch (type) {
     case 'user_signup': {
       const profileType = String(d.profileType || d.profile_type || 'user');
-      const name = (d.name as string) || (d.displayName as string) || 'Unknown';
       const isDriver = profileType === 'driver';
       const isRider = profileType === 'rider';
       const role = isDriver ? 'driver' : isRider ? 'rider' : 'user';
       return {
-        title: `New ${role} signup: ${name}`,
-        detail: d.test ? 'Test event' : null,
+        title: `New ${role} signup`,
+        detail: null,
         href: '/admin/users',
       };
     }
@@ -100,14 +99,28 @@ export function RealtimeNotificationBanner() {
   }, []);
 
   const handleAdminEvent = useCallback((msg: { name: string; data: unknown; timestamp: number }) => {
+    // Config update broadcast — the realtime-notifications page publishes
+    // this on save so any open admin tab picks up the new toggles without
+    // a reload. Without it the banner's config snapshot is stuck at mount-
+    // time, which is why ride_request/ride_booking tests silently nothing'd
+    // after the admin flipped them on for the first time.
+    if (msg.name === 'realtime_notifications_config_updated') {
+      const next = (msg.data as { newConfig?: AdminRealtimeNotifConfig })?.newConfig;
+      if (next) setConfig({ ...REALTIME_NOTIF_DEFAULTS, ...next });
+      return;
+    }
+
     const type = EVENT_TO_TYPE[msg.name];
     if (!type) return;
-    if (!config?.[type]) return;
+    // Test events carry _force so the admin can verify their wiring without
+    // first toggling the type on. Real events still respect the config.
+    const d = (msg.data ?? {}) as Record<string, unknown>;
+    const forced = d._force === true;
+    if (!forced && !config?.[type]) return;
 
     // Idempotency: Ably's `rewind: '2m'` re-delivers messages on reconnect,
     // so dedupe by a stable key derived from name + timestamp + a payload
     // hint (postId/userId/rideId).
-    const d = (msg.data ?? {}) as Record<string, unknown>;
     const dedupeKey = `${msg.name}:${msg.timestamp}:${(d.postId as string) || (d.userId as string) || (d.rideId as string) || ''}`;
     if (seenIdsRef.current.has(dedupeKey)) return;
     seenIdsRef.current.add(dedupeKey);
