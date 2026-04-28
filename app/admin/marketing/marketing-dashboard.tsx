@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { UtmBuilder } from './utm-builder';
 import { RecentSignups } from './recent-signups';
 import { consumeStagedRecipients } from '@/lib/admin/outreach-staging';
+import { openThreadOrCompose } from '@/lib/admin/thread-router';
 
 interface Recipient {
   phone: string;
@@ -46,7 +48,9 @@ export function MarketingDashboard() {
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState<SendResult[] | null>(null);
   const [summary, setSummary] = useState<{ sent: number; failed: number; total: number } | null>(null);
+  const [openingThread, setOpeningThread] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
 
   // On mount, check for recipients staged from a drill-in sheet. If present,
   // auto-switch to the Selected mode so the admin sees them immediately.
@@ -66,6 +70,31 @@ export function MarketingDashboard() {
   const hasMessage = message.trim().length > 0;
   const hasLink = link.trim().length > 0;
   const smsCount = (hasMessage ? 1 : 0) + (hasLink ? 1 : 0);
+
+  // Switch to the Enter Numbers tab and prefill the textarea with the given
+  // phones. Used by the Thread buttons in RecentSignups + the Selected panel
+  // when no existing conversation exists for the selection.
+  const prefillCompose = (numbers: string[]) => {
+    const cleaned = Array.from(new Set(numbers.map((n) => n.trim()).filter(Boolean)));
+    if (!cleaned.length) return;
+    setPhones(cleaned.join('\n'));
+    setInputMode('compose');
+    setResults(null);
+    setSummary(null);
+  };
+
+  // For the Selected drill-in panel: jump to the existing thread if there's
+  // exactly one recipient with SMS history, otherwise prefill compose with
+  // every staged number.
+  const openSelectedThreadOrCompose = async (phones: string[]) => {
+    if (openingThread) return;
+    setOpeningThread(true);
+    try {
+      await openThreadOrCompose(phones, { router, prefillCompose });
+    } finally {
+      setOpeningThread(false);
+    }
+  };
 
   const parsePhones = (): Recipient[] => {
     return phones.split(/[\n,;]+/).map((p) => p.trim()).filter(Boolean).map((p) => ({ phone: p }));
@@ -204,7 +233,7 @@ export function MarketingDashboard() {
       </div>
 
       {inputMode === 'signups' ? (
-        <RecentSignups />
+        <RecentSignups onPrefillCompose={prefillCompose} />
       ) : (
       <>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -214,7 +243,19 @@ export function MarketingDashboard() {
             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold">Selected from drill-in</h3>
-                <span className="text-xs text-[#00E676]">{stagedRecipients.length} recipient{stagedRecipients.length !== 1 ? 's' : ''}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[#00E676]">{stagedRecipients.length} recipient{stagedRecipients.length !== 1 ? 's' : ''}</span>
+                  {stagedRecipients.length > 0 && (
+                    <button
+                      onClick={() => openSelectedThreadOrCompose(stagedRecipients.map((r) => r.phone))}
+                      disabled={openingThread}
+                      className="text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded bg-blue-500/15 border border-blue-500/30 text-blue-300 hover:bg-blue-500/25 disabled:opacity-50"
+                      title={stagedRecipients.length === 1 ? 'Open existing thread or start one' : 'Prefill Enter Numbers with all selected phones'}
+                    >
+                      {openingThread ? '…' : stagedRecipients.length === 1 ? 'Thread' : `Thread (${stagedRecipients.length})`}
+                    </button>
+                  )}
+                </div>
               </div>
               {stagedRecipients.length === 0 ? (
                 <p className="text-xs text-neutral-500 py-4 text-center">
@@ -235,13 +276,23 @@ export function MarketingDashboard() {
                         <span className="text-white truncate">{r.name || 'Unknown'}</span>
                         <span className="text-neutral-500 font-mono shrink-0">{r.phone}</span>
                       </div>
-                      <button
-                        onClick={() => removeStaged(r.phone)}
-                        className="text-neutral-500 hover:text-red-400 text-sm shrink-0 px-1"
-                        aria-label="Remove"
-                      >
-                        ×
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => openSelectedThreadOrCompose([r.phone])}
+                          disabled={openingThread}
+                          className="text-neutral-400 hover:text-blue-300 text-[11px] font-medium px-2 py-0.5 rounded border border-transparent hover:border-blue-500/30 disabled:opacity-50"
+                          title="Open thread or start one"
+                        >
+                          Thread
+                        </button>
+                        <button
+                          onClick={() => removeStaged(r.phone)}
+                          className="text-neutral-500 hover:text-red-400 text-sm px-1"
+                          aria-label="Remove"
+                        >
+                          ×
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

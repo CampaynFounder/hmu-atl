@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { openThreadOrCompose } from '@/lib/admin/thread-router';
 
 interface Signup {
   id: string;
@@ -12,7 +14,16 @@ interface Signup {
   createdAt: string;
 }
 
-export function RecentSignups() {
+interface Props {
+  // Called when the user wants to start a fresh conversation (no existing
+  // SMS history). Parent (MarketingDashboard) switches to the Enter Numbers
+  // tab and prefills the textarea.
+  onPrefillCompose: (phones: string[]) => void;
+}
+
+export function RecentSignups({ onPrefillCompose }: Props) {
+  const router = useRouter();
+  const [openingThread, setOpeningThread] = useState(false);
   const [signups, setSignups] = useState<Signup[]>([]);
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(7);
@@ -107,6 +118,25 @@ export function RecentSignups() {
     } catch {} finally { setSending(null); }
   };
 
+  // Per-row + bulk "Thread" handler. Single phone with SMS history → deep
+  // link into the existing /admin/messages thread. Otherwise hand off to the
+  // parent's prefill callback so the admin starts a fresh compose.
+  const openThread = async (phones: string[]) => {
+    if (openingThread) return;
+    setOpeningThread(true);
+    try {
+      await openThreadOrCompose(phones, { router, prefillCompose: onPrefillCompose });
+    } finally {
+      setOpeningThread(false);
+    }
+  };
+
+  const openThreadForSelected = () => {
+    const targets = visible.filter(s => selected.has(s.id) && s.phone).map(s => s.phone!);
+    if (targets.length === 0) return;
+    openThread(targets);
+  };
+
   const sendToSelected = async () => {
     if (!smsText.trim()) return;
     const targets = visible.filter(s => selected.has(s.id) && s.phone && !sentTo.has(s.phone));
@@ -171,13 +201,23 @@ export function RecentSignups() {
             className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600"
           />
           {selected.size > 0 ? (
-            <button
-              onClick={sendToSelected}
-              disabled={!smsText.trim()}
-              className="bg-green-600 hover:bg-green-700 disabled:bg-neutral-700 disabled:text-neutral-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors whitespace-nowrap"
-            >
-              Send ({selected.size})
-            </button>
+            <>
+              <button
+                onClick={openThreadForSelected}
+                disabled={openingThread}
+                className="bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 text-blue-300 disabled:opacity-50 text-xs font-semibold px-4 py-2 rounded-lg transition-colors whitespace-nowrap"
+                title={selected.size === 1 ? 'Open existing thread or start one' : 'Prefill Enter Numbers with selected phones'}
+              >
+                {openingThread ? '…' : selected.size === 1 ? 'Thread' : `Thread (${selected.size})`}
+              </button>
+              <button
+                onClick={sendToSelected}
+                disabled={!smsText.trim()}
+                className="bg-green-600 hover:bg-green-700 disabled:bg-neutral-700 disabled:text-neutral-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors whitespace-nowrap"
+              >
+                Send ({selected.size})
+              </button>
+            </>
           ) : (
             <button
               disabled
@@ -292,6 +332,16 @@ export function RecentSignups() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-1.5 shrink-0">
+                      {signup.phone && (
+                        <button
+                          onClick={() => openThread([signup.phone!])}
+                          disabled={openingThread}
+                          className="text-xs font-medium px-2.5 py-1.5 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-300 hover:bg-blue-500/25 disabled:opacity-50"
+                          title="Open thread or start one"
+                        >
+                          Thread
+                        </button>
+                      )}
                       {signup.phone && (
                         <button
                           onClick={() => sendSms(signup.phone!, signup.name)}

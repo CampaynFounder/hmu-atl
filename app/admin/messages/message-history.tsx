@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAbly } from '@/hooks/use-ably';
 import { useMarket } from '@/app/admin/components/market-context';
 
@@ -58,6 +59,7 @@ export function MessageHistory() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { selectedMarketId } = useMarket();
   const mq = selectedMarketId ? `&marketId=${selectedMarketId}` : '';
+  const searchParams = useSearchParams();
 
   const totalUnread = threads.reduce((sum, t) => sum + t.unreadCount, 0);
 
@@ -179,6 +181,19 @@ export function MessageHistory() {
       }
     } catch {}
   }, [fetchThreads]);
+
+  // Deep-link: ?phone=4045551234 opens the matching thread on first paint.
+  // Used by /admin/marketing's "Thread" button so admins can jump straight
+  // from a recent-signups row into the existing conversation.
+  useEffect(() => {
+    const phoneParam = searchParams.get('phone');
+    if (phoneParam && !selectedPhone) {
+      openConversation(phoneParam);
+    }
+    // selectedPhone intentionally omitted from deps — we only run on initial
+    // URL match, not whenever the user navigates between threads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Track selected phone in a ref so the Ably callback always sees the latest value
   const selectedPhoneRef = useRef<string | null>(null);
