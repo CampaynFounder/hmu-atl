@@ -25,15 +25,12 @@ interface SendResult {
   error?: string;
 }
 
-const MESSAGE_TEMPLATES = [
-  { label: 'General Signup', text: 'Ride scammers hate HMU. Payment held BEFORE driver pulls up. Drivers get paid. Riders get rides. Sign up free' },
-  { label: 'Driver Recruitment', text: 'Drive with HMU ATL. Set your price, get paid upfront, keep 90%. No apps or background checks. Go live now' },
-  { label: 'Rider Invite', text: 'Need a ride in ATL? HMU connects you with local drivers. Cheaper than Uber, no surge. Try it free' },
-  { label: 'No-Show Pain Point', text: 'Tired of riders going ghost? HMU ATL = riders pay BEFORE you drive. No payment, no ride. Stop wasting gas' },
-  { label: 'Safety Focused', text: 'HMU ATL: GPS tracked, verified payments, real ratings. Safer than FB cash ride groups. Sign up' },
-  { label: 'Platform Fees', text: 'Uber takes 40%. HMU? 10% on first $50/day, capped at $40. Hit the cap = rest is ALL yours' },
-  { label: 'Upfront Pay', text: 'How drivers know before they go. HMU holds fare in escrow before you leave the house. Get paid every time' },
-];
+interface Template {
+  id: string;
+  label: string;
+  body: string;
+  updated_at: string;
+}
 
 export function MarketingDashboard() {
   const [inputMode, setInputMode] = useState<'signups' | 'compose' | 'csv' | 'selected'>('signups');
@@ -50,8 +47,91 @@ export function MarketingDashboard() {
   const [results, setResults] = useState<SendResult[] | null>(null);
   const [summary, setSummary] = useState<{ sent: number; failed: number; total: number } | null>(null);
   const [openingThread, setOpeningThread] = useState(false);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+  const [editBody, setEditBody] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [newTemplateLabel, setNewTemplateLabel] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+
+  // Load templates from DB on mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/marketing/templates');
+        if (!res.ok || cancelled) return;
+        const data = await res.json() as { templates: Template[] };
+        if (!cancelled) setTemplates(data.templates);
+      } catch { /* keep list empty on failure */ }
+      finally { if (!cancelled) setTemplatesLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const startEditTemplate = (t: Template) => {
+    setEditingTemplateId(t.id);
+    setEditLabel(t.label);
+    setEditBody(t.body);
+  };
+
+  const cancelEditTemplate = () => {
+    setEditingTemplateId(null);
+    setEditLabel('');
+    setEditBody('');
+  };
+
+  const saveEditTemplate = async () => {
+    if (!editingTemplateId) return;
+    if (!editLabel.trim() || !editBody.trim()) { alert('Label and message both required'); return; }
+    setSavingTemplate(true);
+    try {
+      const res = await fetch(`/api/admin/marketing/templates/${editingTemplateId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: editLabel.trim(), body: editBody.trim() }),
+      });
+      if (!res.ok) { const err = await res.json(); alert(`Save failed: ${err.error}`); return; }
+      const { template } = await res.json() as { template: Template };
+      setTemplates((prev) => prev.map((t) => t.id === template.id ? template : t));
+      cancelEditTemplate();
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const deleteTemplate = async (id: string, label: string) => {
+    if (!confirm(`Delete template "${label}"?`)) return;
+    const res = await fetch(`/api/admin/marketing/templates/${id}`, { method: 'DELETE' });
+    if (!res.ok) { const err = await res.json(); alert(`Delete failed: ${err.error}`); return; }
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  // Save the current Message field as a new template.
+  const saveCurrentAsTemplate = async () => {
+    const body = message.trim();
+    if (!body) { alert('Type a message first, then save it as a template'); return; }
+    const label = newTemplateLabel.trim();
+    if (!label) { alert('Give the template a short label'); return; }
+    setCreatingTemplate(true);
+    try {
+      const res = await fetch('/api/admin/marketing/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, body }),
+      });
+      if (!res.ok) { const err = await res.json(); alert(`Save failed: ${err.error}`); return; }
+      const { template } = await res.json() as { template: Template };
+      setTemplates((prev) => [template, ...prev]);
+      setNewTemplateLabel('');
+    } finally {
+      setCreatingTemplate(false);
+    }
+  };
 
   // On mount, check for recipients staged from a drill-in sheet. If present,
   // auto-switch to the Selected mode so the admin sees them immediately.
@@ -473,22 +553,129 @@ export function MarketingDashboard() {
 
           {/* Templates */}
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
-            <h3 className="text-sm font-semibold mb-3">Quick Templates</h3>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {MESSAGE_TEMPLATES.map((tmpl, i) => (
-                <button
-                  key={i}
-                  onClick={() => setMessage(tmpl.text)}
-                  className="w-full text-left bg-neutral-800/50 border border-neutral-800 rounded-lg p-3 hover:border-neutral-600 transition-colors"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-medium text-neutral-300">{tmpl.label}</p>
-                    <span className="text-[10px] text-neutral-600">{tmpl.text.length} chars</span>
-                  </div>
-                  <p className="text-[11px] text-neutral-500 mt-1 line-clamp-2">{tmpl.text}</p>
-                </button>
-              ))}
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold">Quick Templates</h3>
+              <span className="text-[10px] text-neutral-500">{templates.length} saved</span>
             </div>
+
+            {/* Save current message as template */}
+            <div className="mb-3 pb-3 border-b border-neutral-800">
+              <label className="text-[10px] text-neutral-500 uppercase tracking-wide block mb-1">
+                Save current message as template
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newTemplateLabel}
+                  onChange={(e) => setNewTemplateLabel(e.target.value.slice(0, 80))}
+                  placeholder="Short label (e.g. Driver Recruitment)"
+                  maxLength={80}
+                  className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600"
+                />
+                <button
+                  onClick={saveCurrentAsTemplate}
+                  disabled={creatingTemplate || !message.trim() || !newTemplateLabel.trim()}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-neutral-700 disabled:text-neutral-500 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors"
+                  title={!message.trim() ? 'Type a message above first' : 'Save as new template'}
+                >
+                  {creatingTemplate ? '…' : 'Save'}
+                </button>
+              </div>
+              <p className="text-[10px] text-neutral-600 mt-1">Saves the text in the Message field above.</p>
+            </div>
+
+            {templatesLoading ? (
+              <p className="text-[11px] text-neutral-500 text-center py-4">Loading…</p>
+            ) : templates.length === 0 ? (
+              <p className="text-[11px] text-neutral-500 text-center py-4">No templates yet. Save your first one above.</p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {templates.map((tmpl) => (
+                  <div
+                    key={tmpl.id}
+                    className="bg-neutral-800/50 border border-neutral-800 rounded-lg p-3"
+                  >
+                    {editingTemplateId === tmpl.id ? (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={editLabel}
+                          onChange={(e) => setEditLabel(e.target.value.slice(0, 80))}
+                          maxLength={80}
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded px-2 py-1.5 text-xs text-white"
+                          placeholder="Label"
+                        />
+                        <textarea
+                          value={editBody}
+                          onChange={(e) => setEditBody(e.target.value.slice(0, 160))}
+                          maxLength={160}
+                          rows={3}
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded px-2 py-1.5 text-xs text-white resize-none"
+                          placeholder="Message body (max 160 chars)"
+                        />
+                        <div className="flex items-center justify-between">
+                          <span className={`text-[10px] ${editBody.length > 140 ? 'text-yellow-400' : 'text-neutral-600'}`}>
+                            {editBody.length}/160
+                          </span>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={cancelEditTemplate}
+                              disabled={savingTemplate}
+                              className="text-[11px] px-2 py-1 rounded text-neutral-400 hover:text-white"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={saveEditTemplate}
+                              disabled={savingTemplate}
+                              className="text-[11px] px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 disabled:bg-neutral-700 text-white font-medium"
+                            >
+                              {savingTemplate ? '…' : 'Save'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between gap-2">
+                          <button
+                            onClick={() => setMessage(tmpl.body)}
+                            className="flex-1 text-left min-w-0"
+                            title="Use this template"
+                          >
+                            <p className="text-xs font-medium text-neutral-300 truncate">{tmpl.label}</p>
+                          </button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-[10px] text-neutral-600">{tmpl.body.length}</span>
+                            <button
+                              onClick={() => startEditTemplate(tmpl)}
+                              className="text-[10px] px-1.5 py-0.5 rounded text-neutral-400 hover:text-white hover:bg-neutral-700"
+                              title="Edit template"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => deleteTemplate(tmpl.id, tmpl.label)}
+                              className="text-[10px] px-1.5 py-0.5 rounded text-neutral-400 hover:text-red-400 hover:bg-neutral-700"
+                              title="Delete template"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setMessage(tmpl.body)}
+                          className="w-full text-left mt-1"
+                          title="Use this template"
+                        >
+                          <p className="text-[11px] text-neutral-500 line-clamp-2">{tmpl.body}</p>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
