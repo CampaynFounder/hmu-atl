@@ -18,6 +18,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
     label: 'MONITOR',
     items: [
       { href: '/admin', label: 'Live Ops', icon: '⚡', permission: 'monitor.liveops' },
+      { href: '/admin/growth', label: 'Growth', icon: '📈', permission: 'monitor.liveops' },
       { href: '/admin/money', label: 'Revenue', icon: '💰', permission: 'monitor.revenue' },
       { href: '/admin/pricing', label: 'Pricing', icon: '⚙️', permission: 'monitor.pricing' },
       { href: '/admin/schedule', label: 'Schedules', icon: '📅', permission: 'monitor.schedules' },
