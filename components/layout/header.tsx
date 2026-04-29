@@ -37,6 +37,12 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
   const { signOut } = useClerk();
 
   if (MARKETING_PATHS.includes(pathname)) return null;
+  // Admin portal has its own sidebar nav + permission-aware search bar
+  // (app/admin/components/admin-search-bar.tsx). The global header here would
+  // duplicate the search and surface driver/rider features — wrong context
+  // for admin work. Match only the portal proper, NOT /admin-login or
+  // /admin-signup which are pre-auth pages and want the global chrome.
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) return null;
 
   const profileType = user?.publicMetadata?.profileType as string | undefined;
   const tier = user?.publicMetadata?.tier as string | undefined;
