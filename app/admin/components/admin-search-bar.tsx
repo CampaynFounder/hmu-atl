@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 interface SearchResult {
   id: string;
   label: string;
+  description: string;
   href: string;
   section: string;
   icon: string;
@@ -208,8 +209,19 @@ export function AdminSearchBar() {
                           }}
                         >
                           <span className="text-base" aria-hidden>{r.icon}</span>
-                          <span className="flex-1">{r.label}</span>
-                          <span className="text-[10px]" style={{ color: 'var(--admin-text-muted)' }}>
+                          <span className="flex-1 min-w-0 flex items-baseline gap-2">
+                            <span className="font-medium shrink-0">{r.label}</span>
+                            <span
+                              className="truncate text-[12px]"
+                              style={{ color: 'var(--admin-text-muted)' }}
+                            >
+                              — {r.description}
+                            </span>
+                          </span>
+                          <span
+                            className="hidden sm:inline text-[10px] shrink-0"
+                            style={{ color: 'var(--admin-text-muted)' }}
+                          >
                             {r.href}
                           </span>
                         </button>

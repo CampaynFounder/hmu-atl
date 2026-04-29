@@ -9,6 +9,10 @@
 export interface AdminSearchItem {
   id: string;
   label: string;
+  // Short description of what an admin does on this screen. Renders inline
+  // next to the label in the search dropdown. Keep to ≤60 chars; favor a
+  // verb-led primary action ("Monitor live activity", "Send SMS blasts").
+  description: string;
   href: string;
   section: 'Monitor' | 'Act' | 'Grow' | 'Raise' | 'System';
   icon: string;
@@ -25,6 +29,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'live-ops',
     label: 'Live Ops',
+    description: 'Monitor real-time platform activity',
     href: '/admin',
     section: 'Monitor',
     icon: '⚡',
@@ -34,6 +39,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'growth',
     label: 'Growth',
+    description: 'Track signups, targets, and area coverage',
     href: '/admin/growth',
     section: 'Monitor',
     icon: '📈',
@@ -43,6 +49,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'revenue',
     label: 'Revenue',
+    description: 'Review earnings, payouts, and platform fees',
     href: '/admin/money',
     section: 'Monitor',
     icon: '💰',
@@ -52,6 +59,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'pricing',
     label: 'Pricing',
+    description: 'Tune fee tiers and platform caps',
     href: '/admin/pricing',
     section: 'Monitor',
     icon: '⚙️',
@@ -61,6 +69,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'schedule',
     label: 'Schedules',
+    description: 'View driver availability and coverage gaps',
     href: '/admin/schedule',
     section: 'Monitor',
     icon: '📅',
@@ -72,6 +81,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'support',
     label: 'Support',
+    description: 'Triage support tickets and replies',
     href: '/admin/support',
     section: 'Act',
     icon: '🎫',
@@ -81,6 +91,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'notifications',
     label: 'Notifications',
+    description: 'Send push and broadcast alerts',
     href: '/admin/notifications',
     section: 'Act',
     icon: '🔔',
@@ -90,6 +101,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'disputes',
     label: 'Disputes',
+    description: 'Resolve ride disputes and refunds',
     href: '/admin/disputes',
     section: 'Act',
     icon: '⚖️',
@@ -99,6 +111,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'safety',
     label: 'Safety',
+    description: 'Review safety incidents and check-ins',
     href: '/admin/safety',
     section: 'Act',
     icon: '🛡️',
@@ -107,6 +120,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'users',
     label: 'Users',
+    description: 'Manage rider and driver accounts',
     href: '/admin/users',
     section: 'Act',
     icon: '👥',
@@ -116,6 +130,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'ride-requests',
     label: 'Ride Requests',
+    description: 'Inspect pending and active ride posts',
     href: '/admin/ride-requests',
     section: 'Act',
     icon: '🚖',
@@ -124,6 +139,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'hmus',
     label: 'HMUs',
+    description: 'Audit driver-to-rider HMU links',
     href: '/admin/hmus',
     section: 'Act',
     icon: '📣',
@@ -132,6 +148,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'suspect-usage',
     label: 'Suspect Usage',
+    description: 'Investigate flagged accounts and abuse',
     href: '/admin/suspect-usage',
     section: 'Act',
     icon: '🚨',
@@ -143,6 +160,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'outreach',
     label: 'Outreach',
+    description: 'Send SMS blasts and manage campaigns',
     href: '/admin/marketing',
     section: 'Grow',
     icon: '📣',
@@ -152,6 +170,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'messages',
     label: 'Messages',
+    description: 'Reply to inbound SMS threads',
     href: '/admin/messages',
     section: 'Grow',
     icon: '💬',
@@ -161,6 +180,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'leads',
     label: 'Leads',
+    description: 'Work the homepage email waitlist',
     href: '/admin/leads',
     section: 'Grow',
     icon: '📧',
@@ -170,6 +190,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'content',
     label: 'Content',
+    description: 'Manage social videos and creative',
     href: '/admin/content',
     section: 'Grow',
     icon: '🎬',
@@ -179,6 +200,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'funnel',
     label: 'Funnel CMS',
+    description: 'Edit landing page copy by zone',
     href: '/admin/funnel',
     section: 'Grow',
     icon: '📝',
@@ -188,6 +210,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'driver-playbook',
     label: 'Playbook FB Groups',
+    description: 'Track Facebook driver-recruit groups',
     href: '/admin/driver-playbook/fb-groups',
     section: 'Grow',
     icon: '👥',
@@ -196,6 +219,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'conversation-agent',
     label: 'Conversation Agent',
+    description: 'Configure the AI auto-reply agent',
     href: '/admin/conversation-agent',
     section: 'Grow',
     icon: '💬',
@@ -204,6 +228,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'chat-booking',
     label: 'Chat Booking',
+    description: 'Configure SMS-driven booking flow',
     href: '/admin/chat-booking',
     section: 'Grow',
     icon: '🤖',
@@ -214,6 +239,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'data-room',
     label: 'Data Room',
+    description: 'Share investor metrics and docs',
     href: '/admin/data-room',
     section: 'Raise',
     icon: '🔒',
@@ -223,6 +249,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'pitch-videos',
     label: 'Pitch Videos',
+    description: 'Manage investor pitch videos',
     href: '/admin/pitch-videos',
     section: 'Raise',
     icon: '📱',
@@ -232,6 +259,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'videos',
     label: 'Videos',
+    description: 'Render Remotion feature videos',
     href: '/admin/videos',
     section: 'Raise',
     icon: '🎥',
@@ -241,6 +269,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'docs',
     label: 'Tech Docs',
+    description: 'Browse architecture and tech docs',
     href: '/admin/docs',
     section: 'Raise',
     icon: '📄',
@@ -252,6 +281,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'roles',
     label: 'Roles',
+    description: 'Manage admin roles and permissions',
     href: '/admin/roles',
     section: 'System',
     icon: '🔑',
@@ -261,6 +291,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'markets',
     label: 'Markets',
+    description: 'Configure cities and expansion markets',
     href: '/admin/markets',
     section: 'System',
     icon: '🌎',
@@ -269,6 +300,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'feature-flags',
     label: 'Feature Flags',
+    description: 'Toggle experiments and gated features',
     href: '/admin/feature-flags',
     section: 'System',
     icon: '🚩',
@@ -277,6 +309,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'hmu-config',
     label: 'HMU Config',
+    description: 'Tune HMU link caps and behavior',
     href: '/admin/hmu-config',
     section: 'System',
     icon: '📣',
@@ -285,6 +318,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'onboarding-config',
     label: 'Onboarding Config',
+    description: 'Set required driver signup fields',
     href: '/admin/onboarding-config',
     section: 'System',
     icon: '🛂',
@@ -293,6 +327,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'realtime-banners',
     label: 'Realtime Banners',
+    description: 'Configure live admin alert banners',
     href: '/admin/realtime-notifications',
     section: 'System',
     icon: '⚡',
@@ -301,6 +336,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'maintenance',
     label: 'Maintenance',
+    description: 'Run cleanup jobs and backfills',
     href: '/admin/maintenance',
     section: 'System',
     icon: '🚧',
@@ -309,6 +345,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'voip-debug',
     label: 'VoIP Debug',
+    description: 'Inspect voip.ms SMS and DID activity',
     href: '/admin/voip-debug',
     section: 'System',
     icon: '📡',
@@ -317,6 +354,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'audit-log',
     label: 'Audit Log',
+    description: 'See who did what in the admin portal',
     href: '/admin/audit',
     section: 'System',
     icon: '📋',

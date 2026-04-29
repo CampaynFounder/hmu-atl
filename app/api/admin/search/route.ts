@@ -20,6 +20,7 @@ const MAX_RESULTS = 8;
 interface ApiResultItem {
   id: string;
   label: string;
+  description: string;
   href: string;
   section: string;
   icon: string;
@@ -29,6 +30,7 @@ function toApi(item: AdminSearchItem): ApiResultItem {
   return {
     id: item.id,
     label: item.label,
+    description: item.description,
     href: item.href,
     section: item.section,
     icon: item.icon,
