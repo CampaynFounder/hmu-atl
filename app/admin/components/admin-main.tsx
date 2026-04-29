@@ -1,6 +1,7 @@
 'use client';
 
 import { useSidebar } from './sidebar-context';
+import { AdminSearchBar } from './admin-search-bar';
 
 export function AdminMain({ children }: { children: React.ReactNode }) {
   const { collapsed } = useSidebar();
@@ -15,6 +16,7 @@ export function AdminMain({ children }: { children: React.ReactNode }) {
       style={{ background: 'var(--admin-bg)', color: 'var(--admin-text)' }}
     >
       <div className="px-4 pb-4 pt-2 lg:p-6 max-w-[1600px] mx-auto">
+        <AdminSearchBar />
         {children}
       </div>
     </main>
