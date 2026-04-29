@@ -11,6 +11,7 @@ import { ArrowRight, ArrowLeft, Check } from 'lucide-react';
 import { fbEvent } from '@/components/analytics/meta-pixel';
 import { Welcome } from './welcome';
 import { VideoRecorder } from './video-recorder';
+import { AdPhotoStep } from './ad-photo-step';
 import { RiderPreferencesStep, type RiderPreferences } from './rider-preferences';
 import { LocationPermission } from './location-permission';
 import CelebrationConfetti from '@/components/shared/celebration-confetti';
@@ -234,7 +235,29 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
     });
   }
 
-  // 6. Rider preferences
+  // 6. HMU ad photo — appears between video-intro and rider-prefs to mirror
+  // the regular flow's ordering. Gated by config: only renders when admin has
+  // set adPhoto to 'required' or 'optional'. 'required' enforces upload before
+  // Continue; 'optional' lets driver skip. Saves through ad_photo_url in the
+  // existing express save payload.
+  if (inFlow(config.fields.adPhoto)) {
+    steps.push({
+      id: 'hmu-ad',
+      title: 'Your HMU Ad',
+      description: 'A photo for your HMU link — vehicle pic, promo card, anything that gets riders to book you.',
+      component: (
+        <AdPhotoStep
+          photoUrl={data.adPhotoUrl}
+          onUploaded={(url) => update({ adPhotoUrl: url })}
+          onUploadStateChange={(uploading) => update({ isUploading: uploading })}
+        />
+      ),
+      required: config.fields.adPhoto === 'required',
+      isValid: () => config.fields.adPhoto === 'required' ? !!data.adPhotoUrl : true,
+    });
+  }
+
+  // 7. Rider preferences
   if (inFlow(config.fields.riderPreferences)) {
     steps.push({
       id: 'rider-prefs',
@@ -251,7 +274,7 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
     });
   }
 
-  // 7. Location
+  // 8. Location
   if (inFlow(config.fields.location)) {
     steps.push({
       id: 'location',
