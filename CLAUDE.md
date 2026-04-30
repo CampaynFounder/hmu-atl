@@ -837,6 +837,10 @@ Driver-to-rider directed interest signal with match-on-link unmasking. Schema is
 
 **Phase 1 status (2026-04-23):** schema + gender filter on `/rider/browse` shipped. API + UI to be picked up in dedicated session — do NOT wedge into unrelated work.
 
+### Admin RBAC — finish route mapping (shipped 2026-04-30 as default-deny)
+
+13 admin routes (Safety, Ride Requests, HMUs, Markets, Feature Flags, HMU Config, Onboarding Config, Realtime Banners, Maintenance, VoIP Debug, Playbook FB Groups, Conversation Agent, Chat Booking) currently have no `permission` slug. The sidebar + search filter default-denies them to non-super admins as a stopgap. To support partial access for custom roles, give each route an explicit slug, add to the matrix in `app/admin/roles/permission-matrix.tsx`, and tag in both `app/admin/components/admin-sidebar.tsx` and `lib/admin/search-manifest.ts`. Full proposed slug-per-route mapping at `memory/rbac_unmapped_routes_followup.md`.
+
 ---
 
 ## POST-MVP ROADMAP (Schema Must Accommodate)

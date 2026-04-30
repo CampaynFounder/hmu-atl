@@ -118,11 +118,19 @@ export function AdminSidebar() {
     });
   }, []);
 
-  // Filter nav sections by permissions — user needs at least .view to see an item
+  // Filter nav sections by permissions. Default-deny: items without a
+  // `permission` slug are super-only (treated as un-RBAC'd routes that haven't
+  // been mapped to the matrix yet — see rbac_unmapped_routes_followup memory
+  // for the proper rollout). When a super admin is previewing a lower role
+  // their effective `is_super` flips to false, so they correctly see only
+  // what that role would see.
   const filteredSections = navSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => !item.permission || hasPermission(`${item.permission}.view`)),
+      items: section.items.filter((item) => {
+        if (item.permission) return hasPermission(`${item.permission}.view`);
+        return admin?.isSuper ?? false;
+      }),
     }))
     .filter((section) => section.items.length > 0);
 

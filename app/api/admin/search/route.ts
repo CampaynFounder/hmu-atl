@@ -43,12 +43,16 @@ export async function GET(req: NextRequest) {
 
   const q = (req.nextUrl.searchParams.get('q') || '').trim();
 
-  // Permission filter first: items without a `permission` are visible to all
-  // admins; items with one require `permission + '.view'` (matches the
-  // sidebar's gating exactly so search ⇄ sidebar stay in sync).
-  const visible = ADMIN_SEARCH_MANIFEST.filter((item) =>
-    !item.permission || hasPermission(admin, `${item.permission}.view`),
-  );
+  // Permission filter first. Default-deny: items without a `permission` slug
+  // are super-only (see rbac_unmapped_routes_followup memory for the proper
+  // route-to-permission mapping rollout). Items with a slug require
+  // `permission + '.view'`. Matches the sidebar's gating exactly so search ⇄
+  // sidebar stay in sync — including when a super admin is previewing a
+  // lower role (their effective is_super is false during preview).
+  const visible = ADMIN_SEARCH_MANIFEST.filter((item) => {
+    if (item.permission) return hasPermission(admin, `${item.permission}.view`);
+    return admin.is_super;
+  });
 
   if (!q) {
     // No query — return the visible set sorted by section then label so the
