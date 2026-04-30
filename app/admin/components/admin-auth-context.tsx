@@ -5,14 +5,20 @@ import { createContext, useContext } from 'react';
 export interface AdminAuthData {
   id: string;
   roleSlug: string | null;
+  // Display name for the EFFECTIVE role (previewed when previewing, real
+  // otherwise). Used in the sidebar header so admins always see what role
+  // is currently driving their permissions.
+  roleLabel: string | null;
   permissions: string[];
   isSuper: boolean;
   requiresPublishApproval: boolean;
   // Set when a super admin is previewing the portal as a lower role. The
-  // permissions/roleSlug above already reflect the previewed role; these
-  // fields exist so the UI can show a banner and offer an exit affordance.
+  // permissions/roleSlug/roleLabel above already reflect the previewed role;
+  // these fields exist so the UI can show a banner and offer an exit
+  // affordance.
   isPreview?: boolean;
   realRoleSlug?: string | null;
+  realRoleLabel?: string | null;
   previewRoleLabel?: string | null;
   // True if the underlying user is a super admin (regardless of preview).
   // Used to decide whether to show "Preview as" affordances on the roles

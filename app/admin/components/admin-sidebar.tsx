@@ -181,7 +181,7 @@ export function AdminSidebar() {
         >
           {mobileOpen ? '✕' : '☰'}
         </button>
-        <span className="font-bold text-sm tracking-wide" style={{ color: 'var(--admin-text)' }}>HMU ADMIN</span>
+        <span className="font-bold text-sm tracking-wide uppercase" style={{ color: 'var(--admin-text)' }}>{admin?.roleLabel || 'HMU Admin'}</span>
         <div className="flex items-center gap-2">
           <button
             onClick={toggleTheme}
@@ -227,7 +227,8 @@ export function AdminSidebar() {
         <div className={collapsed ? 'lg:p-3' : 'p-6'} style={{ borderBottom: '1px solid var(--admin-border)' }}>
           {/* Full header — hidden when collapsed on desktop */}
           <div className={collapsed ? 'lg:hidden' : ''}>
-            <h1 className="text-lg font-bold tracking-wide">HMU ADMIN</h1>
+            <h1 className="text-lg font-bold tracking-wide uppercase">{admin?.roleLabel || 'HMU Admin'}</h1>
+            <div className="text-[10px] font-semibold tracking-[2px] mt-0.5" style={{ color: 'var(--admin-text-faint)' }}>HMU ADMIN</div>
             {markets.length > 0 && (
               <select
                 value={selectedMarketId || ''}

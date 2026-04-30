@@ -12,6 +12,10 @@ export interface AdminUser {
   role_slug: string | null;
   permissions: string[];
   is_super: boolean;
+  // Markets this admin is allowed to access. NULL = unrestricted (super
+  // behavior); set array = explicit allowlist; empty array = no markets.
+  // Super admins ignore this field entirely.
+  admin_market_ids: string[] | null;
   // Set when a super admin is previewing as a lower role. Permission checks
   // and the is_super bypass already follow the swapped values; this flag is
   // purely informational (banners, audit context).
@@ -33,7 +37,7 @@ export async function requireAdmin(): Promise<AdminUser | null> {
   if (!clerkId) return null;
 
   const rows = await sql`
-    SELECT u.id, u.clerk_id, u.profile_type,
+    SELECT u.id, u.clerk_id, u.profile_type, u.admin_market_ids,
            ar.slug as role_slug, ar.permissions, ar.is_super
     FROM users u
     LEFT JOIN admin_roles ar ON ar.id = u.admin_role_id
@@ -50,6 +54,7 @@ export async function requireAdmin(): Promise<AdminUser | null> {
     role_slug: (row.role_slug as string) || null,
     permissions: (row.permissions as string[]) || [],
     is_super: (row.is_super as boolean) || false,
+    admin_market_ids: (row.admin_market_ids as string[]) ?? null,
   };
 
   const { effective } = await applyPreviewSwap(real);
@@ -67,7 +72,7 @@ export async function requireRealAdmin(): Promise<AdminUser | null> {
   if (!clerkId) return null;
 
   const rows = await sql`
-    SELECT u.id, u.clerk_id, u.profile_type,
+    SELECT u.id, u.clerk_id, u.profile_type, u.admin_market_ids,
            ar.slug as role_slug, ar.permissions, ar.is_super
     FROM users u
     LEFT JOIN admin_roles ar ON ar.id = u.admin_role_id
@@ -84,6 +89,7 @@ export async function requireRealAdmin(): Promise<AdminUser | null> {
     role_slug: (row.role_slug as string) || null,
     permissions: (row.permissions as string[]) || [],
     is_super: (row.is_super as boolean) || false,
+    admin_market_ids: (row.admin_market_ids as string[]) ?? null,
   };
 }
 

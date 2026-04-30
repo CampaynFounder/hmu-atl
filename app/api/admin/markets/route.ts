@@ -6,20 +6,45 @@ export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
 
-  const markets = await sql`
-    SELECT
-      m.id, m.slug, m.name, m.subdomain, m.state, m.timezone, m.status,
-      m.center_lat, m.center_lng, m.radius_miles,
-      m.launch_date, m.sms_did, m.sms_area_code,
-      m.fee_config, m.launch_offer_config, m.branding,
-      m.min_drivers_to_launch,
-      (SELECT COUNT(*) FROM users WHERE market_id = m.id AND profile_type = 'driver')::int as driver_count,
-      (SELECT COUNT(*) FROM users WHERE market_id = m.id AND profile_type = 'rider')::int as rider_count,
-      (SELECT COUNT(*) FROM rides WHERE market_id = m.id AND status IN ('ended', 'completed'))::int as completed_rides,
-      (SELECT COUNT(*) FROM market_areas WHERE market_id = m.id AND is_active = true)::int as area_count
-    FROM markets m
-    ORDER BY m.status = 'live' DESC, m.name ASC
-  `;
+  // Market scoping: super admins (and admins with NULL admin_market_ids) see
+  // all markets; explicitly-scoped admins see only their allowlist. Filter
+  // here so the dropdown in the sidebar is automatically constrained, no
+  // per-component changes required. The `is_super` is the EFFECTIVE flag,
+  // so a super previewing a lower role still sees all markets — market
+  // scoping is per-user, not per-role.
+  const restricted = !admin.is_super && Array.isArray(admin.admin_market_ids);
+  const allowlist = restricted ? admin.admin_market_ids! : null;
+
+  const markets = allowlist === null
+    ? await sql`
+        SELECT
+          m.id, m.slug, m.name, m.subdomain, m.state, m.timezone, m.status,
+          m.center_lat, m.center_lng, m.radius_miles,
+          m.launch_date, m.sms_did, m.sms_area_code,
+          m.fee_config, m.launch_offer_config, m.branding,
+          m.min_drivers_to_launch,
+          (SELECT COUNT(*) FROM users WHERE market_id = m.id AND profile_type = 'driver')::int as driver_count,
+          (SELECT COUNT(*) FROM users WHERE market_id = m.id AND profile_type = 'rider')::int as rider_count,
+          (SELECT COUNT(*) FROM rides WHERE market_id = m.id AND status IN ('ended', 'completed'))::int as completed_rides,
+          (SELECT COUNT(*) FROM market_areas WHERE market_id = m.id AND is_active = true)::int as area_count
+        FROM markets m
+        ORDER BY m.status = 'live' DESC, m.name ASC
+      `
+    : await sql`
+        SELECT
+          m.id, m.slug, m.name, m.subdomain, m.state, m.timezone, m.status,
+          m.center_lat, m.center_lng, m.radius_miles,
+          m.launch_date, m.sms_did, m.sms_area_code,
+          m.fee_config, m.launch_offer_config, m.branding,
+          m.min_drivers_to_launch,
+          (SELECT COUNT(*) FROM users WHERE market_id = m.id AND profile_type = 'driver')::int as driver_count,
+          (SELECT COUNT(*) FROM users WHERE market_id = m.id AND profile_type = 'rider')::int as rider_count,
+          (SELECT COUNT(*) FROM rides WHERE market_id = m.id AND status IN ('ended', 'completed'))::int as completed_rides,
+          (SELECT COUNT(*) FROM market_areas WHERE market_id = m.id AND is_active = true)::int as area_count
+        FROM markets m
+        WHERE m.id = ANY(${allowlist}::UUID[])
+        ORDER BY m.status = 'live' DESC, m.name ASC
+      `;
 
   return NextResponse.json({
     markets: markets.map((m: Record<string, unknown>) => ({

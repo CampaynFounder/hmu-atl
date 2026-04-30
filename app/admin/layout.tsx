@@ -28,8 +28,8 @@ export default async function AdminLayout({
 
   // Check is_admin flag + load real role/permissions
   const rows = await sql`
-    SELECT u.id, u.clerk_id, u.profile_type, u.is_admin,
-           ar.slug as role_slug, ar.permissions, ar.is_super, ar.requires_publish_approval
+    SELECT u.id, u.clerk_id, u.profile_type, u.is_admin, u.admin_market_ids,
+           ar.slug as role_slug, ar.label as role_label, ar.permissions, ar.is_super, ar.requires_publish_approval
     FROM users u
     LEFT JOIN admin_roles ar ON ar.id = u.admin_role_id
     WHERE u.clerk_id = ${clerkUser.id} LIMIT 1
@@ -44,22 +44,27 @@ export default async function AdminLayout({
     role_slug: (row.role_slug as string) || null,
     permissions: (row.permissions as string[]) || [],
     is_super: (row.is_super as boolean) || false,
+    admin_market_ids: (row.admin_market_ids as string[]) ?? null,
   };
+  const realRoleLabel = (row.role_label as string) || null;
   const requiresPublishApproval = (row.requires_publish_approval as boolean) || false;
 
   // If a super admin has set the preview cookie, swap to that role's
   // permissions everywhere. Sidebar, search palette, and any client-side
   // permission check then reflect what the previewed role would see.
   const swap = await applyPreviewSwap(realAdmin);
+  const effectiveRoleLabel = swap.previewRole?.label ?? realRoleLabel;
 
   const adminData = {
     id: realAdmin.id,
     roleSlug: swap.effective.role_slug,
+    roleLabel: effectiveRoleLabel,
     permissions: swap.effective.permissions,
     isSuper: swap.effective.is_super,
     requiresPublishApproval,
     isPreview: swap.isPreview,
     realRoleSlug: swap.realRoleSlug,
+    realRoleLabel,
     previewRoleLabel: swap.previewRole?.label ?? null,
     realIsSuper: realAdmin.is_super,
   };

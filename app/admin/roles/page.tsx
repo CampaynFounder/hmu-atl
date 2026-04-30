@@ -2,10 +2,22 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAdminAuth } from '@/app/admin/components/admin-auth-context';
+import { useMarket } from '@/app/admin/components/market-context';
 import { PermissionMatrix, LEVEL_COLORS } from './permission-matrix';
 
 interface Role { id: string; slug: string; label: string; description: string | null; permissions: string[]; is_super: boolean; requires_publish_approval: boolean; admin_count: string; }
-interface AdminRow { id: string; clerk_id: string; driver_name: string | null; rider_name: string | null; driver_email: string | null; rider_phone: string | null; role_slug: string | null; role_label: string | null; }
+interface AdminRow {
+  id: string;
+  clerk_id: string;
+  driver_name: string | null;
+  rider_name: string | null;
+  driver_email: string | null;
+  rider_phone: string | null;
+  role_slug: string | null;
+  role_label: string | null;
+  is_super: boolean;
+  admin_market_ids: string[] | null;
+}
 
 // Collapsible section wrapper
 function Section({ title, count, defaultOpen = false, children }: { title: string; count?: number; defaultOpen?: boolean; children: React.ReactNode }) {
@@ -67,6 +79,12 @@ export default function RolesPage() {
   const [editPerms, setEditPerms] = useState<string[]>([]);
   const [editRequiresApproval, setEditRequiresApproval] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
+  // Market scope editor — separate from role editor; one admin's markets are
+  // edited at a time. null marketEditing means no row is open. Draft is
+  // either a Set of market IDs (restricted) or null (unrestricted = all).
+  const [marketEditingAdminId, setMarketEditingAdminId] = useState<string | null>(null);
+  const [marketDraft, setMarketDraft] = useState<string[] | null>(null);
+  const [savingMarkets, setSavingMarkets] = useState(false);
 
   const fetchData = useCallback(() => {
     fetch('/api/admin/roles').then((r) => r.json()).then((data) => { setRoles(data.roles || []); setAdmins(data.admins || []); }).catch(() => {}).finally(() => setLoading(false));
@@ -133,6 +151,46 @@ export default function RolesPage() {
     fetchData();
   };
 
+  const startMarketEdit = (admin: AdminRow) => {
+    setMarketEditingAdminId(admin.id);
+    setMarketDraft(admin.admin_market_ids === null ? null : [...admin.admin_market_ids]);
+  };
+
+  const cancelMarketEdit = () => {
+    setMarketEditingAdminId(null);
+    setMarketDraft(null);
+  };
+
+  const saveMarkets = async () => {
+    if (!marketEditingAdminId) return;
+    setSavingMarkets(true);
+    try {
+      const res = await fetch('/api/admin/roles/markets', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: marketEditingAdminId, market_ids: marketDraft }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Failed: ${err.error || res.statusText}`);
+        return;
+      }
+      cancelMarketEdit();
+      fetchData();
+    } catch (e) {
+      alert(`Failed: ${e}`);
+    } finally {
+      setSavingMarkets(false);
+    }
+  };
+
+  const toggleMarketInDraft = (marketId: string) => {
+    setMarketDraft((prev) => {
+      // If currently unrestricted, picking a market starts an explicit allowlist
+      if (prev === null) return [marketId];
+      return prev.includes(marketId) ? prev.filter((id) => id !== marketId) : [...prev, marketId];
+    });
+  };
+
   const startEdit = (role: Role) => {
     setEditingId(role.id);
     setEditLabel(role.label);
@@ -175,10 +233,12 @@ export default function RolesPage() {
   };
 
   const { admin } = useAdminAuth();
+  const { markets: availableMarkets } = useMarket();
   // realIsSuper survives even when this super admin is currently previewing
   // as a lower role — they should still see the "Preview as" affordances so
   // they can switch between roles without first exiting preview.
   const isSuperAdmin = (admin?.realIsSuper ?? admin?.isSuper) ?? false;
+  const marketLabelById = (id: string) => availableMarkets.find((m) => m.id === id)?.name || id.substring(0, 8);
 
   const previewAsRole = async (roleId: string) => {
     const res = await fetch('/api/admin/preview-role', {
@@ -275,28 +335,100 @@ export default function RolesPage() {
           <div style={{ fontSize: 13, color: 'var(--admin-text-muted)' }}>No admin users</div>
         ) : (
           <div style={{ display: 'grid', gap: 6 }}>
-            {admins.map((a) => (
-              <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 8, background: 'var(--admin-bg)', border: '1px solid var(--admin-border)' }}>
-                <div>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--admin-text)' }}>{a.driver_name || a.rider_name || a.clerk_id.substring(0, 12)}</span>
-                  <span style={{ fontSize: 11, color: 'var(--admin-text-muted)', marginLeft: 8 }}>{a.driver_email || a.rider_phone || ''}</span>
+            {admins.map((a) => {
+              const editingMarkets = marketEditingAdminId === a.id;
+              const unrestricted = a.admin_market_ids === null;
+              const marketBadge = a.is_super
+                ? 'All markets (super)'
+                : unrestricted
+                  ? 'All markets'
+                  : a.admin_market_ids!.length === 0
+                    ? 'No markets'
+                    : a.admin_market_ids!.map(marketLabelById).join(', ');
+              return (
+              <div key={a.id} style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--admin-bg)', border: `1px solid ${editingMarkets ? 'rgba(0,230,118,0.3)' : 'var(--admin-border)'}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--admin-text)' }}>{a.driver_name || a.rider_name || a.clerk_id.substring(0, 12)}</span>
+                    <span style={{ fontSize: 11, color: 'var(--admin-text-muted)', marginLeft: 8 }}>{a.driver_email || a.rider_phone || ''}</span>
+                    <div style={{ marginTop: 4, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                        background: a.role_slug === 'super_admin' ? 'rgba(0,230,118,0.1)' : 'var(--admin-bg-active)',
+                        color: a.role_slug === 'super_admin' ? '#00E676' : 'var(--admin-text-secondary)',
+                      }}>
+                        {a.role_label || 'No role'}
+                      </span>
+                      <span title="Markets this admin can access" style={{
+                        fontSize: 10, padding: '2px 8px', borderRadius: 4,
+                        background: a.is_super || unrestricted ? 'rgba(68,138,255,0.08)' : 'rgba(255,179,0,0.08)',
+                        color: a.is_super || unrestricted ? '#448AFF' : '#FFB300',
+                        border: `1px solid ${a.is_super || unrestricted ? 'rgba(68,138,255,0.2)' : 'rgba(255,179,0,0.25)'}`,
+                      }}>
+                        🌎 {marketBadge}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {isSuperAdmin && !a.is_super && !editingMarkets && (
+                      <button onClick={() => startMarketEdit(a)} style={{ padding: '3px 10px', borderRadius: 4, fontSize: 10, background: 'rgba(68,138,255,0.08)', color: '#448AFF', border: '1px solid rgba(68,138,255,0.3)', cursor: 'pointer', fontWeight: 600 }}>
+                        🌎 Markets
+                      </button>
+                    )}
+                    {a.role_slug !== 'super_admin' && !editingMarkets && (
+                      <button onClick={() => revokeAdmin(a.id)} style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, background: 'transparent', color: '#FF5252', border: '1px solid rgba(255,82,82,0.2)', cursor: 'pointer' }}>
+                        Revoke
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
-                    background: a.role_slug === 'super_admin' ? 'rgba(0,230,118,0.1)' : 'var(--admin-bg-active)',
-                    color: a.role_slug === 'super_admin' ? '#00E676' : 'var(--admin-text-secondary)',
-                  }}>
-                    {a.role_label || 'No role'}
-                  </span>
-                  {a.role_slug !== 'super_admin' && (
-                    <button onClick={() => revokeAdmin(a.id)} style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, background: 'transparent', color: '#FF5252', border: '1px solid rgba(255,82,82,0.2)', cursor: 'pointer' }}>
-                      Revoke
-                    </button>
-                  )}
-                </div>
+
+                {editingMarkets && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--admin-border)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--admin-text-muted)', marginBottom: 8 }}>
+                      Pick the markets this admin can access. <strong>Unrestricted</strong> means they see every market (current + future).
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={marketDraft === null}
+                        onChange={(e) => setMarketDraft(e.target.checked ? null : [])}
+                      />
+                      <span style={{ fontSize: 12, color: 'var(--admin-text-secondary)' }}>Unrestricted (all markets)</span>
+                    </label>
+                    {marketDraft !== null && (
+                      <div style={{ display: 'grid', gap: 4, marginBottom: 12 }}>
+                        {availableMarkets.length === 0 ? (
+                          <div style={{ fontSize: 11, color: 'var(--admin-text-faint)', fontStyle: 'italic' }}>
+                            No markets available to assign
+                          </div>
+                        ) : (
+                          availableMarkets.map((m) => {
+                            const checked = marketDraft.includes(m.id);
+                            return (
+                              <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '4px 6px', borderRadius: 4, background: checked ? 'rgba(0,230,118,0.05)' : 'transparent' }}>
+                                <input type="checkbox" checked={checked} onChange={() => toggleMarketInDraft(m.id)} />
+                                <span style={{ fontSize: 12, color: 'var(--admin-text)' }}>{m.name}</span>
+                                <span style={{ fontSize: 10, color: 'var(--admin-text-faint)', marginLeft: 'auto' }}>{m.status}</span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={saveMarkets} disabled={savingMarkets} style={{ ...primaryBtnStyle, opacity: savingMarkets ? 0.5 : 1 }}>
+                        {savingMarkets ? 'Saving…' : 'Save Markets'}
+                      </button>
+                      <button onClick={cancelMarketEdit} disabled={savingMarkets} style={secondaryBtnStyle}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            ))}
+            );
+            })}
           </div>
         )}
       </Section>

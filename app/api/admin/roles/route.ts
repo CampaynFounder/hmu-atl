@@ -16,12 +16,12 @@ export async function GET() {
     ORDER BY ar.is_super DESC, ar.slug ASC
   `;
 
-  // Also get list of current admins with their roles
+  // Also get list of current admins with their roles + market scope
   const admins = await sql`
-    SELECT u.id, u.clerk_id, u.profile_type,
+    SELECT u.id, u.clerk_id, u.profile_type, u.admin_market_ids,
            dp.display_name as driver_name, rp.display_name as rider_name,
            dp.email as driver_email, rp.phone as rider_phone,
-           ar.slug as role_slug, ar.label as role_label
+           ar.slug as role_slug, ar.label as role_label, ar.is_super
     FROM users u
     LEFT JOIN admin_roles ar ON ar.id = u.admin_role_id
     LEFT JOIN driver_profiles dp ON dp.user_id = u.id
