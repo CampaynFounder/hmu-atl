@@ -158,6 +158,15 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
 
   // ── GROW ────────────────────────────────────────────────────────────
   {
+    id: 'activation',
+    label: 'Activation',
+    description: 'Nurture payment-ready drivers and riders to first match',
+    href: '/admin/activation',
+    section: 'Grow',
+    icon: '🚀',
+    keywords: ['activation', 'nurture', 'payment ready', 'completeness', 'coverage', 'areas', 'nudge'],
+  },
+  {
     id: 'outreach',
     label: 'Outreach',
     description: 'Send SMS blasts and manage campaigns',

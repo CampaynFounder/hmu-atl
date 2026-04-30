@@ -40,6 +40,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
   {
     label: 'GROW',
     items: [
+      { href: '/admin/activation', label: 'Activation', icon: '🚀' },
       { href: '/admin/marketing', label: 'Outreach', icon: '📣', permission: 'grow.outreach' },
       { href: '/admin/messages', label: 'Messages', icon: '💬', permission: 'grow.messages', badgeCategory: 'messages', badgeColor: 'green' },
       { href: '/admin/leads', label: 'Leads', icon: '📧', permission: 'grow.leads', badgeCategory: 'leads', badgeColor: 'green' },
