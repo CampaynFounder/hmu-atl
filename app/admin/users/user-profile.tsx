@@ -78,6 +78,14 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
   const [smsText, setSmsText] = useState('');
   const [smsSending, setSmsSending] = useState(false);
   const [smsResult, setSmsResult] = useState<string | null>(null);
+  const [avatarOpen, setAvatarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!avatarOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAvatarOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [avatarOpen]);
 
   const fetchUser = useCallback(async () => {
     setLoading(true);
@@ -157,11 +165,18 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
       <div className="flex items-start gap-4">
         {/* Avatar */}
         {user.avatarUrl ? (
-          <img
-            src={user.avatarUrl}
-            alt={user.displayName}
-            className="w-14 h-14 rounded-full object-cover border-2 border-neutral-700 shrink-0"
-          />
+          <button
+            type="button"
+            onClick={() => setAvatarOpen(true)}
+            aria-label="Enlarge avatar"
+            className="shrink-0 rounded-full focus:outline-none focus:ring-2 focus:ring-[#00E676]"
+          >
+            <img
+              src={user.avatarUrl}
+              alt={user.displayName}
+              className="w-14 h-14 rounded-full object-cover border-2 border-neutral-700 hover:border-[#00E676] transition-colors cursor-zoom-in"
+            />
+          </button>
         ) : (
           <div className="w-14 h-14 rounded-full bg-neutral-800 border-2 border-neutral-700 flex items-center justify-center text-neutral-500 text-lg font-bold shrink-0">
             {user.displayName?.[0]?.toUpperCase() || '?'}
@@ -648,6 +663,31 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {avatarOpen && user.avatarUrl && (
+        <div
+          onClick={() => setAvatarOpen(false)}
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-6 cursor-zoom-out"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Avatar enlarged"
+        >
+          <img
+            src={user.avatarUrl}
+            alt={user.displayName}
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-[92vw] max-h-[92vh] rounded-2xl object-contain shadow-2xl cursor-default"
+          />
+          <button
+            type="button"
+            onClick={() => setAvatarOpen(false)}
+            aria-label="Close"
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-neutral-900/90 border border-neutral-700 text-white text-xl leading-none hover:bg-neutral-800"
+          >
+            ×
+          </button>
         </div>
       )}
     </div>
