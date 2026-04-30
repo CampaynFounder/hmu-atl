@@ -2,58 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAdminAuth } from '@/app/admin/components/admin-auth-context';
-
-const PERMISSION_SECTIONS = [
-  { group: 'MONITOR', items: [
-    { key: 'monitor.liveops', label: 'Live Ops' },
-    { key: 'monitor.revenue', label: 'Revenue' },
-    { key: 'monitor.pricing', label: 'Pricing' },
-    { key: 'monitor.schedules', label: 'Schedules' },
-  ]},
-  { group: 'ACT', items: [
-    { key: 'act.support', label: 'Support' },
-    { key: 'act.notifications', label: 'Notifications' },
-    { key: 'act.disputes', label: 'Disputes' },
-    { key: 'act.users', label: 'Users' },
-    { key: 'act.suspect', label: 'Suspect Usage' },
-  ]},
-  { group: 'GROW', items: [
-    { key: 'grow.outreach', label: 'Outreach' },
-    { key: 'grow.messages', label: 'Messages' },
-    { key: 'grow.leads', label: 'Leads' },
-    { key: 'grow.content', label: 'Content' },
-    { key: 'grow.funnel', label: 'Funnel CMS' },
-  ]},
-  { group: 'RAISE', items: [
-    { key: 'raise.dataroom', label: 'Data Room' },
-    { key: 'raise.pitch', label: 'Pitch Videos' },
-    { key: 'raise.videos', label: 'Videos' },
-    { key: 'raise.docs', label: 'Tech Docs' },
-  ]},
-  { group: 'SYSTEM', items: [
-    { key: 'admin.roles', label: 'Roles' },
-    { key: 'admin.audit', label: 'Audit Log' },
-  ]},
-];
-
-const LEVELS = ['view', 'edit', 'publish'] as const;
-const LEVEL_COLORS: Record<string, string> = { view: '#448AFF', edit: '#FFB300', publish: '#00E676' };
+import { PermissionMatrix, LEVEL_COLORS } from './permission-matrix';
 
 interface Role { id: string; slug: string; label: string; description: string | null; permissions: string[]; is_super: boolean; requires_publish_approval: boolean; admin_count: string; }
 interface AdminRow { id: string; clerk_id: string; driver_name: string | null; rider_name: string | null; driver_email: string | null; rider_phone: string | null; role_slug: string | null; role_label: string | null; }
-
-function getLevel(perms: string[], key: string): string | null {
-  if (perms.includes(`${key}.publish`)) return 'publish';
-  if (perms.includes(`${key}.edit`)) return 'edit';
-  if (perms.includes(`${key}.view`)) return 'view';
-  return null;
-}
-
-function setLevel(perms: string[], key: string, level: string | null): string[] {
-  const filtered = perms.filter((p) => !p.startsWith(`${key}.`));
-  if (level) filtered.push(`${key}.${level}`);
-  return filtered;
-}
 
 // Collapsible section wrapper
 function Section({ title, count, defaultOpen = false, children }: { title: string; count?: number; defaultOpen?: boolean; children: React.ReactNode }) {
@@ -107,6 +59,14 @@ export default function RolesPage() {
   const [assignUserId, setAssignUserId] = useState('');
   const [assignRoleId, setAssignRoleId] = useState('');
   const [assigning, setAssigning] = useState(false);
+  // Inline edit state — only one role is edited at a time. editingId === null
+  // means no row is open. Fields hydrate from the role when editing starts.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editPerms, setEditPerms] = useState<string[]>([]);
+  const [editRequiresApproval, setEditRequiresApproval] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const fetchData = useCallback(() => {
     fetch('/api/admin/roles').then((r) => r.json()).then((data) => { setRoles(data.roles || []); setAdmins(data.admins || []); }).catch(() => {}).finally(() => setLoading(false));
@@ -173,7 +133,46 @@ export default function RolesPage() {
     fetchData();
   };
 
-  const togglePerm = (key: string) => setNewPerms((prev) => prev.includes(key) ? prev.filter((p) => p !== key) : [...prev, key]);
+  const startEdit = (role: Role) => {
+    setEditingId(role.id);
+    setEditLabel(role.label);
+    setEditDesc(role.description || '');
+    setEditPerms([...role.permissions]);
+    setEditRequiresApproval(role.requires_publish_approval);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditLabel(''); setEditDesc(''); setEditPerms([]); setEditRequiresApproval(false);
+  };
+
+  const saveEdit = async () => {
+    if (!editingId || !editLabel) return;
+    setSavingEdit(true);
+    try {
+      const res = await fetch('/api/admin/roles', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingId,
+          label: editLabel,
+          description: editDesc || null,
+          permissions: editPerms,
+          requires_publish_approval: editRequiresApproval,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Failed: ${err.error || res.statusText}`);
+        return;
+      }
+      cancelEdit();
+      fetchData();
+    } catch (e) {
+      alert(`Failed: ${e}`);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   const { admin } = useAdminAuth();
   // realIsSuper survives even when this super admin is currently previewing
@@ -197,8 +196,6 @@ export default function RolesPage() {
   };
 
   if (loading) return <div style={{ padding: 40, color: 'var(--admin-text-muted)', textAlign: 'center' }}>Loading...</div>;
-
-  const groups = [...new Set(PERMISSION_SECTIONS.map((p) => p.group))];
 
   return (
     <div style={{ padding: '24px', maxWidth: 900 }}>
@@ -307,8 +304,10 @@ export default function RolesPage() {
       {/* ═══ EXISTING ROLES ═══ */}
       <Section title="Roles" count={roles.length} defaultOpen={false}>
         <div style={{ display: 'grid', gap: 8 }}>
-          {roles.map((role) => (
-            <div key={role.id} style={{ padding: '14px 16px', borderRadius: 8, background: 'var(--admin-bg)', border: '1px solid var(--admin-border)' }}>
+          {roles.map((role) => {
+            const isEditing = editingId === role.id;
+            return (
+            <div key={role.id} style={{ padding: '14px 16px', borderRadius: 8, background: 'var(--admin-bg)', border: `1px solid ${isEditing ? 'rgba(0,230,118,0.3)' : 'var(--admin-border)'}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--admin-text)' }}>{role.label}</span>
@@ -317,7 +316,7 @@ export default function RolesPage() {
                   <span style={{ fontSize: 11, color: 'var(--admin-text-faint)' }}>{role.admin_count} user{role.admin_count !== '1' ? 's' : ''}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  {isSuperAdmin && !role.is_super && (
+                  {isSuperAdmin && !role.is_super && !isEditing && (
                     <button
                       onClick={() => previewAsRole(role.id)}
                       title="Browse the admin portal as if you had this role's permissions. Read-only."
@@ -326,13 +325,18 @@ export default function RolesPage() {
                       👁 Preview as
                     </button>
                   )}
-                  {!role.is_super && (
+                  {!role.is_super && !isEditing && (
+                    <button onClick={() => startEdit(role)} style={{ padding: '3px 10px', borderRadius: 4, fontSize: 10, background: 'rgba(68,138,255,0.08)', color: '#448AFF', border: '1px solid rgba(68,138,255,0.3)', cursor: 'pointer', fontWeight: 600 }}>
+                      ✎ Edit
+                    </button>
+                  )}
+                  {!role.is_super && !isEditing && (
                     <button onClick={() => deleteRole(role.id)} style={{ padding: '3px 10px', borderRadius: 4, fontSize: 10, background: 'transparent', color: '#FF5252', border: '1px solid rgba(255,82,82,0.2)', cursor: 'pointer' }}>Delete</button>
                   )}
                 </div>
               </div>
-              {role.description && <div style={{ fontSize: 12, color: 'var(--admin-text-muted)', marginTop: 4 }}>{role.description}</div>}
-              {role.is_super ? (
+              {!isEditing && role.description && <div style={{ fontSize: 12, color: 'var(--admin-text-muted)', marginTop: 4 }}>{role.description}</div>}
+              {!isEditing && (role.is_super ? (
                 <div style={{ fontSize: 11, color: '#00E676', marginTop: 6 }}>All permissions (bypasses checks)</div>
               ) : role.permissions.length > 0 ? (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
@@ -341,9 +345,41 @@ export default function RolesPage() {
                     return <span key={p} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: `${LEVEL_COLORS[level] || '#666'}15`, color: LEVEL_COLORS[level] || '#666', border: `1px solid ${LEVEL_COLORS[level] || '#666'}30` }}>{p}</span>;
                   })}
                 </div>
-              ) : null}
+              ) : (
+                <div style={{ fontSize: 11, color: 'var(--admin-text-faint)', marginTop: 6, fontStyle: 'italic' }}>No permissions assigned</div>
+              ))}
+
+              {isEditing && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--admin-border)' }}>
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: 'var(--admin-text-muted)', marginBottom: 4, letterSpacing: 1 }}>LABEL</label>
+                    <input value={editLabel} onChange={(e) => setEditLabel(e.target.value)} style={inputStyle} />
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: 'var(--admin-text-muted)', marginBottom: 4, letterSpacing: 1 }}>DESCRIPTION</label>
+                    <input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} placeholder="Optional" style={inputStyle} />
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={editRequiresApproval} onChange={(e) => setEditRequiresApproval(e.target.checked)} />
+                    <span style={{ fontSize: 12, color: 'var(--admin-text-secondary)' }}>Requires two-person publish approval</span>
+                  </label>
+
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--admin-text-muted)', marginBottom: 8 }}>Permissions</div>
+                  <PermissionMatrix value={editPerms} onChange={setEditPerms} />
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                    <button onClick={saveEdit} disabled={savingEdit || !editLabel} style={{ ...primaryBtnStyle, opacity: savingEdit || !editLabel ? 0.5 : 1 }}>
+                      {savingEdit ? 'Saving…' : 'Save Changes'}
+                    </button>
+                    <button onClick={cancelEdit} disabled={savingEdit} style={secondaryBtnStyle}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          ))}
+          );
+          })}
         </div>
       </Section>
 
@@ -361,30 +397,7 @@ export default function RolesPage() {
         </label>
 
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--admin-text-muted)', marginBottom: 8 }}>Permissions</div>
-        <p style={{ fontSize: 11, color: 'var(--admin-text-faint)', marginBottom: 12 }}>
-          For each page, choose an access level. <span style={{ color: '#448AFF' }}>View</span> = read-only. <span style={{ color: '#FFB300' }}>Edit</span> = make changes (includes view). <span style={{ color: '#00E676' }}>Publish</span> = push live (includes edit + view).
-        </p>
-
-        {PERMISSION_SECTIONS.map(({ group, items }) => (
-          <div key={group} style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2, color: 'var(--admin-text-faint)', marginBottom: 6 }}>{group}</div>
-            <div style={{ display: 'grid', gap: 4 }}>
-              {items.map(({ key, label }) => {
-                const current = getLevel(newPerms, key);
-                return (
-                  <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 12, color: 'var(--admin-text-secondary)', width: 120, flexShrink: 0 }}>{label}</span>
-                    <div style={{ display: 'flex', gap: 3 }}>
-                      <button onClick={() => setNewPerms(setLevel(newPerms, key, current === 'view' ? null : 'view'))} style={levelBtnStyle(current === 'view', '#448AFF')}>view</button>
-                      <button onClick={() => setNewPerms(setLevel(newPerms, key, current === 'edit' ? null : 'edit'))} style={levelBtnStyle(current === 'edit', '#FFB300')}>edit</button>
-                      <button onClick={() => setNewPerms(setLevel(newPerms, key, current === 'publish' ? null : 'publish'))} style={levelBtnStyle(current === 'publish', '#00E676')}>publish</button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+        <PermissionMatrix value={newPerms} onChange={setNewPerms} />
 
         <button onClick={createRole} disabled={creating || !newSlug || !newLabel} style={{ ...primaryBtnStyle, marginTop: 8, opacity: creating || !newSlug || !newLabel ? 0.5 : 1 }}>
           {creating ? 'Creating...' : 'Create Role'}
@@ -400,13 +413,4 @@ const secondaryBtnStyle: React.CSSProperties = { padding: '8px 16px', borderRadi
 
 function badgeStyle(color: string): React.CSSProperties {
   return { fontSize: 9, padding: '2px 6px', borderRadius: 3, background: `${color}15`, color, fontWeight: 700 };
-}
-
-function levelBtnStyle(active: boolean, color: string): React.CSSProperties {
-  return {
-    padding: '3px 10px', borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: 'pointer',
-    background: active ? `${color}20` : 'var(--admin-bg)',
-    color: active ? color : 'var(--admin-text-faint)',
-    border: `1px solid ${active ? `${color}40` : 'var(--admin-border)'}`,
-  };
 }

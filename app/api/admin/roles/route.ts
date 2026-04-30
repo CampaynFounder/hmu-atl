@@ -67,25 +67,42 @@ export async function POST(request: NextRequest) {
 }
 
 // PATCH: Update a role
+//
+// Body fields are all optional EXCEPT id; only the fields that are present
+// (not undefined) are updated. Pass `permissions: []` to clear all
+// permissions; omit the field to leave them untouched.
+//
+// Super roles cannot be edited — the WHERE clause silently no-ops them
+// rather than returning an error, matching the DELETE endpoint's behavior.
 export async function PATCH(request: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
   if (!hasPermission(admin, 'admin.roles')) return unauthorizedResponse();
 
   const body = await request.json();
-  const { id, label, description, permissions } = body;
+  const { id, label, description, permissions, requires_publish_approval } = body;
 
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+
+  // Convert JS string[] to a Postgres TEXT[] literal — Neon's tagged template
+  // doesn't auto-marshal arrays into TEXT[]. `null` means "leave alone";
+  // anything else (including an empty array) is an explicit overwrite.
+  const permsLiteral = Array.isArray(permissions)
+    ? `{${permissions.map((p: string) => `"${p}"`).join(',')}}`
+    : null;
 
   await sql`
     UPDATE admin_roles
     SET label = COALESCE(${label || null}, label),
         description = COALESCE(${description ?? null}, description),
-        permissions = COALESCE(${permissions || null}, permissions)
+        permissions = COALESCE(${permsLiteral}::TEXT[], permissions),
+        requires_publish_approval = COALESCE(${typeof requires_publish_approval === 'boolean' ? requires_publish_approval : null}, requires_publish_approval)
     WHERE id = ${id} AND is_super = false
   `;
 
-  await logAdminAction(admin.id, 'role_updated', 'admin_role', id);
+  await logAdminAction(admin.id, 'role_updated', 'admin_role', id, {
+    label, description, permissions, requires_publish_approval,
+  });
 
   return NextResponse.json({ ok: true });
 }
