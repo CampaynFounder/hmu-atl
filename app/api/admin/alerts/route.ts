@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
 
   const marketId = req.nextUrl.searchParams.get('marketId');
 
-  const [staleRides, newDisputes, weirdo3x] = await Promise.all([
+  const [staleRides, newDisputes, weirdo3x, newSignups] = await Promise.all([
     // Stale GPS — driver hasn't updated location in >90s during active ride.
     // Market-filtered via r.market_id when provided.
     marketId
@@ -96,6 +96,33 @@ export async function GET(req: NextRequest) {
           HAVING COUNT(*) >= 3
           LIMIT 10
         `,
+    // Signups in the last 30 minutes. The Neon row only gets created once
+    // phone is verified (see /api/webhooks/clerk/route.ts:96-101), so this
+    // already filters out unverified bot signups.
+    marketId
+      ? sql`
+          SELECT u.id, u.profile_type, u.created_at,
+            COALESCE(dp.display_name, dp.first_name, rp.display_name, rp.first_name) as name
+          FROM users u
+          LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+          LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+          WHERE u.created_at > NOW() - INTERVAL '30 minutes'
+            AND u.profile_type IN ('driver', 'rider', 'both')
+            AND u.market_id = ${marketId}
+          ORDER BY u.created_at DESC
+          LIMIT 20
+        `
+      : sql`
+          SELECT u.id, u.profile_type, u.created_at,
+            COALESCE(dp.display_name, dp.first_name, rp.display_name, rp.first_name) as name
+          FROM users u
+          LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+          LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+          WHERE u.created_at > NOW() - INTERVAL '30 minutes'
+            AND u.profile_type IN ('driver', 'rider', 'both')
+          ORDER BY u.created_at DESC
+          LIMIT 20
+        `,
   ]);
 
   const alerts = [];
@@ -131,7 +158,19 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const severityOrder: Record<string, number> = { critical: 0, high: 1, warning: 2 };
+  for (const signup of newSignups) {
+    const role = signup.profile_type === 'driver' ? 'driver' : 'rider';
+    const name = (signup.name as string) || 'New user';
+    alerts.push({
+      type: 'new_signup',
+      severity: 'info',
+      message: `New ${role} signup: ${name}`,
+      userId: signup.id,
+      timestamp: signup.created_at,
+    });
+  }
+
+  const severityOrder: Record<string, number> = { critical: 0, high: 1, warning: 2, info: 3 };
   alerts.sort((a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9));
 
   return NextResponse.json({ alerts });

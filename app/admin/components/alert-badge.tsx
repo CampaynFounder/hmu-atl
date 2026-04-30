@@ -12,12 +12,14 @@ const severityStyles: Record<string, string> = {
   critical: 'border-red-500/50 bg-red-500/10 text-red-400',
   high: 'border-orange-500/50 bg-orange-500/10 text-orange-400',
   warning: 'border-yellow-500/50 bg-yellow-500/10 text-yellow-400',
+  info: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400',
 };
 
 const severityDot: Record<string, string> = {
   critical: 'bg-red-500',
   high: 'bg-orange-500',
   warning: 'bg-yellow-500',
+  info: 'bg-emerald-500',
 };
 
 export function AlertBadge({ severity, message, timestamp, onClick }: AlertBadgeProps) {
