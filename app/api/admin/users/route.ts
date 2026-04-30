@@ -31,6 +31,8 @@ export async function GET(req: NextRequest) {
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
                COALESCE(rp.display_name, rp.first_name) as rider_name,
+               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
+               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
                CASE u.profile_type
                  WHEN 'driver' THEN dp.profile_visible
                  WHEN 'rider'  THEN rp.profile_visible
@@ -58,6 +60,8 @@ export async function GET(req: NextRequest) {
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
                COALESCE(rp.display_name, rp.first_name) as rider_name,
+               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
+               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
                CASE u.profile_type
                  WHEN 'driver' THEN dp.profile_visible
                  WHEN 'rider'  THEN rp.profile_visible
@@ -84,6 +88,8 @@ export async function GET(req: NextRequest) {
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
                COALESCE(rp.display_name, rp.first_name) as rider_name,
+               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
+               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
                CASE u.profile_type
                  WHEN 'driver' THEN dp.profile_visible
                  WHEN 'rider'  THEN rp.profile_visible
@@ -109,6 +115,8 @@ export async function GET(req: NextRequest) {
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
                COALESCE(rp.display_name, rp.first_name) as rider_name,
+               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
+               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
                CASE u.profile_type
                  WHEN 'driver' THEN dp.profile_visible
                  WHEN 'rider'  THEN rp.profile_visible
@@ -132,6 +140,8 @@ export async function GET(req: NextRequest) {
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
                COALESCE(rp.display_name, rp.first_name) as rider_name,
+               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
+               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
                CASE u.profile_type
                  WHEN 'driver' THEN dp.profile_visible
                  WHEN 'rider'  THEN rp.profile_visible
@@ -156,6 +166,8 @@ export async function GET(req: NextRequest) {
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
                COALESCE(rp.display_name, rp.first_name) as rider_name,
+               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
+               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
                CASE u.profile_type
                  WHEN 'driver' THEN dp.profile_visible
                  WHEN 'rider'  THEN rp.profile_visible
@@ -178,6 +190,8 @@ export async function GET(req: NextRequest) {
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
                COALESCE(rp.display_name, rp.first_name) as rider_name,
+               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
+               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
                CASE u.profile_type
                  WHEN 'driver' THEN dp.profile_visible
                  WHEN 'rider'  THEN rp.profile_visible
@@ -200,6 +214,8 @@ export async function GET(req: NextRequest) {
                u.created_at,
                COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
                COALESCE(rp.display_name, rp.first_name) as rider_name,
+               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
+               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
                CASE u.profile_type
                  WHEN 'driver' THEN dp.profile_visible
                  WHEN 'rider'  THEN rp.profile_visible
@@ -216,19 +232,27 @@ export async function GET(req: NextRequest) {
       `;
     }
 
-    const users = rows.map((r: Record<string, unknown>) => ({
-      id: r.id,
-      clerkId: r.clerk_id,
-      profileType: r.profile_type,
-      accountStatus: r.account_status,
-      tier: r.tier,
-      displayName: r.driver_name || r.rider_name || 'No name',
-      phone: r.driver_phone || null,
-      completedRides: Number(r.completed_rides ?? 0),
-      disputeCount: 0,
-      createdAt: r.created_at,
-      profileVisible: r.profile_visible ?? null,
-    }));
+    const users = rows.map((r: Record<string, unknown>) => {
+      const isDriverLike = r.profile_type === 'driver' || r.profile_type === 'both';
+      const isRiderLike = r.profile_type === 'rider' || r.profile_type === 'both';
+      const paymentReady =
+        (isDriverLike && Boolean(r.stripe_onboarding_complete)) ||
+        (isRiderLike && Boolean(r.has_payment_method));
+      return {
+        id: r.id,
+        clerkId: r.clerk_id,
+        profileType: r.profile_type,
+        accountStatus: r.account_status,
+        tier: r.tier,
+        displayName: r.driver_name || r.rider_name || 'No name',
+        phone: r.driver_phone || null,
+        completedRides: Number(r.completed_rides ?? 0),
+        disputeCount: 0,
+        createdAt: r.created_at,
+        profileVisible: r.profile_visible ?? null,
+        paymentReady,
+      };
+    });
 
     return NextResponse.json({ users });
   } catch (error) {

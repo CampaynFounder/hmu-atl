@@ -172,25 +172,42 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-4">
-        {/* Avatar */}
-        {user.avatarUrl ? (
-          <button
-            type="button"
-            onClick={() => setAvatarOpen(true)}
-            aria-label="Enlarge avatar"
-            className="shrink-0 rounded-full focus:outline-none focus:ring-2 focus:ring-[#00E676]"
+        {/* Avatar with payment-ready dot */}
+        <div className="relative shrink-0">
+          {user.avatarUrl ? (
+            <button
+              type="button"
+              onClick={() => setAvatarOpen(true)}
+              aria-label="Enlarge avatar"
+              className="rounded-full focus:outline-none focus:ring-2 focus:ring-[#00E676]"
+            >
+              <img
+                src={user.avatarUrl}
+                alt={user.displayName}
+                className="w-14 h-14 rounded-full object-cover border-2 border-neutral-700 hover:border-[#00E676] transition-colors cursor-zoom-in"
+              />
+            </button>
+          ) : (
+            <div className="w-14 h-14 rounded-full bg-neutral-800 border-2 border-neutral-700 flex items-center justify-center text-neutral-500 text-lg font-bold">
+              {user.displayName?.[0]?.toUpperCase() || '?'}
+            </div>
+          )}
+          <span
+            title={user.paymentReady
+              ? (user.profileType === 'driver' || user.profileType === 'both'
+                  ? 'Stripe Connect onboarded — payouts enabled'
+                  : 'Saved card on file')
+              : 'No payment method linked'}
+            className={`absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full border-2 border-neutral-950 flex items-center justify-center text-[10px] leading-none font-bold ${
+              user.paymentReady
+                ? 'bg-emerald-500 text-emerald-950'
+                : 'bg-neutral-700 text-neutral-400'
+            }`}
+            aria-label={user.paymentReady ? 'Payment ready' : 'No payment method'}
           >
-            <img
-              src={user.avatarUrl}
-              alt={user.displayName}
-              className="w-14 h-14 rounded-full object-cover border-2 border-neutral-700 hover:border-[#00E676] transition-colors cursor-zoom-in"
-            />
-          </button>
-        ) : (
-          <div className="w-14 h-14 rounded-full bg-neutral-800 border-2 border-neutral-700 flex items-center justify-center text-neutral-500 text-lg font-bold shrink-0">
-            {user.displayName?.[0]?.toUpperCase() || '?'}
-          </div>
-        )}
+            {user.paymentReady ? '✓' : '!'}
+          </span>
+        </div>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">

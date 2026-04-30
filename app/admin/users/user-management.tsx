@@ -18,6 +18,7 @@ interface UserItem {
   disputeCount: number;
   createdAt: string;
   profileVisible: boolean | null;
+  paymentReady: boolean;
 }
 
 export function UserManagement() {
@@ -182,6 +183,7 @@ export function UserManagement() {
                     <th className="text-left p-3 font-medium">Name</th>
                     <th className="text-left p-3 font-medium">Type</th>
                     <th className="text-left p-3 font-medium">Status</th>
+                    <th className="text-left p-3 font-medium">Pay</th>
                     <th className="text-left p-3 font-medium">Visible</th>
                     <th className="text-left p-3 font-medium">Tier</th>
                     <th className="text-right p-3 font-medium">Rides</th>
@@ -192,11 +194,11 @@ export function UserManagement() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-neutral-500">Searching...</td>
+                      <td colSpan={9} className="p-8 text-center text-neutral-500">Searching...</td>
                     </tr>
                   ) : users.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-neutral-500">No users found</td>
+                      <td colSpan={9} className="p-8 text-center text-neutral-500">No users found</td>
                     </tr>
                   ) : (
                     users.map((user) => (
@@ -226,6 +228,22 @@ export function UserManagement() {
                             'bg-yellow-500/20 text-yellow-400'
                           }`}>
                             {user.accountStatus}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <span
+                            title={user.paymentReady
+                              ? (user.profileType === 'driver' || user.profileType === 'both'
+                                  ? 'Stripe Connect onboarded — payouts enabled'
+                                  : 'Saved card on file')
+                              : 'No payment method linked'}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              user.paymentReady
+                                ? 'bg-emerald-500/20 text-emerald-400'
+                                : 'bg-neutral-700/40 text-neutral-500'
+                            }`}
+                          >
+                            {user.paymentReady ? '✓ Ready' : '— None'}
                           </span>
                         </td>
                         <td className="p-3" onClick={(e) => e.stopPropagation()}>
