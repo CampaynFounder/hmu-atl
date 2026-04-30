@@ -176,7 +176,25 @@ export default function RolesPage() {
   const togglePerm = (key: string) => setNewPerms((prev) => prev.includes(key) ? prev.filter((p) => p !== key) : [...prev, key]);
 
   const { admin } = useAdminAuth();
-  const isSuperAdmin = admin?.isSuper ?? false;
+  // realIsSuper survives even when this super admin is currently previewing
+  // as a lower role — they should still see the "Preview as" affordances so
+  // they can switch between roles without first exiting preview.
+  const isSuperAdmin = (admin?.realIsSuper ?? admin?.isSuper) ?? false;
+
+  const previewAsRole = async (roleId: string) => {
+    const res = await fetch('/api/admin/preview-role', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role_id: roleId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(`Failed to enter preview: ${err.error || res.statusText}`);
+      return;
+    }
+    // Hard reload so the layout re-renders the swapped permissions everywhere.
+    window.location.href = '/admin';
+  };
 
   if (loading) return <div style={{ padding: 40, color: 'var(--admin-text-muted)', textAlign: 'center' }}>Loading...</div>;
 
@@ -298,9 +316,20 @@ export default function RolesPage() {
                   {role.requires_publish_approval && <span style={badgeStyle('#FFB300')}>NEEDS APPROVAL</span>}
                   <span style={{ fontSize: 11, color: 'var(--admin-text-faint)' }}>{role.admin_count} user{role.admin_count !== '1' ? 's' : ''}</span>
                 </div>
-                {!role.is_super && (
-                  <button onClick={() => deleteRole(role.id)} style={{ padding: '3px 10px', borderRadius: 4, fontSize: 10, background: 'transparent', color: '#FF5252', border: '1px solid rgba(255,82,82,0.2)', cursor: 'pointer' }}>Delete</button>
-                )}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {isSuperAdmin && !role.is_super && (
+                    <button
+                      onClick={() => previewAsRole(role.id)}
+                      title="Browse the admin portal as if you had this role's permissions. Read-only."
+                      style={{ padding: '3px 10px', borderRadius: 4, fontSize: 10, background: 'rgba(255,179,0,0.08)', color: '#FFB300', border: '1px solid rgba(255,179,0,0.3)', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      👁 Preview as
+                    </button>
+                  )}
+                  {!role.is_super && (
+                    <button onClick={() => deleteRole(role.id)} style={{ padding: '3px 10px', borderRadius: 4, fontSize: 10, background: 'transparent', color: '#FF5252', border: '1px solid rgba(255,82,82,0.2)', cursor: 'pointer' }}>Delete</button>
+                  )}
+                </div>
               </div>
               {role.description && <div style={{ fontSize: 12, color: 'var(--admin-text-muted)', marginTop: 4 }}>{role.description}</div>}
               {role.is_super ? (

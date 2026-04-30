@@ -9,6 +9,9 @@ import { AdminThemeProvider } from './components/theme-context';
 import { AdminAuthProvider } from './components/admin-auth-context';
 import { SessionTimeout } from './components/session-timeout';
 import { RealtimeNotificationBanner } from './components/realtime-notification-banner';
+import { PreviewBanner } from './components/preview-banner';
+import { applyPreviewSwap } from '@/lib/admin/preview-role';
+import type { AdminUser } from '@/lib/admin/helpers';
 
 export const metadata = {
   title: 'HMU Admin',
@@ -23,9 +26,10 @@ export default async function AdminLayout({
 
   if (!clerkUser) redirect('/admin-login');
 
-  // Check is_admin flag + load role/permissions
+  // Check is_admin flag + load real role/permissions
   const rows = await sql`
-    SELECT u.id, u.is_admin, ar.slug as role_slug, ar.permissions, ar.is_super, ar.requires_publish_approval
+    SELECT u.id, u.clerk_id, u.profile_type, u.is_admin,
+           ar.slug as role_slug, ar.permissions, ar.is_super, ar.requires_publish_approval
     FROM users u
     LEFT JOIN admin_roles ar ON ar.id = u.admin_role_id
     WHERE u.clerk_id = ${clerkUser.id} LIMIT 1
@@ -33,12 +37,31 @@ export default async function AdminLayout({
   if (!rows.length || !rows[0].is_admin) redirect('/');
 
   const row = rows[0];
-  const adminData = {
+  const realAdmin: AdminUser = {
     id: row.id as string,
-    roleSlug: (row.role_slug as string) || null,
+    clerk_id: row.clerk_id as string,
+    profile_type: row.profile_type as string,
+    role_slug: (row.role_slug as string) || null,
     permissions: (row.permissions as string[]) || [],
-    isSuper: (row.is_super as boolean) || false,
-    requiresPublishApproval: (row.requires_publish_approval as boolean) || false,
+    is_super: (row.is_super as boolean) || false,
+  };
+  const requiresPublishApproval = (row.requires_publish_approval as boolean) || false;
+
+  // If a super admin has set the preview cookie, swap to that role's
+  // permissions everywhere. Sidebar, search palette, and any client-side
+  // permission check then reflect what the previewed role would see.
+  const swap = await applyPreviewSwap(realAdmin);
+
+  const adminData = {
+    id: realAdmin.id,
+    roleSlug: swap.effective.role_slug,
+    permissions: swap.effective.permissions,
+    isSuper: swap.effective.is_super,
+    requiresPublishApproval,
+    isPreview: swap.isPreview,
+    realRoleSlug: swap.realRoleSlug,
+    previewRoleLabel: swap.previewRole?.label ?? null,
+    realIsSuper: realAdmin.is_super,
   };
 
   return (
@@ -46,7 +69,11 @@ export default async function AdminLayout({
       <MarketProvider>
         <SidebarProvider>
           <AdminThemeProvider>
+            {/* PreviewBanner is position:fixed and AdminSidebar / AdminMain
+                each shift their own offsets when admin.isPreview is set, so
+                the wrapper itself stays unchanged. */}
             <div className="min-h-screen flex" style={{ background: 'var(--admin-bg)', color: 'var(--admin-text)' }}>
+              <PreviewBanner />
               <AdminSidebar />
               <AdminMain>{children}</AdminMain>
               <SessionTimeout />

@@ -85,7 +85,10 @@ export function AdminSidebar() {
   const pathname = usePathname();
   const { collapsed, toggle } = useSidebar();
   const { theme, toggle: toggleTheme } = useAdminTheme();
-  const { hasPermission } = useAdminAuth();
+  const { hasPermission, admin } = useAdminAuth();
+  // When the preview banner is showing, both the desktop sidebar and the
+  // mobile top bar need to start 36px lower so nothing is hidden behind it.
+  const topOffset = admin?.isPreview ? 36 : 0;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({});
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
@@ -160,8 +163,8 @@ export function AdminSidebar() {
     <>
       {/* ── Mobile top bar ── */}
       <div
-        className="lg:hidden fixed top-0 left-0 right-0 z-50 px-4 py-3 flex items-center justify-between"
-        style={{ background: 'var(--admin-bg-elevated)', borderBottom: '1px solid var(--admin-border)' }}
+        className="lg:hidden fixed left-0 right-0 z-50 px-4 py-3 flex items-center justify-between"
+        style={{ top: topOffset, background: 'var(--admin-bg-elevated)', borderBottom: '1px solid var(--admin-border)' }}
       >
         <button
           onClick={() => setMobileOpen(!mobileOpen)}
@@ -198,14 +201,19 @@ export function AdminSidebar() {
       {/* ── Sidebar ── */}
       <aside
         className={`
-          fixed top-0 left-0 z-50 h-full
+          fixed left-0 z-50
           flex flex-col transition-all duration-200 ease-in-out
           ${collapsed ? 'lg:w-16' : 'lg:w-64'}
           w-64
           lg:translate-x-0
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
-        style={{ background: 'var(--admin-bg-elevated)', borderRight: '1px solid var(--admin-border)' }}
+        style={{
+          top: topOffset,
+          height: `calc(100% - ${topOffset}px)`,
+          background: 'var(--admin-bg-elevated)',
+          borderRight: '1px solid var(--admin-border)',
+        }}
       >
         {/* Header */}
         <div className={collapsed ? 'lg:p-3' : 'p-6'} style={{ borderBottom: '1px solid var(--admin-border)' }}>

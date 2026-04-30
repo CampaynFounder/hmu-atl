@@ -8,6 +8,16 @@ export interface AdminAuthData {
   permissions: string[];
   isSuper: boolean;
   requiresPublishApproval: boolean;
+  // Set when a super admin is previewing the portal as a lower role. The
+  // permissions/roleSlug above already reflect the previewed role; these
+  // fields exist so the UI can show a banner and offer an exit affordance.
+  isPreview?: boolean;
+  realRoleSlug?: string | null;
+  previewRoleLabel?: string | null;
+  // True if the underlying user is a super admin (regardless of preview).
+  // Used to decide whether to show "Preview as" affordances on the roles
+  // page even while a preview is active.
+  realIsSuper?: boolean;
 }
 
 interface AdminAuthContextValue {

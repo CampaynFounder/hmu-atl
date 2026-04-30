@@ -3,6 +3,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { NextResponse } from 'next/server';
+import { applyPreviewSwap } from './preview-role';
 
 export interface AdminUser {
   id: string;
@@ -11,12 +12,57 @@ export interface AdminUser {
   role_slug: string | null;
   permissions: string[];
   is_super: boolean;
+  // Set when a super admin is previewing as a lower role. Permission checks
+  // and the is_super bypass already follow the swapped values; this flag is
+  // purely informational (banners, audit context).
+  isPreview?: boolean;
+  realRoleSlug?: string | null;
 }
 
 /**
  * Verify the current user is an admin. Returns admin user with role/permissions or null.
+ *
+ * If the caller is a super admin AND the preview-role cookie is set, the
+ * returned identity is swapped to the previewed role's permissions so every
+ * downstream permission check (sidebar, search, route guards) reflects what
+ * that role would actually see and do. The real super-admin identity is still
+ * exposed via `realRoleSlug` and `isPreview`.
  */
 export async function requireAdmin(): Promise<AdminUser | null> {
+  const { userId: clerkId } = await auth();
+  if (!clerkId) return null;
+
+  const rows = await sql`
+    SELECT u.id, u.clerk_id, u.profile_type,
+           ar.slug as role_slug, ar.permissions, ar.is_super
+    FROM users u
+    LEFT JOIN admin_roles ar ON ar.id = u.admin_role_id
+    WHERE u.clerk_id = ${clerkId} AND u.is_admin = true
+    LIMIT 1
+  `;
+  if (!rows.length) return null;
+
+  const row = rows[0];
+  const real: AdminUser = {
+    id: row.id as string,
+    clerk_id: row.clerk_id as string,
+    profile_type: row.profile_type as string,
+    role_slug: (row.role_slug as string) || null,
+    permissions: (row.permissions as string[]) || [],
+    is_super: (row.is_super as boolean) || false,
+  };
+
+  const { effective } = await applyPreviewSwap(real);
+  return effective;
+}
+
+/**
+ * Like requireAdmin, but always returns the real (non-swapped) identity. Use
+ * this for endpoints that must operate on the actual user — currently only
+ * /api/admin/preview-role itself, which needs to verify is_super on the real
+ * identity even while a preview cookie is set.
+ */
+export async function requireRealAdmin(): Promise<AdminUser | null> {
   const { userId: clerkId } = await auth();
   if (!clerkId) return null;
 

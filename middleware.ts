@@ -177,6 +177,26 @@ export default clerkMiddleware(async (auth, req) => {
     }
   }
 
+  // PREVIEW-ROLE READ-ONLY GUARD: when a super admin is previewing as a lower
+  // role, they should be able to navigate the portal exactly as that role
+  // would, but they should NOT be able to take destructive actions while
+  // wearing someone else's permissions. Block all non-GET /api/admin/* calls
+  // when the preview cookie is set, with one exception: the preview-role
+  // endpoint itself, so the admin can exit preview without first un-setting
+  // it through the cookie store.
+  const previewCookie = req.cookies.get('admin_preview_role_id')?.value;
+  if (
+    previewCookie
+    && req.nextUrl.pathname.startsWith('/api/admin/')
+    && req.method !== 'GET'
+    && req.nextUrl.pathname !== '/api/admin/preview-role'
+  ) {
+    return NextResponse.json(
+      { error: 'Read-only while previewing as another role. Exit preview to make changes.' },
+      { status: 403 },
+    );
+  }
+
   // Allow public routes without authentication
   if (isPublicRoute(req)) {
     return buildPublicResponse(req);
