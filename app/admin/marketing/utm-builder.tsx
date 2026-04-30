@@ -1,10 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface UtmBuilderProps {
   onInsert: (url: string) => void;
 }
+
+const COLLAPSE_KEY = 'admin_marketing_utm_collapsed';
 
 const DOMAINS = [
   { label: 'atl.hmucashride.com', value: 'atl.hmucashride.com' },
@@ -78,11 +80,43 @@ export function UtmBuilder({ onInsert }: UtmBuilderProps) {
     onInsert(url);
   };
 
+  // Persist collapse state across reloads. Default-collapsed: this section is
+  // verbose and most marketing sends don't need a custom UTM.
+  const [collapsed, setCollapsed] = useState(true);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(COLLAPSE_KEY);
+      if (raw !== null) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setCollapsed(raw === '1');
+      }
+    } catch { /* ignore */ }
+  }, []);
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
   return (
     <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
-      <h3 className="text-sm font-semibold mb-4">UTM Link Builder</h3>
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        className="w-full flex items-center justify-between mb-0 hover:opacity-80 transition-opacity"
+        aria-expanded={!collapsed}
+      >
+        <h3 className="text-sm font-semibold">UTM Link Builder</h3>
+        <span className="text-xs text-neutral-500" aria-hidden style={{ transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 150ms' }}>▾</span>
+      </button>
 
-      <div className="space-y-3">
+      {collapsed && (
+        <p className="text-[11px] text-neutral-600 mt-1">Collapsed — click to build a tracked URL.</p>
+      )}
+
+      <div className={collapsed ? 'hidden' : 'space-y-3 mt-4'}>
         {/* Domain */}
         <div>
           <label className="text-[10px] text-neutral-500 uppercase tracking-wide block mb-1">Domain</label>

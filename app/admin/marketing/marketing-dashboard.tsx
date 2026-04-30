@@ -55,6 +55,25 @@ export function MarketingDashboard() {
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [newTemplateLabel, setNewTemplateLabel] = useState('');
+  // Quick Templates collapse state — persisted via localStorage. Defaults to
+  // expanded; templates are the most-used helper on this page.
+  const [templatesCollapsed, setTemplatesCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('admin_marketing_templates_collapsed');
+      if (raw !== null) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setTemplatesCollapsed(raw === '1');
+      }
+    } catch { /* ignore */ }
+  }, []);
+  const toggleTemplatesCollapsed = () => {
+    setTemplatesCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem('admin_marketing_templates_collapsed', next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  };
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
@@ -548,15 +567,26 @@ export function MarketingDashboard() {
             </div>
           </div>
 
-          {/* UTM Link Builder */}
-          <UtmBuilder onInsert={(url) => setLink(url)} />
-
-          {/* Templates */}
+          {/* Templates — moved above UTM since it's the more frequently used helper */}
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold">Quick Templates</h3>
-              <span className="text-[10px] text-neutral-500">{templates.length} saved</span>
-            </div>
+            <button
+              type="button"
+              onClick={toggleTemplatesCollapsed}
+              className="w-full flex items-center justify-between hover:opacity-80 transition-opacity"
+              aria-expanded={!templatesCollapsed}
+            >
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold">Quick Templates</h3>
+                <span className="text-[10px] text-neutral-500">{templates.length} saved</span>
+              </div>
+              <span className="text-xs text-neutral-500" aria-hidden style={{ transform: templatesCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 150ms' }}>▾</span>
+            </button>
+
+            {templatesCollapsed && (
+              <p className="text-[11px] text-neutral-600 mt-1">Collapsed — click to save and reuse messages.</p>
+            )}
+
+            <div className={templatesCollapsed ? 'hidden' : 'mt-3'}>
 
             {/* Save current message as template */}
             <div className="mb-3 pb-3 border-b border-neutral-800">
@@ -676,7 +706,11 @@ export function MarketingDashboard() {
                 ))}
               </div>
             )}
+            </div>
           </div>
+
+          {/* UTM Link Builder — collapsed by default, see UtmBuilder for toggle */}
+          <UtmBuilder onInsert={(url) => setLink(url)} />
         </div>
       </div>
 
