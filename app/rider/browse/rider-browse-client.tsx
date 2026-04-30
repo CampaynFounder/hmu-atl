@@ -13,7 +13,7 @@ import { FeedSkeleton, GridSkeleton } from '@/components/hmu/browse/skeletons';
 import { useInfiniteList } from '@/components/hmu/browse/use-infinite-list';
 import type { BrowseDriverRow } from '@/lib/hmu/browse-drivers-query';
 import BookingDrawer from './booking-drawer';
-import { FirstTimePaymentSheet } from '@/components/rider/first-time-payment-sheet';
+import { FirstTimePaymentBlocker } from '@/components/rider/first-time-payment-blocker';
 
 const VIEW_STORAGE_KEY = 'hmu_rider_browse_view';
 const PAGE_SIZE = 12;
@@ -30,18 +30,17 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize }: 
   const [bookingHandle, setBookingHandle] = useState<string | null>(null);
   const [profileHandle, setProfileHandle] = useState<string | null>(null);
 
-  // Payment-method gate. Profiles are always free to view — only the
-  // booking action requires a saved card. Fetches once on mount for any
-  // rider (not just first-timers) so anyone landing here without a card
-  // gets the slide-in when they tap HMU. firstTime stays useful as an
-  // analytics flag.
+  // First-time paywall. Riders arriving from /r/express with no saved card
+  // see the page through a blurred backdrop with a centered payment form
+  // and can't interact until the card is linked. Returning riders bypass
+  // entirely. firstTime stays as an analytics flag.
   const searchParams = useSearchParams();
   const isFirstTime = searchParams.get('firstTime') === '1';
   const [hasPaymentMethod, setHasPaymentMethod] = useState<boolean | null>(null);
-  const [pendingBookingHandle, setPendingBookingHandle] = useState<string | null>(null);
-  const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
+  const [paymentChecked, setPaymentChecked] = useState(false);
 
   useEffect(() => {
+    if (!isFirstTime) { setPaymentChecked(true); return; }
     let cancelled = false;
     (async () => {
       try {
@@ -51,10 +50,14 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize }: 
         if (!cancelled) setHasPaymentMethod(Array.isArray(data?.methods) && data.methods.length > 0);
       } catch {
         if (!cancelled) setHasPaymentMethod(true); // fail-open: don't block UX
+      } finally {
+        if (!cancelled) setPaymentChecked(true);
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [isFirstTime]);
+
+  const showBlocker = isFirstTime && paymentChecked && hasPaymentMethod === false;
 
   const { view, setView, hydrated } = useViewMode(VIEW_STORAGE_KEY);
 
@@ -112,49 +115,21 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize }: 
     } catch { /* ignore */ }
   }, [isFirstTime]);
 
-  // Profile click is free — track the view, open the overlay. No payment gate.
   const openProfile = useCallback((handle: string) => {
     trackProfileView(handle);
     setProfileHandle(handle);
   }, [trackProfileView]);
 
-  // Booking click is gated. Anyone without a saved card gets the slide-in
-  // before BookingDrawer opens; on success we drop them straight into it.
   const openBooking = useCallback((handle: string) => {
     posthog.capture('browse_hmu_clicked', { driverHandle: handle, firstTime: isFirstTime });
-    if (hasPaymentMethod === false) {
-      setPendingBookingHandle(handle);
-      setPaymentSheetOpen(true);
-      fbCustomEvent('FunnelLead_payment_prompt', {
-        funnel_stage: 'payment_prompt',
-        audience: 'rider_ad_funnel',
-        trigger: 'booking',
-      });
-      return;
-    }
     setBookingHandle(handle);
-  }, [isFirstTime, hasPaymentMethod]);
+  }, [isFirstTime]);
 
-  const handlePaymentSuccess = useCallback(() => {
+  const handleBlockerSuccess = useCallback(() => {
     setHasPaymentMethod(true);
-    setPaymentSheetOpen(false);
-    if (pendingBookingHandle) {
-      setBookingHandle(pendingBookingHandle);
-      setPendingBookingHandle(null);
-    }
-  }, [pendingBookingHandle]);
-
-  const handlePaymentCancel = useCallback(() => {
-    setPaymentSheetOpen(false);
-    setPendingBookingHandle(null);
-    fbCustomEvent('FunnelLead_payment_dismissed', { funnel_stage: 'payment_prompt', audience: 'rider_ad_funnel' });
+    fbCustomEvent('AddPaymentInfo', { content_name: 'rider_payment_method', source: 'blocker' });
+    fbCustomEvent('FunnelLead_payment_linked', { funnel_stage: 'payment_linked', audience: 'rider_ad_funnel' });
   }, []);
-
-  const pendingDriverDisplayName = useMemo(() => {
-    if (!pendingBookingHandle) return null;
-    const d = list.find((x) => x.handle === pendingBookingHandle);
-    return d?.displayName ?? null;
-  }, [pendingBookingHandle, list]);
 
   const filtersActive = filterFwu || filterArea || filterMaxPrice;
   const clearFilters = () => { setFilterFwu(false); setFilterArea(''); setFilterMaxPrice(''); };
@@ -296,12 +271,7 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize }: 
           onClose={() => setProfileHandle(null)}
         />
       )}
-      <FirstTimePaymentSheet
-        open={paymentSheetOpen}
-        driverDisplayName={pendingDriverDisplayName}
-        onSuccess={handlePaymentSuccess}
-        onCancel={handlePaymentCancel}
-      />
+      {showBlocker && <FirstTimePaymentBlocker onSuccess={handleBlockerSuccess} />}
     </>
   );
 }
