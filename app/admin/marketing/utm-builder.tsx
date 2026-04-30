@@ -105,15 +105,21 @@ export function UtmBuilder({ onInsert }: UtmBuilderProps) {
       <button
         type="button"
         onClick={toggleCollapsed}
-        className="w-full flex items-center justify-between mb-0 hover:opacity-80 transition-opacity"
+        className="w-full flex items-center justify-between gap-3 hover:bg-neutral-800/40 active:bg-neutral-800/60 rounded-lg px-2 py-2 -mx-2 -my-2 transition-colors"
         aria-expanded={!collapsed}
       >
-        <h3 className="text-sm font-semibold">UTM Link Builder</h3>
-        <span className="text-xs text-neutral-500" aria-hidden style={{ transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 150ms' }}>▾</span>
+        <h3 className="text-base font-semibold">UTM Link Builder</h3>
+        <span
+          aria-hidden
+          className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-200 text-base font-bold shrink-0"
+          style={{ transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 150ms' }}
+        >
+          ▾
+        </span>
       </button>
 
       {collapsed && (
-        <p className="text-[11px] text-neutral-600 mt-1">Collapsed — click to build a tracked URL.</p>
+        <p className="text-[11px] text-neutral-600 mt-2">Click ▾ above to build a tracked URL.</p>
       )}
 
       <div className={collapsed ? 'hidden' : 'space-y-3 mt-4'}>

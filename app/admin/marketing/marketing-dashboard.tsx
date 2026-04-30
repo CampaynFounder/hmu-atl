@@ -56,8 +56,8 @@ export function MarketingDashboard() {
   const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [newTemplateLabel, setNewTemplateLabel] = useState('');
   // Quick Templates collapse state — persisted via localStorage. Defaults to
-  // expanded; templates are the most-used helper on this page.
-  const [templatesCollapsed, setTemplatesCollapsed] = useState(false);
+  // collapsed to keep the outreach page focused; expand to save/load templates.
+  const [templatesCollapsed, setTemplatesCollapsed] = useState(true);
   useEffect(() => {
     try {
       const raw = localStorage.getItem('admin_marketing_templates_collapsed');
@@ -572,18 +572,24 @@ export function MarketingDashboard() {
             <button
               type="button"
               onClick={toggleTemplatesCollapsed}
-              className="w-full flex items-center justify-between hover:opacity-80 transition-opacity"
+              className="w-full flex items-center justify-between gap-3 hover:bg-neutral-800/40 active:bg-neutral-800/60 rounded-lg px-2 py-2 -mx-2 -my-2 transition-colors"
               aria-expanded={!templatesCollapsed}
             >
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold">Quick Templates</h3>
-                <span className="text-[10px] text-neutral-500">{templates.length} saved</span>
+                <h3 className="text-base font-semibold">Quick Templates</h3>
+                <span className="text-[10px] text-neutral-500 px-1.5 py-0.5 rounded bg-neutral-800">{templates.length} saved</span>
               </div>
-              <span className="text-xs text-neutral-500" aria-hidden style={{ transform: templatesCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 150ms' }}>▾</span>
+              <span
+                aria-hidden
+                className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-200 text-base font-bold shrink-0"
+                style={{ transform: templatesCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 150ms' }}
+              >
+                ▾
+              </span>
             </button>
 
             {templatesCollapsed && (
-              <p className="text-[11px] text-neutral-600 mt-1">Collapsed — click to save and reuse messages.</p>
+              <p className="text-[11px] text-neutral-600 mt-2">Click ▾ above to save and reuse messages.</p>
             )}
 
             <div className={templatesCollapsed ? 'hidden' : 'mt-3'}>
