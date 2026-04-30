@@ -16,7 +16,7 @@ export async function GET(
   const { id } = await params;
 
   try {
-  const [userRows, rideRows, ratingRows, disputeRows, activityRows] = await Promise.all([
+  const [userRows, rideRows, ratingRows, disputeRows, activityRows, paymentRows, totalsRows] = await Promise.all([
     sql`
       SELECT
         u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
@@ -27,6 +27,7 @@ export async function GET(
         u.last_sign_in_at, u.sign_in_count, u.first_return_at,
         dp.first_name as driver_first, dp.last_name as driver_last,
         dp.display_name as driver_display, dp.handle, dp.stripe_account_id,
+        dp.stripe_onboarding_complete,
         dp.video_url, dp.thumbnail_url as driver_thumbnail, dp.areas as driver_areas, dp.vehicle_info, dp.phone as driver_phone,
         dp.profile_visible,
         rp.first_name as rider_first, rp.last_name as rider_last,
@@ -75,6 +76,25 @@ export async function GET(
       ORDER BY created_at DESC
       LIMIT 30
     `,
+    // Saved cards for riders (default first). Empty = no payment method.
+    sql`
+      SELECT brand, last4, exp_month, exp_year, is_default
+      FROM rider_payment_methods
+      WHERE rider_id = ${id}
+      ORDER BY is_default DESC, created_at DESC
+    `,
+    // Lifetime totals — completed rides only.
+    // spent: rider paid (actual price). earned: driver net payout.
+    sql`
+      SELECT
+        COALESCE(SUM(CASE WHEN rider_id = ${id} THEN COALESCE(final_agreed_price, amount) END), 0) as lifetime_spend,
+        COALESCE(SUM(CASE WHEN driver_id = ${id} THEN COALESCE(driver_payout_amount, 0) END), 0) as lifetime_earned,
+        COUNT(*) FILTER (WHERE rider_id = ${id}) as rider_completed_count,
+        COUNT(*) FILTER (WHERE driver_id = ${id}) as driver_completed_count
+      FROM rides
+      WHERE status = 'completed'
+        AND (rider_id = ${id} OR driver_id = ${id})
+    `,
   ]);
 
   if (!userRows.length) {
@@ -82,6 +102,14 @@ export async function GET(
   }
 
   const u = userRows[0];
+
+  const isDriver = u.profile_type === 'driver' || u.profile_type === 'both';
+  const isRider = u.profile_type === 'rider' || u.profile_type === 'both';
+  const defaultPm = (paymentRows[0] as Record<string, unknown> | undefined) ?? null;
+  const driverPaymentReady = isDriver && Boolean(u.stripe_onboarding_complete);
+  const riderPaymentReady = isRider && paymentRows.length > 0;
+  const paymentReady = driverPaymentReady || riderPaymentReady;
+  const totals = (totalsRows[0] as Record<string, unknown>) ?? {};
 
   return NextResponse.json({
     user: {
@@ -118,6 +146,15 @@ export async function GET(
       lastSignInAt: u.last_sign_in_at,
       signInCount: Number(u.sign_in_count ?? 0),
       firstReturnAt: u.first_return_at,
+      paymentReady,
+      stripeOnboardingComplete: Boolean(u.stripe_onboarding_complete),
+      paymentMethodCount: paymentRows.length,
+      paymentBrand: defaultPm ? (defaultPm.brand as string | null) : null,
+      paymentLast4: defaultPm ? (defaultPm.last4 as string | null) : null,
+      paymentExpMonth: defaultPm ? (defaultPm.exp_month as number | null) : null,
+      paymentExpYear: defaultPm ? (defaultPm.exp_year as number | null) : null,
+      lifetimeSpend: Number(totals.lifetime_spend ?? 0),
+      lifetimeEarned: Number(totals.lifetime_earned ?? 0),
     },
     activity: activityRows.map((a: Record<string, unknown>) => ({
       event: a.event_name,

@@ -32,6 +32,15 @@ interface UserData {
     signInCount: number;
     firstReturnAt: string | null;
     profileVisible: boolean | null;
+    paymentReady: boolean;
+    stripeOnboardingComplete: boolean;
+    paymentMethodCount: number;
+    paymentBrand: string | null;
+    paymentLast4: string | null;
+    paymentExpMonth: number | null;
+    paymentExpYear: number | null;
+    lifetimeSpend: number;
+    lifetimeEarned: number;
   };
   rides: {
     id: string;
@@ -199,6 +208,22 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             }`}>
               {user.accountStatus}
             </span>
+            <span
+              title={
+                user.paymentReady
+                  ? user.profileType === 'driver' || user.profileType === 'both'
+                    ? 'Stripe Connect onboarding complete — payouts enabled'
+                    : `Saved card on file${user.paymentBrand && user.paymentLast4 ? ` (${user.paymentBrand} •••• ${user.paymentLast4})` : ''}`
+                  : 'No payment method linked'
+              }
+              className={`text-[10px] px-2 py-0.5 rounded font-medium ${
+                user.paymentReady
+                  ? 'bg-emerald-500/20 text-emerald-400'
+                  : 'bg-neutral-700/40 text-neutral-400'
+              }`}
+            >
+              {user.paymentReady ? 'PAYMENT READY ✓' : 'NO PAYMENT'}
+            </span>
           </div>
           {user.handle && (
             <div className="flex items-center gap-2 mt-0.5">
@@ -216,6 +241,22 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             </div>
           )}
           <p className="text-xs text-neutral-500 capitalize mt-0.5">{user.profileType}</p>
+          {user.paymentBrand && user.paymentLast4 && (
+            <p className="text-[11px] text-neutral-400 mt-0.5 font-mono">
+              <span className="capitalize">{user.paymentBrand}</span> •••• {user.paymentLast4}
+              {user.paymentExpMonth && user.paymentExpYear && (
+                <span className="text-neutral-600">
+                  {' '}· {String(user.paymentExpMonth).padStart(2, '0')}/{String(user.paymentExpYear).slice(-2)}
+                </span>
+              )}
+              {user.paymentMethodCount > 1 && (
+                <span className="text-neutral-600"> · +{user.paymentMethodCount - 1} more</span>
+              )}
+            </p>
+          )}
+          {user.profileType !== 'rider' && user.stripeOnboardingComplete && (
+            <p className="text-[11px] text-emerald-400/80 mt-0.5">Stripe Connect ✓ payouts enabled</p>
+          )}
         </div>
       </div>
 
@@ -272,6 +313,18 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             <p className="text-neutral-500">Profile Type</p>
             <p className="text-white capitalize">{user.profileType}</p>
           </div>
+          {(user.profileType === 'rider' || user.profileType === 'both') && (
+            <div>
+              <p className="text-neutral-500">Lifetime Spend</p>
+              <p className="text-white">{fmt(user.lifetimeSpend)}</p>
+            </div>
+          )}
+          {(user.profileType === 'driver' || user.profileType === 'both') && (
+            <div>
+              <p className="text-neutral-500">Lifetime Earned</p>
+              <p className="text-white">{fmt(user.lifetimeEarned)}</p>
+            </div>
+          )}
           <div>
             <p className="text-neutral-500">Tier</p>
             <p className={user.tier === 'hmu_first' ? 'text-blue-400' : 'text-white'}>{user.tier === 'hmu_first' ? 'HMU First' : 'Free'}</p>
