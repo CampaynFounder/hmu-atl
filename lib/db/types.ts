@@ -83,6 +83,7 @@ export interface RiderProfile {
   first_name: string;
   last_name: string;
   display_name?: string;
+  handle?: string | null;
   phone?: string;
   gender?: string;
   pronouns?: string;
@@ -94,6 +95,14 @@ export interface RiderProfile {
   stripe_customer_id?: string;
   created_at: Date;
   updated_at: Date;
+}
+
+export interface ProfileView {
+  rider_id: string;
+  driver_id: string;
+  view_count: number;
+  first_viewed_at: Date;
+  last_viewed_at: Date;
 }
 
 export interface HmuPost {

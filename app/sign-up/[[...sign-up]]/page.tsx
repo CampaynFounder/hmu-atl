@@ -20,7 +20,10 @@ export default async function SignUpPage({ searchParams }: Props) {
 
   const callbackParams = new URLSearchParams();
   if (type) callbackParams.set('type', type);
-  if (returnTo && returnTo.startsWith('/d/')) callbackParams.set('returnTo', returnTo);
+  // /d/ = chat-funnel from a driver's share link; /r/ = rider ad-funnel landing.
+  if (returnTo && (returnTo.startsWith('/d/') || returnTo.startsWith('/r/'))) {
+    callbackParams.set('returnTo', returnTo);
+  }
   if (mode === 'express') callbackParams.set('mode', 'express');
   const afterSignUpUrl = `/auth-callback${callbackParams.size ? `?${callbackParams}` : ''}`;
 

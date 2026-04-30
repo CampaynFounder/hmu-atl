@@ -85,6 +85,12 @@ export default function AuthCallbackPage() {
 
     const hasProfile = data.hasDriverProfile || data.hasRiderProfile;
     if (hasProfile) {
+      // Rider ad-funnel landing — re-arriving riders go straight back to it,
+      // and the page itself routes them on to /rider/browse.
+      if (returnTo && returnTo.startsWith('/r/')) {
+        router.replace(returnTo);
+        return;
+      }
       // If rider came from a driver share link, send them back
       if (returnTo && returnTo.startsWith('/d/')) {
         // Drivers can't book — send them to their dashboard
@@ -104,6 +110,14 @@ export default function AuthCallbackPage() {
     } else {
       // New user — fire CompleteRegistration pixel event
       fbEvent('CompleteRegistration', { content_name: type || 'unknown', content_category: type === 'driver' ? 'driver_funnel' : 'rider_funnel' });
+
+      // Rider ad-funnel: skip /onboarding entirely — /r/express hosts its own
+      // onboarding flow inline. Same /d/ pattern would route through onboarding,
+      // but ad-funnel is intentionally a self-contained page.
+      if (returnTo && returnTo.startsWith('/r/')) {
+        router.replace(returnTo);
+        return;
+      }
 
       // Forward type and returnTo through onboarding so context is never lost
       const onboardingParams = new URLSearchParams();

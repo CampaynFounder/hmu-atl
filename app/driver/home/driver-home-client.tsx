@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
 import { useAbly } from '@/hooks/use-ably';
 import CashoutCard from '@/components/driver/cashout-card';
+import { ViewsCard } from '@/components/driver/views-card';
 import { PendingActionBanner } from '@/components/pending-action-banner';
 import PassReasonSheet, { type PassReason } from '@/components/driver/pass-reason-sheet';
 
@@ -339,6 +340,9 @@ export default function DriverHomeClient({
             ))}
           </motion.div>
         )}
+
+        {/* Profile-views growth card — self-hides when there are zero views */}
+        <ViewsCard />
 
         {/* Incoming Requests — collapse the section entirely when empty so the
             cashout card sits above the fold for new drivers. Loading still
