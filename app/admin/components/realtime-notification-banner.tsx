@@ -72,7 +72,18 @@ export function RealtimeNotificationBanner() {
   const router = useRouter();
   const [config, setConfig] = useState<AdminRealtimeNotifConfig | null>(null);
   const [banners, setBanners] = useState<BannerEntry[]>([]);
+  // Dedup keys persist across page reloads via sessionStorage so Ably's
+  // rewind:2m doesn't re-pop banners the admin has already seen this tab.
   const seenIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('admin_banner_seen_ids');
+      if (raw) {
+        const arr = JSON.parse(raw) as string[];
+        if (Array.isArray(arr)) seenIdsRef.current = new Set(arr.slice(-200));
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   const isSuper = !!admin?.isSuper;
 
@@ -124,7 +135,12 @@ export function RealtimeNotificationBanner() {
     const dedupeKey = `${msg.name}:${msg.timestamp}:${(d.postId as string) || (d.userId as string) || (d.rideId as string) || ''}`;
     if (seenIdsRef.current.has(dedupeKey)) return;
     seenIdsRef.current.add(dedupeKey);
-    if (seenIdsRef.current.size > 200) seenIdsRef.current = new Set();
+    if (seenIdsRef.current.size > 200) {
+      seenIdsRef.current = new Set([...seenIdsRef.current].slice(-200));
+    }
+    try {
+      sessionStorage.setItem('admin_banner_seen_ids', JSON.stringify([...seenIdsRef.current]));
+    } catch { /* ignore quota */ }
 
     const meta = TYPE_LABELS[type];
     const formatted = formatBanner(type, msg.name, msg.data);

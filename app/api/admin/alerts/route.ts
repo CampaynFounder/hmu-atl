@@ -106,7 +106,7 @@ export async function GET(req: NextRequest) {
           FROM users u
           LEFT JOIN driver_profiles dp ON dp.user_id = u.id
           LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-          WHERE u.created_at > NOW() - INTERVAL '30 minutes'
+          WHERE u.created_at > NOW() - INTERVAL '6 hours'
             AND u.profile_type IN ('driver', 'rider', 'both')
             AND u.market_id = ${marketId}
           ORDER BY u.created_at DESC
@@ -118,7 +118,7 @@ export async function GET(req: NextRequest) {
           FROM users u
           LEFT JOIN driver_profiles dp ON dp.user_id = u.id
           LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-          WHERE u.created_at > NOW() - INTERVAL '30 minutes'
+          WHERE u.created_at > NOW() - INTERVAL '6 hours'
             AND u.profile_type IN ('driver', 'rider', 'both')
           ORDER BY u.created_at DESC
           LIMIT 20
