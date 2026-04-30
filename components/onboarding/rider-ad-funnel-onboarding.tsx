@@ -608,7 +608,7 @@ function StepSafety({
       />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-        <SafetyRow icon="🛡️" title="GPS on every ride" body="We track every ride end-to-end." />
+        <SafetyRow icon="🛡️" title="End To End ETA Tracking" body="Every Ride Is Safe & Secure GPS Enabled for Rider Security." />
         <SafetyRow icon="🚨" title="One-tap distress" body="A ride detail you can hit anytime — admin gets alerted instantly." />
         <SafetyRow icon="📍" title="Geo-verified end-of-ride" body="Both parties confirm. Mismatched locations get flagged." />
       </div>
