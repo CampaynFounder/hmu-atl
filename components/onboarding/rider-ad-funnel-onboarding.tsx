@@ -293,6 +293,9 @@ export function RiderAdFunnelOnboarding({ onComplete }: Props) {
         {step === 'confirmation' && (
           <StepConfirmation
             cta={config.confirmationCta || 'Browse Drivers'}
+            handle={handle}
+            mediaUrl={mediaUrl}
+            mediaKind={mediaKind}
             onContinue={handleConfirmation}
           />
         )}
@@ -671,22 +674,75 @@ function SafetyRow({ icon, title, body }: { icon: string; title: string; body: s
   );
 }
 
-function StepConfirmation({ cta, onContinue }: { cta: string; onContinue: () => void }) {
+function StepConfirmation({
+  cta, handle, mediaUrl, mediaKind, onContinue,
+}: {
+  cta: string;
+  handle: string;
+  mediaUrl: string | null;
+  mediaKind: 'photo' | 'video' | null;
+  onContinue: () => void;
+}) {
   return (
     <div style={{ textAlign: 'center' }}>
       <CelebrationConfetti active variant="cannon" />
-      <div style={{
-        width: 80, height: 80, borderRadius: '50%',
-        background: 'rgba(0,230,118,0.15)', display: 'inline-flex',
-        alignItems: 'center', justifyContent: 'center', marginBottom: 20,
-      }}>
-        <div style={{
-          width: 56, height: 56, borderRadius: '50%', background: '#00E676',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <Check className="w-7 h-7 text-black" strokeWidth={3} />
+
+      {/* Identity card — avatar + handle so the rider sees themselves
+          before the next surface. Falls back to the green-check if media
+          somehow didn't upload. */}
+      {mediaUrl ? (
+        <div style={{ position: 'relative', display: 'inline-block', marginBottom: 14 }}>
+          {mediaKind === 'video' ? (
+            <video
+              src={mediaUrl}
+              autoPlay muted loop playsInline
+              style={{
+                width: 120, height: 120, borderRadius: '50%',
+                objectFit: 'cover', border: '3px solid #00E676',
+              }}
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={mediaUrl}
+              alt={handle}
+              style={{
+                width: 120, height: 120, borderRadius: '50%',
+                objectFit: 'cover', border: '3px solid #00E676',
+              }}
+            />
+          )}
+          <div style={{
+            position: 'absolute', bottom: -2, right: -2,
+            width: 30, height: 30, borderRadius: '50%', background: '#00E676',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: '3px solid #080808',
+          }}>
+            <Check className="w-4 h-4 text-black" strokeWidth={3} />
+          </div>
         </div>
+      ) : (
+        <div style={{
+          width: 80, height: 80, borderRadius: '50%',
+          background: 'rgba(0,230,118,0.15)', display: 'inline-flex',
+          alignItems: 'center', justifyContent: 'center', marginBottom: 20,
+        }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: '50%', background: '#00E676',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Check className="w-7 h-7 text-black" strokeWidth={3} />
+          </div>
+        </div>
+      )}
+
+      <div style={{
+        fontSize: 12, color: '#00E676', fontWeight: 700, letterSpacing: 1,
+        textTransform: 'uppercase', marginBottom: 4,
+      }}>
+        @{handle}
       </div>
+
       <h1 style={{
         fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
         fontSize: 36, color: '#fff', lineHeight: 1, marginBottom: 8,

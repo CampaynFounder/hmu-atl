@@ -30,18 +30,18 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize }: 
   const [bookingHandle, setBookingHandle] = useState<string | null>(null);
   const [profileHandle, setProfileHandle] = useState<string | null>(null);
 
-  // First-time payment-capture flow (rider ad-funnel /r/express).
-  // Only intercepts the very first driver tap, and only when the rider
-  // has zero saved payment methods. Returning riders + riders with a
-  // saved card go straight into the existing profile overlay.
+  // Payment-method gate. Profiles are always free to view — only the
+  // booking action requires a saved card. Fetches once on mount for any
+  // rider (not just first-timers) so anyone landing here without a card
+  // gets the slide-in when they tap HMU. firstTime stays useful as an
+  // analytics flag.
   const searchParams = useSearchParams();
   const isFirstTime = searchParams.get('firstTime') === '1';
   const [hasPaymentMethod, setHasPaymentMethod] = useState<boolean | null>(null);
-  const [pendingProfileHandle, setPendingProfileHandle] = useState<string | null>(null);
+  const [pendingBookingHandle, setPendingBookingHandle] = useState<string | null>(null);
   const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
 
   useEffect(() => {
-    if (!isFirstTime) return;
     let cancelled = false;
     (async () => {
       try {
@@ -54,7 +54,7 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize }: 
       }
     })();
     return () => { cancelled = true; };
-  }, [isFirstTime]);
+  }, []);
 
   const { view, setView, hydrated } = useViewMode(VIEW_STORAGE_KEY);
 
@@ -97,13 +97,8 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize }: 
     ? { height: '100dvh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }
     : { minHeight: '100svh' };
 
-  const openBooking = (handle: string) => {
-    posthog.capture('browse_hmu_clicked', { driverHandle: handle });
-    setBookingHandle(handle);
-  };
-
   // Track every profile click (both vendors). Atomic counter — no row spam.
-  // keepalive=true so the request survives the navigation that follows.
+  // keepalive=true so the request survives any navigation that follows.
   const trackProfileView = useCallback((handle: string) => {
     posthog.capture('driver_profile_view', { driverHandle: handle, firstTime: isFirstTime });
     fbCustomEvent('ViewContent', { content_name: 'driver_profile', content_category: 'rider_funnel', driver_handle: handle });
@@ -117,39 +112,49 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize }: 
     } catch { /* ignore */ }
   }, [isFirstTime]);
 
-  // Card-click intercept. Open payment Sheet first only when (a) ad-funnel
-  // first-timer AND (b) no saved methods AND (c) we've actually checked.
+  // Profile click is free — track the view, open the overlay. No payment gate.
   const openProfile = useCallback((handle: string) => {
     trackProfileView(handle);
-    if (isFirstTime && hasPaymentMethod === false) {
-      setPendingProfileHandle(handle);
+    setProfileHandle(handle);
+  }, [trackProfileView]);
+
+  // Booking click is gated. Anyone without a saved card gets the slide-in
+  // before BookingDrawer opens; on success we drop them straight into it.
+  const openBooking = useCallback((handle: string) => {
+    posthog.capture('browse_hmu_clicked', { driverHandle: handle, firstTime: isFirstTime });
+    if (hasPaymentMethod === false) {
+      setPendingBookingHandle(handle);
       setPaymentSheetOpen(true);
-      fbCustomEvent('FunnelLead_payment_prompt', { funnel_stage: 'payment_prompt', audience: 'rider_ad_funnel' });
+      fbCustomEvent('FunnelLead_payment_prompt', {
+        funnel_stage: 'payment_prompt',
+        audience: 'rider_ad_funnel',
+        trigger: 'booking',
+      });
       return;
     }
-    setProfileHandle(handle);
-  }, [trackProfileView, isFirstTime, hasPaymentMethod]);
+    setBookingHandle(handle);
+  }, [isFirstTime, hasPaymentMethod]);
 
   const handlePaymentSuccess = useCallback(() => {
     setHasPaymentMethod(true);
     setPaymentSheetOpen(false);
-    if (pendingProfileHandle) {
-      setProfileHandle(pendingProfileHandle);
-      setPendingProfileHandle(null);
+    if (pendingBookingHandle) {
+      setBookingHandle(pendingBookingHandle);
+      setPendingBookingHandle(null);
     }
-  }, [pendingProfileHandle]);
+  }, [pendingBookingHandle]);
 
   const handlePaymentCancel = useCallback(() => {
     setPaymentSheetOpen(false);
-    setPendingProfileHandle(null);
+    setPendingBookingHandle(null);
     fbCustomEvent('FunnelLead_payment_dismissed', { funnel_stage: 'payment_prompt', audience: 'rider_ad_funnel' });
   }, []);
 
   const pendingDriverDisplayName = useMemo(() => {
-    if (!pendingProfileHandle) return null;
-    const d = list.find((x) => x.handle === pendingProfileHandle);
+    if (!pendingBookingHandle) return null;
+    const d = list.find((x) => x.handle === pendingBookingHandle);
     return d?.displayName ?? null;
-  }, [pendingProfileHandle, list]);
+  }, [pendingBookingHandle, list]);
 
   const filtersActive = filterFwu || filterArea || filterMaxPrice;
   const clearFilters = () => { setFilterFwu(false); setFilterArea(''); setFilterMaxPrice(''); };

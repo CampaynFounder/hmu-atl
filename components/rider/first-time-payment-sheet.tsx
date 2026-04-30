@@ -1,14 +1,14 @@
 'use client';
 
-// Slide-up payment-method capture for first-time riders arriving from
-// /r/express. Reuses InlinePaymentForm verbatim (the same component the
-// driver onboarding + rider settings use) so the UX is identical
-// everywhere a card is linked. NO Stripe-hosted redirect.
+// Slide-up payment-method capture, mounted in the rider browse experience.
+// Reuses InlinePaymentForm verbatim — the same component used everywhere
+// in the rider app a card is linked — so the UX is identical and there's
+// no Stripe-hosted redirect.
 //
 // Mounted by app/rider/browse/rider-browse-client.tsx when:
-//   - URL has ?firstTime=1 (set by the ad-funnel onboarding completion)
-//   - GET /api/rider/payment-methods returns zero saved methods
-//   - The rider taps a driver card
+//   - GET /api/rider/payment-methods returns zero saved methods, AND
+//   - The rider taps the HMU/Book button on a driver card.
+// Profile viewing is intentionally NOT gated — only booking is.
 
 import { useEffect } from 'react';
 import dynamic from 'next/dynamic';
@@ -72,9 +72,9 @@ export function FirstTimePaymentSheet({ open, driverDisplayName, onSuccess, onCa
           </div>
           <div style={{ fontSize: 13, color: '#888', lineHeight: 1.5 }}>
             {driverDisplayName ? (
-              <>Link a payment to view <strong style={{ color: '#fff' }}>{driverDisplayName}</strong>&apos;s profile.</>
+              <>Link a payment to book with <strong style={{ color: '#fff' }}>{driverDisplayName}</strong>.</>
             ) : (
-              <>Link a payment to view this driver&apos;s profile.</>
+              <>Link a payment to book this ride.</>
             )}
             <br />
             Held safely — only charged when the ride starts.
