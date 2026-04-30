@@ -33,7 +33,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin',
     section: 'Monitor',
     icon: '⚡',
-    permission: 'monitor.liveops',
     keywords: ['dashboard', 'home', 'realtime', 'overview', 'now', 'today'],
   },
   {
