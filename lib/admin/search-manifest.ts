@@ -186,6 +186,16 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     keywords: ['sms inbox', 'threads', 'conversations', 'replies'],
   },
   {
+    id: 'playbook',
+    label: 'Playbook',
+    description: 'Curate canned answers admins send from /admin/messages',
+    href: '/admin/playbook',
+    section: 'Grow',
+    icon: '📚',
+    permission: 'grow.playbook',
+    keywords: ['canned', 'macros', 'templates', 'faq', 'snippets', 'replies', 'q&a'],
+  },
+  {
     id: 'leads',
     label: 'Leads',
     description: 'Work the homepage email waitlist',

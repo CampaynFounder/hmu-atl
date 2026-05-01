@@ -21,6 +21,7 @@ const PERMISSION_SECTIONS = [
   { group: 'GROW', items: [
     { key: 'grow.outreach', label: 'Outreach' },
     { key: 'grow.messages', label: 'Messages' },
+    { key: 'grow.playbook', label: 'Playbook' },
     { key: 'grow.leads', label: 'Leads' },
     { key: 'grow.content', label: 'Content' },
     { key: 'grow.funnel', label: 'Funnel CMS' },

@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAbly } from '@/hooks/use-ably';
 import { useMarket } from '@/app/admin/components/market-context';
+import { chunkSms } from '@/lib/sms/chunk';
+import type { PlaybookEntry, PlaybookAudience } from '@/lib/admin/playbook';
 
 interface Thread {
   phone: string;
@@ -56,6 +58,16 @@ export function MessageHistory() {
   const [retrying, setRetrying] = useState<Record<string, 'sending' | 'sent' | 'failed'>>({});
   const [threadsCollapsed, setThreadsCollapsed] = useState(false);
   const [threadSearch, setThreadSearch] = useState('');
+  // Playbook picker state — populated when a conversation is open.
+  const [playbookEntries, setPlaybookEntries] = useState<PlaybookEntry[]>([]);
+  const [playbookOpen, setPlaybookOpen] = useState(true);
+  const [playbookSearch, setPlaybookSearch] = useState('');
+  const [playbookSendingId, setPlaybookSendingId] = useState<string | null>(null);
+  // Tracks the entry currently loaded into the reply input via Compose. When
+  // set, the 160-char cap is lifted and Send routes through the chunked
+  // playbook endpoint with the (possibly edited) text.
+  const [composedFromPlaybookId, setComposedFromPlaybookId] = useState<string | null>(null);
+  const [composedOriginal, setComposedOriginal] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { selectedMarketId } = useMarket();
   const mq = selectedMarketId ? `&marketId=${selectedMarketId}` : '';
@@ -232,21 +244,99 @@ export function MessageHistory() {
     if (!replyText.trim() || !selectedPhone) return;
     setSending(true);
     try {
-      const res = await fetch('/api/admin/marketing/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          recipients: [{ phone: selectedPhone, name: conversation?.userName }],
-          message: replyText.trim(),
-        }),
-      });
-      if (res.ok) {
-        setReplyText('');
-        // Refresh conversation
-        await openConversation(selectedPhone);
+      // Compose path: route through the chunker so long playbook answers go
+      // out as a multi-SMS burst with the right audit attribution.
+      if (composedFromPlaybookId) {
+        const res = await fetch('/api/admin/messages/send-playbook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            playbookId: composedFromPlaybookId,
+            toPhone: selectedPhone,
+            overrideText: replyText.trim(),
+          }),
+        });
+        if (res.ok) {
+          setReplyText('');
+          setComposedFromPlaybookId(null);
+          setComposedOriginal('');
+          await openConversation(selectedPhone);
+        }
+      } else {
+        const res = await fetch('/api/admin/marketing/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipients: [{ phone: selectedPhone, name: conversation?.userName }],
+            message: replyText.trim(),
+          }),
+        });
+        if (res.ok) {
+          setReplyText('');
+          await openConversation(selectedPhone);
+        }
       }
     } catch {}
     setSending(false);
+  };
+
+  // Fetch playbook entries for the picker. Audience defaults to the recipient's
+  // profile type when known; falls back to 'any'.
+  const fetchPlaybook = useCallback(async (audience: PlaybookAudience) => {
+    try {
+      const res = await fetch(`/api/admin/playbook?mode=picker&audience=${audience}`);
+      if (res.ok) {
+        const data = await res.json();
+        setPlaybookEntries(data.entries ?? []);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (!conversation) return;
+    const aud: PlaybookAudience =
+      conversation.userType === 'driver' ? 'driver'
+      : conversation.userType === 'rider' ? 'rider'
+      : 'any';
+    fetchPlaybook(aud);
+  }, [conversation, fetchPlaybook]);
+
+  const filteredPlaybook = useMemo(() => {
+    const q = playbookSearch.trim().toLowerCase();
+    if (!q) return playbookEntries;
+    return playbookEntries.filter(e =>
+      e.title.toLowerCase().includes(q) ||
+      e.question_text.toLowerCase().includes(q) ||
+      e.answer_body.toLowerCase().includes(q)
+    );
+  }, [playbookEntries, playbookSearch]);
+
+  const composeFromPlaybook = (entry: PlaybookEntry) => {
+    setReplyText(entry.answer_body);
+    setComposedFromPlaybookId(entry.id);
+    setComposedOriginal(entry.answer_body);
+  };
+
+  const sendPlaybook = async (entry: PlaybookEntry) => {
+    if (!selectedPhone) return;
+    setPlaybookSendingId(entry.id);
+    try {
+      const res = await fetch('/api/admin/messages/send-playbook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playbookId: entry.id, toPhone: selectedPhone }),
+      });
+      if (res.ok) {
+        await openConversation(selectedPhone);
+      }
+    } catch {}
+    setPlaybookSendingId(null);
+  };
+
+  const clearCompose = () => {
+    setReplyText('');
+    setComposedFromPlaybookId(null);
+    setComposedOriginal('');
   };
 
   useEffect(() => {
@@ -320,16 +410,102 @@ export function MessageHistory() {
           <div ref={messagesEndRef} />
         </div>
 
+        {/* Playbook strip — pre-canned answers super admins curate at /admin/playbook.
+            Audience pre-filtered to the recipient's profile_type when known. */}
+        <div className="border-t border-neutral-800 pt-2">
+          <button
+            onClick={() => setPlaybookOpen(!playbookOpen)}
+            className="flex items-center gap-2 text-[10px] font-bold tracking-[2px] text-neutral-500 uppercase hover:text-neutral-300 mb-2"
+          >
+            <span style={{ transform: playbookOpen ? 'none' : 'rotate(-90deg)', display: 'inline-block', fontSize: 8, transition: 'transform 0.15s' }}>▼</span>
+            Playbook
+            <span className="text-neutral-600 normal-case tracking-normal font-normal">
+              {playbookEntries.length} entr{playbookEntries.length === 1 ? 'y' : 'ies'}
+            </span>
+          </button>
+          {playbookOpen && (
+            <>
+              <input
+                type="search"
+                value={playbookSearch}
+                onChange={(e) => setPlaybookSearch(e.target.value)}
+                placeholder="Search playbook…"
+                className="w-full bg-neutral-900 border border-neutral-800 rounded-full px-3 py-1.5 text-xs text-white placeholder:text-neutral-600 mb-2"
+              />
+              <div className="max-h-44 overflow-y-auto space-y-1.5 mb-2">
+                {filteredPlaybook.length === 0 ? (
+                  <div className="text-[11px] text-neutral-600 px-2 py-2">
+                    {playbookEntries.length === 0
+                      ? 'No entries yet. Super admins create them at /admin/playbook.'
+                      : `No entries match "${playbookSearch}".`}
+                  </div>
+                ) : (
+                  filteredPlaybook.map((entry) => {
+                    const chunkCount = chunkSms(entry.answer_body).length;
+                    const isSending = playbookSendingId === entry.id;
+                    return (
+                      <div
+                        key={entry.id}
+                        className="flex items-center gap-2 bg-neutral-900/60 border border-neutral-800 rounded-lg px-3 py-2"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold text-white truncate">{entry.title}</div>
+                          <div className="text-[10px] text-neutral-500 truncate">{entry.answer_body}</div>
+                        </div>
+                        <span className="text-[9px] text-neutral-600 shrink-0 font-mono">
+                          {chunkCount} msg{chunkCount === 1 ? '' : 's'}
+                        </span>
+                        <button
+                          onClick={() => sendPlaybook(entry)}
+                          disabled={isSending || sending}
+                          className="text-[10px] bg-[#00E676]/15 hover:bg-[#00E676]/25 text-[#00E676] px-2.5 py-1 rounded font-semibold disabled:opacity-50 shrink-0"
+                          title="Send this answer now (chunked if long)"
+                        >
+                          {isSending ? '…' : 'Send'}
+                        </button>
+                        <button
+                          onClick={() => composeFromPlaybook(entry)}
+                          disabled={isSending || sending}
+                          className="text-[10px] bg-neutral-800 hover:bg-neutral-700 text-neutral-300 px-2.5 py-1 rounded font-semibold disabled:opacity-50 shrink-0"
+                          title="Load into reply box for editing"
+                        >
+                          Compose
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
         {/* Reply */}
         <div className="pt-3 border-t border-neutral-800">
+          {composedFromPlaybookId && (
+            <div className="flex items-center gap-2 mb-2 px-3 py-1.5 bg-[#00E676]/10 border border-[#00E676]/30 rounded-lg text-[11px]">
+              <span className="text-[#00E676]">📚 Composing from playbook</span>
+              {replyText !== composedOriginal && (
+                <span className="text-yellow-400">· edited</span>
+              )}
+              <button
+                onClick={clearCompose}
+                className="ml-auto text-neutral-500 hover:text-white"
+              >
+                × clear
+              </button>
+            </div>
+          )}
           <div className="flex gap-2">
             <input
               type="text"
               value={replyText}
-              onChange={(e) => setReplyText(e.target.value.slice(0, 160))}
+              onChange={(e) => setReplyText(
+                composedFromPlaybookId ? e.target.value : e.target.value.slice(0, 160)
+              )}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendReply()}
-              maxLength={160}
-              placeholder="Type a reply..."
+              maxLength={composedFromPlaybookId ? undefined : 160}
+              placeholder={composedFromPlaybookId ? 'Edit then hit Send…' : 'Type a reply...'}
               className="flex-1 bg-neutral-800 border border-neutral-700 rounded-full px-4 py-2.5 text-sm text-white placeholder:text-neutral-600"
             />
             <button
@@ -340,9 +516,15 @@ export function MessageHistory() {
               {sending ? '...' : 'Send'}
             </button>
           </div>
-          <span className={`text-[10px] ml-4 ${replyText.length > 140 ? 'text-yellow-400' : 'text-neutral-600'}`}>
-            {replyText.length}/160
-          </span>
+          {composedFromPlaybookId ? (
+            <span className="text-[10px] ml-4 text-neutral-600">
+              {replyText.length} chars · splits into {chunkSms(replyText).length} SMS
+            </span>
+          ) : (
+            <span className={`text-[10px] ml-4 ${replyText.length > 140 ? 'text-yellow-400' : 'text-neutral-600'}`}>
+              {replyText.length}/160
+            </span>
+          )}
         </div>
       </div>
     );
