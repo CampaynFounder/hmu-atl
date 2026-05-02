@@ -32,10 +32,16 @@ function marketSlugFromHost(req: NextRequest): string | null {
 // the attribution cookie.
 function buildPublicResponse(req: NextRequest): NextResponse {
   const slug = marketSlugFromHost(req);
-  const requestHeaders = slug
+  // x-admin-pathname feeds the route-level permission guard in
+  // `app/admin/layout.tsx`. We stamp it for any /admin/* request because the
+  // admin tree is registered as `isPublicRoute` (auth is enforced inside the
+  // layout, not at middleware), so this is the only path admin requests take.
+  const isAdminPath = req.nextUrl.pathname.startsWith('/admin');
+  const requestHeaders = (slug || isAdminPath)
     ? (() => {
         const h = new Headers(req.headers);
-        h.set('x-market-slug', slug);
+        if (slug) h.set('x-market-slug', slug);
+        if (isAdminPath) h.set('x-admin-pathname', req.nextUrl.pathname);
         return h;
       })()
     : req.headers;

@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { currentUser } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { AdminSidebar } from './components/admin-sidebar';
@@ -11,6 +12,7 @@ import { SessionTimeout } from './components/session-timeout';
 import { RealtimeNotificationBanner } from './components/realtime-notification-banner';
 import { PreviewBanner } from './components/preview-banner';
 import { applyPreviewSwap } from '@/lib/admin/preview-role';
+import { canAccessRoute } from '@/lib/admin/route-permissions';
 import type { AdminUser } from '@/lib/admin/helpers';
 
 export const metadata = {
@@ -54,6 +56,18 @@ export default async function AdminLayout({
   // permission check then reflect what the previewed role would see.
   const swap = await applyPreviewSwap(realAdmin);
   const effectiveRoleLabel = swap.previewRole?.label ?? realRoleLabel;
+
+  // Server-side route guard. Pathname comes from `x-admin-pathname` set in
+  // middleware. Unmapped routes default-deny (super only) inside
+  // `canAccessRoute`. Any non-super admin who lands on a route they don't have
+  // permission for — by typing the URL, bookmark, stale link — bounces back
+  // to /admin instead of rendering the page. The sidebar already hides these
+  // items, so this is the second layer that closes direct-URL access.
+  const requestHeaders = await headers();
+  const adminPathname = requestHeaders.get('x-admin-pathname');
+  if (adminPathname && !canAccessRoute(swap.effective, adminPathname)) {
+    redirect('/admin');
+  }
 
   const adminData = {
     id: realAdmin.id,

@@ -9,8 +9,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Fuse from 'fuse.js';
-import { requireAdmin, unauthorizedResponse, hasPermission } from '@/lib/admin/helpers';
+import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 import { ADMIN_SEARCH_MANIFEST, type AdminSearchItem } from '@/lib/admin/search-manifest';
+import { canAccessRoute } from '@/lib/admin/route-permissions';
 
 const MAX_RESULTS = 8;
 
@@ -43,16 +44,11 @@ export async function GET(req: NextRequest) {
 
   const q = (req.nextUrl.searchParams.get('q') || '').trim();
 
-  // Permission filter first. Default-deny: items without a `permission` slug
-  // are super-only (see rbac_unmapped_routes_followup memory for the proper
-  // route-to-permission mapping rollout). Items with a slug require
-  // `permission + '.view'`. Matches the sidebar's gating exactly so search ⇄
-  // sidebar stay in sync — including when a super admin is previewing a
-  // lower role (their effective is_super is false during preview).
-  const visible = ADMIN_SEARCH_MANIFEST.filter((item) => {
-    if (item.permission) return hasPermission(admin, `${item.permission}.view`);
-    return admin.is_super;
-  });
+  // Permission filter first. Driven by the same `route-permissions.ts` map
+  // the sidebar and server-side layout guard use, so search ⇄ sidebar ⇄
+  // direct-URL access all agree. When a super admin is previewing a lower
+  // role their effective is_super is false here.
+  const visible = ADMIN_SEARCH_MANIFEST.filter((item) => canAccessRoute(admin, item.href));
 
   if (!q) {
     // No query — return the visible set sorted by section then label so the

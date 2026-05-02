@@ -1,10 +1,12 @@
 // Static inventory of every admin destination available to the search palette.
-// Each entry pairs a route with the permission slug needed to *view* it (must
-// match the sidebar's gating in `app/admin/components/admin-sidebar.tsx`) and
-// a list of keywords/synonyms used by the fuzzy matcher.
+// Each entry is presentation only — label, description, icon, section, and
+// fuzzy-match keywords. The permission rule that gates visibility lives in
+// `lib/admin/route-permissions.ts`, keyed by `href`. The search API
+// (`app/api/admin/search/route.ts`) calls `canAccessRoute(admin, href)` so
+// search visibility tracks the layout guard and sidebar exactly.
 //
-// Adding a new admin page: append an entry here so it shows up in search.
-// Items without a `permission` are visible to every admin (matches sidebar).
+// Adding a new admin page: register the route + rule in `route-permissions.ts`
+// first, then append an entry here so it surfaces in search.
 
 export interface AdminSearchItem {
   id: string;
@@ -16,9 +18,6 @@ export interface AdminSearchItem {
   href: string;
   section: 'Monitor' | 'Act' | 'Grow' | 'Raise' | 'System' | 'Tools';
   icon: string;
-  // Sidebar permission slug — server checks `hasPermission(permission + '.view')`.
-  // Omit for routes that should be visible to all admins.
-  permission?: string;
   // Synonyms / common phrasings. The fuzzy matcher weights label highest, then
   // these. Keep them short and Atlanta-team-vocab where it matters.
   keywords: string[];
@@ -42,7 +41,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/growth',
     section: 'Monitor',
     icon: '📈',
-    permission: 'monitor.liveops',
     keywords: ['signups', 'charts', 'targets', 'area coverage', 'metrics'],
   },
   {
@@ -52,7 +50,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/money',
     section: 'Monitor',
     icon: '💰',
-    permission: 'monitor.revenue',
     keywords: ['money', 'payouts', 'fees', 'earnings', 'transactions', 'finance'],
   },
   {
@@ -62,7 +59,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/pricing',
     section: 'Monitor',
     icon: '⚙️',
-    permission: 'monitor.pricing',
     keywords: ['rates', 'tiers', 'fees', 'platform fee', 'caps'],
   },
   {
@@ -72,7 +68,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/schedule',
     section: 'Monitor',
     icon: '📅',
-    permission: 'monitor.schedules',
     keywords: ['calendar', 'driver schedule', 'availability'],
   },
 
@@ -84,7 +79,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/support',
     section: 'Act',
     icon: '🎫',
-    permission: 'act.support',
     keywords: ['tickets', 'help', 'inbox', 'cs'],
   },
   {
@@ -94,7 +88,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/notifications',
     section: 'Act',
     icon: '🔔',
-    permission: 'act.notifications',
     keywords: ['push', 'broadcast', 'alerts'],
   },
   {
@@ -104,7 +97,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/disputes',
     section: 'Act',
     icon: '⚖️',
-    permission: 'act.disputes',
     keywords: ['refunds', 'complaints', 'nah fam', 'queue'],
   },
   {
@@ -123,7 +115,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/users',
     section: 'Act',
     icon: '👥',
-    permission: 'act.users',
     keywords: ['riders', 'drivers', 'accounts', 'profiles', 'people'],
   },
   {
@@ -151,7 +142,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/suspect-usage',
     section: 'Act',
     icon: '🚨',
-    permission: 'act.suspect',
     keywords: ['fraud', 'abuse', 'flags', 'anomaly'],
   },
 
@@ -172,7 +162,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/marketing',
     section: 'Grow',
     icon: '📣',
-    permission: 'grow.outreach',
     keywords: ['marketing', 'sms', 'blast', 'campaign', 'csv', 'thread'],
   },
   {
@@ -182,7 +171,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/messages',
     section: 'Grow',
     icon: '💬',
-    permission: 'grow.messages',
     keywords: ['sms inbox', 'threads', 'conversations', 'replies'],
   },
   {
@@ -192,7 +180,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/playbook',
     section: 'Grow',
     icon: '📚',
-    permission: 'grow.playbook',
     keywords: ['canned', 'macros', 'templates', 'faq', 'snippets', 'replies', 'q&a'],
   },
   {
@@ -202,7 +189,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/leads',
     section: 'Grow',
     icon: '📧',
-    permission: 'grow.leads',
     keywords: ['homepage leads', 'email signups', 'waitlist'],
   },
   {
@@ -212,7 +198,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/content',
     section: 'Grow',
     icon: '🎬',
-    permission: 'grow.content',
     keywords: ['videos', 'social', 'ads', 'creative'],
   },
   {
@@ -222,7 +207,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/funnel',
     section: 'Grow',
     icon: '📝',
-    permission: 'grow.funnel',
     keywords: ['copy', 'pages', 'cms', 'zones', 'landing'],
   },
   {
@@ -261,7 +245,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/data-room',
     section: 'Raise',
     icon: '🔒',
-    permission: 'raise.dataroom',
     keywords: ['investors', 'metrics', 'fundraise'],
   },
   {
@@ -271,7 +254,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/pitch-videos',
     section: 'Raise',
     icon: '📱',
-    permission: 'raise.pitch',
     keywords: ['investor video', 'pitch deck'],
   },
   {
@@ -281,7 +263,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/videos',
     section: 'Raise',
     icon: '🎥',
-    permission: 'raise.videos',
     keywords: ['remotion', 'feature videos', 'documentation'],
   },
   {
@@ -291,7 +272,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/docs',
     section: 'Raise',
     icon: '📄',
-    permission: 'raise.docs',
     keywords: ['documentation', 'architecture', 'whitepaper'],
   },
 
@@ -303,7 +283,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/roles',
     section: 'System',
     icon: '🔑',
-    permission: 'admin.roles',
     keywords: ['rbac', 'permissions', 'access', 'admin users'],
   },
   {
@@ -376,7 +355,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/audit',
     section: 'System',
     icon: '📋',
-    permission: 'admin.audit',
     keywords: ['history', 'who did what', 'admin actions', 'changes'],
   },
 
@@ -388,7 +366,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/flows',
     section: 'Tools',
     icon: '🧭',
-    permission: 'tools.flows',
     keywords: ['onboarding preview', 'training', 'walkthrough', 'flows', 'simulator', 'demo'],
   },
   {
@@ -398,7 +375,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/flows/driver-express',
     section: 'Tools',
     icon: '🚗',
-    permission: 'tools.flows',
     keywords: ['express driver', 'driver onboarding preview', 'training driver'],
   },
   {
@@ -408,7 +384,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/flows/rider-ad-funnel',
     section: 'Tools',
     icon: '📣',
-    permission: 'tools.flows',
     keywords: ['ad funnel rider', 'r/express', 'rider conversion', 'meta ads rider', 'tiktok ads rider', 'paid signup'],
   },
   {
@@ -418,7 +393,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/flows/rider',
     section: 'Tools',
     icon: '🙋',
-    permission: 'tools.flows',
     keywords: ['rider onboarding preview', 'first time payment', 'rider signup', 'training rider', 'card link', 'organic signup'],
   },
   {
@@ -428,7 +402,6 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     href: '/admin/flows/rider-express',
     section: 'Tools',
     icon: '💬',
-    permission: 'tools.flows',
     keywords: ['express rider', 'chat booking signup', 'rider from share link'],
   },
 ];

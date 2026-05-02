@@ -9,44 +9,48 @@ import { useMarket } from './market-context';
 import { useSidebar } from './sidebar-context';
 import { useAdminTheme } from './theme-context';
 import { useAdminAuth } from './admin-auth-context';
+import { canAccess } from '@/lib/admin/route-permissions';
 
 type BadgeColor = 'green' | 'red' | 'amber';
-type NavItem = { href: string; label: string; icon: string; permission?: string; badgeCategory?: string; badgeColor?: BadgeColor };
+// Permissions are NOT declared inline — `canAccess(href, ...)` reads the rule
+// from `lib/admin/route-permissions.ts`, which is the same source the server
+// guard in `app/admin/layout.tsx` uses. To gate a new route, add it there.
+type NavItem = { href: string; label: string; icon: string; badgeCategory?: string; badgeColor?: BadgeColor };
 
 const navSections: { label: string; items: NavItem[] }[] = [
   {
     label: 'MONITOR',
     items: [
       { href: '/admin', label: 'Live Ops', icon: '⚡' },
-      { href: '/admin/growth', label: 'Growth', icon: '📈', permission: 'monitor.liveops' },
-      { href: '/admin/money', label: 'Revenue', icon: '💰', permission: 'monitor.revenue' },
-      { href: '/admin/pricing', label: 'Pricing', icon: '⚙️', permission: 'monitor.pricing' },
-      { href: '/admin/schedule', label: 'Schedules', icon: '📅', permission: 'monitor.schedules' },
+      { href: '/admin/growth', label: 'Growth', icon: '📈' },
+      { href: '/admin/money', label: 'Revenue', icon: '💰' },
+      { href: '/admin/pricing', label: 'Pricing', icon: '⚙️' },
+      { href: '/admin/schedule', label: 'Schedules', icon: '📅' },
     ],
   },
   {
     label: 'ACT',
     items: [
-      { href: '/admin/support', label: 'Support', icon: '🎫', permission: 'act.support', badgeCategory: 'support', badgeColor: 'amber' },
-      { href: '/admin/notifications', label: 'Notifications', icon: '🔔', permission: 'act.notifications' },
-      { href: '/admin/disputes', label: 'Disputes', icon: '⚖️', permission: 'act.disputes', badgeCategory: 'disputes', badgeColor: 'red' },
+      { href: '/admin/support', label: 'Support', icon: '🎫', badgeCategory: 'support', badgeColor: 'amber' },
+      { href: '/admin/notifications', label: 'Notifications', icon: '🔔' },
+      { href: '/admin/disputes', label: 'Disputes', icon: '⚖️', badgeCategory: 'disputes', badgeColor: 'red' },
       { href: '/admin/safety', label: 'Safety', icon: '🛡️', badgeCategory: 'safety', badgeColor: 'red' },
-      { href: '/admin/users', label: 'Users', icon: '👥', permission: 'act.users', badgeCategory: 'users', badgeColor: 'green' },
+      { href: '/admin/users', label: 'Users', icon: '👥', badgeCategory: 'users', badgeColor: 'green' },
       { href: '/admin/ride-requests', label: 'Ride Requests', icon: '🚖' },
       { href: '/admin/hmus', label: 'HMUs', icon: '📣' },
-      { href: '/admin/suspect-usage', label: 'Suspect Usage', icon: '🚨', permission: 'act.suspect' },
+      { href: '/admin/suspect-usage', label: 'Suspect Usage', icon: '🚨' },
     ],
   },
   {
     label: 'GROW',
     items: [
       { href: '/admin/activation', label: 'Activation', icon: '🚀' },
-      { href: '/admin/marketing', label: 'Outreach', icon: '📣', permission: 'grow.outreach' },
-      { href: '/admin/messages', label: 'Messages', icon: '💬', permission: 'grow.messages', badgeCategory: 'messages', badgeColor: 'green' },
-      { href: '/admin/playbook', label: 'Playbook', icon: '📚', permission: 'grow.playbook' },
-      { href: '/admin/leads', label: 'Leads', icon: '📧', permission: 'grow.leads', badgeCategory: 'leads', badgeColor: 'green' },
-      { href: '/admin/content', label: 'Content', icon: '🎬', permission: 'grow.content' },
-      { href: '/admin/funnel', label: 'Funnel CMS', icon: '📝', permission: 'grow.funnel' },
+      { href: '/admin/marketing', label: 'Outreach', icon: '📣' },
+      { href: '/admin/messages', label: 'Messages', icon: '💬', badgeCategory: 'messages', badgeColor: 'green' },
+      { href: '/admin/playbook', label: 'Playbook', icon: '📚' },
+      { href: '/admin/leads', label: 'Leads', icon: '📧', badgeCategory: 'leads', badgeColor: 'green' },
+      { href: '/admin/content', label: 'Content', icon: '🎬' },
+      { href: '/admin/funnel', label: 'Funnel CMS', icon: '📝' },
       { href: '/admin/driver-playbook/fb-groups', label: 'Playbook FB Groups', icon: '👥' },
       { href: '/admin/conversation-agent', label: 'Conversation Agent', icon: '💬' },
       { href: '/admin/chat-booking', label: 'Chat Booking', icon: '🤖' },
@@ -55,16 +59,16 @@ const navSections: { label: string; items: NavItem[] }[] = [
   {
     label: 'RAISE',
     items: [
-      { href: '/admin/data-room', label: 'Data Room', icon: '🔒', permission: 'raise.dataroom' },
-      { href: '/admin/pitch-videos', label: 'Pitch Videos', icon: '📱', permission: 'raise.pitch' },
-      { href: '/admin/videos', label: 'Videos', icon: '🎥', permission: 'raise.videos' },
-      { href: '/admin/docs', label: 'Tech Docs', icon: '📄', permission: 'raise.docs' },
+      { href: '/admin/data-room', label: 'Data Room', icon: '🔒' },
+      { href: '/admin/pitch-videos', label: 'Pitch Videos', icon: '📱' },
+      { href: '/admin/videos', label: 'Videos', icon: '🎥' },
+      { href: '/admin/docs', label: 'Tech Docs', icon: '📄' },
     ],
   },
   {
     label: 'SYSTEM',
     items: [
-      { href: '/admin/roles', label: 'Roles', icon: '🔑', permission: 'admin.roles' },
+      { href: '/admin/roles', label: 'Roles', icon: '🔑' },
       { href: '/admin/markets', label: 'Markets', icon: '🌎' },
       { href: '/admin/feature-flags', label: 'Feature Flags', icon: '🚩' },
       { href: '/admin/hmu-config', label: 'HMU Config', icon: '📣' },
@@ -72,15 +76,13 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/realtime-notifications', label: 'Realtime Banners', icon: '⚡' },
       { href: '/admin/maintenance', label: 'Maintenance', icon: '🚧' },
       { href: '/admin/voip-debug', label: 'VoIP Debug', icon: '📡' },
-      { href: '/admin/audit', label: 'Audit Log', icon: '📋', permission: 'admin.audit' },
+      { href: '/admin/audit', label: 'Audit Log', icon: '📋' },
     ],
   },
   {
     label: 'TOOLS',
     items: [
-      // Read-only walkthroughs of every user-facing onboarding/use flow.
-      // Default-deny: requires `tools.flows.view`. Used for staff training.
-      { href: '/admin/flows', label: 'Flows', icon: '🧭', permission: 'tools.flows' },
+      { href: '/admin/flows', label: 'Flows', icon: '🧭' },
     ],
   },
 ];
@@ -128,19 +130,15 @@ export function AdminSidebar() {
     });
   }, []);
 
-  // Filter nav sections by permissions. Default-deny: items without a
-  // `permission` slug are super-only (treated as un-RBAC'd routes that haven't
-  // been mapped to the matrix yet — see rbac_unmapped_routes_followup memory
-  // for the proper rollout). When a super admin is previewing a lower role
-  // their effective `is_super` flips to false, so they correctly see only
-  // what that role would see.
+  // Filter nav sections by route-permission rules. The single source of truth
+  // is `lib/admin/route-permissions.ts` — same map the server-side guard in
+  // `app/admin/layout.tsx` uses, so direct-URL access matches sidebar
+  // visibility exactly. Unknown routes default-deny to super only.
+  const isSuper = admin?.isSuper ?? false;
   const filteredSections = navSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => {
-        if (item.permission) return hasPermission(`${item.permission}.view`);
-        return admin?.isSuper ?? false;
-      }),
+      items: section.items.filter((item) => canAccess(item.href, isSuper, hasPermission)),
     }))
     .filter((section) => section.items.length > 0);
 
