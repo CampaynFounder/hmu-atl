@@ -6,6 +6,7 @@ import { UtmBuilder } from './utm-builder';
 import { RecentSignups } from './recent-signups';
 import { consumeStagedRecipients } from '@/lib/admin/outreach-staging';
 import { openThreadOrCompose } from '@/lib/admin/thread-router';
+import { useAdminAuth } from '@/app/admin/components/admin-auth-context';
 
 interface Recipient {
   phone: string;
@@ -36,6 +37,13 @@ interface Template {
 }
 
 export function MarketingDashboard() {
+  // Lock down link composition for non-super admins so they can only send
+  // links curated through saved templates. We read `isSuper` from effective
+  // permissions (the swap-aware value), so a super admin previewing as a
+  // lower role sees exactly what that role would experience. `realIsSuper`
+  // would let the super always edit, defeating the preview's purpose.
+  const { admin } = useAdminAuth();
+  const canEditLink = admin?.isSuper ?? false;
   const [inputMode, setInputMode] = useState<'signups' | 'compose' | 'csv' | 'selected'>('signups');
   const [phones, setPhones] = useState('');
   const [message, setMessage] = useState('');
@@ -539,14 +547,34 @@ export function MarketingDashboard() {
 
             {/* Link field */}
             <div className="mt-3">
-              <label className="text-[10px] text-neutral-500 uppercase tracking-wide block mb-1">Link (appended after message)</label>
+              <label className="text-[10px] text-neutral-500 uppercase tracking-wide block mb-1">
+                Link (appended after message)
+                {!canEditLink && (
+                  <span className="ml-2 normal-case tracking-normal text-amber-400/80">
+                    · super-admin managed
+                  </span>
+                )}
+              </label>
               <input
                 type="text"
                 value={link}
-                onChange={(e) => setLink(e.target.value)}
-                placeholder="atl.hmucashride.com"
-                className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 font-mono"
+                onChange={(e) => { if (canEditLink) setLink(e.target.value); }}
+                readOnly={!canEditLink}
+                placeholder={canEditLink ? 'atl.hmucashride.com' : 'Pick a saved template to set the link'}
+                title={canEditLink ? undefined : 'Only super admins can compose custom links. Use a saved template instead.'}
+                aria-readonly={!canEditLink}
+                className={
+                  'w-full bg-neutral-800 border rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 font-mono ' +
+                  (canEditLink
+                    ? 'border-neutral-700'
+                    : 'border-neutral-800 cursor-not-allowed opacity-80')
+                }
               />
+              {!canEditLink && (
+                <p className="text-[11px] text-neutral-500 mt-1.5 leading-snug">
+                  Outreach links are locked. Tap a saved template below to populate the link super admins approved.
+                </p>
+              )}
             </div>
 
             {/* Preview */}
@@ -667,10 +695,16 @@ export function MarketingDashboard() {
                         <input
                           type="text"
                           value={editLink}
-                          onChange={(e) => setEditLink(e.target.value.slice(0, 500))}
+                          onChange={(e) => { if (canEditLink) setEditLink(e.target.value.slice(0, 500)); }}
+                          readOnly={!canEditLink}
                           maxLength={500}
-                          className="w-full bg-neutral-900 border border-neutral-700 rounded px-2 py-1.5 text-xs text-white"
-                          placeholder="Link (optional) — paste a UTM-built URL"
+                          className={
+                            'w-full bg-neutral-900 border rounded px-2 py-1.5 text-xs text-white ' +
+                            (canEditLink ? 'border-neutral-700' : 'border-neutral-800 cursor-not-allowed opacity-80')
+                          }
+                          placeholder={canEditLink ? 'Link (optional) — paste a UTM-built URL' : 'Link (super-admin managed)'}
+                          title={canEditLink ? undefined : 'Only super admins can change the saved link on a template.'}
+                          aria-readonly={!canEditLink}
                         />
                         <div className="flex items-center justify-between">
                           <span className={`text-[10px] ${editBody.length > 140 ? 'text-yellow-400' : 'text-neutral-600'}`}>
@@ -755,8 +789,11 @@ export function MarketingDashboard() {
             </div>
           </div>
 
-          {/* UTM Link Builder — collapsed by default, see UtmBuilder for toggle */}
-          <UtmBuilder onInsert={(url) => setLink(url)} />
+          {/* UTM Link Builder — super-admin only. Non-super admins should
+              only send links curated via saved templates, so the builder
+              (and its "Use this Link" button) is hidden entirely. The link
+              input above is also read-only for them. */}
+          {canEditLink && <UtmBuilder onInsert={(url) => setLink(url)} />}
         </div>
       </div>
 
