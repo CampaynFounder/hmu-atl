@@ -46,6 +46,8 @@ export async function POST(request: NextRequest) {
       avoid_disputes,
       price_range,
       stripe_customer_id,
+      ride_types,
+      home_area_slug,
       // Driver-specific
       areas,
       area_slugs,
@@ -205,6 +207,20 @@ export async function POST(request: NextRequest) {
       const existingRider = await getRiderProfileByUserId(userId);
 
       if (!existingRider) {
+        // ride_types: server-side trim — slugs only, max 24 entries to match
+        // the admin endpoint cap. Anything else is silently dropped.
+        const SLUG_RE = /^[a-z0-9_]{1,32}$/;
+        const cleanedRideTypes = Array.isArray(ride_types)
+          ? Array.from(new Set(
+              ride_types
+                .map((s: unknown) => typeof s === 'string' ? s.toLowerCase() : '')
+                .filter((s: string) => s.length > 0 && SLUG_RE.test(s))
+            )).slice(0, 24)
+          : undefined;
+        const cleanedHomeArea = typeof home_area_slug === 'string' && home_area_slug.trim().length > 0
+          ? home_area_slug.trim()
+          : null;
+
         const riderProfile = await createRiderProfile({
           user_id: userId,
           first_name,
@@ -222,6 +238,8 @@ export async function POST(request: NextRequest) {
           avoid_disputes,
           price_range,
           stripe_customer_id,
+          ride_types: cleanedRideTypes,
+          home_area_slug: cleanedHomeArea,
         });
         results.profiles.rider = riderProfile;
 

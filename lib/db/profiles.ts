@@ -25,6 +25,8 @@ export interface CreateRiderProfileParams {
   avoid_disputes?: boolean;
   price_range?: string;
   stripe_customer_id?: string;
+  ride_types?: string[];
+  home_area_slug?: string | null;
 }
 
 export interface UpdateRiderProfileParams {
@@ -45,6 +47,8 @@ export interface UpdateRiderProfileParams {
   avoid_disputes?: boolean;
   price_range?: string;
   stripe_customer_id?: string;
+  ride_types?: string[];
+  home_area_slug?: string | null;
 }
 
 export async function createRiderProfile(
@@ -72,7 +76,9 @@ export async function createRiderProfile(
       safety_preferences,
       driver_preference,
       price_range,
-      stripe_customer_id
+      stripe_customer_id,
+      ride_types,
+      home_area_slug
     ) VALUES (
       ${params.user_id},
       ${params.first_name},
@@ -86,7 +92,9 @@ export async function createRiderProfile(
       ${safetyPrefs},
       ${params.driver_gender_pref || 'no_preference'},
       ${JSON.stringify({ range: params.price_range || 'medium' })},
-      ${params.stripe_customer_id || null}
+      ${params.stripe_customer_id || null},
+      ${params.ride_types ?? null},
+      ${params.home_area_slug ?? null}
     )
     RETURNING *
   `;
@@ -149,6 +157,8 @@ export async function updateRiderProfile(
       safety_preferences = ${JSON.stringify(safetyPrefs)},
       price_range = COALESCE(${params.price_range}, price_range),
       stripe_customer_id = COALESCE(${params.stripe_customer_id || null}, stripe_customer_id),
+      ride_types = COALESCE(${params.ride_types ?? null}::text[], ride_types),
+      home_area_slug = COALESCE(${params.home_area_slug ?? null}, home_area_slug),
       updated_at = NOW()
     WHERE user_id = ${userId}
     RETURNING *

@@ -24,13 +24,21 @@ import {
   RIDER_AD_FUNNEL_DEFAULTS,
   type RiderAdFunnelConfig,
 } from '@/lib/onboarding/rider-ad-funnel-config';
+import {
+  RIDER_PROFILE_FIELDS_DEFAULTS,
+  visibleRideTypes,
+  type RiderProfileFieldsConfig,
+} from '@/lib/onboarding/rider-profile-fields-config';
 import { useOnboardingPreviewMode } from '@/lib/onboarding/preview-mode';
+import { RideTypePicker } from '@/components/onboarding/rider/ride-type-picker';
+import { HomeAreaPicker } from '@/components/onboarding/rider/home-area-picker';
+import type { MarketAreaChip } from '@/components/onboarding/express/market-area-picker.types';
 
 interface Props {
   onComplete: (browseRoute: string) => void;
 }
 
-type Step = 'handle' | 'media' | 'location' | 'safety' | 'confirmation';
+type Step = 'handle' | 'media' | 'location' | 'ride-types' | 'home-area' | 'safety' | 'confirmation';
 
 declare global {
   interface Window {
@@ -48,6 +56,9 @@ export function RiderAdFunnelOnboarding({ onComplete }: Props) {
   const { user } = useUser();
   const preview = useOnboardingPreviewMode();
   const [config, setConfig] = useState<RiderAdFunnelConfig>(RIDER_AD_FUNNEL_DEFAULTS);
+  const [profileFieldsConfig, setProfileFieldsConfig] = useState<RiderProfileFieldsConfig>(RIDER_PROFILE_FIELDS_DEFAULTS);
+  const [marketName, setMarketName] = useState<string>('your area');
+  const [marketAreas, setMarketAreas] = useState<MarketAreaChip[]>([]);
   const [step, setStep] = useState<Step>('handle');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,8 +76,27 @@ export function RiderAdFunnelOnboarding({ onComplete }: Props) {
   const [videoMode, setVideoMode] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
-  // Step 4 — safety toggle (defaults true; matches platform default)
+  // Optional steps — gated by admin config visibility
+  const [rideTypes, setRideTypes] = useState<string[]>([]);
+  const [homeAreaSlug, setHomeAreaSlug] = useState<string | null>(null);
+
+  // Final step — safety toggle (defaults true; matches platform default)
   const [safetyChecksEnabled, setSafetyChecksEnabled] = useState(true);
+
+  // Compute the active step list once config has loaded. 'hidden' / 'deferred'
+  // both skip the step inline; the difference (Pre-Ride To-Do for deferred)
+  // is a future enhancement when the rider To-Do surface ships.
+  const showRideTypes = profileFieldsConfig.fields.rideTypes === 'required'
+    || profileFieldsConfig.fields.rideTypes === 'optional';
+  const showHomeArea = profileFieldsConfig.fields.homeArea === 'required'
+    || profileFieldsConfig.fields.homeArea === 'optional';
+  const rideTypesRequired = profileFieldsConfig.fields.rideTypes === 'required';
+  const homeAreaRequired = profileFieldsConfig.fields.homeArea === 'required';
+
+  const activeSteps: Step[] = ['handle', 'media', 'location'];
+  if (showRideTypes) activeSteps.push('ride-types');
+  if (showHomeArea) activeSteps.push('home-area');
+  activeSteps.push('safety', 'confirmation');
 
   // Pre-fill handle suggestion from Clerk first name
   useEffect(() => {
@@ -75,15 +105,25 @@ export function RiderAdFunnelOnboarding({ onComplete }: Props) {
     }
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Pull live config; defaults are fine if it fails
+  // Pull live configs in parallel; defaults are fine if either fails.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/onboarding/rider-ad-funnel-config', { cache: 'no-store' });
-        if (!cancelled && res.ok) {
-          const body = await res.json();
+        const [funnelRes, fieldsRes] = await Promise.all([
+          fetch('/api/onboarding/rider-ad-funnel-config', { cache: 'no-store' }),
+          fetch('/api/onboarding/rider-profile-fields-config', { cache: 'no-store' }),
+        ]);
+        if (cancelled) return;
+        if (funnelRes.ok) {
+          const body = await funnelRes.json();
           if (body?.config) setConfig(body.config as RiderAdFunnelConfig);
+        }
+        if (fieldsRes.ok) {
+          const body = await fieldsRes.json();
+          if (body?.config) setProfileFieldsConfig(body.config as RiderProfileFieldsConfig);
+          if (body?.market?.name) setMarketName(body.market.name);
+          if (Array.isArray(body?.marketAreas)) setMarketAreas(body.marketAreas as MarketAreaChip[]);
         }
       } catch { /* defaults */ }
     })();
@@ -219,10 +259,68 @@ export function RiderAdFunnelOnboarding({ onComplete }: Props) {
     setStep('location');
   }
 
+  // Advance to the next configured step. Used by every step transition so a
+  // single source of truth (`activeSteps`) controls flow order regardless of
+  // which optional steps the admin enabled.
+  function nextStepAfter(current: Step): Step {
+    const idx = activeSteps.indexOf(current);
+    return activeSteps[idx + 1] ?? 'confirmation';
+  }
+
   function handleLocationNext() {
     fbCustomEvent('FunnelLead_location', { funnel_stage: 'location', audience: 'rider_ad_funnel' });
     track('rider_ad_funnel_location_done');
-    setStep('safety');
+    setStep(nextStepAfter('location'));
+  }
+
+  async function handleRideTypesNext() {
+    setSaving(true);
+    setError(null);
+    try {
+      if (preview.enabled) {
+        preview.onIntercept?.({
+          kind: 'rider_ad_funnel_ride_types_saved',
+          payload: { ride_types: rideTypes },
+        });
+      } else if (rideTypes.length > 0) {
+        await fetch('/api/rider/profile', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ride_types: rideTypes }),
+        });
+      }
+      track('rider_ad_funnel_ride_types_done', { count: rideTypes.length, slugs: rideTypes });
+      setStep(nextStepAfter('ride-types'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save ride types');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleHomeAreaNext() {
+    setSaving(true);
+    setError(null);
+    try {
+      if (preview.enabled) {
+        preview.onIntercept?.({
+          kind: 'rider_ad_funnel_home_area_saved',
+          payload: { home_area_slug: homeAreaSlug },
+        });
+      } else if (homeAreaSlug) {
+        await fetch('/api/rider/profile', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ home_area_slug: homeAreaSlug }),
+        });
+      }
+      track('rider_ad_funnel_home_area_done', { slug: homeAreaSlug });
+      setStep(nextStepAfter('home-area'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save home area');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleSafetyNext() {
@@ -273,7 +371,7 @@ export function RiderAdFunnelOnboarding({ onComplete }: Props) {
       padding: '60px 24px 40px',
     }}>
       <div style={{ maxWidth: 380, width: '100%' }}>
-        <ProgressBar step={step} />
+        <ProgressBar steps={activeSteps} step={step} />
 
         {step === 'handle' && (
           <StepHandle
@@ -308,6 +406,32 @@ export function RiderAdFunnelOnboarding({ onComplete }: Props) {
           <StepLocation onNext={handleLocationNext} />
         )}
 
+        {step === 'ride-types' && (
+          <StepRideTypes
+            options={visibleRideTypes(profileFieldsConfig)}
+            maxSelections={profileFieldsConfig.maxRideTypeSelections}
+            selected={rideTypes}
+            onChange={setRideTypes}
+            required={rideTypesRequired}
+            saving={saving}
+            error={error}
+            onNext={handleRideTypesNext}
+          />
+        )}
+
+        {step === 'home-area' && (
+          <StepHomeArea
+            marketName={marketName}
+            areas={marketAreas}
+            selected={homeAreaSlug}
+            onChange={setHomeAreaSlug}
+            required={homeAreaRequired}
+            saving={saving}
+            error={error}
+            onNext={handleHomeAreaNext}
+          />
+        )}
+
         {step === 'safety' && (
           <StepSafety
             enabled={safetyChecksEnabled}
@@ -336,8 +460,7 @@ export function RiderAdFunnelOnboarding({ onComplete }: Props) {
 // Sub-components — kept inline to keep this a single file
 // ============================================================
 
-function ProgressBar({ step }: { step: Step }) {
-  const steps: Step[] = ['handle', 'media', 'location', 'safety', 'confirmation'];
+function ProgressBar({ steps, step }: { steps: Step[]; step: Step }) {
   const idx = steps.indexOf(step);
   return (
     <div style={{ display: 'flex', gap: 6, marginBottom: 24 }}>
@@ -611,12 +734,90 @@ function StepLocation({ onNext }: { onNext: () => void }) {
   return (
     <>
       <StepHeader
-        kicker="Step 3 of 4"
+        kicker="Enable location"
         title="ENABLE LOCATION"
         subtitle="So your driver can find you and you can track them in real time."
       />
       <LocationPermission userType="rider" />
       <PrimaryButton onClick={onNext} disabled={false} label="Continue" />
+    </>
+  );
+}
+
+function StepRideTypes({
+  options, maxSelections, selected, onChange, required, saving, error, onNext,
+}: {
+  options: ReturnType<typeof visibleRideTypes>;
+  maxSelections: number;
+  selected: string[];
+  onChange: (next: string[]) => void;
+  required: boolean;
+  saving: boolean;
+  error: string | null;
+  onNext: () => void;
+}) {
+  const canProceed = required ? selected.length > 0 : true;
+  return (
+    <>
+      <StepHeader
+        kicker="Why you ride"
+        title="WHAT ARE YOU UP TO?"
+        subtitle="Helps drivers know what kind of ride to expect. Pick what fits."
+      />
+      <RideTypePicker
+        options={options}
+        selectedSlugs={selected}
+        maxSelections={maxSelections}
+        onChange={onChange}
+      />
+      {error && (
+        <p style={{ fontSize: 13, color: '#FF4444', marginTop: 14, textAlign: 'center' }}>{error}</p>
+      )}
+      <PrimaryButton
+        onClick={onNext}
+        disabled={!canProceed}
+        busy={saving}
+        label={selected.length === 0 && !required ? 'Skip' : 'Continue'}
+      />
+    </>
+  );
+}
+
+function StepHomeArea({
+  marketName, areas, selected, onChange, required, saving, error, onNext,
+}: {
+  marketName: string;
+  areas: MarketAreaChip[];
+  selected: string | null;
+  onChange: (slug: string | null) => void;
+  required: boolean;
+  saving: boolean;
+  error: string | null;
+  onNext: () => void;
+}) {
+  const canProceed = required ? !!selected : true;
+  return (
+    <>
+      <StepHeader
+        kicker="Home area"
+        title="WHERE YOU AT?"
+        subtitle={`Pick your home neighborhood in ${marketName}. Drivers nearby get prioritized.`}
+      />
+      <HomeAreaPicker
+        marketName={marketName}
+        areas={areas}
+        selectedSlug={selected}
+        onChange={onChange}
+      />
+      {error && (
+        <p style={{ fontSize: 13, color: '#FF4444', marginTop: 14, textAlign: 'center' }}>{error}</p>
+      )}
+      <PrimaryButton
+        onClick={onNext}
+        disabled={!canProceed}
+        busy={saving}
+        label={!selected && !required ? 'Skip' : 'Continue'}
+      />
     </>
   );
 }

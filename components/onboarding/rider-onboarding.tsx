@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Welcome } from './welcome';
 import { RatingIntro } from './rating-intro';
@@ -8,6 +8,14 @@ import { LocationPermission } from './location-permission';
 import { ArrowRight, ArrowLeft, Check } from 'lucide-react';
 import CelebrationConfetti from '@/components/shared/celebration-confetti';
 import { useOnboardingPreviewMode } from '@/lib/onboarding/preview-mode';
+import {
+  RIDER_PROFILE_FIELDS_DEFAULTS,
+  visibleRideTypes,
+  type RiderProfileFieldsConfig,
+} from '@/lib/onboarding/rider-profile-fields-config';
+import { RideTypePicker } from './rider/ride-type-picker';
+import { HomeAreaPicker } from './rider/home-area-picker';
+import type { MarketAreaChip } from './express/market-area-picker.types';
 
 interface OnboardingStep {
   id: string;
@@ -26,6 +34,11 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
   const preview = useOnboardingPreviewMode();
   const [currentStep, setCurrentStep] = useState(0);
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [profileFieldsConfig, setProfileFieldsConfig] = useState<RiderProfileFieldsConfig>(RIDER_PROFILE_FIELDS_DEFAULTS);
+  const [marketName, setMarketName] = useState<string>('your area');
+  const [marketAreas, setMarketAreas] = useState<MarketAreaChip[]>([]);
+  const [rideTypes, setRideTypes] = useState<string[]>([]);
+  const [homeAreaSlug, setHomeAreaSlug] = useState<string | null>(null);
   const [formData, setFormData] = useState<{
     firstName: string;
     lastName: string;
@@ -43,6 +56,28 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
     pronouns: '',
     lgbtqFriendly: false,
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/onboarding/rider-profile-fields-config', { cache: 'no-store' });
+        if (cancelled || !res.ok) return;
+        const body = await res.json();
+        if (body?.config) setProfileFieldsConfig(body.config as RiderProfileFieldsConfig);
+        if (body?.market?.name) setMarketName(body.market.name);
+        if (Array.isArray(body?.marketAreas)) setMarketAreas(body.marketAreas as MarketAreaChip[]);
+      } catch { /* defaults */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const showRideTypes = profileFieldsConfig.fields.rideTypes === 'required'
+    || profileFieldsConfig.fields.rideTypes === 'optional';
+  const showHomeArea = profileFieldsConfig.fields.homeArea === 'required'
+    || profileFieldsConfig.fields.homeArea === 'optional';
+  const rideTypesRequired = profileFieldsConfig.fields.rideTypes === 'required';
+  const homeAreaRequired = profileFieldsConfig.fields.homeArea === 'required';
 
   const steps: OnboardingStep[] = [
     {
@@ -79,6 +114,34 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
       component: <LocationPermission userType="rider" />,
       required: false,
     },
+    ...(showRideTypes ? [{
+      id: 'ride-types',
+      title: 'What are you up to? 🎯',
+      description: 'Helps drivers know what kind of ride to expect',
+      component: (
+        <RideTypePicker
+          options={visibleRideTypes(profileFieldsConfig)}
+          selectedSlugs={rideTypes}
+          maxSelections={profileFieldsConfig.maxRideTypeSelections}
+          onChange={setRideTypes}
+        />
+      ),
+      required: rideTypesRequired,
+    }] : []),
+    ...(showHomeArea ? [{
+      id: 'home-area',
+      title: 'Where you at? 📍',
+      description: `Pick your home neighborhood in ${marketName}`,
+      component: (
+        <HomeAreaPicker
+          marketName={marketName}
+          areas={marketAreas}
+          selectedSlug={homeAreaSlug}
+          onChange={setHomeAreaSlug}
+        />
+      ),
+      required: homeAreaRequired,
+    }] : []),
     {
       id: 'trust',
       title: 'Your Safety Matters 🛡️',
@@ -91,7 +154,7 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
   const currentStepData = steps[currentStep];
   const isLastStep = currentStep === steps.length - 1;
   const canProceed = currentStepData.required
-    ? validateStep(currentStepData.id, formData)
+    ? validateStep(currentStepData.id, formData, { rideTypes, homeAreaSlug })
     : true;
 
   const [saving, setSaving] = useState(false);
@@ -100,13 +163,14 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
     if (saving) return;
     if (isLastStep) {
       setSaving(true);
+      const onboardingExtras = { ride_types: rideTypes, home_area_slug: homeAreaSlug };
       if (preview.enabled) {
         // Admin /flows preview — surface the would-be POST body and skip
         // both the onboarding save and the activity event so prod state
         // doesn't change while a trainer walks the flow.
-        preview.onIntercept?.({ kind: 'rider_onboarding_save', payload: { ...formData, profile_type: 'rider' } });
+        preview.onIntercept?.({ kind: 'rider_onboarding_save', payload: { ...formData, ...onboardingExtras, profile_type: 'rider' } });
       } else {
-        await saveRiderOnboarding(formData);
+        await saveRiderOnboarding(formData, onboardingExtras);
       }
       setShowConfirmation(true);
     } else {
@@ -403,9 +467,15 @@ function RiderConfirmation({ name, onContinue }: { name: string; onContinue: () 
   );
 }
 
-function validateStep(stepId: string, data: { firstName: string; lastName: string; gender: string; displayName: string }): boolean {
+function validateStep(
+  stepId: string,
+  data: { firstName: string; lastName: string; gender: string; displayName: string },
+  extras: { rideTypes: string[]; homeAreaSlug: string | null },
+): boolean {
   if (stepId === 'welcome') return Boolean(data.firstName && data.lastName && data.gender);
   if (stepId === 'display-name') return Boolean(data.displayName.trim());
+  if (stepId === 'ride-types') return extras.rideTypes.length > 0;
+  if (stepId === 'home-area') return !!extras.homeAreaSlug;
   return true;
 }
 
@@ -417,7 +487,7 @@ async function saveRiderOnboarding(data: {
   gender: string;
   pronouns: string;
   lgbtqFriendly: boolean;
-}): Promise<void> {
+}, extras: { ride_types: string[]; home_area_slug: string | null }): Promise<void> {
   try {
     await fetch('/api/users/onboarding', {
       method: 'POST',
@@ -431,6 +501,8 @@ async function saveRiderOnboarding(data: {
         gender: data.gender,
         pronouns: data.pronouns,
         lgbtq_friendly: data.lgbtqFriendly,
+        ride_types: extras.ride_types,
+        home_area_slug: extras.home_area_slug,
       }),
     });
 

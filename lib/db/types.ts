@@ -93,6 +93,8 @@ export interface RiderProfile {
   safety_preferences: Record<string, any>; // JSONB
   price_range: string;
   stripe_customer_id?: string;
+  ride_types?: string[] | null;
+  home_area_slug?: string | null;
   created_at: Date;
   updated_at: Date;
 }

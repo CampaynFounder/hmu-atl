@@ -7,12 +7,14 @@
 import { useState } from 'react';
 import OnboardingConfigClient from './onboarding-config-client';
 import RiderConfigPanel from './rider-config-panel';
+import RiderProfileFieldsPanel from './rider-profile-fields-panel';
 
-type Tab = 'driver' | 'rider';
+type Tab = 'driver' | 'rider' | 'rider-profile-fields';
 
 const TABS: { key: Tab; label: string; sub: string }[] = [
-  { key: 'driver', label: 'Driver',     sub: '/driver/express' },
-  { key: 'rider',  label: 'Rider',      sub: '/r/express' },
+  { key: 'driver',                label: 'Driver',          sub: '/driver/express' },
+  { key: 'rider',                 label: 'Rider Funnel',    sub: '/r/express' },
+  { key: 'rider-profile-fields',  label: 'Rider Fields',    sub: 'ride types + home area' },
 ];
 
 export default function OnboardingConfigTabs() {
@@ -40,7 +42,9 @@ export default function OnboardingConfigTabs() {
         })}
       </div>
 
-      {active === 'driver' ? <OnboardingConfigClient /> : <RiderConfigPanel />}
+      {active === 'driver' && <OnboardingConfigClient />}
+      {active === 'rider' && <RiderConfigPanel />}
+      {active === 'rider-profile-fields' && <RiderProfileFieldsPanel />}
     </div>
   );
 }
