@@ -22,9 +22,21 @@ const FLOWS: Array<{
     status: 'live',
   },
   {
+    href: '/admin/flows/rider-ad-funnel',
+    title: 'Rider — /r/express Ad Funnel',
+    blurb: 'Live conversion funnel from paid Meta/TikTok ads. RiderAdFunnelOnboarding (handle → media → location → safety), then FirstTimePaymentBlocker on /rider/browse before any drivers are visible.',
+    status: 'live',
+  },
+  {
     href: '/admin/flows/rider',
-    title: 'Rider — Standard Sign-up',
-    blurb: 'Production rider funnel: full RiderOnboarding, then the FirstTimePaymentBlocker on /rider/browse before any drivers are visible.',
+    title: 'Rider — Standard /onboarding',
+    blurb: 'Organic /sign-up?type=rider path. Full RiderOnboarding (welcome → display name → rating intro → location), then FirstTimePaymentBlocker on /rider/browse.',
+    status: 'live',
+  },
+  {
+    href: '/admin/flows/rider-express',
+    title: 'Rider — Chat Booking (legacy variant)',
+    blurb: 'Minimal-fields rider signup that runs only when arriving from a driver share link (/d/{handle}). Inline payment + media.',
     status: 'live',
   },
   {
@@ -32,12 +44,6 @@ const FLOWS: Array<{
     title: 'Driver — Standard Onboarding',
     blurb: 'Full signup with vehicle, schedule, video intro, areas, and rider preferences.',
     status: 'planned',
-  },
-  {
-    href: '/admin/flows/rider-express',
-    title: 'Rider — Chat Booking (legacy variant)',
-    blurb: 'Minimal-fields rider signup that runs only when arriving from a driver share link (/d/{handle}). Inline payment + media.',
-    status: 'live',
   },
 ];
 

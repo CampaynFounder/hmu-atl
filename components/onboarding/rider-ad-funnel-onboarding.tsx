@@ -24,6 +24,7 @@ import {
   RIDER_AD_FUNNEL_DEFAULTS,
   type RiderAdFunnelConfig,
 } from '@/lib/onboarding/rider-ad-funnel-config';
+import { useOnboardingPreviewMode } from '@/lib/onboarding/preview-mode';
 
 interface Props {
   onComplete: (browseRoute: string) => void;
@@ -45,6 +46,7 @@ function track(event: string, props?: Record<string, unknown>) {
 
 export function RiderAdFunnelOnboarding({ onComplete }: Props) {
   const { user } = useUser();
+  const preview = useOnboardingPreviewMode();
   const [config, setConfig] = useState<RiderAdFunnelConfig>(RIDER_AD_FUNNEL_DEFAULTS);
   const [step, setStep] = useState<Step>('handle');
   const [saving, setSaving] = useState(false);
@@ -118,35 +120,43 @@ export function RiderAdFunnelOnboarding({ onComplete }: Props) {
       const firstName = user?.firstName || handle;
       const lastName = user?.lastName || '.';
       const phone = user?.primaryPhoneNumber?.phoneNumber || null;
+      const onboardingPayload = {
+        profile_type: 'rider' as const,
+        first_name: firstName,
+        last_name: lastName,
+        display_name: handle,
+        phone,
+        gender: null,
+        pronouns: null,
+        lgbtq_friendly: false,
+      };
 
-      const res = await fetch('/api/users/onboarding', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          profile_type: 'rider',
-          first_name: firstName,
-          last_name: lastName,
-          display_name: handle,
-          phone,
-          gender: null,
-          pronouns: null,
-          lgbtq_friendly: false,
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Could not reserve handle');
+      if (preview.enabled) {
+        // Admin /flows preview — surface the would-be POST body and skip the
+        // mutation + handle-PATCH so prod state doesn't change while a
+        // trainer walks the flow.
+        preview.onIntercept?.({ kind: 'rider_ad_funnel_handle_reserved', payload: { ...onboardingPayload, handle } });
+      } else {
+        const res = await fetch('/api/users/onboarding', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(onboardingPayload),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Could not reserve handle');
+        }
+
+        // Persist the handle column. /api/users/onboarding currently only sets
+        // display_name; the handle column is rider-only and we want it indexed
+        // for global uniqueness. Patch via the rider profile route below if the
+        // handle wasn't set; the existing updateRiderProfile path handles it.
+        await fetch('/api/rider/profile', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ handle }),
+        }).catch(() => { /* best-effort — rider profile already created */ });
       }
-
-      // Persist the handle column. /api/users/onboarding currently only sets
-      // display_name; the handle column is rider-only and we want it indexed
-      // for global uniqueness. Patch via the rider profile route below if the
-      // handle wasn't set; the existing updateRiderProfile path handles it.
-      await fetch('/api/rider/profile', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ handle }),
-      }).catch(() => { /* best-effort — rider profile already created */ });
 
       fbEvent('Lead', { content_name: 'rider_handle_reserved', content_category: 'rider_funnel' });
       fbCustomEvent('FunnelLead_handle', { funnel_stage: 'handle', audience: 'rider_ad_funnel', handle });
@@ -164,16 +174,27 @@ export function RiderAdFunnelOnboarding({ onComplete }: Props) {
     setMediaUploading(true);
     setError(null);
     try {
-      const formData = new FormData();
-      formData.append('video', file);
-      formData.append('profile_type', 'rider');
-      formData.append('media_type', 'photo');
-      formData.append('save_to_profile', 'true');
-      const res = await fetch('/api/upload/video', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Upload failed');
-      setMediaUrl(data.url);
-      setMediaKind('photo');
+      if (preview.enabled) {
+        // Don't upload to R2 in preview. Use a local object URL so the UI
+        // advances and the uploaded preview thumbnail still renders.
+        preview.onIntercept?.({
+          kind: 'rider_ad_funnel_photo_upload',
+          payload: { fileName: file.name, size: file.size, type: file.type },
+        });
+        setMediaUrl(URL.createObjectURL(file));
+        setMediaKind('photo');
+      } else {
+        const formData = new FormData();
+        formData.append('video', file);
+        formData.append('profile_type', 'rider');
+        formData.append('media_type', 'photo');
+        formData.append('save_to_profile', 'true');
+        const res = await fetch('/api/upload/video', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        setMediaUrl(data.url);
+        setMediaKind('photo');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
@@ -208,12 +229,19 @@ export function RiderAdFunnelOnboarding({ onComplete }: Props) {
     setSaving(true);
     setError(null);
     try {
-      // Persist toggle. Endpoint accepts {enabled} per route.ts contract.
-      await fetch('/api/user/safety-prefs', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: safetyChecksEnabled }),
-      });
+      if (preview.enabled) {
+        preview.onIntercept?.({
+          kind: 'rider_ad_funnel_safety_saved',
+          payload: { enabled: safetyChecksEnabled },
+        });
+      } else {
+        // Persist toggle. Endpoint accepts {enabled} per route.ts contract.
+        await fetch('/api/user/safety-prefs', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: safetyChecksEnabled }),
+        });
+      }
       fbCustomEvent('FunnelLead_safety', {
         funnel_stage: 'safety',
         audience: 'rider_ad_funnel',
