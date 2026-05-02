@@ -12,8 +12,8 @@ import { SessionTimeout } from './components/session-timeout';
 import { RealtimeNotificationBanner } from './components/realtime-notification-banner';
 import { PreviewBanner } from './components/preview-banner';
 import { applyPreviewSwap } from '@/lib/admin/preview-role';
-import { canAccessRoute } from '@/lib/admin/route-permissions';
-import type { AdminUser } from '@/lib/admin/helpers';
+import { canAccess } from '@/lib/admin/route-permissions';
+import { hasPermission, type AdminUser } from '@/lib/admin/helpers';
 
 export const metadata = {
   title: 'HMU Admin',
@@ -65,7 +65,10 @@ export default async function AdminLayout({
   // items, so this is the second layer that closes direct-URL access.
   const requestHeaders = await headers();
   const adminPathname = requestHeaders.get('x-admin-pathname');
-  if (adminPathname && !canAccessRoute(swap.effective, adminPathname)) {
+  if (
+    adminPathname
+    && !canAccess(adminPathname, swap.effective.is_super, (p) => hasPermission(swap.effective, p))
+  ) {
     redirect('/admin');
   }
 

@@ -20,8 +20,12 @@
 // `/admin/safety` before `/admin`. Unknown routes default-deny (super only),
 // so forgetting an entry fails closed, never open.
 
-import type { AdminUser } from './helpers';
-import { hasPermission } from './helpers';
+// IMPORTANT: this file must stay client-safe — it's imported by
+// `app/admin/components/admin-sidebar.tsx` (a client component). Don't import
+// from `./helpers`, `./preview-role`, or anything that transitively pulls in
+// `next/headers`, the Neon client, or Clerk server SDKs. Server-side callers
+// can compose `canAccess` with `hasPermission` from helpers themselves —
+// see `app/admin/layout.tsx` and `app/api/admin/search/route.ts`.
 
 export type AdminRouteRule =
   | { kind: 'public' }
@@ -133,12 +137,4 @@ export function canAccess(
   if (rule.kind === 'public') return true;
   if (rule.kind === 'super') return isSuper;
   return hasPerm(`${rule.slug}.view`);
-}
-
-/**
- * Server-side wrapper around `canAccess`. Pass an `AdminUser` (the swapped
- * effective identity from `applyPreviewSwap`, not the real one).
- */
-export function canAccessRoute(admin: AdminUser, pathname: string): boolean {
-  return canAccess(pathname, admin.is_super, (p) => hasPermission(admin, p));
 }

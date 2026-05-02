@@ -9,9 +9,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Fuse from 'fuse.js';
-import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
+import { requireAdmin, unauthorizedResponse, hasPermission } from '@/lib/admin/helpers';
 import { ADMIN_SEARCH_MANIFEST, type AdminSearchItem } from '@/lib/admin/search-manifest';
-import { canAccessRoute } from '@/lib/admin/route-permissions';
+import { canAccess } from '@/lib/admin/route-permissions';
 
 const MAX_RESULTS = 8;
 
@@ -48,7 +48,9 @@ export async function GET(req: NextRequest) {
   // the sidebar and server-side layout guard use, so search ⇄ sidebar ⇄
   // direct-URL access all agree. When a super admin is previewing a lower
   // role their effective is_super is false here.
-  const visible = ADMIN_SEARCH_MANIFEST.filter((item) => canAccessRoute(admin, item.href));
+  const visible = ADMIN_SEARCH_MANIFEST.filter((item) =>
+    canAccess(item.href, admin.is_super, (p) => hasPermission(admin, p)),
+  );
 
   if (!q) {
     // No query — return the visible set sorted by section then label so the
