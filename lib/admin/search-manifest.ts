@@ -14,7 +14,7 @@ export interface AdminSearchItem {
   // verb-led primary action ("Monitor live activity", "Send SMS blasts").
   description: string;
   href: string;
-  section: 'Monitor' | 'Act' | 'Grow' | 'Raise' | 'System';
+  section: 'Monitor' | 'Act' | 'Grow' | 'Raise' | 'System' | 'Tools';
   icon: string;
   // Sidebar permission slug — server checks `hasPermission(permission + '.view')`.
   // Omit for routes that should be visible to all admins.
@@ -378,5 +378,27 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     icon: '📋',
     permission: 'admin.audit',
     keywords: ['history', 'who did what', 'admin actions', 'changes'],
+  },
+
+  // ── TOOLS ───────────────────────────────────────────────────────────
+  {
+    id: 'flows',
+    label: 'Flows',
+    description: 'Read-only walkthroughs of user-facing onboarding flows',
+    href: '/admin/flows',
+    section: 'Tools',
+    icon: '🧭',
+    permission: 'tools.flows',
+    keywords: ['onboarding preview', 'training', 'walkthrough', 'flows', 'simulator', 'demo'],
+  },
+  {
+    id: 'flows-driver-express',
+    label: 'Driver — Express Flow',
+    description: 'Live preview of /driver/express signup',
+    href: '/admin/flows/driver-express',
+    section: 'Tools',
+    icon: '🚗',
+    permission: 'tools.flows',
+    keywords: ['express driver', 'driver onboarding preview', 'training driver'],
   },
 ];

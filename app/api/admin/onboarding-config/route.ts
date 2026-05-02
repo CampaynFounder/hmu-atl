@@ -27,6 +27,7 @@ const FIELD_KEYS: (keyof DriverExpressConfig['fields'])[] = [
   'adPhoto',
   'riderPreferences',
   'location',
+  'areas',
 ];
 
 export async function GET() {
@@ -40,8 +41,22 @@ export async function GET() {
     LIMIT 1
   `;
   const stored = rows[0]?.config_value ?? null;
+  // Deep-merge `fields` so new field keys added to DriverExpressFields keep
+  // their default visibility on configs that predate them. Without this, a
+  // shallow merge would let stored.fields replace DEFAULTS.fields wholesale
+  // and the admin UI would render with the new field missing.
+  const config: DriverExpressConfig = stored
+    ? {
+        ...DRIVER_EXPRESS_DEFAULTS,
+        ...(stored as DriverExpressConfig),
+        fields: {
+          ...DRIVER_EXPRESS_DEFAULTS.fields,
+          ...((stored as DriverExpressConfig).fields ?? {}),
+        },
+      }
+    : DRIVER_EXPRESS_DEFAULTS;
   return NextResponse.json({
-    config: stored ? { ...DRIVER_EXPRESS_DEFAULTS, ...stored } : DRIVER_EXPRESS_DEFAULTS,
+    config,
     updated_at: rows[0]?.updated_at ?? null,
     updated_by: rows[0]?.updated_by ?? null,
     defaults: DRIVER_EXPRESS_DEFAULTS,

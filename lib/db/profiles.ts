@@ -200,6 +200,9 @@ export interface CreateDriverProfileParams {
   accept_direct_bookings?: boolean;
   min_rider_chill_score?: number;
   require_og_status?: boolean;
+  area_slugs?: string[];
+  services_entire_market?: boolean;
+  accepts_long_distance?: boolean;
 }
 
 export interface UpdateDriverProfileParams {
@@ -273,6 +276,14 @@ export async function createDriverProfile(
 
   const handle = params.handle || (await generateDriverHandle(displayName));
 
+  // area_slugs / services_entire_market / accepts_long_distance are the
+  // new (post-transition) routing surface. Legacy `areas` JSONB is still
+  // written here for backwards compat with anything still reading it; the
+  // new columns are what `/driver/profile` and the matching engine use.
+  // Default services_entire_market = TRUE so an express driver who skips
+  // the Areas step (or signs up before the admin enables it) is still
+  // visible for every request in their market — matches the legacy
+  // "no filter" behaviour.
   const result = await sql`
     INSERT INTO driver_profiles (
       user_id,
@@ -294,7 +305,10 @@ export async function createDriverProfile(
       min_rider_chill_score,
       require_og_status,
       accepts_cash,
-      cash_only
+      cash_only,
+      area_slugs,
+      services_entire_market,
+      accepts_long_distance
     ) VALUES (
       ${params.user_id},
       ${params.first_name},
@@ -315,7 +329,10 @@ export async function createDriverProfile(
       ${params.min_rider_chill_score ?? 0},
       ${params.require_og_status ?? false},
       ${true},
-      ${true}
+      ${true},
+      ${params.area_slugs ?? []},
+      ${params.services_entire_market ?? true},
+      ${params.accepts_long_distance ?? false}
     )
     RETURNING *
   `;

@@ -48,6 +48,9 @@ export async function POST(request: NextRequest) {
       stripe_customer_id,
       // Driver-specific
       areas,
+      area_slugs,
+      services_entire_market,
+      accepts_long_distance,
       pricing,
       schedule,
       advance_notice_hours,
@@ -249,6 +252,9 @@ export async function POST(request: NextRequest) {
           video_url,
           thumbnail_url,
           areas,
+          area_slugs: Array.isArray(area_slugs) ? area_slugs : undefined,
+          services_entire_market: typeof services_entire_market === 'boolean' ? services_entire_market : undefined,
+          accepts_long_distance: typeof accepts_long_distance === 'boolean' ? accepts_long_distance : undefined,
           pricing,
           schedule,
           vehicle_info: {

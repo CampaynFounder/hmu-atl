@@ -36,6 +36,9 @@ const PERMISSION_SECTIONS = [
     { key: 'admin.roles', label: 'Roles' },
     { key: 'admin.audit', label: 'Audit Log' },
   ]},
+  { group: 'TOOLS', items: [
+    { key: 'tools.flows', label: 'Flows' },
+  ]},
 ];
 
 export const LEVEL_COLORS: Record<string, string> = { view: '#448AFF', edit: '#FFB300', publish: '#00E676' };

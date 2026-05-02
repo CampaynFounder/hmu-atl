@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, ArrowLeft, Check } from 'lucide-react';
 import { fbEvent } from '@/components/analytics/meta-pixel';
+import { useOnboardingPreviewMode } from '@/lib/onboarding/preview-mode';
 import { Welcome } from './welcome';
 import { VideoRecorder } from './video-recorder';
 import { AdPhotoStep } from './ad-photo-step';
@@ -17,6 +18,8 @@ import { LocationPermission } from './location-permission';
 import CelebrationConfetti from '@/components/shared/celebration-confetti';
 import { ExpressVehiclePicker } from './express/vehicle-picker';
 import { ExpressPricingPill } from './express/pricing-pill';
+import { MarketAreaPicker } from './express/market-area-picker';
+import type { MarketAreaChip } from './express/market-area-picker.types';
 import {
   DRIVER_EXPRESS_DEFAULTS,
   type DriverExpressConfig,
@@ -56,11 +59,17 @@ interface FormData {
   isUploading: boolean;
   riderPreferences: RiderPreferences;
   pricingTier: PricingTier;
+  areaSlugs: string[];
+  servicesEntireMarket: boolean;
+  acceptsLongDistance: boolean;
 }
 
 export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
+  const preview = useOnboardingPreviewMode();
   const [config, setConfig] = useState<DriverExpressConfig>(DRIVER_EXPRESS_DEFAULTS);
   const [configLoaded, setConfigLoaded] = useState(false);
+  const [market, setMarket] = useState<{ slug: string; name: string }>({ slug: 'atl', name: 'ATL' });
+  const [marketAreas, setMarketAreas] = useState<MarketAreaChip[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -96,6 +105,12 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
       avoidRidersWithDisputes: true,
     },
     pricingTier: defaultTier,
+    // Default ON so the step is a 1-tap pass-through when a driver doesn't
+    // want to filter areas. The picker only renders the chips when this is
+    // unchecked, mirroring /driver/profile.
+    areaSlugs: [],
+    servicesEntireMarket: true,
+    acceptsLongDistance: false,
   });
 
   // Pull live config; fall back to defaults if the API hiccups.
@@ -109,6 +124,12 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
           const c = body.config as DriverExpressConfig;
           setConfig(c);
           setData(d => ({ ...d, pricingTier: pickDefaultTier(c.pricingTiers) }));
+          if (body.market && typeof body.market.slug === 'string') {
+            setMarket({ slug: body.market.slug, name: body.market.name || body.market.slug.toUpperCase() });
+          }
+          if (Array.isArray(body.marketAreas)) {
+            setMarketAreas(body.marketAreas as MarketAreaChip[]);
+          }
         }
       } catch { /* ignore — defaults are fine */ }
       finally { if (!cancelled) setConfigLoaded(true); }
@@ -195,7 +216,41 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
     isValid: () => true,
   });
 
-  // 4. License plate (only if in-flow per config).
+  // 4. Areas you drive — gated by admin config. Defaults to "Anywhere in
+  // {market}" so the step is a 1-tap pass-through unless the driver flips
+  // off the toggle to pick specific areas. When the resolved market has no
+  // areas configured (e.g. a brand-new market), only the toggle renders —
+  // saving services_entire_market = true is still meaningful.
+  if (inFlow(config.fields.areas)) {
+    steps.push({
+      id: 'areas',
+      title: 'Where you drive',
+      description: 'Pick areas you usually run, or leave "Anywhere" on to take any request.',
+      component: (
+        <MarketAreaPicker
+          marketName={market.name}
+          areas={marketAreas}
+          selectedSlugs={data.areaSlugs}
+          servicesEntireMarket={data.servicesEntireMarket}
+          acceptsLongDistance={data.acceptsLongDistance}
+          onChange={(patch) => {
+            const next: Partial<FormData> = {};
+            if (patch.selectedSlugs !== undefined) next.areaSlugs = patch.selectedSlugs;
+            if (patch.servicesEntireMarket !== undefined) next.servicesEntireMarket = patch.servicesEntireMarket;
+            if (patch.acceptsLongDistance !== undefined) next.acceptsLongDistance = patch.acceptsLongDistance;
+            update(next);
+          }}
+        />
+      ),
+      // Only enforce a non-empty selection when the admin set the field to
+      // 'required' AND the driver flipped off "Anywhere" — otherwise the
+      // step is satisfied by the default toggle.
+      required: config.fields.areas === 'required' && !data.servicesEntireMarket,
+      isValid: () => data.servicesEntireMarket || data.areaSlugs.length > 0,
+    });
+  }
+
+  // 5. License plate (only if in-flow per config).
   if (inFlow(config.fields.licensePlate)) {
     steps.push({
       id: 'license-plate',
@@ -217,7 +272,7 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
     });
   }
 
-  // 5. Video intro
+  // 6. Video intro
   if (inFlow(config.fields.videoIntro)) {
     steps.push({
       id: 'video-intro',
@@ -235,7 +290,7 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
     });
   }
 
-  // 6. HMU ad photo — appears between video-intro and rider-prefs to mirror
+  // 7. HMU ad photo — appears between video-intro and rider-prefs to mirror
   // the regular flow's ordering. Gated by config: only renders when admin has
   // set adPhoto to 'required' or 'optional'. 'required' enforces upload before
   // Continue; 'optional' lets driver skip. Saves through ad_photo_url in the
@@ -257,7 +312,7 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
     });
   }
 
-  // 7. Rider preferences
+  // 8. Rider preferences
   if (inFlow(config.fields.riderPreferences)) {
     steps.push({
       id: 'rider-prefs',
@@ -274,7 +329,7 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
     });
   }
 
-  // 8. Location
+  // 9. Location
   if (inFlow(config.fields.location)) {
     steps.push({
       id: 'location',
@@ -296,8 +351,15 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
       setSaving(true);
       setSaveError(null);
       try {
-        await saveExpress(data, config);
-        fbEvent('StartTrial', { content_name: 'Driver Onboarding Express Complete', content_category: 'driver_funnel' });
+        if (preview.enabled) {
+          // Preview mode (e.g. /admin/flows) — surface the would-be payload
+          // to the wrapper instead of POSTing to /api/users/onboarding.
+          preview.onIntercept?.({ kind: 'driver_express_save', payload: buildSavePayload(data, config) });
+          await new Promise(r => setTimeout(r, 300));
+        } else {
+          await saveExpress(data, config);
+          fbEvent('StartTrial', { content_name: 'Driver Onboarding Express Complete', content_category: 'driver_funnel' });
+        }
         setShowConfirmation(true);
       } catch (err) {
         // Surface the failure on the same step instead of silently flipping
@@ -456,53 +518,61 @@ export function DriverOnboardingExpress({ onComplete, tier = 'free' }: Props) {
   );
 }
 
-async function saveExpress(data: FormData, config: DriverExpressConfig): Promise<void> {
+// Single source of truth for the request payload. Used by the live save
+// path AND by the preview-mode interceptor so both surfaces stay in sync.
+function buildSavePayload(data: FormData, config: DriverExpressConfig) {
   const pricing = pricingFromTier(data.pricingTier, config.stopsFee);
   // Per-day { available } shape — matches what the driver profile + rider
   // HMU calendar render. Without this conversion the days the admin set as
   // defaults would never show as active in either UI.
   const schedule = scheduleFromDefault(config.scheduleDefault);
   const advanceNoticeHours = noticeHoursFromString(config.scheduleDefault.noticeRequired);
+  return {
+    profile_type: 'driver',
+    first_name: data.firstName || '',
+    last_name: data.lastName || '',
+    display_name: data.displayName,
+    phone: data.phone || null,
+    gender: data.gender,
+    pronouns: data.pronouns,
+    lgbtq_friendly: data.lgbtqFriendly,
+    rider_gender_pref: data.riderPreferences.riderGenderPref,
+    require_og_status: data.riderPreferences.requireOgStatus,
+    min_rider_chill_score: data.riderPreferences.minRiderChillScore,
+    avoid_riders_with_disputes: data.riderPreferences.avoidRidersWithDisputes,
+    video_url: data.videoIntroUrl || null,
+    thumbnail_url: data.videoThumbnailUrl || null,
+    ad_photo_url: data.adPhotoUrl || null,
+    license_plate: data.licensePlate || null,
+    plate_state: data.plateState || null,
+    pricing,
+    schedule,
+    advance_notice_hours: advanceNoticeHours,
+    area_slugs: data.areaSlugs,
+    services_entire_market: data.servicesEntireMarket,
+    accepts_long_distance: data.acceptsLongDistance,
+    vehicle_info: {
+      make: data.vehicleMake,
+      model: data.vehicleModel,
+      year: data.vehicleYear || null,
+      max_adults: data.maxAdults,
+      allowed_seats: data.allowedSeats,
+      third_row: data.thirdRow,
+    },
+  };
+}
 
+async function saveExpress(data: FormData, config: DriverExpressConfig): Promise<void> {
   let res: Response;
   try {
     res = await fetch('/api/users/onboarding', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        profile_type: 'driver',
-        // Govt name is deferred in express — send empty strings so the
-        // activation checklist's "Verify your name" item correctly reads
-        // as undone. Stripe payout setup collects them when the driver
-        // is ready to cash out.
-        first_name: data.firstName || '',
-        last_name: data.lastName || '',
-        display_name: data.displayName,
-        phone: data.phone || null,
-        gender: data.gender,
-        pronouns: data.pronouns,
-        lgbtq_friendly: data.lgbtqFriendly,
-        rider_gender_pref: data.riderPreferences.riderGenderPref,
-        require_og_status: data.riderPreferences.requireOgStatus,
-        min_rider_chill_score: data.riderPreferences.minRiderChillScore,
-        avoid_riders_with_disputes: data.riderPreferences.avoidRidersWithDisputes,
-        video_url: data.videoIntroUrl || null,
-        thumbnail_url: data.videoThumbnailUrl || null,
-        ad_photo_url: data.adPhotoUrl || null,
-        license_plate: data.licensePlate || null,
-        plate_state: data.plateState || null,
-        pricing,
-        schedule,
-        advance_notice_hours: advanceNoticeHours,
-        vehicle_info: {
-          make: data.vehicleMake,
-          model: data.vehicleModel,
-          year: data.vehicleYear || null,
-          max_adults: data.maxAdults,
-          allowed_seats: data.allowedSeats,
-          third_row: data.thirdRow,
-        },
-      }),
+      // buildSavePayload is the single source of truth for the request body.
+      // Govt name is deferred in express — buildSavePayload sends empty
+      // strings so the activation checklist's "Verify your name" item
+      // correctly reads as undone (Stripe payout setup collects them later).
+      body: JSON.stringify(buildSavePayload(data, config)),
     });
   } catch (networkErr) {
     console.error('Express onboarding network failure:', networkErr);

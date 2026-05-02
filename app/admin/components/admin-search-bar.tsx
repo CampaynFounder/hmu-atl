@@ -101,7 +101,7 @@ export function AdminSearchBar() {
     (acc[r.section] = acc[r.section] || []).push(r);
     return acc;
   }, {});
-  const sectionOrder = ['Monitor', 'Act', 'Grow', 'Raise', 'System'];
+  const sectionOrder = ['Monitor', 'Act', 'Grow', 'Raise', 'System', 'Tools'];
   const orderedSections = sectionOrder.filter((s) => grouped[s]?.length);
 
   return (

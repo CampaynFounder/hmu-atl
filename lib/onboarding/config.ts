@@ -30,6 +30,7 @@ export interface DriverExpressFields {
   adPhoto: FieldVisibility;
   riderPreferences: FieldVisibility;
   location: FieldVisibility;
+  areas: FieldVisibility;
 }
 
 export interface DriverExpressScheduleDefault {
@@ -60,6 +61,10 @@ export const DRIVER_EXPRESS_DEFAULTS: DriverExpressConfig = {
     adPhoto: 'deferred',
     riderPreferences: 'deferred',
     location: 'deferred',
+    // Default off: existing express drivers (and any market without an
+    // explicit areas roster yet) keep the legacy "anywhere" behaviour. Admin
+    // flips this to 'optional' or 'required' to surface the picker.
+    areas: 'hidden',
   },
   pricingTiers: [
     { label: '$10', min: 10, rate30: 15, rate1h: 25, rate2h: 45 },
@@ -80,10 +85,19 @@ export async function getDriverExpressConfig(): Promise<DriverExpressConfig> {
   // getPlatformConfig is generic over Record<string, unknown>; we cast through
   // unknown because our typed config has a fixed-shape interface, not an index
   // signature.
-  return getPlatformConfig(
+  const merged = (await getPlatformConfig(
     'onboarding.driver_express',
     DRIVER_EXPRESS_DEFAULTS as unknown as Record<string, unknown>,
-  ) as unknown as Promise<DriverExpressConfig>;
+  )) as unknown as DriverExpressConfig;
+  // getPlatformConfig is a *shallow* merge — without this, a stored config that
+  // predates a new field key (e.g. `areas`) would silently drop it because
+  // stored.fields replaces DEFAULTS.fields wholesale. Re-merge `fields` so
+  // adding a field to DriverExpressFields stays backwards-compatible with
+  // every existing platform_config row.
+  return {
+    ...merged,
+    fields: { ...DRIVER_EXPRESS_DEFAULTS.fields, ...(merged.fields ?? {}) },
+  };
 }
 
 export function pickDefaultTier(tiers: PricingTier[]): PricingTier {

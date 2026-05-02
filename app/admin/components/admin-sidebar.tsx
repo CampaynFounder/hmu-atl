@@ -75,6 +75,14 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/audit', label: 'Audit Log', icon: '📋', permission: 'admin.audit' },
     ],
   },
+  {
+    label: 'TOOLS',
+    items: [
+      // Read-only walkthroughs of every user-facing onboarding/use flow.
+      // Default-deny: requires `tools.flows.view`. Used for staff training.
+      { href: '/admin/flows', label: 'Flows', icon: '🧭', permission: 'tools.flows' },
+    ],
+  },
 ];
 
 const BADGE_COLORS: Record<BadgeColor, string> = {

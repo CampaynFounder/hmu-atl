@@ -19,6 +19,7 @@ const FIELD_ROWS: FieldRow[] = [
   { key: 'adPhoto', label: 'HMU ad photo', hint: 'Optional vehicle photo for share link.' },
   { key: 'riderPreferences', label: 'Who you ride with', hint: 'Rider filters — sensitive, defer for trust.' },
   { key: 'location', label: 'Enable location', hint: 'OS permission prompt — defer until OTW.' },
+  { key: 'areas', label: 'Areas you drive', hint: 'Cardinal-grouped pills + "Anywhere in market" toggle. Defaults to anywhere on, so optional is a 1-tap step.' },
 ];
 
 const VISIBILITY_OPTS: { value: FieldVisibility; label: string; tone: string }[] = [

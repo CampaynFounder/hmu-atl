@@ -119,6 +119,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/chat/support',
   '/api/og/(.*)',
   '/api/content/(.*)',
+  '/api/onboarding/driver-express-config',
   '/driver',
   '/driver/express(.*)',
   '/r/(.*)',  // rider ad-funnel landing (paid Meta/TikTok ads link target)
