@@ -106,7 +106,7 @@ function PreviewBanner({
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
       }}
     >
-      <span>Preview · Rider Express ({isCash ? 'cash ride' : 'card ride'}) · No saves, uploads, or Stripe</span>
+      <span>Preview · Rider Chat Booking ({isCash ? 'cash ride' : 'card ride'}) · Legacy variant — only fires from /d/{`{handle}`}</span>
       <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <button
           onClick={onToggleCash}

@@ -470,36 +470,10 @@ export function ExpressRiderOnboarding({ onComplete, isCash }: Props) {
             background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
             borderRadius: 16, padding: 20,
           }}>
-            {preview.enabled ? (
-              // Preview mode — Stripe SetupIntent would actually save a card
-              // on the admin's account, so render a stub instead. The two
-              // buttons mirror the live shape: confirm = "saved a card",
-              // skip = same as the live skip path.
-              <div style={{ color: '#bbb', fontSize: 13, lineHeight: 1.55 }}>
-                <div style={{ fontSize: 11, letterSpacing: 1.5, color: '#ffc400', textTransform: 'uppercase', marginBottom: 8, fontWeight: 700 }}>
-                  Preview · Stripe form stubbed
-                </div>
-                <p style={{ margin: 0 }}>
-                  In production this is the Stripe inline element where the rider links a card,
-                  Apple Pay, or Cash App. Tapping below simulates the same outcomes.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    preview.onIntercept?.({ kind: 'rider_express_payment_attached', payload: { source: 'preview-stub' } });
-                    handlePaymentSuccess();
-                  }}
-                  style={{
-                    width: '100%', marginTop: 16, padding: 14, borderRadius: 100, border: 'none',
-                    background: '#00E676', color: '#080808', fontSize: 15, fontWeight: 800, cursor: 'pointer',
-                  }}
-                >
-                  Pretend I saved a card
-                </button>
-              </div>
-            ) : (
-              <InlinePaymentForm onSuccess={handlePaymentSuccess} />
-            )}
+            {/* Single source of truth: InlinePaymentForm renders its own
+                preview stub when OnboardingPreviewProvider is active, so we
+                use the same import as production. */}
+            <InlinePaymentForm onSuccess={handlePaymentSuccess} />
             <button
               type="button"
               onClick={() => {

@@ -22,21 +22,21 @@ const FLOWS: Array<{
     status: 'live',
   },
   {
+    href: '/admin/flows/rider',
+    title: 'Rider — Standard Sign-up',
+    blurb: 'Production rider funnel: full RiderOnboarding, then the FirstTimePaymentBlocker on /rider/browse before any drivers are visible.',
+    status: 'live',
+  },
+  {
     href: '/admin/flows/driver',
     title: 'Driver — Standard Onboarding',
     blurb: 'Full signup with vehicle, schedule, video intro, areas, and rider preferences.',
     status: 'planned',
   },
   {
-    href: '/admin/flows/rider',
-    title: 'Rider — Standard Onboarding',
-    blurb: 'Full rider signup with payment, preferences, and OG path.',
-    status: 'planned',
-  },
-  {
     href: '/admin/flows/rider-express',
-    title: 'Rider — Express (Chat Booking)',
-    blurb: 'Minimal-fields rider signup triggered from a driver share link. Switch between cash and card paths.',
+    title: 'Rider — Chat Booking (legacy variant)',
+    blurb: 'Minimal-fields rider signup that runs only when arriving from a driver share link (/d/{handle}). Inline payment + media.',
     status: 'live',
   },
 ];

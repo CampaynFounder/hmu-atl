@@ -7,6 +7,7 @@ import { RatingIntro } from './rating-intro';
 import { LocationPermission } from './location-permission';
 import { ArrowRight, ArrowLeft, Check } from 'lucide-react';
 import CelebrationConfetti from '@/components/shared/celebration-confetti';
+import { useOnboardingPreviewMode } from '@/lib/onboarding/preview-mode';
 
 interface OnboardingStep {
   id: string;
@@ -22,6 +23,7 @@ interface RiderOnboardingProps {
 }
 
 export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingProps) {
+  const preview = useOnboardingPreviewMode();
   const [currentStep, setCurrentStep] = useState(0);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [formData, setFormData] = useState<{
@@ -98,7 +100,14 @@ export function RiderOnboarding({ onComplete, tier = 'free' }: RiderOnboardingPr
     if (saving) return;
     if (isLastStep) {
       setSaving(true);
-      await saveRiderOnboarding(formData);
+      if (preview.enabled) {
+        // Admin /flows preview — surface the would-be POST body and skip
+        // both the onboarding save and the activity event so prod state
+        // doesn't change while a trainer walks the flow.
+        preview.onIntercept?.({ kind: 'rider_onboarding_save', payload: { ...formData, profile_type: 'rider' } });
+      } else {
+        await saveRiderOnboarding(formData);
+      }
       setShowConfirmation(true);
     } else {
       setCurrentStep((prev) => prev + 1);

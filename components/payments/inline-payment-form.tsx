@@ -9,6 +9,7 @@ import {
   useStripe,
   useElements,
 } from '@stripe/react-stripe-js';
+import { useOnboardingPreviewMode } from '@/lib/onboarding/preview-mode';
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '');
 
@@ -24,10 +25,16 @@ interface Props {
  * No redirect to Stripe — everything stays in-app.
  */
 export default function InlinePaymentForm({ onSuccess, onCancel, compact }: Props) {
+  const preview = useOnboardingPreviewMode();
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Preview mode (admin /flows surfaces) — never hit Stripe. We don't even
+    // request a SetupIntent because that would charge intent on the admin's
+    // account and pollute analytics. The preview branch below renders a stub
+    // with the same `onSuccess` shape so the parent flow advances identically.
+    if (preview.enabled) return;
     fetch('/api/rider/payment-methods/setup-intent', { method: 'POST' })
       .then(r => r.json())
       .then(data => {
@@ -38,7 +45,60 @@ export default function InlinePaymentForm({ onSuccess, onCancel, compact }: Prop
         }
       })
       .catch(() => setError('Network error'));
-  }, []);
+  }, [preview.enabled]);
+
+  // Preview stub — same external shape as the live form (renders inside the
+  // same compact/full container the caller styled around) but no Stripe call.
+  // Surfacing this here means EVERY caller (FirstTimePaymentBlocker,
+  // FirstTimePaymentSheet, ExpressRiderOnboarding, rider/settings) inherits
+  // the preview behavior automatically — single source of truth.
+  if (preview.enabled) {
+    return (
+      <div style={{
+        padding: compact ? 16 : 20,
+        background: '#141414',
+        borderRadius: 16,
+        border: '1px solid rgba(0,230,118,0.24)',
+      }}>
+        <div style={{ fontSize: 11, letterSpacing: 1.5, color: '#ffc400', textTransform: 'uppercase', marginBottom: 8, fontWeight: 700 }}>
+          Preview · Stripe SetupIntent stubbed
+        </div>
+        <p style={{ fontSize: 13, color: '#bbb', lineHeight: 1.55, margin: 0 }}>
+          In production this is the Stripe Payment Element — Apple Pay, Google Pay,
+          Cash App, and cards. Tap below to simulate a successful card link.
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+          <button
+            type="button"
+            onClick={() => {
+              preview.onIntercept?.({ kind: 'inline_payment_attached', payload: { source: 'preview-stub' } });
+              onSuccess();
+            }}
+            style={{
+              flex: 1, padding: 12, borderRadius: 100, border: 'none',
+              background: '#00E676', color: '#080808', fontSize: 14, fontWeight: 800, cursor: 'pointer',
+            }}
+          >
+            Pretend I saved a card
+          </button>
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              style={{
+                padding: '12px 18px', borderRadius: 100,
+                background: 'transparent', color: '#888',
+                border: '1px solid rgba(255,255,255,0.1)',
+                fontSize: 13, cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (error) {
     return (
