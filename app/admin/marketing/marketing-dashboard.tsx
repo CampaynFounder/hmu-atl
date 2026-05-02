@@ -54,6 +54,16 @@ export function MarketingDashboard() {
   // Loaded once on mount via consumeStagedRecipients() which also clears sessionStorage.
   const [stagedRecipients, setStagedRecipients] = useState<Recipient[]>([]);
   const [stagedPhonesWithThread, setStagedPhonesWithThread] = useState<Set<string>>(new Set());
+  // Bulk red/yellow/green status for the phones currently in scope (textarea
+  // + Selected). Keyed by digits-only phone. signed_up wins over texted.
+  type PhoneStatus = { bucket: 'signed_up' } | { bucket: 'texted'; lastAt: string };
+  const [phoneStatusMap, setPhoneStatusMap] = useState<Map<string, PhoneStatus>>(new Map());
+  // Digits-only phones that have been answered by the backend at least once.
+  // A phone that's parsed but not yet in this set renders as "checking" rather
+  // than defaulting to green — otherwise a signed-up number would flash green
+  // for ~300ms before turning red.
+  const [verifiedDigits, setVerifiedDigits] = useState<Set<string>>(new Set());
+  const [phoneStatusChecking, setPhoneStatusChecking] = useState(false);
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState<SendResult[] | null>(null);
   const [summary, setSummary] = useState<{ sent: number; failed: number; total: number } | null>(null);
@@ -212,6 +222,73 @@ export function MarketingDashboard() {
 
   const stagedHasThread = (phone: string): boolean =>
     stagedPhonesWithThread.has(phone.replace(/\D/g, ''));
+
+  // Bulk-classify every phone currently in scope (textarea numbers + staged
+  // recipients) into red (signed up) / yellow (ever texted) / green (clean).
+  // Mirrors the has-threads pattern: debounced POST, cancel on rerun, signed_up
+  // wins over texted server-side. CSV mode is intentionally excluded.
+  useEffect(() => {
+    const fromTextarea =
+      inputMode === 'compose'
+        ? phones.split(/[\n,;]+/).map((p) => p.replace(/\D/g, '')).filter((p) => p.length >= 10)
+        : [];
+    const fromStaged = stagedRecipients.map((r) => r.phone.replace(/\D/g, '')).filter((p) => p.length >= 10);
+    const digits = Array.from(new Set([...fromTextarea, ...fromStaged]));
+    if (digits.length === 0) {
+      setPhoneStatusMap(new Map());
+      setVerifiedDigits(new Set());
+      setPhoneStatusChecking(false);
+      return;
+    }
+
+    // Show "checking…" immediately on keystroke — flips off once the response
+    // lands. Without this, every newly typed phone defaults to green for the
+    // 300ms debounce + request RTT.
+    setPhoneStatusChecking(true);
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/admin/marketing/phone-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phones: digits }),
+        });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          signedUp?: string[];
+          texted?: { phone: string; lastAt: string }[];
+        };
+        if (cancelled) return;
+        const next = new Map<string, PhoneStatus>();
+        for (const t of data.texted ?? []) next.set(t.phone, { bucket: 'texted', lastAt: t.lastAt });
+        for (const p of data.signedUp ?? []) next.set(p, { bucket: 'signed_up' });
+        setPhoneStatusMap(next);
+        setVerifiedDigits(new Set(digits));
+      } catch { /* leave map as-is on transient failure */ }
+      finally { if (!cancelled) setPhoneStatusChecking(false); }
+    }, 300);
+
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [inputMode, phones, stagedRecipients]);
+
+  // Format an ISO timestamp into a compact relative label (1d ago, 3w ago).
+  const relTime = (iso: string): string => {
+    const ms = Date.now() - new Date(iso).getTime();
+    const sec = Math.max(0, Math.floor(ms / 1000));
+    if (sec < 60) return 'just now';
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr}h ago`;
+    const day = Math.floor(hr / 24);
+    if (day < 7) return `${day}d ago`;
+    const wk = Math.floor(day / 7);
+    if (wk < 5) return `${wk}w ago`;
+    const mo = Math.floor(day / 30);
+    if (mo < 12) return `${mo}mo ago`;
+    return `${Math.floor(day / 365)}y ago`;
+  };
 
   const hasMessage = message.trim().length > 0;
   const hasLink = link.trim().length > 0;
@@ -424,6 +501,52 @@ export function MarketingDashboard() {
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         {(() => {
+                          const digits = r.phone.replace(/\D/g, '');
+                          if (!verifiedDigits.has(digits)) {
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded border bg-neutral-800 border-neutral-700 text-neutral-400"
+                                title="Checking…"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-neutral-500 animate-pulse" aria-hidden />
+                                Checking
+                              </span>
+                            );
+                          }
+                          const status = phoneStatusMap.get(digits);
+                          if (status?.bucket === 'signed_up') {
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded border bg-red-500/10 border-red-500/30 text-red-300"
+                                title="Already signed up"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-red-400" aria-hidden />
+                                Signed up
+                              </span>
+                            );
+                          }
+                          if (status?.bucket === 'texted') {
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border bg-yellow-500/10 border-yellow-500/30 text-yellow-300"
+                                title={`Last contact: ${new Date(status.lastAt).toLocaleString()}`}
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" aria-hidden />
+                                {relTime(status.lastAt)}
+                              </span>
+                            );
+                          }
+                          return (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded border bg-green-500/10 border-green-500/30 text-green-300"
+                              title="Never texted"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-green-400" aria-hidden />
+                              New
+                            </span>
+                          );
+                        })()}
+                        {(() => {
                           const hasThread = stagedHasThread(r.phone);
                           return (
                             <button
@@ -464,7 +587,105 @@ export function MarketingDashboard() {
                 placeholder={"4045551234\n4045559876\n4045554321"}
                 className="w-full bg-neutral-800 border border-neutral-700 rounded-lg p-3 text-sm text-white placeholder:text-neutral-600 resize-none h-40 font-mono"
               />
-              <p className="text-xs text-neutral-500 mt-2">{parsePhones().length} number{parsePhones().length !== 1 ? 's' : ''}</p>
+              {(() => {
+                const parsed = parsePhones();
+                if (parsed.length === 0) {
+                  return <p className="text-xs text-neutral-500 mt-2">0 numbers</p>;
+                }
+                const counts = { red: 0, yellow: 0, green: 0, invalid: 0, checking: 0 };
+                const chips = parsed.map((r, i) => {
+                  const digits = r.phone.replace(/\D/g, '');
+                  if (digits.length < 10) {
+                    counts.invalid++;
+                    return (
+                      <span
+                        key={`${i}-${r.phone}`}
+                        className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-full border bg-neutral-800 border-neutral-700 text-neutral-500"
+                        title="Not a valid 10-digit number"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-neutral-500" aria-hidden />
+                        {r.phone}
+                      </span>
+                    );
+                  }
+                  if (!verifiedDigits.has(digits)) {
+                    counts.checking++;
+                    return (
+                      <span
+                        key={`${i}-${digits}`}
+                        className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-full border bg-neutral-800 border-neutral-700 text-neutral-400"
+                        title="Checking…"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-neutral-500 animate-pulse" aria-hidden />
+                        {digits}
+                        <span className="text-[10px] uppercase tracking-wide font-sans text-neutral-500">checking…</span>
+                      </span>
+                    );
+                  }
+                  const status = phoneStatusMap.get(digits);
+                  if (status?.bucket === 'signed_up') {
+                    counts.red++;
+                    return (
+                      <span
+                        key={`${i}-${digits}`}
+                        className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-full border bg-red-500/10 border-red-500/30 text-red-300"
+                        title="Already signed up"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-400" aria-hidden />
+                        {digits}
+                        <span className="text-[10px] uppercase tracking-wide font-sans text-red-300/80">signed up</span>
+                      </span>
+                    );
+                  }
+                  if (status?.bucket === 'texted') {
+                    counts.yellow++;
+                    return (
+                      <span
+                        key={`${i}-${digits}`}
+                        className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-full border bg-yellow-500/10 border-yellow-500/30 text-yellow-300"
+                        title={`Last contact: ${new Date(status.lastAt).toLocaleString()}`}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" aria-hidden />
+                        {digits}
+                        <span className="text-[10px] font-sans text-yellow-300/80">{relTime(status.lastAt)}</span>
+                      </span>
+                    );
+                  }
+                  counts.green++;
+                  return (
+                    <span
+                      key={`${i}-${digits}`}
+                      className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-full border bg-green-500/10 border-green-500/30 text-green-300"
+                      title="Never texted"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400" aria-hidden />
+                      {digits}
+                      <span className="text-[10px] uppercase tracking-wide font-sans text-green-300/80">new</span>
+                    </span>
+                  );
+                });
+                return (
+                  <div className="mt-2 space-y-2">
+                    <div className="flex items-center gap-3 text-[10px] uppercase tracking-wide">
+                      <span className="text-neutral-500 inline-flex items-center gap-1.5">
+                        {parsed.length} number{parsed.length !== 1 ? 's' : ''}
+                        {phoneStatusChecking && (
+                          <span className="inline-flex items-center gap-1 normal-case tracking-normal text-neutral-400">
+                            <span className="w-1 h-1 rounded-full bg-neutral-400 animate-pulse" aria-hidden />
+                            checking…
+                          </span>
+                        )}
+                      </span>
+                      {counts.green > 0 && <span className="text-green-400">{counts.green} new</span>}
+                      {counts.yellow > 0 && <span className="text-yellow-400">{counts.yellow} texted</span>}
+                      {counts.red > 0 && <span className="text-red-400">{counts.red} signed up</span>}
+                      {counts.checking > 0 && <span className="text-neutral-500">{counts.checking} checking</span>}
+                      {counts.invalid > 0 && <span className="text-neutral-500">{counts.invalid} invalid</span>}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">{chips}</div>
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
