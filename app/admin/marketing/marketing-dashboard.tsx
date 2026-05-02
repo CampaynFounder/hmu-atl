@@ -29,6 +29,9 @@ interface Template {
   id: string;
   label: string;
   body: string;
+  // null when no link saved with this template — load preserves existing
+  // link in the compose form, save clears it.
+  link: string | null;
   updated_at: string;
 }
 
@@ -52,6 +55,7 @@ export function MarketingDashboard() {
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState('');
   const [editBody, setEditBody] = useState('');
+  const [editLink, setEditLink] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [newTemplateLabel, setNewTemplateLabel] = useState('');
@@ -96,12 +100,14 @@ export function MarketingDashboard() {
     setEditingTemplateId(t.id);
     setEditLabel(t.label);
     setEditBody(t.body);
+    setEditLink(t.link ?? '');
   };
 
   const cancelEditTemplate = () => {
     setEditingTemplateId(null);
     setEditLabel('');
     setEditBody('');
+    setEditLink('');
   };
 
   const saveEditTemplate = async () => {
@@ -112,7 +118,13 @@ export function MarketingDashboard() {
       const res = await fetch(`/api/admin/marketing/templates/${editingTemplateId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: editLabel.trim(), body: editBody.trim() }),
+        body: JSON.stringify({
+          label: editLabel.trim(),
+          body: editBody.trim(),
+          // Empty string clears the saved link; the API normalizes both
+          // empty and null to NULL on the row.
+          link: editLink.trim() || null,
+        }),
       });
       if (!res.ok) { const err = await res.json(); alert(`Save failed: ${err.error}`); return; }
       const { template } = await res.json() as { template: Template };
@@ -141,7 +153,8 @@ export function MarketingDashboard() {
       const res = await fetch('/api/admin/marketing/templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label, body }),
+        // Link is optional — only persist what's actually in the field.
+        body: JSON.stringify({ label, body, link: link.trim() || null }),
       });
       if (!res.ok) { const err = await res.json(); alert(`Save failed: ${err.error}`); return; }
       const { template } = await res.json() as { template: Template };
@@ -617,7 +630,9 @@ export function MarketingDashboard() {
                   {creatingTemplate ? '…' : 'Save'}
                 </button>
               </div>
-              <p className="text-[10px] text-neutral-600 mt-1">Saves the text in the Message field above.</p>
+              <p className="text-[10px] text-neutral-600 mt-1">
+                Saves the Message field {link.trim() ? <>+ Link <span className="text-blue-300">({link.trim().slice(0, 40)}{link.trim().length > 40 ? '…' : ''})</span></> : <span className="text-neutral-500">(no link to save)</span>}.
+              </p>
             </div>
 
             {templatesLoading ? (
@@ -649,6 +664,14 @@ export function MarketingDashboard() {
                           className="w-full bg-neutral-900 border border-neutral-700 rounded px-2 py-1.5 text-xs text-white resize-none"
                           placeholder="Message body (max 160 chars)"
                         />
+                        <input
+                          type="text"
+                          value={editLink}
+                          onChange={(e) => setEditLink(e.target.value.slice(0, 500))}
+                          maxLength={500}
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded px-2 py-1.5 text-xs text-white"
+                          placeholder="Link (optional) — paste a UTM-built URL"
+                        />
                         <div className="flex items-center justify-between">
                           <span className={`text-[10px] ${editBody.length > 140 ? 'text-yellow-400' : 'text-neutral-600'}`}>
                             {editBody.length}/160
@@ -675,11 +698,28 @@ export function MarketingDashboard() {
                       <>
                         <div className="flex items-center justify-between gap-2">
                           <button
-                            onClick={() => setMessage(tmpl.body)}
+                            onClick={() => {
+                              setMessage(tmpl.body);
+                              // Auto-fill the link field too. If the template
+                              // doesn't have a saved link we leave whatever the
+                              // admin already typed alone — so an existing
+                              // composed link isn't wiped by a link-less template.
+                              if (tmpl.link) setLink(tmpl.link);
+                            }}
                             className="flex-1 text-left min-w-0"
-                            title="Use this template"
+                            title={tmpl.link ? 'Use this template (fills message + link)' : 'Use this template'}
                           >
-                            <p className="text-xs font-medium text-neutral-300 truncate">{tmpl.label}</p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-xs font-medium text-neutral-300 truncate">{tmpl.label}</p>
+                              {tmpl.link && (
+                                <span
+                                  className="text-[9px] font-bold uppercase tracking-wide px-1 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 shrink-0"
+                                  title={tmpl.link}
+                                >
+                                  link
+                                </span>
+                              )}
+                            </div>
                           </button>
                           <div className="flex items-center gap-1 shrink-0">
                             <span className="text-[10px] text-neutral-600">{tmpl.body.length}</span>
