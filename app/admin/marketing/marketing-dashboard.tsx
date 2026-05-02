@@ -67,6 +67,11 @@ export function MarketingDashboard() {
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState<SendResult[] | null>(null);
   const [summary, setSummary] = useState<{ sent: number; failed: number; total: number } | null>(null);
+  // Snapshot of the last successful send so the button can sit on "✓ Sent to
+  // N numbers" disabled until the admin edits the recipients/message/link.
+  // Without this, the button reverts to the live "Send to N numbers" state
+  // and a double-click re-blasts.
+  const [lastSent, setLastSent] = useState<{ count: number } | null>(null);
   const [openingThread, setOpeningThread] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(true);
@@ -282,6 +287,14 @@ export function MarketingDashboard() {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [inputMode, phones, stagedRecipients]);
 
+  // Re-arm the Send button as soon as the admin edits any input that affects
+  // the next send. The button stays in "✓ Sent to N numbers" disabled mode
+  // until something here changes — that's the signal of a fresh send intent.
+  useEffect(() => {
+    if (lastSent) setLastSent(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phones, csvRecipients, stagedRecipients, message, link, inputMode]);
+
   // Format an ISO timestamp into a compact relative label (1d ago, 3w ago).
   const relTime = (iso: string): string => {
     const ms = Date.now() - new Date(iso).getTime();
@@ -422,6 +435,11 @@ export function MarketingDashboard() {
         const data = await res.json();
         setResults(data.results);
         setSummary({ sent: data.sent, failed: data.failed, total: data.total });
+        // Lock the button into the "Sent" confirmation state. Only flip back
+        // when the admin actually edits something (handled in the effect that
+        // watches the input fields). Skip on all-failed so the admin can
+        // immediately retry without editing anything.
+        if (data.sent > 0) setLastSent({ count: recipients.length });
       } else {
         const err = await res.json();
         alert(`Failed: ${err.error}`);
@@ -1032,10 +1050,25 @@ export function MarketingDashboard() {
       <div className="flex items-center gap-4">
         <button
           onClick={handleSend}
-          disabled={sending || (!hasMessage && !hasLink) || recipients.length === 0 || message.length > 160 || link.length > 160}
-          className="bg-green-600 hover:bg-green-700 disabled:bg-neutral-700 disabled:text-neutral-500 text-white text-sm font-semibold px-6 py-3 rounded-lg transition-colors"
+          disabled={
+            sending
+            || lastSent !== null
+            || (!hasMessage && !hasLink)
+            || recipients.length === 0
+            || message.length > 160
+            || link.length > 160
+          }
+          className={`text-sm font-semibold px-6 py-3 rounded-lg transition-colors ${
+            lastSent
+              ? 'bg-green-500/20 border border-green-500/50 text-green-300 cursor-default'
+              : 'bg-green-600 hover:bg-green-700 disabled:bg-neutral-700 disabled:text-neutral-500 text-white'
+          }`}
         >
-          {sending ? `Sending...` : `Send to ${recipients.length} number${recipients.length !== 1 ? 's' : ''}`}
+          {sending
+            ? 'Sending...'
+            : lastSent
+            ? `✓ Sent to ${lastSent.count} number${lastSent.count !== 1 ? 's' : ''}`
+            : `Send to ${recipients.length} number${recipients.length !== 1 ? 's' : ''}`}
         </button>
         {recipients.length > 0 && (hasMessage || hasLink) && (
           <p className="text-xs text-neutral-500">
