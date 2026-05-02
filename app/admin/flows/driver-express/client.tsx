@@ -34,7 +34,11 @@ export default function DriverExpressFlowClient() {
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 380px)', flex: 1, minHeight: 0 }}>
           <div key={resetKey} style={{ overflow: 'auto', borderRight: '1px solid #222' }}>
             <DriverOnboardingExpress
-              onComplete={() => { /* preview — no nav */ }}
+              // The live flow's "Make More $$$" button navigates to
+              // /driver/profile; in preview we have no profile, so unmount
+              // the wrapper instead. Without this the YoureLiveScreen flips
+              // to its loading state and spins forever waiting for the nav.
+              onComplete={() => { setResetKey(k => k + 1); }}
               tier="free"
             />
           </div>
