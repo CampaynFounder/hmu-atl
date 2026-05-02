@@ -6,6 +6,7 @@ import { Check } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import CelebrationConfetti from '@/components/shared/celebration-confetti';
 import { VideoRecorder } from '@/components/onboarding/video-recorder';
+import { useOnboardingPreviewMode } from '@/lib/onboarding/preview-mode';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
@@ -21,6 +22,7 @@ interface Props {
  */
 export function ExpressRiderOnboarding({ onComplete, isCash }: Props) {
   const { user } = useUser();
+  const preview = useOnboardingPreviewMode();
   const [displayName, setDisplayName] = useState('');
   const [saving, setSaving] = useState(false);
   const [step, setStep] = useState<'name' | 'media' | 'payment' | 'done'>('name');
@@ -55,42 +57,49 @@ export function ExpressRiderOnboarding({ onComplete, isCash }: Props) {
     setSaving(true);
     setError(null);
 
+    const firstName = user?.firstName || displayName.split(' ')[0] || displayName;
+    const lastName = user?.lastName || displayName.split(' ').slice(1).join(' ') || '.';
+    const phone = user?.primaryPhoneNumber?.phoneNumber || '';
+    const payload = {
+      profile_type: 'rider' as const,
+      first_name: firstName,
+      last_name: lastName,
+      display_name: displayName.trim(),
+      phone: phone || null,
+      gender: null,
+      pronouns: null,
+      lgbtq_friendly: false,
+    };
+
     try {
-      const firstName = user?.firstName || displayName.split(' ')[0] || displayName;
-      const lastName = user?.lastName || displayName.split(' ').slice(1).join(' ') || '.';
-      const phone = user?.primaryPhoneNumber?.phoneNumber || '';
+      if (preview.enabled) {
+        // Admin-flows preview — surface the would-be POST body, skip the
+        // network mutations, then advance the same way live mode does.
+        preview.onIntercept?.({ kind: 'rider_express_save', payload });
+      } else {
+        await fetch('/api/users/onboarding', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
 
-      await fetch('/api/users/onboarding', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          profile_type: 'rider',
-          first_name: firstName,
-          last_name: lastName,
-          display_name: displayName.trim(),
-          phone: phone || null,
-          gender: null,
-          pronouns: null,
-          lgbtq_friendly: false,
-        }),
-      });
-
-      // Save draft booking data server-side so it survives device changes
-      try {
-        const driverHandle = extractDriverHandleFromUrl();
-        if (driverHandle) {
-          const chatKey = `hmu_chat_booking_${driverHandle}`;
-          const legacyKey = 'hmu_chat_booking';
-          const raw = localStorage.getItem(chatKey) || localStorage.getItem(legacyKey);
-          if (raw) {
-            await fetch('/api/rider/draft-booking', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ driverHandle, bookingData: JSON.parse(raw) }),
-            });
+        // Save draft booking data server-side so it survives device changes
+        try {
+          const driverHandle = extractDriverHandleFromUrl();
+          if (driverHandle) {
+            const chatKey = `hmu_chat_booking_${driverHandle}`;
+            const legacyKey = 'hmu_chat_booking';
+            const raw = localStorage.getItem(chatKey) || localStorage.getItem(legacyKey);
+            if (raw) {
+              await fetch('/api/rider/draft-booking', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ driverHandle, bookingData: JSON.parse(raw) }),
+              });
+            }
           }
-        }
-      } catch { /* non-critical */ }
+        } catch { /* non-critical */ }
+      }
 
       // Name saved — next step is always media. Payment comes after (or
       // is skipped for cash rides). Media step is required; no skip.
@@ -119,16 +128,30 @@ export function ExpressRiderOnboarding({ onComplete, isCash }: Props) {
     setMediaUploading(true);
     setMediaError(null);
     try {
-      const formData = new FormData();
-      formData.append('video', file);
-      formData.append('profile_type', 'rider');
-      formData.append('media_type', 'photo');
-      formData.append('save_to_profile', 'true');
-      const res = await fetch('/api/upload/video', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Upload failed');
-      setMediaUrl(data.url);
-      setMediaKind('photo');
+      if (preview.enabled) {
+        // Don't actually upload to R2 in preview. Use a local object URL so
+        // the UI still shows the user picked something and the Continue
+        // button enables. The intercept event surfaces the raw filename so
+        // admins watching the side panel see what would have been sent.
+        preview.onIntercept?.({
+          kind: 'rider_express_photo_upload',
+          payload: { fileName: file.name, size: file.size, type: file.type },
+        });
+        const localUrl = URL.createObjectURL(file);
+        setMediaUrl(localUrl);
+        setMediaKind('photo');
+      } else {
+        const formData = new FormData();
+        formData.append('video', file);
+        formData.append('profile_type', 'rider');
+        formData.append('media_type', 'photo');
+        formData.append('save_to_profile', 'true');
+        const res = await fetch('/api/upload/video', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        setMediaUrl(data.url);
+        setMediaKind('photo');
+      }
     } catch (err) {
       setMediaError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
@@ -447,7 +470,36 @@ export function ExpressRiderOnboarding({ onComplete, isCash }: Props) {
             background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
             borderRadius: 16, padding: 20,
           }}>
-            <InlinePaymentForm onSuccess={handlePaymentSuccess} />
+            {preview.enabled ? (
+              // Preview mode — Stripe SetupIntent would actually save a card
+              // on the admin's account, so render a stub instead. The two
+              // buttons mirror the live shape: confirm = "saved a card",
+              // skip = same as the live skip path.
+              <div style={{ color: '#bbb', fontSize: 13, lineHeight: 1.55 }}>
+                <div style={{ fontSize: 11, letterSpacing: 1.5, color: '#ffc400', textTransform: 'uppercase', marginBottom: 8, fontWeight: 700 }}>
+                  Preview · Stripe form stubbed
+                </div>
+                <p style={{ margin: 0 }}>
+                  In production this is the Stripe inline element where the rider links a card,
+                  Apple Pay, or Cash App. Tapping below simulates the same outcomes.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    preview.onIntercept?.({ kind: 'rider_express_payment_attached', payload: { source: 'preview-stub' } });
+                    handlePaymentSuccess();
+                  }}
+                  style={{
+                    width: '100%', marginTop: 16, padding: 14, borderRadius: 100, border: 'none',
+                    background: '#00E676', color: '#080808', fontSize: 15, fontWeight: 800, cursor: 'pointer',
+                  }}
+                >
+                  Pretend I saved a card
+                </button>
+              </div>
+            ) : (
+              <InlinePaymentForm onSuccess={handlePaymentSuccess} />
+            )}
             <button
               type="button"
               onClick={() => {

@@ -36,8 +36,8 @@ const FLOWS: Array<{
   {
     href: '/admin/flows/rider-express',
     title: 'Rider — Express (Chat Booking)',
-    blurb: 'Minimal-fields rider signup triggered from a driver share link.',
-    status: 'planned',
+    blurb: 'Minimal-fields rider signup triggered from a driver share link. Switch between cash and card paths.',
+    status: 'live',
   },
 ];
 

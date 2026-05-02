@@ -401,4 +401,14 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     permission: 'tools.flows',
     keywords: ['express driver', 'driver onboarding preview', 'training driver'],
   },
+  {
+    id: 'flows-rider-express',
+    label: 'Rider — Express Flow',
+    description: 'Live preview of chat-booking rider signup',
+    href: '/admin/flows/rider-express',
+    section: 'Tools',
+    icon: '🙋',
+    permission: 'tools.flows',
+    keywords: ['express rider', 'rider onboarding preview', 'chat booking signup', 'training rider'],
+  },
 ];
