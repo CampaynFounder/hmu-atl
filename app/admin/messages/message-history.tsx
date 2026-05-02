@@ -63,6 +63,12 @@ export function MessageHistory() {
   const [playbookOpen, setPlaybookOpen] = useState(true);
   const [playbookSearch, setPlaybookSearch] = useState('');
   const [playbookSendingId, setPlaybookSendingId] = useState<string | null>(null);
+  // Audience pill the admin can override. Default is set per-conversation in
+  // the effect below: known driver/rider → that audience, unknown → 'all' so
+  // every active entry surfaces (the prior behavior fell back to 'any' and
+  // hid every audience-tagged entry).
+  type PickerAudience = PlaybookAudience | 'all';
+  const [playbookAudience, setPlaybookAudience] = useState<PickerAudience>('all');
   // Tracks the entry currently loaded into the reply input via Compose. When
   // set, the 160-char cap is lifted and Send routes through the chunked
   // playbook endpoint with the (possibly edited) text.
@@ -280,9 +286,9 @@ export function MessageHistory() {
     setSending(false);
   };
 
-  // Fetch playbook entries for the picker. Audience defaults to the recipient's
-  // profile type when known; falls back to 'any'.
-  const fetchPlaybook = useCallback(async (audience: PlaybookAudience) => {
+  // Fetch playbook entries for the picker. Audience comes from the pill state;
+  // the conversation effect below seeds it per-recipient.
+  const fetchPlaybook = useCallback(async (audience: PickerAudience) => {
     try {
       const res = await fetch(`/api/admin/playbook?mode=picker&audience=${audience}`);
       if (res.ok) {
@@ -292,14 +298,23 @@ export function MessageHistory() {
     } catch {}
   }, []);
 
+  // Seed the audience pill from the conversation's userType. Unknown profile
+  // types default to 'all' so admins see every active entry rather than only
+  // 'any'-tagged ones.
   useEffect(() => {
     if (!conversation) return;
-    const aud: PlaybookAudience =
+    const seeded: PickerAudience =
       conversation.userType === 'driver' ? 'driver'
       : conversation.userType === 'rider' ? 'rider'
-      : 'any';
-    fetchPlaybook(aud);
-  }, [conversation, fetchPlaybook]);
+      : 'all';
+    setPlaybookAudience(seeded);
+  }, [conversation]);
+
+  // Refetch whenever the audience pill changes (also covers the seed above).
+  useEffect(() => {
+    if (!conversation) return;
+    fetchPlaybook(playbookAudience);
+  }, [conversation, playbookAudience, fetchPlaybook]);
 
   const filteredPlaybook = useMemo(() => {
     const q = playbookSearch.trim().toLowerCase();
@@ -432,7 +447,29 @@ export function MessageHistory() {
                 placeholder="Search playbook…"
                 className="w-full bg-neutral-900 border border-neutral-800 rounded-full px-3 py-1.5 text-xs text-white placeholder:text-neutral-600 mb-2"
               />
-              <div className="max-h-44 overflow-y-auto space-y-1.5 mb-2">
+              <div className="flex items-center gap-1 mb-2 flex-wrap">
+                {(['all', 'driver', 'rider', 'any'] as PickerAudience[]).map((a) => (
+                  <button
+                    key={a}
+                    onClick={() => setPlaybookAudience(a)}
+                    className={`text-[10px] px-2 py-0.5 rounded-full border capitalize ${
+                      playbookAudience === a
+                        ? 'bg-[#00E676]/15 border-[#00E676]/40 text-[#00E676]'
+                        : 'border-neutral-800 text-neutral-500 hover:text-neutral-300'
+                    }`}
+                    title={
+                      a === 'all'
+                        ? 'Show every active entry'
+                        : a === 'any'
+                        ? 'Only entries tagged for any audience'
+                        : `Entries tagged ${a} + any`
+                    }
+                  >
+                    {a}
+                  </button>
+                ))}
+              </div>
+              <div className="max-h-80 overflow-y-auto space-y-1.5 mb-2">
                 {filteredPlaybook.length === 0 ? (
                   <div className="text-[11px] text-neutral-600 px-2 py-2">
                     {playbookEntries.length === 0

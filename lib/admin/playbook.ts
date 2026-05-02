@@ -54,10 +54,22 @@ export async function listPlaybook(filters: PlaybookFilters = {}): Promise<Playb
 
 // Audience-aware lookup used by /admin/messages picker. When the recipient is
 // a known driver (or rider), surface entries tagged for that audience plus the
-// 'any' bucket. Always filtered to active only.
+// 'any' bucket. 'all' returns every active entry regardless of audience — used
+// when the recipient's profile_type is unknown or the admin overrides the
+// audience pill in the picker.
 export async function listPlaybookForAudience(
-  audience: PlaybookAudience,
+  audience: PlaybookAudience | 'all',
 ): Promise<PlaybookEntry[]> {
+  if (audience === 'all') {
+    const rows = await sql`
+      SELECT id, title, question_text, answer_body, audience, is_active, priority,
+             usage_count, created_by, created_at, updated_at
+      FROM response_playbook
+      WHERE is_active = TRUE
+      ORDER BY priority DESC, updated_at DESC
+    `;
+    return rows.map(toEntry);
+  }
   const rows = await sql`
     SELECT id, title, question_text, answer_body, audience, is_active, priority,
            usage_count, created_by, created_at, updated_at

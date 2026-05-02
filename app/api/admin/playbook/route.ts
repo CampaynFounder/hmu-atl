@@ -21,10 +21,16 @@ export async function GET(req: NextRequest) {
   const mode = searchParams.get('mode'); // 'picker' | null
 
   // Picker mode is what /admin/messages calls — filtered to active + audience.
+  // 'all' is allowed (and the picker's default for unknown-profile recipients);
+  // any other value is coerced to 'all' rather than 'any' so a typo can't
+  // silently hide entries that aren't tagged 'any'.
   // No super check; any admin who can view messages can fetch suggestions.
   if (mode === 'picker') {
-    const audParam = (searchParams.get('audience') as PlaybookAudience) ?? 'any';
-    const aud = AUDIENCES.includes(audParam) ? audParam : 'any';
+    const audParam = searchParams.get('audience');
+    const aud: PlaybookAudience | 'all' =
+      audParam && (AUDIENCES as string[]).includes(audParam)
+        ? (audParam as PlaybookAudience)
+        : 'all';
     const entries = await listPlaybookForAudience(aud);
     return NextResponse.json({ entries });
   }
