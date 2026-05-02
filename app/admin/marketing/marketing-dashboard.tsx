@@ -254,7 +254,15 @@ export function MarketingDashboard() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phones: digits }),
         });
-        if (!res.ok || cancelled) return;
+        if (cancelled) return;
+        if (!res.ok) {
+          // Don't fail silently — chips would stay on "checking" forever.
+          // Log so the next breakage is visible in the console without us
+          // needing to reproduce it locally.
+          const detail = await res.text().catch(() => '');
+          console.error('[phone-status] HTTP', res.status, detail);
+          return;
+        }
         const data = (await res.json()) as {
           signedUp?: string[];
           texted?: { phone: string; lastAt: string }[];
@@ -265,7 +273,9 @@ export function MarketingDashboard() {
         for (const p of data.signedUp ?? []) next.set(p, { bucket: 'signed_up' });
         setPhoneStatusMap(next);
         setVerifiedDigits(new Set(digits));
-      } catch { /* leave map as-is on transient failure */ }
+      } catch (err) {
+        if (!cancelled) console.error('[phone-status] fetch failed', err);
+      }
       finally { if (!cancelled) setPhoneStatusChecking(false); }
     }, 300);
 

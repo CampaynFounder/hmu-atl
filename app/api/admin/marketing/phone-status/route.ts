@@ -50,13 +50,15 @@ export async function POST(req: NextRequest) {
         SELECT phone FROM driver_profiles WHERE phone = ANY(${digits})
       ) s
     `,
+    // admin_sms_sent uses sent_at (NOT created_at) — referencing created_at
+    // crashed the whole UNION and left every chip stuck on "checking".
     sql`
       SELECT phone, MAX(last_at) AS last_at FROM (
         SELECT to_phone        AS phone, MAX(created_at) AS last_at FROM sms_log         WHERE to_phone        = ANY(${digits}) GROUP BY to_phone
         UNION ALL
         SELECT from_phone      AS phone, MAX(created_at) AS last_at FROM sms_inbound     WHERE from_phone      = ANY(${digits}) GROUP BY from_phone
         UNION ALL
-        SELECT recipient_phone AS phone, MAX(created_at) AS last_at FROM admin_sms_sent  WHERE recipient_phone = ANY(${digits}) GROUP BY recipient_phone
+        SELECT recipient_phone AS phone, MAX(sent_at)    AS last_at FROM admin_sms_sent  WHERE recipient_phone = ANY(${digits}) GROUP BY recipient_phone
       ) t
       GROUP BY phone
     `,
