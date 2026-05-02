@@ -61,41 +61,48 @@ export default async function FlowsIndexPage() {
       <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
         {FLOWS.map((f) => {
           const isLive = f.status === 'live';
+          // Tile is a real <Link> only when the target exists. "Planned" rows
+          // render as a plain <div> with disabled styling — passing onClick
+          // from this server component to <Link> (a client component) would
+          // crash with "Functions cannot be passed to Client Components".
+          const tileBody = (
+            <>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--admin-text)' }}>{f.title}</div>
+                <span
+                  style={{
+                    fontSize: 10, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase',
+                    padding: '3px 8px', borderRadius: 4,
+                    background: isLive ? 'rgba(0,230,118,0.12)' : 'rgba(255,255,255,0.06)',
+                    color: isLive ? '#00E676' : 'var(--admin-text-faint)',
+                    border: `1px solid ${isLive ? 'rgba(0,230,118,0.3)' : 'var(--admin-border)'}`,
+                  }}
+                >
+                  {isLive ? 'Live' : 'Planned'}
+                </span>
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--admin-text-secondary)', marginTop: 6, lineHeight: 1.5 }}>{f.blurb}</p>
+            </>
+          );
+          const tileStyle = {
+            display: 'block',
+            padding: '16px 20px',
+            borderRadius: 12,
+            background: 'var(--admin-card)',
+            border: '1px solid var(--admin-border)',
+            textDecoration: 'none',
+            color: 'inherit',
+            opacity: isLive ? 1 : 0.55,
+            cursor: isLive ? 'pointer' : 'not-allowed',
+            transition: 'border-color .15s, transform .15s',
+          } as const;
           return (
             <li key={f.href}>
-              <Link
-                href={isLive ? f.href : '#'}
-                aria-disabled={!isLive}
-                onClick={isLive ? undefined : (e) => e.preventDefault()}
-                style={{
-                  display: 'block',
-                  padding: '16px 20px',
-                  borderRadius: 12,
-                  background: 'var(--admin-card)',
-                  border: '1px solid var(--admin-border)',
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  opacity: isLive ? 1 : 0.55,
-                  cursor: isLive ? 'pointer' : 'not-allowed',
-                  transition: 'border-color .15s, transform .15s',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--admin-text)' }}>{f.title}</div>
-                  <span
-                    style={{
-                      fontSize: 10, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase',
-                      padding: '3px 8px', borderRadius: 4,
-                      background: isLive ? 'rgba(0,230,118,0.12)' : 'rgba(255,255,255,0.06)',
-                      color: isLive ? '#00E676' : 'var(--admin-text-faint)',
-                      border: `1px solid ${isLive ? 'rgba(0,230,118,0.3)' : 'var(--admin-border)'}`,
-                    }}
-                  >
-                    {isLive ? 'Live' : 'Planned'}
-                  </span>
-                </div>
-                <p style={{ fontSize: 13, color: 'var(--admin-text-secondary)', marginTop: 6, lineHeight: 1.5 }}>{f.blurb}</p>
-              </Link>
+              {isLive ? (
+                <Link href={f.href} style={tileStyle}>{tileBody}</Link>
+              ) : (
+                <div style={tileStyle} aria-disabled>{tileBody}</div>
+              )}
             </li>
           );
         })}
