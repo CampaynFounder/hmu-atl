@@ -58,15 +58,20 @@ export default async function AdminLayout({
   const effectiveRoleLabel = swap.previewRole?.label ?? realRoleLabel;
 
   // Server-side route guard. Pathname comes from `x-admin-pathname` set in
-  // middleware. Unmapped routes default-deny (super only) inside
-  // `canAccessRoute`. Any non-super admin who lands on a route they don't have
+  // middleware. Unmapped routes default-deny (only super reaches them) inside
+  // `canAccess`. Any non-super admin who lands on a route they don't have
   // permission for — by typing the URL, bookmark, stale link — bounces back
-  // to /admin instead of rendering the page. The sidebar already hides these
-  // items, so this is the second layer that closes direct-URL access.
+  // to /admin, where `app/admin/page.tsx` redirects them to the first nav
+  // route their role can access (or shows an empty state if none).
+  //
+  // /admin itself is exempt from the guard: its rule is `super`, but every
+  // admin needs a landing page to dispatch from. The page-level component is
+  // permission-aware and renders LiveOpsDashboard for super only.
   const requestHeaders = await headers();
   const adminPathname = requestHeaders.get('x-admin-pathname');
   if (
     adminPathname
+    && adminPathname !== '/admin'
     && !canAccess(adminPathname, swap.effective.is_super, (p) => hasPermission(swap.effective, p))
   ) {
     redirect('/admin');

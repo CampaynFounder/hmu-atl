@@ -9,8 +9,7 @@
 // access enforcement, sidebar filtering, and search filtering. Sidebar/search
 // still own their own labels/icons/keywords — only the access rule lives here.
 //
-// Rule kinds:
-//   { kind: 'public' }                    → any admin
+// Rule kinds (strict default-deny — no `public` escape hatch):
 //   { kind: 'permission'; slug: 'x.y' }   → requires hasPermission('x.y.view')
 //                                           (the matrix's `x.y.edit` and
 //                                           `x.y.publish` imply view)
@@ -19,6 +18,11 @@
 // Route matching: longest-pattern-wins. `/admin/safety/archive` matches
 // `/admin/safety` before `/admin`. Unknown routes default-deny (super only),
 // so forgetting an entry fails closed, never open.
+//
+// `/admin` itself is super-only by rule, but the layout exempts it from the
+// route guard so non-super admins can still reach the page-level dispatcher
+// in `app/admin/page.tsx`, which redirects them to the first nav route their
+// role can access (or shows an empty state if zero permissions are granted).
 
 // IMPORTANT: this file must stay client-safe — it's imported by
 // `app/admin/components/admin-sidebar.tsx` (a client component). Don't import
@@ -28,7 +32,6 @@
 // see `app/admin/layout.tsx` and `app/api/admin/search/route.ts`.
 
 export type AdminRouteRule =
-  | { kind: 'public' }
   | { kind: 'permission'; slug: string }
   | { kind: 'super' };
 
@@ -39,7 +42,7 @@ export interface AdminRouteEntry {
 
 export const ADMIN_ROUTES: AdminRouteEntry[] = [
   // ── MONITOR ─────────────────────────────────────────────────────────
-  { pattern: '/admin',                     rule: { kind: 'public' } }, // live ops home
+  { pattern: '/admin',                     rule: { kind: 'super' } }, // Live Ops — super only. Layout exempts /admin from the guard so non-super admins land and dispatch via app/admin/page.tsx.
   { pattern: '/admin/growth',              rule: { kind: 'permission', slug: 'monitor.liveops' } },
   { pattern: '/admin/money',               rule: { kind: 'permission', slug: 'monitor.revenue' } },
   { pattern: '/admin/pricing',             rule: { kind: 'permission', slug: 'monitor.pricing' } },
@@ -56,7 +59,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/suspect-usage',       rule: { kind: 'permission', slug: 'act.suspect' } },
 
   // ── GROW ────────────────────────────────────────────────────────────
-  { pattern: '/admin/activation',          rule: { kind: 'public' } },
+  { pattern: '/admin/activation',          rule: { kind: 'super' } }, // assign a slug + add to matrix when a custom role needs to grant this
   { pattern: '/admin/marketing',           rule: { kind: 'permission', slug: 'grow.outreach' } },
   { pattern: '/admin/messages',            rule: { kind: 'permission', slug: 'grow.messages' } },
   { pattern: '/admin/playbook',            rule: { kind: 'permission', slug: 'grow.playbook' } },
@@ -88,10 +91,9 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   // ── TOOLS ───────────────────────────────────────────────────────────
   { pattern: '/admin/flows',               rule: { kind: 'permission', slug: 'tools.flows' } }, // includes all flow subroutes
 
-  // Auth pages — reachable only after the layout's is_admin gate, so safe
-  // to leave open to any admin.
-  { pattern: '/admin/login',               rule: { kind: 'public' } },
-  { pattern: '/admin/sign-up',             rule: { kind: 'public' } },
+  // /admin/login and /admin/sign-up intentionally omitted: post-auth they
+  // shouldn't be navigable, so default-deny is correct. Pre-auth requests
+  // never hit this guard (layout redirects to /admin-login).
 ];
 
 const SORTED_ROUTES = [...ADMIN_ROUTES].sort((a, b) => b.pattern.length - a.pattern.length);
@@ -132,9 +134,12 @@ export function canAccess(
   isSuper: boolean,
   hasPerm: (perm: string) => boolean,
 ): boolean {
+  // Super always wins — they see every admin route regardless of rule.
+  if (isSuper) return true;
   const rule = ruleFor(pathname);
-  if (!rule) return isSuper;
-  if (rule.kind === 'public') return true;
-  if (rule.kind === 'super') return isSuper;
+  // Unknown route → default-deny (only super reaches this branch is_super
+  // = false here so we return false). Forgetting an entry fails closed.
+  if (!rule) return false;
+  if (rule.kind === 'super') return false;
   return hasPerm(`${rule.slug}.view`);
 }
