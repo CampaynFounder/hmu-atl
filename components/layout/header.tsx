@@ -8,7 +8,7 @@ import { Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FeatureSearch } from '@/components/search/feature-search';
 
-const MARKETING_PATHS = ['/', '/driver', '/rider', '/pitch'];
+const MARKETING_PATHS = ['/', '/driver', '/rider', '/pitch', '/events'];
 
 function getLogoHref(pathname: string, profileType?: string) {
   // On sign-in/sign-up pages, check for type param in URL

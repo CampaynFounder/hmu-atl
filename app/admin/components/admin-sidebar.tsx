@@ -49,6 +49,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/messages', label: 'Messages', icon: '💬', badgeCategory: 'messages', badgeColor: 'green' },
       { href: '/admin/playbook', label: 'Playbook', icon: '📚' },
       { href: '/admin/leads', label: 'Leads', icon: '📧', badgeCategory: 'leads', badgeColor: 'green' },
+      { href: '/admin/events', label: 'Event Inquiries', icon: '🎟️', badgeCategory: 'events', badgeColor: 'green' },
       { href: '/admin/content', label: 'Content', icon: '🎬' },
       { href: '/admin/funnel', label: 'Funnel CMS', icon: '📝' },
       { href: '/admin/driver-playbook/fb-groups', label: 'Playbook FB Groups', icon: '👥' },

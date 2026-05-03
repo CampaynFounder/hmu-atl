@@ -192,6 +192,15 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     keywords: ['homepage leads', 'email signups', 'waitlist'],
   },
   {
+    id: 'events',
+    label: 'Event Inquiries',
+    description: 'Triage venue + organizer partnership requests',
+    href: '/admin/events',
+    section: 'Grow',
+    icon: '🎟️',
+    keywords: ['events', 'venues', 'partnerships', 'promoters', 'flat rate'],
+  },
+  {
     id: 'content',
     label: 'Content',
     description: 'Manage social videos and creative',

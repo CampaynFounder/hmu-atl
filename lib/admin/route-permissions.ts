@@ -64,6 +64,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/messages',            rule: { kind: 'permission', slug: 'grow.messages' } },
   { pattern: '/admin/playbook',            rule: { kind: 'permission', slug: 'grow.playbook' } },
   { pattern: '/admin/leads',               rule: { kind: 'permission', slug: 'grow.leads' } },
+  { pattern: '/admin/events',              rule: { kind: 'permission', slug: 'grow.events' } },
   { pattern: '/admin/content',             rule: { kind: 'permission', slug: 'grow.content' } }, // includes /calendar, /reference, /trends
   { pattern: '/admin/funnel',              rule: { kind: 'permission', slug: 'grow.funnel' } }, // includes [pageSlug], stages, personas, experiments, flags
   { pattern: '/admin/driver-playbook',     rule: { kind: 'super' } }, // /fb-groups

@@ -23,6 +23,7 @@ const PERMISSION_SECTIONS = [
     { key: 'grow.messages', label: 'Messages' },
     { key: 'grow.playbook', label: 'Playbook' },
     { key: 'grow.leads', label: 'Leads' },
+    { key: 'grow.events', label: 'Event Inquiries' },
     { key: 'grow.content', label: 'Content' },
     { key: 'grow.funnel', label: 'Funnel CMS' },
   ]},
