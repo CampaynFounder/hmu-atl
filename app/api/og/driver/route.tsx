@@ -1,24 +1,21 @@
 import { ImageResponse } from 'next/og';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getDriverProfileByHandle } from '@/lib/db/profiles';
 import { sql } from '@/lib/db/client';
 
+// Driver shares without an uploaded vehicle/thumbnail photo fall back to the
+// static brand OG card. Redirect (rather than rendering a text-only JSX card)
+// so the crawler hits the same CDN-cached asset every marketing page uses.
+function logoFallback(req: NextRequest) {
+  return NextResponse.redirect(new URL('/og-image.jpeg', req.url), 302);
+}
+
 export async function GET(req: NextRequest) {
   const handle = req.nextUrl.searchParams.get('handle');
-  if (!handle) {
-    return new ImageResponse(
-      <FallbackCard name="HMU ATL" areas="Metro Atlanta Rides" />,
-      { width: 1200, height: 630 }
-    );
-  }
+  if (!handle) return logoFallback(req);
 
   const profile = await getDriverProfileByHandle(handle);
-  if (!profile) {
-    return new ImageResponse(
-      <FallbackCard name="HMU ATL" areas="Driver not found" />,
-      { width: 1200, height: 630 }
-    );
-  }
+  if (!profile) return logoFallback(req);
 
   const p = profile as unknown as Record<string, unknown>;
   const name = (p.display_name as string) || handle;
@@ -28,6 +25,9 @@ export async function GET(req: NextRequest) {
   // Only use thumbnail if it's an image file (not a video)
   const thumbnailIsImage = rawThumb && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(rawThumb);
   const photoUrl = vehiclePhotoUrl || (thumbnailIsImage ? rawThumb : null);
+
+  // No driver photo? Fall back to the static brand card.
+  if (!photoUrl) return logoFallback(req);
 
   // Fetch chill score
   let chillScore = 0;
@@ -50,7 +50,8 @@ export async function GET(req: NextRequest) {
         fontFamily: 'sans-serif',
       }}
     >
-      {/* Left: Photo — centered in frame, never cropped */}
+      {/* Left: Photo — centered in frame, never cropped. Always present
+          here because the no-photo case redirected to the static fallback. */}
       <div style={{
         width: '400px',
         height: '100%',
@@ -60,31 +61,16 @@ export async function GET(req: NextRequest) {
         background: '#0a0a0a',
         padding: '24px',
       }}>
-        {photoUrl ? (
-          <img
-            src={photoUrl}
-            style={{
-              maxWidth: '100%',
-              maxHeight: '100%',
-              borderRadius: '20px',
-            }}
-          />
-        ) : (
-          <div style={{
-            width: '200px',
-            height: '200px',
-            borderRadius: '24px',
-            background: '#080808',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-            <svg width="140" height="140" viewBox="0 0 512 512">
-              <path d="M 155 140 L 155 310 A 120 120 0 0 0 355 310 L 355 160" fill="none" stroke="#00E676" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
-              <polygon points="355,55 275,175 435,175" fill="#00E676"/>
-            </svg>
-          </div>
-        )}
+        {/* eslint-disable-next-line @next/next/no-img-element -- next/og Satori renderer only supports <img> */}
+        <img
+          src={photoUrl}
+          alt=""
+          style={{
+            maxWidth: '100%',
+            maxHeight: '100%',
+            borderRadius: '20px',
+          }}
+        />
       </div>
 
       {/* Right: Info */}
@@ -260,38 +246,3 @@ function OgVibeMeter({ score }: { score: number }) {
   );
 }
 
-function FallbackCard({ name, areas }: { name: string; areas: string }) {
-  return (
-    <div
-      style={{
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#080808',
-        fontFamily: 'sans-serif',
-      }}
-    >
-      <div
-        style={{
-          background: '#00E676',
-          color: '#080808',
-          fontSize: '18px',
-          fontWeight: 800,
-          padding: '8px 24px',
-          borderRadius: '100px',
-          letterSpacing: '3px',
-          marginBottom: '24px',
-        }}
-      >
-        HMU ATL
-      </div>
-      <div style={{ fontSize: '56px', fontWeight: 900, color: '#fff', marginBottom: '12px' }}>
-        {name}
-      </div>
-      <div style={{ fontSize: '22px', color: '#888' }}>{areas}</div>
-    </div>
-  );
-}
