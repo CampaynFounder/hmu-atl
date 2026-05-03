@@ -165,20 +165,35 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
       </nav>
 
       <header className={styles.hero}>
-        <div className={styles.eyebrow}>For {cityShort} Event Organizers &amp; Venues</div>
-        <h1 className={styles.heroTitle}>
-          Surge pricing<br />
-          is <span className={styles.strike}>killing</span>{' '}
-          <span className={styles.accent}>your gate.</span>
-        </h1>
-        <p className={styles.heroSub}>
-          When rideshare hits <strong>3.5×</strong> on event nights, your guests don&apos;t pay it — they stay home.
-          Partner with HMU for <span className={styles.hl}>flat-rate round trips</span> that keep the floor packed and bar tabs longer.
-        </p>
-        <a href="#partner" className={styles.heroCta}>
-          Become a Partner
-          <span className={styles.heroCtaArrow}>→</span>
-        </a>
+        <div className={styles.heroMedia} aria-hidden="true">
+          <video
+            className={styles.heroVideo}
+            src="/events-hero.mp4"
+            poster="/events-hero-poster.jpg"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+          />
+          <div className={styles.heroScrim} />
+        </div>
+        <div className={styles.heroContent}>
+          <div className={styles.eyebrow}>For {cityShort} Event Organizers &amp; Venues</div>
+          <h1 className={styles.heroTitle}>
+            Surge pricing<br />
+            is <span className={styles.strike}>killing</span>{' '}
+            <span className={styles.accent}>your gate.</span>
+          </h1>
+          <p className={styles.heroSub}>
+            When rideshare hits <strong>3.5×</strong> on event nights, your guests don&apos;t pay it — they stay home.
+            Partner with HMU for <span className={styles.hl}>flat-rate round trips</span> that keep the floor packed and bar tabs longer.
+          </p>
+          <a href="#partner" className={styles.heroCta}>
+            Become a Partner
+            <span className={styles.heroCtaArrow}>→</span>
+          </a>
+        </div>
       </header>
 
       <div className={styles.problemSection}>
