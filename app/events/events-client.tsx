@@ -423,7 +423,7 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
               <span className={styles.accent}>next event.</span>
             </h2>
             <p>
-              Tell us a bit about what you&apos;re planning. We&apos;ll come back to you within 48 hours with a flat-rate proposal.
+              Tell us more about your upcoming event. We&apos;re happy to partner to make it a success.
             </p>
           </div>
 
