@@ -29,16 +29,6 @@ export async function GET(req: NextRequest) {
   // No driver photo? Fall back to the static brand card.
   if (!photoUrl) return logoFallback(req);
 
-  // Route the photo through Cloudflare Image Transformations. Two reasons:
-  //   1. EXIF orientation — iPhone portrait photos store landscape pixels +
-  //      an Orientation tag. Browsers honor it; Satori (next/og) does not,
-  //      so the raw image renders sideways. CF transforms bake rotation in.
-  //   2. Deterministic crop — drivers upload everything from square selfies
-  //      to wide vehicle shots. fit=cover normalizes every card to one shape.
-  // The R2 pub-*.r2.dev origin must be on the Transformations source allowlist
-  // (Dash → Images → Transformations → Sources) for this to resolve.
-  const transformedPhotoUrl = `${new URL(req.url).origin}/cdn-cgi/image/width=700,height=1100,fit=cover,format=auto,quality=85/${photoUrl}`;
-
   // Fetch chill score
   let chillScore = 0;
   try {
@@ -60,23 +50,24 @@ export async function GET(req: NextRequest) {
         fontFamily: 'sans-serif',
       }}
     >
-      {/* Left: Photo — EXIF-corrected and cover-cropped via CF Images so
-          every card has the same shape regardless of upload orientation. */}
+      {/* Left: Photo — centered in frame, never cropped. Always present
+          here because the no-photo case redirected to the static fallback. */}
       <div style={{
         width: '400px',
         height: '100%',
         display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         background: '#0a0a0a',
         padding: '24px',
       }}>
         {/* eslint-disable-next-line @next/next/no-img-element -- next/og Satori renderer only supports <img> */}
         <img
-          src={transformedPhotoUrl}
+          src={photoUrl}
           alt=""
           style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
+            maxWidth: '100%',
+            maxHeight: '100%',
             borderRadius: '20px',
           }}
         />
