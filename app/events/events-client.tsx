@@ -1,8 +1,93 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent } from 'react';
 import Link from 'next/link';
 import styles from './page.module.css';
+
+// Toggle [data-visible] on any element with [data-reveal] when it scrolls
+// into view. CSS handles the actual animation. Single observer per page.
+function useScrollReveal() {
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const els = document.querySelectorAll<HTMLElement>('[data-reveal]');
+    if (reduce) {
+      els.forEach((el) => el.setAttribute('data-visible', 'true'));
+      return;
+    }
+    const obs = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.setAttribute('data-visible', 'true');
+            obs.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.15, rootMargin: '0px 0px -60px 0px' },
+    );
+    els.forEach((el) => obs.observe(el));
+    return () => obs.disconnect();
+  }, []);
+}
+
+// Tick a number from 0 to `value` once when scrolled into view. Plain text
+// node — preserves the typography of its parent. Honors reduced-motion.
+function Counter({
+  value,
+  prefix = '',
+  suffix = '',
+  decimals = 0,
+  duration = 1400,
+}: {
+  value: number;
+  prefix?: string;
+  suffix?: string;
+  decimals?: number;
+  duration?: number;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [n, setN] = useState(0);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof window === 'undefined') return;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    let raf = 0;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting) return;
+        obs.disconnect();
+        if (reduce) {
+          setN(value);
+          return;
+        }
+        const start = performance.now();
+        const tick = (now: number) => {
+          const t = Math.min((now - start) / duration, 1);
+          const eased = 1 - Math.pow(1 - t, 3);
+          setN(value * eased);
+          if (t < 1) raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+      },
+      { threshold: 0.5 },
+    );
+    obs.observe(el);
+    return () => {
+      obs.disconnect();
+      cancelAnimationFrame(raf);
+    };
+  }, [value, duration]);
+
+  return (
+    <span ref={ref}>
+      {prefix}
+      {n.toFixed(decimals)}
+      {suffix}
+    </span>
+  );
+}
 
 interface Props {
   city: string;
@@ -20,6 +105,8 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState<SubmittedState | null>(null);
+
+  useScrollReveal();
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -86,7 +173,7 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
         </h1>
         <p className={styles.heroSub}>
           When rideshare hits <strong>3.5×</strong> on event nights, your guests don&apos;t pay it — they stay home.
-          Partner with HMU for <span className={styles.hl}>flat-rate round trips</span> that keep the floor packed and the bar tabs longer.
+          Partner with HMU for <span className={styles.hl}>flat-rate round trips</span> that keep the floor packed and bar tabs longer.
         </p>
         <a href="#partner" className={styles.heroCta}>
           Become a Partner
@@ -96,18 +183,20 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
 
       <div className={styles.problemSection}>
         <div className={styles.problemInner}>
-          <div className={styles.sectionTag}>▸ The Problem</div>
-          <h2 className={styles.h2}>
+          <div className={styles.sectionTag} data-reveal>▸ The Problem</div>
+          <h2 className={styles.h2} data-reveal>
             The surge chain hurts everyone but the <span className={styles.danger}>rideshare app.</span>
           </h2>
-          <p className={styles.lede}>
+          <p className={styles.lede} data-reveal>
             Every event night in {city}, the same thing happens. And it costs you real money.
           </p>
 
-          <div className={styles.surgeChain}>
+          <div className={styles.surgeChain} data-reveal>
             <div className={styles.chainStep}>
               <div className={styles.chainNum}>01 · Trigger</div>
-              <div className={styles.chainAmount}>3.5×</div>
+              <div className={styles.chainAmount}>
+                <Counter value={3.5} decimals={1} suffix="×" />
+              </div>
               <div className={styles.chainLabel}>Surge Hits</div>
               <div className={styles.chainDesc}>
                 A normal $15 Uber from Midtown becomes $52. Lyft mirrors within minutes.
@@ -115,7 +204,9 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
             </div>
             <div className={styles.chainStep}>
               <div className={styles.chainNum}>02 · Reaction</div>
-              <div className={styles.chainAmount}>38%</div>
+              <div className={styles.chainAmount}>
+                <Counter value={38} suffix="%" />
+              </div>
               <div className={styles.chainLabel}>No-Shows Spike</div>
               <div className={styles.chainDesc}>
                 Guests cancel, leave early, or pre-game harder at home to skip round-trip ride costs.
@@ -131,20 +222,20 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
             </div>
           </div>
 
-          <div className={styles.problemSummary}>
+          <div className={styles.problemSummary} data-reveal>
             <strong>The math is brutal:</strong> a guest paying $100 round-trip on Uber instead of $25 round-trip is a guest with $75 less to spend at your bar — or a guest who doesn&apos;t show up at all.
           </div>
         </div>
       </div>
 
       <section className={styles.section}>
-        <div className={styles.sectionTag}>▸ The Solution</div>
-        <h2 className={styles.h2}>
+        <div className={styles.sectionTag} data-reveal>▸ The Solution</div>
+        <h2 className={styles.h2} data-reveal>
           Flat rates, <span className={styles.accent}>locked in</span> before doors open.
         </h2>
 
         <div className={styles.solutionGrid}>
-          <div className={styles.solutionText}>
+          <div className={styles.solutionText} data-reveal>
             <h3 className={styles.solutionH3}>
               Your event.<br />
               <span className={styles.accent}>Our drivers.</span><br />
@@ -158,35 +249,45 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
             </p>
           </div>
 
-          <div className={styles.solutionVisual}>
+          <div className={styles.solutionVisual} data-reveal>
             <div className={styles.priceCompare}>
               <div className={styles.priceSurge}>
                 <div className={styles.priceLabel}>Surge Night</div>
-                <div className={styles.priceAmount}>$52</div>
+                <div className={styles.priceAmount}>
+                  <Counter value={52} prefix="$" />
+                </div>
                 <div className={styles.priceNote}>Each way · variable</div>
               </div>
               <div className={styles.priceVs}>VS</div>
               <div className={styles.priceHmu}>
                 <div className={styles.priceLabel}>HMU Flat</div>
-                <div className={styles.priceAmount}>$25</div>
+                <div className={styles.priceAmount}>
+                  <Counter value={25} prefix="$" />
+                </div>
                 <div className={styles.priceNote}>Round trip · locked</div>
               </div>
             </div>
             <div className={styles.priceCompare}>
               <div className={styles.priceSurge}>
                 <div className={styles.priceLabel}>Surge Night</div>
-                <div className={styles.priceAmount}>$104</div>
+                <div className={styles.priceAmount}>
+                  <Counter value={104} prefix="$" />
+                </div>
                 <div className={styles.priceNote}>Round trip total</div>
               </div>
               <div className={styles.priceVs}>VS</div>
               <div className={styles.priceHmu}>
                 <div className={styles.priceLabel}>HMU Total</div>
-                <div className={styles.priceAmount}>$25</div>
+                <div className={styles.priceAmount}>
+                  <Counter value={25} prefix="$" />
+                </div>
                 <div className={styles.priceNote}>All in</div>
               </div>
             </div>
             <div className={styles.savingsCallout}>
-              <div className={styles.savingsBig}>$79</div>
+              <div className={styles.savingsBig}>
+                <Counter value={79} prefix="$" duration={1700} />
+              </div>
               <div className={styles.savingsSmall}>
                 Back in your guest&apos;s pocket — and on your tab
               </div>
@@ -196,13 +297,13 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
       </section>
 
       <section className={`${styles.section} ${styles.sectionTight}`}>
-        <div className={styles.sectionTag}>▸ Why Partner</div>
-        <h2 className={styles.h2}>
+        <div className={styles.sectionTag} data-reveal>▸ Why Partner</div>
+        <h2 className={styles.h2} data-reveal>
           Built for {cityShort} events.<br />
           Built for <span className={styles.accent}>{cityShort} drivers.</span>
         </h2>
 
-        <div className={styles.benefits}>
+        <div className={styles.benefits} data-reveal>
           <div className={styles.benefit}>
             <div className={styles.benefitTag}>A · Headcount</div>
             <h4>Higher Attendance</h4>
@@ -238,12 +339,12 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
 
       <div className={styles.howSection}>
         <div className={styles.howInner}>
-          <div className={styles.sectionTag}>▸ How It Works</div>
-          <h2 className={styles.h2}>
+          <div className={styles.sectionTag} data-reveal>▸ How It Works</div>
+          <h2 className={styles.h2} data-reveal>
             Four steps. <span className={styles.accent}>Two weeks.</span>
           </h2>
 
-          <div className={styles.steps}>
+          <div className={styles.steps} data-reveal>
             <div className={styles.step}>
               <div className={styles.stepNum}>01</div>
               <h4>Submit Inquiry</h4>
@@ -269,21 +370,25 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
       </div>
 
       <section className={styles.section}>
-        <div className={styles.sectionTag}>▸ Pilot Impact</div>
-        <h2 className={styles.h2}>
+        <div className={styles.sectionTag} data-reveal>▸ Pilot Impact</div>
+        <h2 className={styles.h2} data-reveal>
           What happens when <span className={styles.accent}>guests show up.</span>
         </h2>
-        <p className={styles.lede}>
+        <p className={styles.lede} data-reveal>
           Projected outcomes based on a typical 500-person {cityShort} event with HMU partnership vs. surge-only nights.
         </p>
 
-        <div className={styles.impact}>
+        <div className={styles.impact} data-reveal>
           <div className={styles.impactStat}>
-            <div className={styles.impactNum}>+22%</div>
+            <div className={styles.impactNum}>
+              <Counter value={22} prefix="+" suffix="%" />
+            </div>
             <div className={styles.impactLabel}>Attendance Lift</div>
           </div>
           <div className={styles.impactStat}>
-            <div className={styles.impactNum}>+$31</div>
+            <div className={styles.impactNum}>
+              <Counter value={31} prefix="+$" />
+            </div>
             <div className={styles.impactLabel}>Avg Spend / Guest</div>
           </div>
           <div className={styles.impactStat}>
@@ -294,7 +399,7 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
       </section>
 
       <div className={styles.formSection} id="partner">
-        <div className={styles.formInner}>
+        <div className={styles.formInner} data-reveal>
           <div className={styles.formHeader}>
             <div className={styles.sectionTag}>▸ Partner Inquiry</div>
             <h2 className={styles.h2}>

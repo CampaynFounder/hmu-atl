@@ -131,7 +131,12 @@
   top: 52%;
   height: 6px;
   background: var(--red);
-  transform: rotate(-2deg);
+  transform-origin: left center;
+  transform: scaleX(0) rotate(-2deg);
+  animation: strikeIn 0.65s cubic-bezier(0.2, 0.7, 0.2, 1) 0.9s forwards;
+}
+@keyframes strikeIn {
+  to { transform: scaleX(1) rotate(-2deg); }
 }
 .heroSub {
   font-size: 19px;
@@ -688,3 +693,199 @@
   .nav { flex-direction: column; gap: 12px; }
   .footer { flex-direction: column; gap: 12px; text-align: center; }
 }
+
+/* ── MICRO-ANIMATIONS ────────────────────────────────────
+   Hero entrance plays on mount. Below-the-fold sections
+   reveal on scroll via [data-visible] attr toggled by an
+   IntersectionObserver in events-client.tsx.
+*/
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Hero — runs on mount, staggered */
+.eyebrow,
+.heroTitle,
+.heroSub,
+.heroCta {
+  opacity: 0;
+  animation: fadeUp 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+}
+.eyebrow   { animation-delay: 0.05s; }
+.heroTitle { animation-delay: 0.15s; }
+.heroSub   { animation-delay: 0.4s; }
+.heroCta   { animation-delay: 0.55s; }
+
+/* Accent words breathe — subtle glow pulse */
+@keyframes breathe {
+  0%, 100% { text-shadow: var(--glow-md); }
+  50%      { text-shadow: 0 0 38px rgba(0, 230, 118, 0.78); }
+}
+.heroTitle .accent {
+  animation: breathe 3.4s ease-in-out 1.4s infinite;
+}
+
+/* Reveal-on-scroll baseline + stagger inside grids */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(28px);
+  transition:
+    opacity 0.75s cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 0.75s cubic-bezier(0.2, 0.7, 0.2, 1);
+  will-change: opacity, transform;
+}
+[data-reveal][data-visible='true'] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.surgeChain[data-visible='true'] .chainStep,
+.benefits[data-visible='true'] .benefit,
+.steps[data-visible='true'] .step,
+.impact[data-visible='true'] .impactStat {
+  animation: fadeUp 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.surgeChain[data-visible='true'] .chainStep:nth-child(1) { animation-delay: 0.00s; }
+.surgeChain[data-visible='true'] .chainStep:nth-child(2) { animation-delay: 0.12s; }
+.surgeChain[data-visible='true'] .chainStep:nth-child(3) { animation-delay: 0.24s; }
+
+.benefits[data-visible='true'] .benefit:nth-child(1) { animation-delay: 0.00s; }
+.benefits[data-visible='true'] .benefit:nth-child(2) { animation-delay: 0.07s; }
+.benefits[data-visible='true'] .benefit:nth-child(3) { animation-delay: 0.14s; }
+.benefits[data-visible='true'] .benefit:nth-child(4) { animation-delay: 0.21s; }
+.benefits[data-visible='true'] .benefit:nth-child(5) { animation-delay: 0.28s; }
+.benefits[data-visible='true'] .benefit:nth-child(6) { animation-delay: 0.35s; }
+
+.steps[data-visible='true'] .step:nth-child(1) { animation-delay: 0.00s; }
+.steps[data-visible='true'] .step:nth-child(2) { animation-delay: 0.10s; }
+.steps[data-visible='true'] .step:nth-child(3) { animation-delay: 0.20s; }
+.steps[data-visible='true'] .step:nth-child(4) { animation-delay: 0.30s; }
+
+.impact[data-visible='true'] .impactStat:nth-child(1) { animation-delay: 0.00s; }
+.impact[data-visible='true'] .impactStat:nth-child(2) { animation-delay: 0.12s; }
+.impact[data-visible='true'] .impactStat:nth-child(3) { animation-delay: 0.24s; }
+
+/* "VS" between price columns pulses */
+.priceVs {
+  animation: vsPulse 2.6s ease-in-out infinite;
+}
+@keyframes vsPulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.1); }
+}
+
+/* Solution visual lifts on hover */
+.solutionVisual {
+  transition:
+    transform 0.4s cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 0.4s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.solutionVisual:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--glow-md);
+}
+
+/* Savings $ + impact numbers breathe */
+.savingsBig,
+.impactNum {
+  animation: breathe 3.6s ease-in-out infinite;
+}
+
+/* CTA shimmer sweep on hover */
+.heroCta { position: relative; overflow: hidden; isolation: isolate; }
+.heroCta::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -110%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    transparent 100%
+  );
+  transform: skewX(-20deg);
+  pointer-events: none;
+  transition: left 0.7s ease-out;
+  z-index: 1;
+}
+.heroCta:hover::before { left: 130%; }
+.heroCta > * { position: relative; z-index: 2; }
+
+/* Form CTA also shimmers on hover */
+.formSubmit { position: relative; overflow: hidden; }
+.formSubmit::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -110%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 100%
+  );
+  transform: skewX(-20deg);
+  pointer-events: none;
+  transition: left 0.7s ease-out;
+}
+.formSubmit:hover:not(:disabled)::before { left: 130%; }
+
+/* Success state celebrates */
+.successCheck {
+  animation: popIn 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.successHead, .successBody {
+  animation: fadeUp 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.successHead { animation-delay: 0.15s; }
+.successBody { animation-delay: 0.3s; }
+@keyframes popIn {
+  0%   { opacity: 0; transform: scale(0.4); }
+  60%  { opacity: 1; transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Respect reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .eyebrow,
+  .heroTitle,
+  .heroSub,
+  .heroCta,
+  .heroTitle .accent,
+  .heroTitle .strike::after,
+  .priceVs,
+  .savingsBig,
+  .impactNum,
+  .successCheck,
+  .successHead,
+  .successBody,
+  .surgeChain[data-visible='true'] .chainStep,
+  .benefits[data-visible='true'] .benefit,
+  .steps[data-visible='true'] .step,
+  .impact[data-visible='true'] .impactStat,
+  .eyebrow::before {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .heroCta::before,
+  .formSubmit::before { display: none; }
+}
+
