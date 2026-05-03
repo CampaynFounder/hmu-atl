@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('q')?.trim() || '';
 
     const rows = await sql`
-      SELECT id, market_slug, name, role, email, phone,
+      SELECT id, market_slug, name, role, email, phone, social_handle,
              event_name, event_date, expected_attendance, notes,
              status, contacted_at, closed_at, created_at, updated_at
       FROM event_inquiries

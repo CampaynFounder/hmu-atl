@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
     const event_name = String(body.event_name || '').trim();
     const event_date = body.event_date ? String(body.event_date).trim() : null;
     const expected_attendance = String(body.expected_attendance || '').trim();
+    const social_handle = body.social_handle ? String(body.social_handle).trim() : null;
     const notes = body.notes ? String(body.notes).trim() : null;
 
     if (!name || name.length > 200) {
@@ -75,6 +76,9 @@ export async function POST(req: NextRequest) {
     if (event_date && !/^\d{4}-\d{2}-\d{2}$/.test(event_date)) {
       return NextResponse.json({ error: 'Invalid event date.' }, { status: 400 });
     }
+    if (social_handle && social_handle.length > 200) {
+      return NextResponse.json({ error: 'Social handle too long.' }, { status: 400 });
+    }
     if (notes && notes.length > 4000) {
       return NextResponse.json({ error: 'Notes too long.' }, { status: 400 });
     }
@@ -87,12 +91,12 @@ export async function POST(req: NextRequest) {
 
     const rows = await sql`
       INSERT INTO event_inquiries (
-        market_slug, name, role, email, phone,
+        market_slug, name, role, email, phone, social_handle,
         event_name, event_date, expected_attendance, notes,
         ip_address, user_agent
       )
       VALUES (
-        ${market_slug}, ${name}, ${role}, ${email}, ${phone},
+        ${market_slug}, ${name}, ${role}, ${email}, ${phone}, ${social_handle},
         ${event_name}, ${event_date}, ${expected_attendance}, ${notes},
         ${ip}, ${userAgent}
       )

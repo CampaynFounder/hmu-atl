@@ -11,6 +11,7 @@ interface Inquiry {
   role: string;
   email: string;
   phone: string | null;
+  social_handle: string | null;
   event_name: string;
   event_date: string | null;
   expected_attendance: string | null;
@@ -60,6 +61,17 @@ function formatPhone(phone: string | null) {
   return phone;
 }
 
+// If the social string is a URL (or looks like a domain) return an https URL,
+// else null. Bare @handles render as text — admin can copy/paste from there.
+function socialUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  const v = raw.trim();
+  if (!v) return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  if (/^[a-z0-9._-]+\.[a-z]{2,}(\/.*)?$/i.test(v)) return `https://${v}`;
+  return null;
+}
+
 export function EventsPanel() {
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -105,7 +117,7 @@ export function EventsPanel() {
   }
 
   function exportCsv() {
-    const header = ['Created', 'Market', 'Name', 'Role', 'Email', 'Phone', 'Event', 'Date', 'Attendance', 'Status', 'Notes'];
+    const header = ['Created', 'Market', 'Name', 'Role', 'Email', 'Phone', 'Social', 'Event', 'Date', 'Attendance', 'Status', 'Notes'];
     const rows = inquiries.map((i) => [
       i.created_at,
       i.market_slug,
@@ -113,6 +125,7 @@ export function EventsPanel() {
       i.role,
       i.email,
       i.phone || '',
+      i.social_handle || '',
       i.event_name,
       i.event_date || '',
       i.expected_attendance || '',
@@ -254,6 +267,24 @@ export function EventsPanel() {
                         </a>
                         {inq.phone && (
                           <div className="text-xs text-neutral-500 font-mono">{formatPhone(inq.phone)}</div>
+                        )}
+                        {inq.social_handle && (
+                          (() => {
+                            const url = socialUrl(inq.social_handle);
+                            return url ? (
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-xs text-[#A78BFA] hover:underline font-mono block"
+                              >
+                                {inq.social_handle}
+                              </a>
+                            ) : (
+                              <div className="text-xs text-[#A78BFA] font-mono">{inq.social_handle}</div>
+                            );
+                          })()
                         )}
                       </td>
                       <td className="px-4 py-3 text-neutral-300 text-xs whitespace-nowrap">{formatEventDate(inq.event_date)}</td>

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS event_inquiries (
   event_name TEXT NOT NULL,
   event_date DATE,
   expected_attendance TEXT,
+  social_handle TEXT,
   notes TEXT,
   status TEXT NOT NULL DEFAULT 'new'
     CHECK (status IN ('new', 'contacted', 'scoped', 'won', 'lost', 'closed')),

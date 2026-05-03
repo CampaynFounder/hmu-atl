@@ -118,6 +118,7 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
       role: String(fd.get('role') || '').trim(),
       email: String(fd.get('email') || '').trim(),
       phone: String(fd.get('phone') || '').trim() || null,
+      social_handle: String(fd.get('social_handle') || '').trim() || null,
       event_name: String(fd.get('event_name') || '').trim(),
       event_date: String(fd.get('event_date') || '').trim() || null,
       expected_attendance: String(fd.get('attendance') || '').trim(),
@@ -464,6 +465,19 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
                 <div className={styles.field}>
                   <label htmlFor="phone">Phone (optional)</label>
                   <input type="tel" id="phone" name="phone" placeholder="(404) 555-0100" />
+                </div>
+              </div>
+
+              <div className={`${styles.formRow} ${styles.formRowFull}`}>
+                <div className={styles.field}>
+                  <label htmlFor="social_handle">IG / TikTok / Social (optional)</label>
+                  <input
+                    type="text"
+                    id="social_handle"
+                    name="social_handle"
+                    placeholder="@yourvenue or instagram.com/yourvenue"
+                    maxLength={200}
+                  />
                 </div>
               </div>
 
