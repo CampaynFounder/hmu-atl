@@ -1,8 +1,11 @@
 'use client';
 
 // Fire-and-forget first-touch attribution capture.
-// Posts to /api/attribution/touch only when there's a UTM or external referrer.
-// Server uses ON CONFLICT DO NOTHING so subsequent touches are no-ops.
+// Always posts on first landing — even with no UTM and no external referrer —
+// so direct/organic visitors land in their own queryable bucket
+// (utm_campaign IS NULL) instead of having no row at all. Server is idempotent
+// via ON CONFLICT (cookie_id) DO NOTHING, so the second navigation is a no-op
+// at the DB level even if React fires the effect again.
 
 import { useEffect, useRef } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -22,12 +25,9 @@ export function AttributionTracker() {
       utm_content: searchParams.get('utm_content'),
       utm_term: searchParams.get('utm_term'),
     };
-    const hasUtm = Object.values(utm).some(Boolean);
 
     const referrer = typeof document !== 'undefined' ? document.referrer : '';
     const externalReferrer = referrer && !referrer.includes(window.location.hostname);
-
-    if (!hasUtm && !externalReferrer) return;
 
     sentRef.current = true;
     const payload = {

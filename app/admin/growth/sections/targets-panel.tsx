@@ -11,10 +11,21 @@ export interface DecoratedTarget {
   createdAt: string;
   label?: string;
   campaignName?: string;
+  utmCampaign?: string;
   metaSpend: number;
   googleSpend: number;
   totalSpend: number;
-  blendedCac: number | null;          // null when actual=0 (can't divide)
+  // Per-channel attribution (0 when utmCampaign unset)
+  attributedMeta: number;
+  attributedGoogle: number;
+  attributedOther: number;
+  attributedTotal: number;
+  untracked: number;
+  // CAC suite — one of these will be non-null depending on whether utmCampaign is set
+  metaCac: number | null;
+  googleCac: number | null;
+  campaignCac: number | null;
+  blendedCac: number | null;
   requiredAdditionalSpend: number | null;
   remainingSignups: number;
   actual: number;
@@ -46,6 +57,7 @@ type FormState = {
   label: string;
   marketId: string | '';
   campaignName: string;
+  utmCampaign: string;
   metaSpend: string;
   googleSpend: string;
 };
@@ -57,9 +69,12 @@ const emptyForm = (defaultMarketId: string | null): FormState => ({
   label: '',
   marketId: defaultMarketId ?? '',
   campaignName: '',
+  utmCampaign: '',
   metaSpend: '',
   googleSpend: '',
 });
+
+const UTM_CAMPAIGN_RE = /^[a-z0-9_-]{1,40}$/;
 
 export function TargetsPanel({ loading, targets, markets, defaultMarketId, onChange }: Props) {
   // editingId: null = closed, '' = creating new, '<id>' = editing that target
@@ -86,6 +101,7 @@ export function TargetsPanel({ loading, targets, markets, defaultMarketId, onCha
       label: t.label ?? '',
       marketId: t.marketId ?? '',
       campaignName: t.campaignName ?? '',
+      utmCampaign: t.utmCampaign ?? '',
       metaSpend: t.metaSpend ? String(t.metaSpend) : '',
       googleSpend: t.googleSpend ? String(t.googleSpend) : '',
     });
@@ -98,12 +114,18 @@ export function TargetsPanel({ loading, targets, markets, defaultMarketId, onCha
   }
 
   async function submit() {
+    // Client-side UTM slug check before we burn a request — server re-validates.
+    if (form.utmCampaign && !UTM_CAMPAIGN_RE.test(form.utmCampaign.trim().toLowerCase())) {
+      setError('UTM campaign must be lowercase letters/digits/underscore/hyphen, max 40 chars');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const sharedFields = {
         label: form.label || undefined,
         campaignName: form.campaignName || undefined,
+        utmCampaign: form.utmCampaign ? form.utmCampaign.trim().toLowerCase() : '',
         metaSpend: form.metaSpend === '' ? 0 : Number(form.metaSpend),
         googleSpend: form.googleSpend === '' ? 0 : Number(form.googleSpend),
       };
@@ -240,6 +262,23 @@ export function TargetsPanel({ loading, targets, markets, defaultMarketId, onCha
             </label>
           </div>
 
+          <div>
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-wide text-neutral-500">UTM Campaign Slug (attribution key)</span>
+              <input
+                type="text"
+                value={form.utmCampaign}
+                onChange={(e) => setForm({ ...form, utmCampaign: e.target.value.toLowerCase() })}
+                className="mt-1 w-full bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1.5 text-sm font-mono"
+                placeholder="spring_push_decatur"
+                maxLength={40}
+              />
+            </label>
+            <p className="mt-1 text-[11px] text-neutral-500">
+              Use this exact value as <code className="text-emerald-400">?utm_campaign=</code> on every ad URL. Leave blank to use blended CAC across all signups.
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label className="block">
               <span className="text-[10px] uppercase tracking-wide text-neutral-500">Meta Spend ($)</span>
@@ -336,6 +375,11 @@ function TargetRow({
                 {t.campaignName}
               </span>
             )}
+            {t.utmCampaign && (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border border-emerald-500/40 text-emerald-400 bg-emerald-500/10">
+                utm:{t.utmCampaign}
+              </span>
+            )}
           </div>
           <p className="text-xs text-neutral-500 mt-1">
             {marketName} · deadline {t.deadline} · {t.daysRemaining}d left
@@ -384,6 +428,11 @@ function TargetRow({
           {!hasSpend && (
             <span className="text-[10px] text-neutral-600">— none logged · click Edit to add</span>
           )}
+          {t.utmCampaign && hasSpend && t.attributedTotal === 0 && (
+            <span className="text-[10px] text-amber-400/80">
+              — UTM tagged but no signups attributed yet
+            </span>
+          )}
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Stat
@@ -392,9 +441,21 @@ function TargetRow({
             sub={`Meta ${fmtMoney(t.metaSpend)} · Google ${fmtMoney(t.googleSpend)}`}
           />
           <Stat
-            label="Blended CAC"
-            value={t.blendedCac !== null ? fmtMoney(t.blendedCac) : '—'}
-            sub={t.blendedCac !== null ? `per signup so far` : 'need spend + signups'}
+            label={t.utmCampaign ? 'Campaign CAC' : 'Blended CAC'}
+            value={
+              t.campaignCac !== null
+                ? fmtMoney(t.campaignCac)
+                : t.blendedCac !== null
+                ? fmtMoney(t.blendedCac)
+                : '—'
+            }
+            sub={
+              t.campaignCac !== null
+                ? `per attributed signup`
+                : t.blendedCac !== null
+                ? `per signup (no UTM filter)`
+                : 'need spend + signups'
+            }
           />
           <Stat
             label="Remaining signups"
@@ -410,12 +471,67 @@ function TargetRow({
                 ? 'set CAC first'
                 : t.requiredAdditionalSpend === 0
                 ? 'no more spend needed'
-                : `at current CAC`
+                : t.utmCampaign
+                ? 'at current campaign CAC'
+                : 'at current blended CAC'
             }
             subColor={t.requiredAdditionalSpend === 0 ? 'text-emerald-400' : 'text-amber-400'}
           />
         </div>
       </div>
+
+      {t.utmCampaign && (
+        <div className="mt-4 pt-3 border-t border-neutral-900">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[10px] uppercase tracking-wide text-neutral-500">Per-Channel Attribution</span>
+            <span className="text-[10px] text-neutral-600">
+              · joined on <code className="text-emerald-400/80">utm_campaign={t.utmCampaign}</code>
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Stat
+              label="Meta signups"
+              value={t.attributedMeta.toLocaleString()}
+              sub={
+                t.metaCac !== null
+                  ? `${fmtMoney(t.metaCac)} CAC`
+                  : t.metaSpend > 0
+                  ? 'spent, no signups yet'
+                  : 'no Meta spend logged'
+              }
+              subColor={t.metaCac !== null ? 'text-emerald-400' : undefined}
+            />
+            <Stat
+              label="Google signups"
+              value={t.attributedGoogle.toLocaleString()}
+              sub={
+                t.googleCac !== null
+                  ? `${fmtMoney(t.googleCac)} CAC`
+                  : t.googleSpend > 0
+                  ? 'spent, no signups yet'
+                  : 'no Google spend logged'
+              }
+              subColor={t.googleCac !== null ? 'text-emerald-400' : undefined}
+            />
+            <Stat
+              label="Other attributed"
+              value={t.attributedOther.toLocaleString()}
+              sub={t.attributedOther > 0 ? 'organic UTM tags' : '—'}
+            />
+            <Stat
+              label="Untracked / Direct"
+              value={t.untracked.toLocaleString()}
+              sub={
+                t.utmCampaign && t.untracked > 0
+                  ? 'no campaign UTM'
+                  : t.untracked === 0 && t.actual > 0
+                  ? 'all signups attributed'
+                  : '—'
+              }
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

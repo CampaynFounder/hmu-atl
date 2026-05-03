@@ -28,12 +28,41 @@ type GrowthTarget = {
   deadline: string;              // YYYY-MM-DD (interpreted as end of that day UTC)
   createdAt: string;             // ISO string
   label?: string;                // optional admin-supplied note ("Spring push", etc.)
-  campaignName?: string;         // ad campaign tag — e.g. "Spring Push - Decatur"
+  campaignName?: string;         // human display label — "Spring Push - Decatur"
+  utmCampaign?: string;          // utm_campaign slug (matches user_attribution.utm_campaign).
+                                 // When set, attribution joins flip CAC math from blended
+                                 // (totalSpend / actual) to attributed (totalSpend / attributed).
   metaSpend?: number;            // dollars spent on Meta (FB/IG) ads. 0 = not running.
   googleSpend?: number;          // dollars spent on Google ads. 0 = not running.
 };
 
 type StoredTargets = { targets: GrowthTarget[] };
+
+// utm_campaign slug — must round-trip through a URL without escaping. Lowercase
+// alphanumerics + underscore + hyphen, 1–40 chars. Validated client-and-server.
+const UTM_CAMPAIGN_RE = /^[a-z0-9_-]{1,40}$/;
+
+function validateUtmCampaign(raw: unknown): string | undefined | { error: string } {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  if (typeof raw !== 'string') return { error: 'utmCampaign must be a string' };
+  const trimmed = raw.trim().toLowerCase();
+  if (!UTM_CAMPAIGN_RE.test(trimmed)) {
+    return { error: 'utmCampaign must be lowercase letters/digits/underscore/hyphen, max 40 chars' };
+  }
+  return trimmed;
+}
+
+// Bucket utm_source values into the spend channels we actually fund. Anything
+// recognizably Meta-owned counts as "meta"; "google" is google. Everything
+// else (referrals, partners, podcast hosts, etc.) is "other" — attributed but
+// not against any of our paid budgets.
+function channelForSource(source: string | null): 'meta' | 'google' | 'other' {
+  if (!source) return 'other';
+  const s = source.toLowerCase();
+  if (s === 'meta' || s === 'facebook' || s === 'fb' || s === 'instagram' || s === 'ig') return 'meta';
+  if (s === 'google' || s === 'google_ads' || s === 'gads') return 'google';
+  return 'other';
+}
 
 // Spend numbers are dollars (not cents) — admins type "$1,250" mentally so the
 // UI takes whole dollars too. 0 is a legitimate value: "we're not running
@@ -111,17 +140,62 @@ async function decorateWithPace(targets: GrowthTarget[]) {
       const projectedAtDeadline =
         daysElapsed > 0 ? Math.round((actual / daysElapsed) * totalDays) : 0;
 
-      // Spend + CAC. Blended only — we don't yet attribute signups per channel
-      // at the user level (utm_source on user_attribution will let us in v2).
-      // Math is null-safe: missing spend or zero signups means "not enough data
-      // to compute" rather than a misleading $0 or $Infinity.
+      // Per-channel attribution. Only runs when the admin tagged this target
+      // with a utmCampaign slug AND that slug is being used on real ad URLs.
+      // COUNT(DISTINCT u.id) because one user can have multiple attribution
+      // rows (different devices → different cookies → all linked to one user_id).
+      let attributedMeta = 0;
+      let attributedGoogle = 0;
+      let attributedOther = 0;
+      if (t.utmCampaign) {
+        const attribRows = (await sql`
+          SELECT ua.utm_source, COUNT(DISTINCT u.id)::int AS c
+          FROM users u
+          JOIN user_attribution ua ON ua.user_id = u.id
+          WHERE u.profile_type = ${profileType}
+            AND u.created_at >= ${t.createdAt}::timestamptz
+            AND ua.utm_campaign = ${t.utmCampaign}
+            AND (${t.marketId}::uuid IS NULL OR u.market_id = ${t.marketId}::uuid)
+          GROUP BY ua.utm_source
+        `) as Array<{ utm_source: string | null; c: number }>;
+        for (const r of attribRows) {
+          const ch = channelForSource(r.utm_source);
+          if (ch === 'meta') attributedMeta += r.c;
+          else if (ch === 'google') attributedGoogle += r.c;
+          else attributedOther += r.c;
+        }
+      }
+      const attributedTotal = attributedMeta + attributedGoogle + attributedOther;
+
+      // Spend + CAC.
+      // - When utmCampaign is set: divide spend by ATTRIBUTED signups (per-channel).
+      //   This avoids inflating the denominator with organic signups and is the
+      //   number you'd actually report to investors / use to decide whether to
+      //   keep spending.
+      // - When utmCampaign is unset: fall back to BLENDED (totalSpend / actual).
+      //   Less accurate but better than nothing while admins are still tagging.
+      // - 0 spend on a channel → CAC for that channel is null (not $0/signup,
+      //   which would be misleading).
       const metaSpend = Math.max(0, Number(t.metaSpend ?? 0));
       const googleSpend = Math.max(0, Number(t.googleSpend ?? 0));
       const totalSpend = metaSpend + googleSpend;
-      const blendedCac = actual > 0 ? totalSpend / actual : null;
+
+      const round2 = (n: number | null): number | null =>
+        n === null ? null : Math.round(n * 100) / 100;
+
+      const metaCac = t.utmCampaign && attributedMeta > 0 ? metaSpend / attributedMeta : null;
+      const googleCac = t.utmCampaign && attributedGoogle > 0 ? googleSpend / attributedGoogle : null;
+      // Campaign-level CAC: total spend across the campaign / total attributed.
+      // Used as the projection rate for "required spend to hit" when utmCampaign
+      // is set. Differs from blendedCac (denominator = ALL signups in window).
+      const campaignCac = t.utmCampaign && attributedTotal > 0 ? totalSpend / attributedTotal : null;
+      const blendedCac = !t.utmCampaign && actual > 0 ? totalSpend / actual : null;
+
       const remainingSignups = Math.max(0, t.count - actual);
+      // Use the most accurate CAC we have: campaign-level when tagged, blended otherwise.
+      const projectionCac = campaignCac ?? blendedCac;
       const requiredAdditionalSpend =
-        blendedCac !== null ? Math.round(blendedCac * remainingSignups * 100) / 100 : null;
+        projectionCac !== null ? Math.round(projectionCac * remainingSignups * 100) / 100 : null;
 
       return {
         ...t,
@@ -135,7 +209,17 @@ async function decorateWithPace(targets: GrowthTarget[]) {
         metaSpend,
         googleSpend,
         totalSpend,
-        blendedCac: blendedCac !== null ? Math.round(blendedCac * 100) / 100 : null,
+        // Per-channel attribution (0 when utmCampaign unset)
+        attributedMeta,
+        attributedGoogle,
+        attributedOther,
+        attributedTotal,
+        untracked: Math.max(0, actual - attributedTotal), // direct/organic + other-campaign
+        // CAC suite — null when math is undefined
+        metaCac: round2(metaCac),
+        googleCac: round2(googleCac),
+        campaignCac: round2(campaignCac),
+        blendedCac: round2(blendedCac),
         requiredAdditionalSpend,
         remainingSignups,
       };
@@ -183,6 +267,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: spendValidation.error }, { status: 400 });
   }
 
+  const utmCampaign = validateUtmCampaign(body.utmCampaign);
+  if (typeof utmCampaign === 'object') {
+    return NextResponse.json({ error: utmCampaign.error }, { status: 400 });
+  }
+
   const target: GrowthTarget = {
     id: randomUUID(),
     marketId,
@@ -192,6 +281,7 @@ export async function POST(req: NextRequest) {
     createdAt: new Date().toISOString(),
     label,
     campaignName,
+    utmCampaign,
     metaSpend: spendValidation.metaSpend,
     googleSpend: spendValidation.googleSpend,
   };
@@ -228,12 +318,26 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: spendValidation.error }, { status: 400 });
   }
 
+  // utmCampaign is editable but only via explicit set/clear: undefined in body
+  // = leave alone, '' = clear, valid slug = update. Letting admins change it
+  // mid-flight is intentional — they may add UTM tagging after the campaign
+  // started and we want historical attribution to start applying immediately.
+  let utmCampaign = existing[idx].utmCampaign;
+  if (body.utmCampaign !== undefined) {
+    const v = validateUtmCampaign(body.utmCampaign);
+    if (typeof v === 'object') {
+      return NextResponse.json({ error: v.error }, { status: 400 });
+    }
+    utmCampaign = v;
+  }
+
   const updated: GrowthTarget = {
     ...existing[idx],
     label: body.label !== undefined ? (body.label?.trim().slice(0, 80) || undefined) : existing[idx].label,
     campaignName: body.campaignName !== undefined
       ? (body.campaignName?.trim().slice(0, 80) || undefined)
       : existing[idx].campaignName,
+    utmCampaign,
     metaSpend: spendValidation.metaSpend,
     googleSpend: spendValidation.googleSpend,
   };

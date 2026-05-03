@@ -14,13 +14,10 @@ export async function POST(req: NextRequest) {
     body = {};
   }
 
-  const hasAnySignal =
-    body.utm_source || body.utm_medium || body.utm_campaign ||
-    body.utm_content || body.utm_term || body.referrer || body.landing_path;
-  if (!hasAnySignal) {
-    return NextResponse.json({ ok: false, reason: 'no-signal' }, { status: 200 });
-  }
-
+  // Direct/organic visitors are first-class: a row with all-null UTMs is the
+  // "no campaign" bucket, queryable as utm_campaign IS NULL. Don't reject
+  // signal-less touches — that's the whole point. ON CONFLICT (cookie_id)
+  // DO NOTHING in recordFirstTouch handles dedupe.
   try {
     await recordFirstTouch(cookieId, body);
     return NextResponse.json({ ok: true }, { status: 200 });
