@@ -733,7 +733,7 @@
 }
 
 /* Reveal-on-scroll baseline + stagger inside grids */
-[data-reveal] {
+.container [data-reveal] {
   opacity: 0;
   transform: translateY(28px);
   transition:
@@ -741,7 +741,7 @@
     transform 0.75s cubic-bezier(0.2, 0.7, 0.2, 1);
   will-change: opacity, transform;
 }
-[data-reveal][data-visible='true'] {
+.container [data-reveal][data-visible='true'] {
   opacity: 1;
   transform: translateY(0);
 }
@@ -880,7 +880,7 @@
     opacity: 1 !important;
     transform: none !important;
   }
-  [data-reveal] {
+  .container [data-reveal] {
     opacity: 1 !important;
     transform: none !important;
     transition: none !important;
