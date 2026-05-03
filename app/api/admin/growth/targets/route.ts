@@ -28,9 +28,36 @@ type GrowthTarget = {
   deadline: string;              // YYYY-MM-DD (interpreted as end of that day UTC)
   createdAt: string;             // ISO string
   label?: string;                // optional admin-supplied note ("Spring push", etc.)
+  campaignName?: string;         // ad campaign tag — e.g. "Spring Push - Decatur"
+  metaSpend?: number;            // dollars spent on Meta (FB/IG) ads. 0 = not running.
+  googleSpend?: number;          // dollars spent on Google ads. 0 = not running.
 };
 
 type StoredTargets = { targets: GrowthTarget[] };
+
+// Spend numbers are dollars (not cents) — admins type "$1,250" mentally so the
+// UI takes whole dollars too. 0 is a legitimate value: "we're not running
+// Google ads right now" should NOT be treated as missing data, it should be
+// treated as a tracked $0. undefined is still allowed for back-compat with
+// pre-spend targets.
+function validateSpend(body: { metaSpend?: unknown; googleSpend?: unknown }):
+  | { metaSpend: number; googleSpend: number }
+  | { error: string }
+{
+  const parse = (raw: unknown, label: string): number | { error: string } => {
+    if (raw === undefined || raw === null || raw === '') return 0;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return { error: `${label} must be a number` };
+    if (n < 0) return { error: `${label} cannot be negative` };
+    if (n > 10_000_000) return { error: `${label} is too large` };
+    return Math.round(n * 100) / 100;
+  };
+  const meta = parse(body.metaSpend, 'metaSpend');
+  if (typeof meta !== 'number') return meta;
+  const google = parse(body.googleSpend, 'googleSpend');
+  if (typeof google !== 'number') return google;
+  return { metaSpend: meta, googleSpend: google };
+}
 
 async function readTargets(): Promise<GrowthTarget[]> {
   const rows = (await sql`
@@ -84,6 +111,18 @@ async function decorateWithPace(targets: GrowthTarget[]) {
       const projectedAtDeadline =
         daysElapsed > 0 ? Math.round((actual / daysElapsed) * totalDays) : 0;
 
+      // Spend + CAC. Blended only — we don't yet attribute signups per channel
+      // at the user level (utm_source on user_attribution will let us in v2).
+      // Math is null-safe: missing spend or zero signups means "not enough data
+      // to compute" rather than a misleading $0 or $Infinity.
+      const metaSpend = Math.max(0, Number(t.metaSpend ?? 0));
+      const googleSpend = Math.max(0, Number(t.googleSpend ?? 0));
+      const totalSpend = metaSpend + googleSpend;
+      const blendedCac = actual > 0 ? totalSpend / actual : null;
+      const remainingSignups = Math.max(0, t.count - actual);
+      const requiredAdditionalSpend =
+        blendedCac !== null ? Math.round(blendedCac * remainingSignups * 100) / 100 : null;
+
       return {
         ...t,
         actual,
@@ -93,6 +132,12 @@ async function decorateWithPace(targets: GrowthTarget[]) {
         pctComplete,
         daysRemaining: Math.ceil(daysRemaining),
         projectedAtDeadline,
+        metaSpend,
+        googleSpend,
+        totalSpend,
+        blendedCac: blendedCac !== null ? Math.round(blendedCac * 100) / 100 : null,
+        requiredAdditionalSpend,
+        remainingSignups,
       };
     }),
   );
@@ -118,6 +163,7 @@ export async function POST(req: NextRequest) {
   const deadline = body.deadline;
   const marketId = body.marketId ?? null;
   const label = body.label?.trim().slice(0, 80) || undefined;
+  const campaignName = body.campaignName?.trim().slice(0, 80) || undefined;
 
   if (type !== 'driver' && type !== 'rider') {
     return NextResponse.json({ error: 'type must be driver or rider' }, { status: 400 });
@@ -132,6 +178,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'deadline must be in the future' }, { status: 400 });
   }
 
+  const spendValidation = validateSpend(body);
+  if ('error' in spendValidation) {
+    return NextResponse.json({ error: spendValidation.error }, { status: 400 });
+  }
+
   const target: GrowthTarget = {
     id: randomUUID(),
     marketId,
@@ -140,6 +191,9 @@ export async function POST(req: NextRequest) {
     deadline,
     createdAt: new Date().toISOString(),
     label,
+    campaignName,
+    metaSpend: spendValidation.metaSpend,
+    googleSpend: spendValidation.googleSpend,
   };
 
   const existing = await readTargets();
@@ -148,6 +202,50 @@ export async function POST(req: NextRequest) {
   await logAdminAction(admin.id, 'growth_target_create', 'platform_config', CONFIG_KEY, { target });
 
   const [decorated] = await decorateWithPace([target]);
+  return NextResponse.json({ target: decorated });
+}
+
+// PATCH — update a target in place. Used to log spend as a campaign runs
+// (admin types "we spent another $200 on Meta this week", saves). We deliberately
+// only allow editing fields that change over a campaign's life: spend, campaign
+// name, label. Type/count/deadline/market are immutable — if those need to
+// change, delete and recreate so historical pace math stays clean.
+export async function PATCH(req: NextRequest) {
+  const admin = await requireAdmin();
+  if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'monitor.liveops.edit')) return unauthorizedResponse();
+
+  const body = await req.json().catch(() => ({})) as Partial<GrowthTarget> & { id?: string };
+  const id = body.id;
+  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+
+  const existing = await readTargets();
+  const idx = existing.findIndex((t) => t.id === id);
+  if (idx === -1) return NextResponse.json({ error: 'not found' }, { status: 404 });
+
+  const spendValidation = validateSpend(body);
+  if ('error' in spendValidation) {
+    return NextResponse.json({ error: spendValidation.error }, { status: 400 });
+  }
+
+  const updated: GrowthTarget = {
+    ...existing[idx],
+    label: body.label !== undefined ? (body.label?.trim().slice(0, 80) || undefined) : existing[idx].label,
+    campaignName: body.campaignName !== undefined
+      ? (body.campaignName?.trim().slice(0, 80) || undefined)
+      : existing[idx].campaignName,
+    metaSpend: spendValidation.metaSpend,
+    googleSpend: spendValidation.googleSpend,
+  };
+
+  const next = [...existing];
+  next[idx] = updated;
+  await writeTargets(next, admin.id);
+  await logAdminAction(admin.id, 'growth_target_update', 'platform_config', CONFIG_KEY, {
+    id, before: existing[idx], after: updated,
+  });
+
+  const [decorated] = await decorateWithPace([updated]);
   return NextResponse.json({ target: decorated });
 }
 

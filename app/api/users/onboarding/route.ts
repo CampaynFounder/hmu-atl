@@ -16,6 +16,8 @@ import { publishAdminEvent } from '@/lib/ably/server';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 import { afterResponse } from '@/lib/runtime/after-response';
 import { resolveMarketBySlug } from '@/lib/markets/resolver';
+import { cookies } from 'next/headers';
+import { ATTRIB_COOKIE, attachAttributionToUser } from '@/lib/attribution';
 
 export async function POST(request: NextRequest) {
   try {
@@ -193,6 +195,21 @@ export async function POST(request: NextRequest) {
             updated_at = NOW()
         WHERE id = ${userId}
       `;
+    }
+
+    // Link first-touch UTM attribution (cookie set by middleware, populated by
+    // AttributionTracker on landing) to this user. Idempotent — if a row was
+    // already linked elsewhere (e.g. lazy attach in /driver/dashboard) the
+    // WHERE user_id IS NULL clause makes this a no-op. Catch + swallow because
+    // a missing cookie or DB blip should never block onboarding.
+    try {
+      const cookieStore = await cookies();
+      const cookieId = cookieStore.get(ATTRIB_COOKIE)?.value;
+      if (cookieId) {
+        await attachAttributionToUser(cookieId, userId);
+      }
+    } catch (attribErr) {
+      console.warn('[ONBOARDING] attribution attach failed (non-fatal):', attribErr);
     }
 
     const results: any = {
