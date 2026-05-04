@@ -32,21 +32,38 @@ export async function GET(req: NextRequest) {
   // Route the photo through Cloudflare Image Transformations so EXIF
   // Orientation is honored — Satori reads raw bytes and ignores EXIF, so
   // iPhone portrait uploads (which store landscape pixels + a "rotate 90"
-  // tag) render sideways without this. width=800 is enough for OG card
-  // resolution; height is omitted to preserve the source aspect ratio.
+  // tag) render sideways without this.
   //
-  // If the transform 404s (Transformations disabled, R2 origin removed
-  // from the allowlist, source image deleted, etc.), fall back to the raw
-  // R2 URL so the card always renders something. Without this guard,
-  // Satori silently drops the failed image and we ship empty cards.
+  // Why fetch the bytes server-side (instead of just passing the transform
+  // URL to <img src>): empirically, when Satori inside the Worker fetches
+  // a same-origin /cdn-cgi/image/ URL, it does not get the transformed
+  // result — likely a same-zone subrequest quirk where /cdn-cgi/image is
+  // not interposed for the Worker's outbound fetch. By fetching the bytes
+  // ourselves and embedding as a data URL, we guarantee Satori sees the
+  // already-rotated, already-resized JPEG.
+  //
+  // Falls back to the raw R2 URL if anything fails so cards always render.
   const origin = new URL(req.url).origin;
-  const transformUrl = `${origin}/cdn-cgi/image/width=800,format=auto,quality=85/${photoUrl}`;
-  let displayPhotoUrl = photoUrl;
+  const transformUrl = `${origin}/cdn-cgi/image/width=800,format=jpeg,quality=85/${photoUrl}`;
+  let displayPhotoUrl: string = photoUrl;
   try {
-    const head = await fetch(transformUrl, { method: 'HEAD' });
-    if (head.ok) displayPhotoUrl = transformUrl;
+    const resp = await fetch(transformUrl);
+    if (resp.ok) {
+      const buf = await resp.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      // Chunked base64 — String.fromCharCode.apply blows the stack > ~100k args
+      let binary = '';
+      const CHUNK = 0x8000;
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode.apply(
+          null,
+          Array.from(bytes.subarray(i, i + CHUNK))
+        );
+      }
+      displayPhotoUrl = `data:image/jpeg;base64,${btoa(binary)}`;
+    }
   } catch {
-    // network blip — keep raw URL
+    // network blip — keep raw URL fallback
   }
 
   // Fetch chill score
