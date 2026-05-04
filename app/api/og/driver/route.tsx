@@ -3,6 +3,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDriverProfileByHandle } from '@/lib/db/profiles';
 import { sql } from '@/lib/db/client';
 
+// Opt out of OpenNext's R2 incremental cache. Without this, the first OG
+// render per deploy is written to R2 and every subsequent request returns
+// the same cached PNG — even after the driver updates their photo, vibe
+// score, or display name. Re-rendering on every request is the right
+// default for a route that personalizes per `handle`.
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 // Driver shares without an uploaded vehicle/thumbnail photo fall back to the
 // static brand OG card. Redirect (rather than rendering a text-only JSX card)
 // so the crawler hits the same CDN-cached asset every marketing page uses.
