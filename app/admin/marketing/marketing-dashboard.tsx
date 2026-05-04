@@ -253,6 +253,14 @@ export function MarketingDashboard() {
 
     let cancelled = false;
     const timer = setTimeout(async () => {
+      // Track all input digits AND their last-10 form so chip lookups succeed
+      // regardless of whether the user typed 10 or 11 digits — backend always
+      // responds with last-10 keys.
+      const verifyKeys = new Set<string>();
+      for (const d of digits) {
+        verifyKeys.add(d);
+        if (d.length > 10) verifyKeys.add(d.slice(-10));
+      }
       try {
         const res = await fetch('/api/admin/marketing/phone-status', {
           method: 'POST',
@@ -261,11 +269,15 @@ export function MarketingDashboard() {
         });
         if (cancelled) return;
         if (!res.ok) {
-          // Don't fail silently — chips would stay on "checking" forever.
-          // Log so the next breakage is visible in the console without us
-          // needing to reproduce it locally.
+          // Mark digits as verified (with empty status map) so chips fall
+          // through to the green "new" fallback instead of stranding on
+          // "checking" forever. Surface the failure in the console so the
+          // root cause is visible. Send is still allowed — the worst case is
+          // a duplicate text to a signed-up user, which is recoverable.
           const detail = await res.text().catch(() => '');
           console.error('[phone-status] HTTP', res.status, detail);
+          setPhoneStatusMap(new Map());
+          setVerifiedDigits(verifyKeys);
           return;
         }
         const data = (await res.json()) as {
@@ -277,9 +289,14 @@ export function MarketingDashboard() {
         for (const t of data.texted ?? []) next.set(t.phone, { bucket: 'texted', lastAt: t.lastAt });
         for (const p of data.signedUp ?? []) next.set(p, { bucket: 'signed_up' });
         setPhoneStatusMap(next);
-        setVerifiedDigits(new Set(digits));
+        setVerifiedDigits(verifyKeys);
       } catch (err) {
-        if (!cancelled) console.error('[phone-status] fetch failed', err);
+        if (!cancelled) {
+          console.error('[phone-status] fetch failed', err);
+          // Same fallback as the !res.ok branch — chips must never strand.
+          setPhoneStatusMap(new Map());
+          setVerifiedDigits(verifyKeys);
+        }
       }
       finally { if (!cancelled) setPhoneStatusChecking(false); }
     }, 300);
@@ -530,7 +547,8 @@ export function MarketingDashboard() {
                       <div className="flex items-center gap-1 shrink-0">
                         {(() => {
                           const digits = r.phone.replace(/\D/g, '');
-                          if (!verifiedDigits.has(digits)) {
+                          const phone10 = digits.slice(-10);
+                          if (!verifiedDigits.has(digits) && !verifiedDigits.has(phone10)) {
                             return (
                               <span
                                 className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded border bg-neutral-800 border-neutral-700 text-neutral-400"
@@ -541,7 +559,8 @@ export function MarketingDashboard() {
                               </span>
                             );
                           }
-                          const status = phoneStatusMap.get(digits);
+                          // Backend returns last-10-digit keys; prefer that lookup.
+                          const status = phoneStatusMap.get(phone10) ?? phoneStatusMap.get(digits);
                           if (status?.bucket === 'signed_up') {
                             return (
                               <span
@@ -636,7 +655,8 @@ export function MarketingDashboard() {
                       </span>
                     );
                   }
-                  if (!verifiedDigits.has(digits)) {
+                  const phone10 = digits.slice(-10);
+                  if (!verifiedDigits.has(digits) && !verifiedDigits.has(phone10)) {
                     counts.checking++;
                     return (
                       <span
@@ -650,7 +670,8 @@ export function MarketingDashboard() {
                       </span>
                     );
                   }
-                  const status = phoneStatusMap.get(digits);
+                  // Backend returns last-10-digit keys; prefer that lookup.
+                  const status = phoneStatusMap.get(phone10) ?? phoneStatusMap.get(digits);
                   if (status?.bucket === 'signed_up') {
                     counts.red++;
                     return (

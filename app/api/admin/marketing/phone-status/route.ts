@@ -46,57 +46,66 @@ export async function POST(req: NextRequest) {
   //   rider_profiles.phone / driver_profiles.phone → E.164 (+14045551234)
   //   sms_log.to_phone / sms_inbound.from_phone   → 10-digit (4045551234)
   //   admin_sms_sent.recipient_phone              → mixed 10/11-digit
-  // Without RIGHT(REGEXP_REPLACE(...), 10) on the column side, the +1-prefixed
-  // rows never match the digits-only input and the chip strip falsely shows
-  // signed-up numbers as "new". Mirrors the pattern in lib/conversation/inbound.ts.
-  const [signedUpRows, textedRows] = await Promise.all([
-    sql`
-      SELECT DISTINCT phone10 FROM (
-        SELECT RIGHT(REGEXP_REPLACE(phone, '\D', '', 'g'), 10) AS phone10
-        FROM rider_profiles
-        WHERE phone IS NOT NULL
-          AND RIGHT(REGEXP_REPLACE(phone, '\D', '', 'g'), 10) = ANY(${digits})
-        UNION
-        SELECT RIGHT(REGEXP_REPLACE(phone, '\D', '', 'g'), 10) AS phone10
-        FROM driver_profiles
-        WHERE phone IS NOT NULL
-          AND RIGHT(REGEXP_REPLACE(phone, '\D', '', 'g'), 10) = ANY(${digits})
-      ) s
-    `,
-    // admin_sms_sent uses sent_at (NOT created_at) — referencing created_at
-    // crashed the whole UNION and left every chip stuck on "checking".
-    sql`
-      SELECT phone10, MAX(last_at) AS last_at FROM (
-        SELECT RIGHT(REGEXP_REPLACE(to_phone, '\D', '', 'g'), 10) AS phone10,
-               MAX(created_at) AS last_at
-        FROM sms_log
-        WHERE to_phone IS NOT NULL
-          AND RIGHT(REGEXP_REPLACE(to_phone, '\D', '', 'g'), 10) = ANY(${digits})
-        GROUP BY 1
-        UNION ALL
-        SELECT RIGHT(REGEXP_REPLACE(from_phone, '\D', '', 'g'), 10) AS phone10,
-               MAX(created_at) AS last_at
-        FROM sms_inbound
-        WHERE from_phone IS NOT NULL
-          AND RIGHT(REGEXP_REPLACE(from_phone, '\D', '', 'g'), 10) = ANY(${digits})
-        GROUP BY 1
-        UNION ALL
-        SELECT RIGHT(REGEXP_REPLACE(recipient_phone, '\D', '', 'g'), 10) AS phone10,
-               MAX(sent_at) AS last_at
-        FROM admin_sms_sent
-        WHERE recipient_phone IS NOT NULL
-          AND RIGHT(REGEXP_REPLACE(recipient_phone, '\D', '', 'g'), 10) = ANY(${digits})
-        GROUP BY 1
-      ) t
-      GROUP BY phone10
-    `,
-  ]);
+  // Use '\\D' in the JS source: in a JS string literal '\D' silently drops the
+  // backslash to just 'D' (regex would strip D's, not non-digits). Doubling it
+  // sends the literal \D to Postgres so REGEXP_REPLACE actually means non-digit.
+  try {
+    const [signedUpRows, textedRows] = await Promise.all([
+      sql`
+        SELECT DISTINCT phone10 FROM (
+          SELECT RIGHT(REGEXP_REPLACE(phone, '\\D', '', 'g'), 10) AS phone10
+          FROM rider_profiles
+          WHERE phone IS NOT NULL
+            AND RIGHT(REGEXP_REPLACE(phone, '\\D', '', 'g'), 10) = ANY(${digits})
+          UNION
+          SELECT RIGHT(REGEXP_REPLACE(phone, '\\D', '', 'g'), 10) AS phone10
+          FROM driver_profiles
+          WHERE phone IS NOT NULL
+            AND RIGHT(REGEXP_REPLACE(phone, '\\D', '', 'g'), 10) = ANY(${digits})
+        ) s
+      `,
+      // admin_sms_sent uses sent_at (NOT created_at) — referencing created_at
+      // crashed the whole UNION and left every chip stuck on "checking".
+      sql`
+        SELECT phone10, MAX(last_at) AS last_at FROM (
+          SELECT RIGHT(REGEXP_REPLACE(to_phone, '\\D', '', 'g'), 10) AS phone10,
+                 MAX(created_at) AS last_at
+          FROM sms_log
+          WHERE to_phone IS NOT NULL
+            AND RIGHT(REGEXP_REPLACE(to_phone, '\\D', '', 'g'), 10) = ANY(${digits})
+          GROUP BY 1
+          UNION ALL
+          SELECT RIGHT(REGEXP_REPLACE(from_phone, '\\D', '', 'g'), 10) AS phone10,
+                 MAX(created_at) AS last_at
+          FROM sms_inbound
+          WHERE from_phone IS NOT NULL
+            AND RIGHT(REGEXP_REPLACE(from_phone, '\\D', '', 'g'), 10) = ANY(${digits})
+          GROUP BY 1
+          UNION ALL
+          SELECT RIGHT(REGEXP_REPLACE(recipient_phone, '\\D', '', 'g'), 10) AS phone10,
+                 MAX(sent_at) AS last_at
+          FROM admin_sms_sent
+          WHERE recipient_phone IS NOT NULL
+            AND RIGHT(REGEXP_REPLACE(recipient_phone, '\\D', '', 'g'), 10) = ANY(${digits})
+          GROUP BY 1
+        ) t
+        GROUP BY phone10
+      `,
+    ]);
 
-  return NextResponse.json({
-    signedUp: (signedUpRows as { phone10: string }[]).map((r) => r.phone10),
-    texted: (textedRows as { phone10: string; last_at: string }[]).map((r) => ({
-      phone: r.phone10,
-      lastAt: r.last_at,
-    })),
-  });
+    return NextResponse.json({
+      signedUp: (signedUpRows as { phone10: string }[]).map((r) => r.phone10),
+      texted: (textedRows as { phone10: string; last_at: string }[]).map((r) => ({
+        phone: r.phone10,
+        lastAt: r.last_at,
+      })),
+    });
+  } catch (err) {
+    // Surface SQL errors to the client + worker logs. Without this, a thrown
+    // sql() error becomes a generic 500 with no body, the frontend bails on
+    // !res.ok, and chips stay on "checking" forever with nothing to debug.
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error('[phone-status] query failed:', detail, err);
+    return NextResponse.json({ error: 'phone-status query failed', detail }, { status: 500 });
+  }
 }
