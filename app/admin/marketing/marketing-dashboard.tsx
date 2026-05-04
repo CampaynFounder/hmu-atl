@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { UtmBuilder } from './utm-builder';
 import { RecentSignups } from './recent-signups';
+import { MarketingNotepad } from './marketing-notepad';
 import { consumeStagedRecipients } from '@/lib/admin/outreach-staging';
 import { openThreadOrCompose } from '@/lib/admin/thread-router';
 import { useAdminAuth } from '@/app/admin/components/admin-auth-context';
@@ -796,6 +797,14 @@ export function MarketingDashboard() {
                 </div>
               )}
             </div>
+          )}
+
+          {/* Notepad sits under whichever recipients panel is active so admins
+              can jot follow-ups without leaving the page. Only renders once
+              admin auth context is hydrated — otherwise we'd flash an
+              unauthenticated state. */}
+          {admin && (
+            <MarketingNotepad isSuper={admin.isSuper} selfAdminId={admin.id} />
           )}
         </div>
 
