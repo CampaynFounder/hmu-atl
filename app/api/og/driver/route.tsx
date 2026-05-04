@@ -29,6 +29,26 @@ export async function GET(req: NextRequest) {
   // No driver photo? Fall back to the static brand card.
   if (!photoUrl) return logoFallback(req);
 
+  // Route the photo through Cloudflare Image Transformations so EXIF
+  // Orientation is honored — Satori reads raw bytes and ignores EXIF, so
+  // iPhone portrait uploads (which store landscape pixels + a "rotate 90"
+  // tag) render sideways without this. width=800 is enough for OG card
+  // resolution; height is omitted to preserve the source aspect ratio.
+  //
+  // If the transform 404s (Transformations disabled, R2 origin removed
+  // from the allowlist, source image deleted, etc.), fall back to the raw
+  // R2 URL so the card always renders something. Without this guard,
+  // Satori silently drops the failed image and we ship empty cards.
+  const origin = new URL(req.url).origin;
+  const transformUrl = `${origin}/cdn-cgi/image/width=800,format=auto,quality=85/${photoUrl}`;
+  let displayPhotoUrl = photoUrl;
+  try {
+    const head = await fetch(transformUrl, { method: 'HEAD' });
+    if (head.ok) displayPhotoUrl = transformUrl;
+  } catch {
+    // network blip — keep raw URL
+  }
+
   // Fetch chill score
   let chillScore = 0;
   try {
@@ -63,7 +83,7 @@ export async function GET(req: NextRequest) {
       }}>
         {/* eslint-disable-next-line @next/next/no-img-element -- next/og Satori renderer only supports <img> */}
         <img
-          src={photoUrl}
+          src={displayPhotoUrl}
           alt=""
           style={{
             maxWidth: '100%',
