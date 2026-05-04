@@ -80,6 +80,37 @@ Compare the top timestamp to your deploy time. If it's older than your last run,
 
 ---
 
+## CLOUDFLARE IMAGES (in-Worker pattern)
+
+Image Transformations are enabled on the `hmucashride.com` zone with the R2 pub origin (`pub-649c30e78a62433eb6ed9cb1209d112a.r2.dev`) on the Sources allowlist. Billed at $5/mo per 100k transforms; results cached at the edge.
+
+### When you need it
+- Server-rendered images (next/og share cards) where Satori must receive EXIF-rotated, resized JPEG bytes — Satori reads raw pixels and ignores EXIF, so iPhone portrait photos render sideways without a transform
+- Anywhere user-uploaded R2 photos need uniform crops, format negotiation, or quality control
+
+### How to invoke from a Worker / route handler
+```ts
+const resp = await fetch(sourceUrl, {
+  cf: { image: { width: 800, format: 'jpeg', quality: 85 } },
+} as RequestInit);
+// resp.body is the transformed image
+```
+
+### DO NOT use the URL form from inside a Worker
+```ts
+// ❌ Returns 404 — same-zone subrequests bypass the /cdn-cgi/image interposer
+const resp = await fetch(`${origin}/cdn-cgi/image/width=800/${sourceUrl}`);
+```
+The URL form (`/cdn-cgi/image/<options>/<source>`) is for **external clients** (browsers, OG validators, social crawlers) — those go through CF's edge transformer. Worker outbound subrequests don't, so the path 404s back to the Worker. This bug is invisible from outside (curl from your laptop returns 200), so always verify the actual fetch result inside the Worker.
+
+### For next/og (Satori) specifically
+Satori's own `<img>` fetch is also a Worker subrequest, so passing it a `/cdn-cgi/image/...` URL has the same 404 problem. Pattern: fetch bytes server-side via `cf.image`, base64-encode (chunked — `String.fromCharCode.apply` overflows past ~100k args), embed as `data:image/jpeg;base64,...`. Reference implementation: `app/api/og/driver/route.tsx`.
+
+### Sources allowlist
+Any new R2 bucket / external domain must be added to **Dash → Images → Transformations → Sources** before transforms will resolve. Without it, requests return `403 cf-not-resized: err=9524`.
+
+---
+
 ## 21ST.DEV UI COMPONENTS
 
 21st.dev is an open-source shadcn/ui-based component registry. Components are installed with:
