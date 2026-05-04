@@ -42,20 +42,23 @@ export async function GET(req: NextRequest) {
   // iPhone portrait uploads (which store landscape pixels + a "rotate 90"
   // tag) render sideways without this.
   //
-  // Why fetch the bytes server-side (instead of just passing the transform
-  // URL to <img src>): empirically, when Satori inside the Worker fetches
-  // a same-origin /cdn-cgi/image/ URL, it does not get the transformed
-  // result — likely a same-zone subrequest quirk where /cdn-cgi/image is
-  // not interposed for the Worker's outbound fetch. By fetching the bytes
-  // ourselves and embedding as a data URL, we guarantee Satori sees the
-  // already-rotated, already-resized JPEG.
+  // We use the `cf.image` fetch option rather than a `/cdn-cgi/image/...`
+  // URL because Worker subrequests to same-zone URLs bypass the
+  // `/cdn-cgi/image` interposer (verified empirically: such a fetch
+  // returns 404). The `cf.image` option is the canonical way to invoke
+  // CF Image Transformations from inside a Worker — it applies the
+  // transform to the response of the source fetch, no special URL needed.
   //
-  // Falls back to the raw R2 URL if anything fails so cards always render.
-  const origin = new URL(req.url).origin;
-  const transformUrl = `${origin}/cdn-cgi/image/width=800,format=jpeg,quality=85/${photoUrl}`;
+  // Source URL (R2 pub origin) must be on the zone's Transformations
+  // allowlist; we then base64-embed the transformed bytes as a data URL
+  // so Satori sees the rotated, resized JPEG directly.
+  //
+  // Falls back to the raw R2 URL on any failure so cards always render.
   let displayPhotoUrl: string = photoUrl;
   try {
-    const resp = await fetch(transformUrl);
+    const resp = await fetch(photoUrl, {
+      cf: { image: { width: 800, format: 'jpeg', quality: 85 } },
+    } as RequestInit);
     if (resp.ok) {
       const buf = await resp.arrayBuffer();
       const bytes = new Uint8Array(buf);
@@ -71,7 +74,7 @@ export async function GET(req: NextRequest) {
       displayPhotoUrl = `data:image/jpeg;base64,${btoa(binary)}`;
     }
   } catch {
-    // network blip — keep raw URL fallback
+    // network blip — keep raw R2 URL fallback
   }
 
   // Fetch chill score
