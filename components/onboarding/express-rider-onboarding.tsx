@@ -11,22 +11,41 @@ import { useOnboardingPreviewMode } from '@/lib/onboarding/preview-mode';
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
 interface Props {
-  onComplete: () => void;
+  onComplete: (result?: { postId?: string; handle?: string }) => void;
   isCash: boolean;
+  // Browse-funnel hooks. When publicDraftId + driverHandle are present, the
+  // payment-success handler fetches the parked draft and submits it as a
+  // direct booking, then forwards { postId, handle } to onComplete so the
+  // host page can route to /rider/booking-sent/[handle]?postId=...
+  publicDraftId?: string;
+  driverHandle?: string;
+  // Existing-rider-no-PM path: profile already exists from a prior signup;
+  // we only need the card before the booking can go out. Skips name + media
+  // and starts at the payment step.
+  paymentOnly?: boolean;
 }
 
 /**
- * Express onboarding for riders coming through the chat booking flow.
- * Collects only the display name (+ payment method if digital ride).
- * Everything else auto-populates from Clerk and can be updated later.
+ * Express onboarding for riders coming through the chat booking flow OR the
+ * /rider/browse anon-booking funnel. Collects display name + media + payment
+ * (skips name/media in paymentOnly mode for existing riders without a card).
  */
-export function ExpressRiderOnboarding({ onComplete, isCash }: Props) {
+export function ExpressRiderOnboarding({
+  onComplete, isCash, publicDraftId, driverHandle, paymentOnly,
+}: Props) {
   const { user } = useUser();
   const preview = useOnboardingPreviewMode();
   const [displayName, setDisplayName] = useState('');
   const [saving, setSaving] = useState(false);
-  const [step, setStep] = useState<'name' | 'media' | 'payment' | 'done'>('name');
+  const [step, setStep] = useState<'name' | 'media' | 'payment' | 'done'>(
+    paymentOnly ? 'payment' : 'name',
+  );
   const [error, setError] = useState<string | null>(null);
+  // Browse-draft submission state — booking goes out after payment lands.
+  const [draftSubmitting, setDraftSubmitting] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+
+  const hasDraft = !!(publicDraftId && driverHandle);
 
   // Media step — rider must provide a photo OR a short video that becomes
   // their avatar. Either satisfies the requirement. /api/upload/video saves
@@ -83,22 +102,26 @@ export function ExpressRiderOnboarding({ onComplete, isCash }: Props) {
           body: JSON.stringify(payload),
         });
 
-        // Save draft booking data server-side so it survives device changes
-        try {
-          const driverHandle = extractDriverHandleFromUrl();
-          if (driverHandle) {
-            const chatKey = `hmu_chat_booking_${driverHandle}`;
-            const legacyKey = 'hmu_chat_booking';
-            const raw = localStorage.getItem(chatKey) || localStorage.getItem(legacyKey);
-            if (raw) {
-              await fetch('/api/rider/draft-booking', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ driverHandle, bookingData: JSON.parse(raw) }),
-              });
+        // Browse-funnel drafts go through the public_draft_bookings flow, not
+        // the chat-booking localStorage. Skip the chat persistence in that case
+        // so we don't double-submit on payment success.
+        if (!hasDraft) {
+          try {
+            const chatHandle = extractDriverHandleFromUrl();
+            if (chatHandle) {
+              const chatKey = `hmu_chat_booking_${chatHandle}`;
+              const legacyKey = 'hmu_chat_booking';
+              const raw = localStorage.getItem(chatKey) || localStorage.getItem(legacyKey);
+              if (raw) {
+                await fetch('/api/rider/draft-booking', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ driverHandle: chatHandle, bookingData: JSON.parse(raw) }),
+                });
+              }
             }
-          }
-        } catch { /* non-critical */ }
+          } catch { /* non-critical */ }
+        }
       }
 
       // Name saved — next step is always media. Payment comes after (or
@@ -118,7 +141,7 @@ export function ExpressRiderOnboarding({ onComplete, isCash }: Props) {
     setMediaError(null);
     if (isCash) {
       setStep('done');
-      setTimeout(onComplete, 800);
+      setTimeout(() => onComplete(), 800);
     } else {
       setStep('payment');
     }
@@ -165,9 +188,60 @@ export function ExpressRiderOnboarding({ onComplete, isCash }: Props) {
     setVideoMode(false);
   };
 
-  const handlePaymentSuccess = () => {
+  const handlePaymentSuccess = async () => {
+    // Browse-funnel: fetch the parked public draft and submit it as a direct
+    // booking now that the card is on file. The host page (/onboarding) gets
+    // postId + handle back via onComplete and routes to /rider/booking-sent.
+    // On any failure, keep the rider here with a visible error so they can
+    // retry or bail back to /rider/browse — never silently strand a paid card
+    // with no booking attached.
+    if (hasDraft) {
+      setDraftSubmitting(true);
+      setDraftError(null);
+      try {
+        const draftRes = await fetch(`/api/public/draft-booking/${publicDraftId}`, { cache: 'no-store' });
+        if (!draftRes.ok) {
+          if (draftRes.status === 410) {
+            setDraftError('Your request expired. Pick the driver again and we\'ll send it.');
+          } else {
+            setDraftError('We couldn\'t find your saved request. Pick the driver again.');
+          }
+          setDraftSubmitting(false);
+          return;
+        }
+        const draft = await draftRes.json() as {
+          handle: string;
+          payload: { price: number; isCash: boolean; timeWindow: Record<string, unknown> };
+        };
+        const submitHandle = draft.handle || driverHandle!;
+        const bookRes = await fetch(`/api/drivers/${submitHandle}/book`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            price: draft.payload.price,
+            is_cash: false,
+            timeWindow: draft.payload.timeWindow,
+          }),
+        });
+        const bookData = await bookRes.json().catch(() => ({}));
+        if (!bookRes.ok) {
+          setDraftError(bookData.error || 'Couldn\'t send your booking. Try a different driver.');
+          setDraftSubmitting(false);
+          return;
+        }
+        // Mark consumed — single-use, can't replay even if URL leaks.
+        fetch(`/api/public/draft-booking/${publicDraftId}`, { method: 'POST' }).catch(() => {});
+        setStep('done');
+        setTimeout(() => onComplete({ postId: bookData.postId as string, handle: submitHandle }), 800);
+      } catch {
+        setDraftError('Network error. Try again.');
+        setDraftSubmitting(false);
+      }
+      return;
+    }
+
     setStep('done');
-    setTimeout(onComplete, 800);
+    setTimeout(() => onComplete(), 800);
   };
 
   if (step === 'done') {
@@ -195,10 +269,10 @@ export function ExpressRiderOnboarding({ onComplete, isCash }: Props) {
           fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
           fontSize: 36, color: '#fff', lineHeight: 1, marginBottom: 8,
         }}>
-          YOU&apos;RE IN!
+          {hasDraft ? 'REQUEST SENT' : "YOU'RE IN!"}
         </h1>
         <p style={{ fontSize: 14, color: '#888', textAlign: 'center' }}>
-          Taking you back to finish your booking...
+          {hasDraft ? 'Routing you to the confirmation…' : 'Taking you back to finish your booking…'}
         </p>
       </div>
     );
@@ -474,22 +548,55 @@ export function ExpressRiderOnboarding({ onComplete, isCash }: Props) {
                 preview stub when OnboardingPreviewProvider is active, so we
                 use the same import as production. */}
             <InlinePaymentForm onSuccess={handlePaymentSuccess} />
-            <button
-              type="button"
-              onClick={() => {
-                // Allow skipping — they'll be asked at COO time
-                setStep('done');
-                setTimeout(onComplete, 800);
-              }}
-              style={{
-                width: '100%', marginTop: 14, padding: 12, borderRadius: 100,
-                border: '1px solid rgba(255,255,255,0.1)', background: 'transparent',
-                color: '#888', fontSize: 13, cursor: 'pointer',
+            {draftSubmitting && (
+              <div style={{
+                marginTop: 14, padding: 12, borderRadius: 12,
+                background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.18)',
+                color: '#00E676', fontSize: 13, textAlign: 'center', fontWeight: 600,
                 fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-              }}
-            >
-              Skip — I&apos;ll add later
-            </button>
+              }}>
+                Sending your request to the driver…
+              </div>
+            )}
+            {draftError && (
+              <div style={{
+                marginTop: 14, padding: 12, borderRadius: 12,
+                background: 'rgba(255,82,82,0.08)', border: '1px solid rgba(255,82,82,0.2)',
+                color: '#FF5252', fontSize: 13, lineHeight: 1.5,
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}>
+                {draftError}
+                <a
+                  href="/rider/browse"
+                  style={{
+                    display: 'inline-block', marginTop: 8, color: '#00E676',
+                    fontWeight: 600, textDecoration: 'none',
+                  }}
+                >
+                  Back to browse drivers →
+                </a>
+              </div>
+            )}
+            {/* Skip is only safe when no booking is pinned — for browse drafts
+                the card is the gate that lets the request go out. */}
+            {!hasDraft && (
+              <button
+                type="button"
+                onClick={() => {
+                  // Allow skipping — they'll be asked at COO time
+                  setStep('done');
+                  setTimeout(() => onComplete(), 800);
+                }}
+                style={{
+                  width: '100%', marginTop: 14, padding: 12, borderRadius: 100,
+                  border: '1px solid rgba(255,255,255,0.1)', background: 'transparent',
+                  color: '#888', fontSize: 13, cursor: 'pointer',
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                }}
+              >
+                Skip — I&apos;ll add later
+              </button>
+            )}
           </div>
         )}
       </div>

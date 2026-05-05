@@ -24,8 +24,12 @@ export default async function SignUpPage({ searchParams }: Props) {
   if (returnTo && (returnTo.startsWith('/d/') || returnTo.startsWith('/r/'))) {
     callbackParams.set('returnTo', returnTo);
   }
-  if (mode === 'express') callbackParams.set('mode', 'express');
-  // Booking-funnel draft from /rider/browse — auth-callback consumes it.
+  // Browse-funnel draft → auth-callback routes through ExpressRiderOnboarding,
+  // which gates on PM and submits the booking on payment-success. Force the
+  // express mode flag whenever a draft is pinned so legacy routing branches
+  // can't accidentally drop it.
+  const isExpressMode = mode === 'express' || !!draft;
+  if (isExpressMode) callbackParams.set('mode', 'express');
   if (draft) callbackParams.set('draft', draft);
   if (handle) callbackParams.set('handle', handle);
   const afterSignUpUrl = `/auth-callback${callbackParams.size ? `?${callbackParams}` : ''}`;
@@ -55,7 +59,9 @@ export default async function SignUpPage({ searchParams }: Props) {
   if (refHandle) unsafeMetadata.ref_handle = refHandle;
   if (persona) unsafeMetadata.persona = persona;
   if (funnel_stage) unsafeMetadata.funnel_stage = funnel_stage;
-  if (mode === 'express') unsafeMetadata.onboardingMode = 'express';
+  // Browse-funnel always renders ExpressRiderOnboarding (name → media → PM →
+  // submit booking), so force the express flag whenever a draft is pinned.
+  if (mode === 'express' || draft) unsafeMetadata.onboardingMode = 'express';
   // Persist booking-draft pointers on the Clerk user so OAuth round-trips
   // can recover them even if URL params + localStorage are both wiped.
   if (draft) unsafeMetadata.draft_booking_id = draft;

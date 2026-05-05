@@ -27,11 +27,38 @@ export default function AuthCallbackPage() {
     checkOnboardingAndRedirect();
   }, [isLoaded, isSignedIn]);
 
-  // Consume a parked /rider/browse draft and submit it via the existing
-  // direct-booking endpoint. Returns the path to redirect to. Falls back to
-  // a soft toast on /rider/browse if the draft is missing/expired/invalid.
-  const consumeDraftBooking = async (draftId: string, handle: string): Promise<string | null> => {
+  // For a returning rider with a parked /rider/browse draft: gate on payment
+  // method on file. PM exists → submit the booking now and route to the
+  // confirmation screen. PM missing → bounce them through /onboarding in
+  // express-payment-only mode so the same surface that captures cards for
+  // brand-new riders also captures them for legacy accounts. Returns the
+  // path to redirect to.
+  const handleDraftForExistingRider = async (draftId: string, handle: string): Promise<string | null> => {
     try {
+      // Check PM status. Treat any non-2xx as "no PM" — better to over-route
+      // through the PM gate than to charge a setup intent we can't capture.
+      let hasPm = false;
+      try {
+        const pmRes = await fetch('/api/rider/payment-methods', { cache: 'no-store' });
+        if (pmRes.ok) {
+          const pmData = await pmRes.json();
+          hasPm = Array.isArray(pmData?.methods) && pmData.methods.length > 0;
+        }
+      } catch { /* treat as no PM */ }
+
+      if (!hasPm) {
+        // Single PM surface: ExpressRiderOnboarding in payment-only mode is
+        // rendered by /onboarding when ?draft is present. We add &mode=express
+        // for clarity even though the draft itself is what triggers express.
+        // paymentOnly=1 tells the express component to skip name + media —
+        // those were already captured in the rider's original signup.
+        const params = new URLSearchParams({
+          type: 'rider', mode: 'express', draft: draftId, handle, paymentOnly: '1',
+        });
+        return `/onboarding?${params}`;
+      }
+
+      // PM on file — submit the booking and route to the confirmation screen.
       const draftRes = await fetch(`/api/public/draft-booking/${draftId}`, { cache: 'no-store' });
       if (!draftRes.ok) {
         if (draftRes.status === 410) return '/rider/browse?draftExpired=1';
@@ -54,17 +81,21 @@ export default function AuthCallbackPage() {
         }),
       });
       if (bookRes.ok) {
+        const bookData = await bookRes.json().catch(() => ({} as Record<string, unknown>));
         // Mark consumed — single-use even if URL leaks.
         fetch(`/api/public/draft-booking/${draftId}`, { method: 'POST' }).catch(() => {});
-        return `/rider/home?bookingSent=${submitHandle}`;
+        const postId = (bookData.postId as string | undefined) || '';
+        return postId
+          ? `/rider/booking-sent/${submitHandle}?postId=${postId}`
+          : `/rider/booking-sent/${submitHandle}`;
       }
       // Booking failed (driver unavailable, conflict, etc) — drop them on
-      // /rider/home with the error visible so they can try another driver.
+      // /rider/browse with a flag so the page can show the right error.
       const errData = await bookRes.json().catch(() => ({}));
       console.warn('[auth-callback] booking submit failed', errData);
-      return `/rider/home?bookingFailed=1`;
+      return `/rider/browse?bookingFailed=1`;
     } catch (e) {
-      console.error('[auth-callback] draft consume threw', e);
+      console.error('[auth-callback] draft handling threw', e);
       return null;
     }
   };
@@ -136,10 +167,12 @@ export default function AuthCallbackPage() {
 
     const hasProfile = data.hasDriverProfile || data.hasRiderProfile;
     if (hasProfile) {
-      // Booking-funnel: existing rider had a draft parked → submit it now and
-      // land them on home with confirmation context.
+      // Booking-funnel: existing rider with a parked draft → either submit
+      // it now (PM on file) or route through the PM gate (no PM). The single
+      // surface for the PM gate is /onboarding rendering ExpressRiderOnboarding
+      // in payment-only mode.
       if (draftId && draftHandle && data.profileType === 'rider') {
-        const target = await consumeDraftBooking(draftId, draftHandle);
+        const target = await handleDraftForExistingRider(draftId, draftHandle);
         if (target) { router.replace(target); return; }
       }
       // Rider ad-funnel landing — re-arriving riders go straight back to it,
@@ -181,18 +214,16 @@ export default function AuthCallbackPage() {
       if (type) onboardingParams.set('type', type);
       if (returnTo) onboardingParams.set('returnTo', returnTo);
       if (isCash === '1') onboardingParams.set('cash', '1');
-      if (mode === 'express') onboardingParams.set('mode', 'express');
-      // New rider with a parked browse-draft. Forward through onboarding;
-      // the post-onboarding handler reads these and submits the booking once
-      // account_status flips to 'active'. Until then we re-park in localStorage
-      // since onboarding may not preserve all query params end-to-end.
+      // New rider with a parked browse-draft → render ExpressRiderOnboarding
+      // (name → media → PM → submit booking → /rider/booking-sent). The draft
+      // pointer rides on the URL only; ExpressRiderOnboarding consumes it
+      // directly on payment-success, so we don't need a localStorage backstop.
+      if (mode === 'express' || (draftId && draftHandle)) {
+        onboardingParams.set('mode', 'express');
+      }
       if (draftId && draftHandle) {
         onboardingParams.set('draft', draftId);
         onboardingParams.set('handle', draftHandle);
-        try {
-          localStorage.setItem('hmu_pending_draft', draftId);
-          localStorage.setItem('hmu_pending_draft_handle', draftHandle);
-        } catch { /* ignore */ }
       }
       const onboardingUrl = `/onboarding${onboardingParams.size ? `?${onboardingParams}` : ''}`;
       router.replace(onboardingUrl);

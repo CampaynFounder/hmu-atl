@@ -38,10 +38,28 @@ function OnboardingInner() {
   const clerkMode = (user?.unsafeMetadata as Record<string, unknown> | undefined)?.onboardingMode as string | undefined;
   const isExpressDriver = (urlMode === 'express' || clerkMode === 'express');
 
-  const handleComplete = () => {
+  // /rider/browse anon-booking funnel — a public_draft_bookings row is pinned
+  // to this onboarding session. Express handles name → media → PM → booking
+  // submit → confirmation route. Rider-only.
+  // paymentOnly is set by auth-callback for existing riders with no PM, so
+  // they skip name + media (already captured at original signup) and just
+  // see the card form before the booking goes out.
+  const draftId = searchParams.get('draft');
+  const draftHandle = searchParams.get('handle');
+  const hasBrowseDraft = !!(draftId && draftHandle);
+  const isPaymentOnly = searchParams.get('paymentOnly') === '1';
+
+  const handleComplete = (result?: { postId?: string; handle?: string }) => {
     // Full page reload to force Clerk to re-fetch user metadata
     // (client-side router.push keeps stale publicMetadata cache)
     const returnTo = searchParams.get('returnTo');
+    // Browse draft submitted successfully → straight to the booking-sent
+    // confirmation. ExpressRiderOnboarding hands back postId + handle.
+    if (result?.postId && result?.handle) {
+      const params = new URLSearchParams({ postId: result.postId });
+      window.location.href = `/rider/booking-sent/${result.handle}?${params}`;
+      return;
+    }
     if (returnTo && returnTo.startsWith('/d/')) {
       // Rider signed up from a driver's HMU link — send them back with booking open
       const url = returnTo.includes('bookingOpen') ? returnTo : `${returnTo}?bookingOpen=1`;
@@ -81,9 +99,19 @@ function OnboardingInner() {
     );
   }
 
-  // Express onboarding for riders coming from chat booking — minimal fields
-  if (isFromChatBooking && activeType === 'rider') {
-    return <ExpressRiderOnboarding onComplete={handleComplete} isCash={isCashRide} />;
+  // Express onboarding for riders coming from chat booking OR browse draft —
+  // minimal fields. Browse draft additionally requires PM (no skip), and the
+  // payment-success handler submits the parked booking before completing.
+  if ((isFromChatBooking || hasBrowseDraft) && activeType === 'rider') {
+    return (
+      <ExpressRiderOnboarding
+        onComplete={handleComplete}
+        isCash={hasBrowseDraft ? false : isCashRide}
+        publicDraftId={hasBrowseDraft ? draftId! : undefined}
+        driverHandle={hasBrowseDraft ? draftHandle! : undefined}
+        paymentOnly={hasBrowseDraft && isPaymentOnly}
+      />
+    );
   }
 
   return (

@@ -171,13 +171,32 @@ export default function BookingDrawer({ driver, onClose, isAuthenticated = true 
             <div style={{ fontSize: 32, marginBottom: 6 }}>👋</div>
             <div style={{
               fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-              fontSize: 22, color: '#00E676', marginBottom: 6,
+              fontSize: 22, color: '#00E676', marginBottom: 10,
             }}>
               ALMOST THERE
             </div>
+            {/* Recap — show the rider exactly what they're committing to so
+                they trust the system before they leave for sign-up. */}
+            <div style={{
+              display: 'inline-block',
+              padding: '10px 16px', borderRadius: 12,
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              marginBottom: 14, textAlign: 'left', maxWidth: '100%',
+            }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                Your request
+              </div>
+              <div style={{ fontSize: 14, color: '#fff', fontWeight: 600, lineHeight: 1.4 }}>
+                ${parsedAmount} to {destination.trim()}
+                {parsedTime.display ? ` · ${parsedTime.display}` : ''}
+              </div>
+              <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+                Going to {displayName}
+              </div>
+            </div>
             <div style={{ fontSize: 13, color: '#ccc', marginBottom: 18, lineHeight: 1.5 }}>
-              Sign up or sign in to send your ride to {displayName}.
-              We&apos;ll save your details — you won&apos;t have to fill them in again.
+              Sign up or sign in and we&apos;ll send it the moment your card is on file.
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 320, margin: '0 auto' }}>
               <a

@@ -13,8 +13,12 @@ export default async function SignInPage({ searchParams }: Props) {
   const callbackParams = new URLSearchParams();
   if (type) callbackParams.set('type', type);
   if (returnTo && returnTo.startsWith('/d/')) callbackParams.set('returnTo', returnTo);
-  // Booking-funnel draft from /rider/browse — auth-callback consumes it.
-  if (draft) callbackParams.set('draft', draft);
+  // Browse-funnel draft → auth-callback gates on PM, then routes to
+  // /rider/booking-sent (PM on file) or /onboarding express PM-only mode.
+  if (draft) {
+    callbackParams.set('draft', draft);
+    callbackParams.set('mode', 'express');
+  }
   if (handle) callbackParams.set('handle', handle);
   const afterSignInUrl = `/auth-callback${callbackParams.size ? `?${callbackParams}` : ''}`;
 
