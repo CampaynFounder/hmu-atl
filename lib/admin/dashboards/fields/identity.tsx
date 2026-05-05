@@ -120,6 +120,41 @@ export const identityFields: FieldDefinition[] = [
     Render: ({ value }) => <StatTile label="Handle" value={value as string | null} />,
   },
   {
+    key: 'users.profile_link',
+    label: 'HMU link',
+    category: 'Identity',
+    description: 'Public HMU profile (driver only). Opens /d/<handle> in a new tab.',
+    applies_to: ['driver'],
+    render: 'stat',
+    source: {
+      kind: 'aggregate',
+      fetch: async (ctx) => {
+        const { sql } = await import('@/lib/db/client');
+        const [r] = await sql`
+          SELECT dp.handle AS v
+          FROM users u
+          LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+          WHERE u.id = ${ctx.userId} LIMIT 1`;
+        return (r?.v as string | null) ?? null;
+      },
+      batchFetch: async (ctx) => {
+        const { sql } = await import('@/lib/db/client');
+        const rows = await sql`
+          SELECT u.id, dp.handle AS v
+          FROM users u
+          LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+          WHERE u.id = ANY(${ctx.userIds}::uuid[])`;
+        const m = new Map<string, unknown>();
+        for (const r of rows as Record<string, unknown>[]) {
+          m.set(r.id as string, (r.v as string | null) ?? null);
+        }
+        return m;
+      },
+    },
+    Render: ({ value }) => <ProfileLink handle={value as string | null} variant="stat" />,
+    Cell: ({ value }) => <ProfileLink handle={value as string | null} variant="cell" />,
+  },
+  {
     key: 'users.profile_type',
     label: 'Profile type',
     category: 'Identity',
@@ -227,6 +262,47 @@ export const identityFields: FieldDefinition[] = [
     Render: ({ value }) => <StatTile label="Phone" value={(value as string) ?? '—'} />,
   },
 ];
+
+function ProfileLink({ handle, variant }: { handle: string | null; variant: 'cell' | 'stat' }) {
+  if (!handle) return <span style={{ color: 'var(--admin-text-muted)' }}>—</span>;
+  const href = `/d/${handle}`;
+  const text = `@${handle}`;
+  // Stop propagation so clicks don't trigger the grid row's window.location.href.
+  const stop = (e: React.MouseEvent) => { e.stopPropagation(); };
+  if (variant === 'cell') {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={stop}
+        style={{ color: '#60a5fa', textDecoration: 'underline' }}
+      >
+        {text}
+      </a>
+    );
+  }
+  return (
+    <div
+      className="rounded-lg p-3"
+      style={{ background: 'var(--admin-bg-elevated)', border: '1px solid var(--admin-border)' }}
+    >
+      <div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--admin-text-muted)' }}>
+        HMU link
+      </div>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={stop}
+        className="text-sm font-semibold"
+        style={{ color: '#60a5fa', textDecoration: 'underline' }}
+      >
+        {text} ↗
+      </a>
+    </div>
+  );
+}
 
 function AvatarBlock({ value, size }: { value: AvatarValue | null; size: number }) {
   const url = value?.url ?? null;

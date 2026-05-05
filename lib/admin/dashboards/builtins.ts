@@ -75,6 +75,7 @@ export const BUILTIN_DASHBOARDS: BuiltinDashboard[] = [
           'users.avatar',
           'users.display_name',
           'users.handle',
+          'users.profile_link',
           'users.profile_type',
           'users.account_status',
           'users.tier',
