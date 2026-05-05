@@ -70,6 +70,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
     label: 'SYSTEM',
     items: [
       { href: '/admin/roles', label: 'Roles', icon: '🔑' },
+      { href: '/admin/dashboards', label: 'Dashboards', icon: '📊' },
       { href: '/admin/markets', label: 'Markets', icon: '🌎' },
       { href: '/admin/feature-flags', label: 'Feature Flags', icon: '🚩' },
       { href: '/admin/hmu-config', label: 'HMU Config', icon: '📣' },

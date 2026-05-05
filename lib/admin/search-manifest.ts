@@ -295,6 +295,15 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     keywords: ['rbac', 'permissions', 'access', 'admin users'],
   },
   {
+    id: 'dashboards',
+    label: 'Dashboards',
+    description: 'Build role-scoped dashboards from the field registry',
+    href: '/admin/dashboards',
+    section: 'System',
+    icon: '📊',
+    keywords: ['custom views', 'fields', 'sections', 'role grants', 'user profile', 'builder'],
+  },
+  {
     id: 'markets',
     label: 'Markets',
     description: 'Configure cities and expansion markets',
