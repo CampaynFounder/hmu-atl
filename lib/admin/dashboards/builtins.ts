@@ -75,6 +75,38 @@ const RATINGS_BASICS = [
 
 export const BUILTIN_DASHBOARDS: BuiltinDashboard[] = [
   {
+    slug: 'all-users',
+    label: 'All users',
+    description: 'Default user grid — every user with key identity, verification, and activity columns. Edit to customize.',
+    scope: 'user_grid',
+    sections: [
+      {
+        label: null,
+        field_keys: [
+          'users.display_name',
+          'users.handle',
+          'users.profile_type',
+          'users.account_status',
+          'users.tier',
+          'users.og_status',
+          'users.market',
+          'users.phone',
+          'users.is_verified',
+          'driver.stripe_onboarded',
+          'driver.payout_setup',
+          'driver.video_recorded',
+          'rider.payment_method_count',
+          'users.completed_rides',
+          'users.chill_score',
+          'users.created_at',
+        ],
+        col_span: 12,
+      },
+    ],
+    // Always-visible — bypasses the grant table via ALWAYS_VISIBLE_BUILTIN_SLUGS.
+    default_grant_permissions: [],
+  },
+  {
     slug: 'default-user-profile',
     label: 'User profile',
     description: 'Default fallback view shown on /admin/users/[id] when no other dashboard is selected.',

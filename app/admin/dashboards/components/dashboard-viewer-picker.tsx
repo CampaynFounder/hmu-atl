@@ -1,10 +1,10 @@
 'use client';
 
-// Viewer landing for granted admins. Shows the dashboards they're allowed
-// to see, plus a user search to bind one of those dashboards to a target.
-// Picking (dashboard, user) navigates to /admin/users/[id]?dashboard=<slug>.
-//
-// Editors get a "Manage" link to the builder via the parent server component.
+// Viewer landing for granted admins. Lists every dashboard the admin can
+// see (granted via admin_dashboard_role_grants, plus always-visible
+// builtins) as a clickable card. user_grid dashboards open the grid view;
+// user_detail dashboards (legacy) link to the user-bound view via the user
+// search route.
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -23,16 +23,9 @@ interface DashboardCard {
 
 export function DashboardViewerPicker({ dashboards }: { dashboards: DashboardCard[] }) {
   const router = useRouter();
-  const [pickedDashboard, setPickedDashboard] = useState<DashboardCard | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const onUserSelect = (user: AdminUserSearchResult) => {
-    if (!pickedDashboard) {
-      setError('Pick a dashboard first.');
-      return;
-    }
-    router.push(`/admin/users/${user.id}?dashboard=${encodeURIComponent(pickedDashboard.slug)}`);
-  };
+  // Only set when an admin clicks a user_detail dashboard — that flow still
+  // needs a user binding. Otherwise the viewer-picker is just a list.
+  const [pickedDetailDashboard, setPickedDetailDashboard] = useState<DashboardCard | null>(null);
 
   if (dashboards.length === 0) {
     return (
@@ -45,76 +38,53 @@ export function DashboardViewerPicker({ dashboards }: { dashboards: DashboardCar
     );
   }
 
-  // user_grid dashboards stand alone — no user binding required.
-  // user_detail dashboards still need a user picker (legacy).
-  const needsPicker = pickedDashboard?.scope === 'user_detail';
+  const onUserSelect = (user: AdminUserSearchResult) => {
+    if (!pickedDetailDashboard) return;
+    router.push(`/admin/users/${user.id}?dashboard=${encodeURIComponent(pickedDetailDashboard.slug)}`);
+  };
 
   return (
-    <div className="space-y-4">
-      <div>
-        <div className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--admin-text-muted)' }}>
-          Pick a dashboard
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {dashboards.map((d) => {
-            const active = pickedDashboard?.id === d.id;
-            // user_grid dashboards open straight away — clicking is a navigation,
-            // not just a "pick" for the next step.
-            if (d.scope === 'user_grid') {
-              return (
-                <Link
-                  key={d.id}
-                  href={`/admin/dashboards/${d.id}/view`}
-                  className="text-left rounded-lg p-3 transition-colors block"
-                  style={{
-                    background: 'var(--admin-bg-elevated)',
-                    border: '1px solid var(--admin-border)',
-                    color: 'var(--admin-text)',
-                  }}
-                >
-                  <CardHeader d={d} />
-                  <div className="text-[10px] mt-1.5 flex items-center gap-1" style={{ color: '#60a5fa' }}>
-                    Open grid →
-                  </div>
-                </Link>
-              );
-            }
-            return (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => { setPickedDashboard(d); setError(null); }}
-                className="text-left rounded-lg p-3 transition-colors"
-                style={{
-                  background: active ? 'rgba(96, 165, 250, 0.08)' : 'var(--admin-bg-elevated)',
-                  border: `1px solid ${active ? '#60a5fa' : 'var(--admin-border)'}`,
-                  color: 'var(--admin-text)',
-                }}
-              >
-                <CardHeader d={d} />
-              </button>
-            );
-          })}
-        </div>
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {dashboards.map((d) =>
+          d.scope === 'user_grid' ? (
+            <Link
+              key={d.id}
+              href={`/admin/dashboards/${d.id}/view`}
+              className="text-left rounded-lg p-3 block transition-colors hover:border-[#60a5fa]"
+              style={{ background: 'var(--admin-bg-elevated)', border: '1px solid var(--admin-border)', color: 'var(--admin-text)' }}
+            >
+              <CardHeader d={d} />
+              <div className="text-[10px] mt-1.5" style={{ color: '#60a5fa' }}>Open grid →</div>
+            </Link>
+          ) : (
+            <button
+              key={d.id}
+              type="button"
+              onClick={() => setPickedDetailDashboard(d)}
+              className="text-left rounded-lg p-3 transition-colors"
+              style={{
+                background: pickedDetailDashboard?.id === d.id ? 'rgba(96, 165, 250, 0.08)' : 'var(--admin-bg-elevated)',
+                border: `1px solid ${pickedDetailDashboard?.id === d.id ? '#60a5fa' : 'var(--admin-border)'}`,
+                color: 'var(--admin-text)',
+              }}
+            >
+              <CardHeader d={d} />
+              <div className="text-[10px] mt-1.5" style={{ color: 'var(--admin-text-muted)' }}>Per-user view — pick a user below</div>
+            </button>
+          ),
+        )}
       </div>
 
-      {needsPicker && (
-        <div>
-          <div className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--admin-text-muted)' }}>
-            Pick a user (this dashboard is per-user)
-          </div>
-          <div
-            className="rounded-lg p-3"
-            style={{ background: 'var(--admin-bg-elevated)', border: '1px solid var(--admin-border)' }}
-          >
-            <UserSearchPicker
-              onSelect={onUserSelect}
-              placeholder={`Search users to view "${pickedDashboard!.label}"…`}
-            />
-          </div>
-          {error && (
-            <p className="text-[11px] mt-2" style={{ color: '#f87171' }}>{error}</p>
-          )}
+      {pickedDetailDashboard && (
+        <div
+          className="rounded-lg p-3"
+          style={{ background: 'var(--admin-bg-elevated)', border: '1px solid var(--admin-border)' }}
+        >
+          <UserSearchPicker
+            onSelect={onUserSelect}
+            placeholder={`Search users to view "${pickedDetailDashboard.label}"…`}
+          />
         </div>
       )}
     </div>

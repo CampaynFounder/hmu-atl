@@ -11,6 +11,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { GridColumnBuilder } from './grid-column-builder';
 
 interface FieldMetadata {
   key: string;
@@ -147,7 +148,7 @@ export function DashboardForm({
 
     if (sections.some((s) => s.field_keys.length === 0)) {
       setSubmitting(false);
-      setError('Each section needs at least one field.');
+      setError(scope === 'user_grid' ? 'Add at least one column.' : 'Each section needs at least one field.');
       return;
     }
 
@@ -262,43 +263,51 @@ export function DashboardForm({
         </Field>
       </Section>
 
-      <Section title={scope === 'user_grid' ? `Columns (${sections[0]?.field_keys.length ?? 0})` : `Sections (${sections.length})`}>
-        <p className="text-xs mb-3" style={{ color: 'var(--admin-text-muted)' }}>
-          {scope === 'user_grid'
-            ? 'Pick the fields to render as columns. Order = column order. Only grid-eligible fields are listed.'
-            : 'A section groups fields under one label. Pick fields from the palette below each section.'}
-        </p>
-        <div className="space-y-3 mb-3">
-          {sections.map((s, i) => (
-            <SectionEditor
-              key={i}
-              index={i}
-              section={s}
-              registry={fieldRegistry}
-              categoryOrder={categoryOrder}
-              fieldByKey={fieldByKey}
-              isFirst={i === 0}
-              isLast={i === sections.length - 1}
-              scope={scope}
-              onMove={(d) => moveSection(i, d)}
-              onRemove={() => removeSection(i)}
-              onPatch={(p) => patchSection(i, p)}
-              onToggleField={(k) => toggleFieldInSection(i, k)}
-              onMoveField={(fi, d) => moveFieldInSection(i, fi, d)}
-            />
-          ))}
-        </div>
-        {scope !== 'user_grid' && (
-        <button
-          type="button"
-          onClick={addSection}
-          className="text-xs px-3 py-1.5 rounded font-medium"
-          style={{ background: 'var(--admin-bg)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}
-        >
-          + Add section
-        </button>
-        )}
-      </Section>
+      {scope === 'user_grid' ? (
+        <GridColumnBuilder
+          fieldKeys={sections[0]?.field_keys ?? []}
+          onChange={(next) => {
+            // Grid stores everything in a single section; collapse if more than 1.
+            setSections([{ label: sections[0]?.label ?? '', field_keys: next, col_span: 12 }]);
+          }}
+          registry={fieldRegistry}
+          categoryOrder={categoryOrder}
+        />
+      ) : (
+        <Section title={`Sections (${sections.length})`}>
+          <p className="text-xs mb-3" style={{ color: 'var(--admin-text-muted)' }}>
+            A section groups fields under one label. Pick fields from the palette below each section.
+          </p>
+          <div className="space-y-3 mb-3">
+            {sections.map((s, i) => (
+              <SectionEditor
+                key={i}
+                index={i}
+                section={s}
+                registry={fieldRegistry}
+                categoryOrder={categoryOrder}
+                fieldByKey={fieldByKey}
+                isFirst={i === 0}
+                isLast={i === sections.length - 1}
+                scope={scope}
+                onMove={(d) => moveSection(i, d)}
+                onRemove={() => removeSection(i)}
+                onPatch={(p) => patchSection(i, p)}
+                onToggleField={(k) => toggleFieldInSection(i, k)}
+                onMoveField={(fi, d) => moveFieldInSection(i, fi, d)}
+              />
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={addSection}
+            className="text-xs px-3 py-1.5 rounded font-medium"
+            style={{ background: 'var(--admin-bg)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}
+          >
+            + Add section
+          </button>
+        </Section>
+      )}
 
       <Section title={`Role grants (${roleIds.length})`}>
         <p className="text-xs mb-3" style={{ color: 'var(--admin-text-muted)' }}>

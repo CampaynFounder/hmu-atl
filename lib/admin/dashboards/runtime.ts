@@ -88,7 +88,7 @@ export async function loadDashboardById(id: string): Promise<DashboardWithSectio
 
 // ─── Access ────────────────────────────────────────────────────────────────
 
-const ALWAYS_VISIBLE_BUILTIN_SLUGS = new Set(['default-user-profile']);
+const ALWAYS_VISIBLE_BUILTIN_SLUGS = new Set(['default-user-profile', 'all-users']);
 
 export async function canViewDashboard(
   admin: AdminUser,
