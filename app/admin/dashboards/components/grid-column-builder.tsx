@@ -112,35 +112,56 @@ export function GridColumnBuilder({
   }, [fieldKeys, selectedMarketId]);
 
   // ─── Drag handlers ─────────────────────────────────────────────────────
+  // overIndex is a *gap* index, semantically: 0 = before first row,
+  // fieldKeys.length = after last row. Drop at overIndex inserts there.
   const onPaletteDragStart = (key: string) => () => setDraggingFrom({ kind: 'palette', key });
   const onColumnDragStart = (key: string) => () => setDraggingFrom({ kind: 'columns', key });
   const onDragEnd = () => { setDraggingFrom(null); setOverIndex(null); };
 
-  const onColumnsDragOver = (i: number) => (e: React.DragEvent) => {
+  // Compute insertion gap index from cursor Y relative to the row's bounding rect.
+  // Top half → before this row (i); bottom half → after this row (i+1).
+  const onRowDragOver = (i: number) => (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    setOverIndex(i);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const beforeHalf = (e.clientY - rect.top) < rect.height / 2;
+    setOverIndex(beforeHalf ? i : i + 1);
   };
-  const onColumnsDrop = (i: number) => (e: React.DragEvent) => {
-    e.preventDefault();
+
+  // For dropping past the last row (in the empty area below the list).
+  const onContainerDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (fieldKeys.length === 0) {
+      e.preventDefault();
+      setOverIndex(0);
+    }
+  };
+
+  const performDrop = () => {
     const from = draggingFrom;
+    const target = overIndex;
     setDraggingFrom(null);
     setOverIndex(null);
-    if (!from) return;
+    if (!from || target === null) return;
     if (from.kind === 'palette') {
-      // Insert at i
       const next = [...fieldKeys];
-      next.splice(i, 0, from.key);
+      next.splice(target, 0, from.key);
       onChange(next);
-    } else {
-      const fromIdx = fieldKeys.indexOf(from.key);
-      if (fromIdx < 0 || fromIdx === i) return;
-      const next = [...fieldKeys];
-      next.splice(fromIdx, 1);
-      // Adjust target if removing earlier item shifts indices
-      const insertAt = fromIdx < i ? i - 1 : i;
-      next.splice(insertAt, 0, from.key);
-      onChange(next);
+      return;
     }
+    const fromIdx = fieldKeys.indexOf(from.key);
+    if (fromIdx < 0) return;
+    // No-op if dropping in the same gap or the gap immediately after itself.
+    if (target === fromIdx || target === fromIdx + 1) return;
+    const next = [...fieldKeys];
+    next.splice(fromIdx, 1);
+    // Removing fromIdx shifts later indices left by one.
+    const insertAt = fromIdx < target ? target - 1 : target;
+    next.splice(insertAt, 0, from.key);
+    onChange(next);
+  };
+
+  const onContainerDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    performDrop();
   };
 
   const removeColumn = (key: string) => {
@@ -221,44 +242,50 @@ export function GridColumnBuilder({
           <div
             className="rounded p-2 min-h-[120px]"
             style={{ background: 'var(--admin-bg)', border: '1px dashed var(--admin-border)' }}
-            onDragOver={(e) => { e.preventDefault(); setOverIndex(fieldKeys.length); }}
-            onDrop={onColumnsDrop(fieldKeys.length)}
+            onDragOver={onContainerDragOver}
+            onDrop={onContainerDrop}
           >
             {fieldKeys.length === 0 ? (
               <div className="text-[11px] text-center py-6" style={{ color: 'var(--admin-text-muted)' }}>
                 Drag a field here, or click any field on the left to add it.
               </div>
             ) : (
-              <ul className="space-y-1">
+              <ul>
+                {/* Gap before the first row. */}
+                <DropGap active={overIndex === 0} />
                 {fieldKeys.map((key, i) => {
                   const f = fieldByKey.get(key);
+                  const isDragging = draggingFrom?.kind === 'columns' && draggingFrom.key === key;
                   return (
-                    <li
-                      key={key}
-                      draggable
-                      onDragStart={onColumnDragStart(key)}
-                      onDragEnd={onDragEnd}
-                      onDragOver={onColumnsDragOver(i)}
-                      onDrop={onColumnsDrop(i)}
-                      className="flex items-center gap-2 px-2 py-1.5 rounded cursor-grab active:cursor-grabbing"
-                      style={{
-                        background: 'var(--admin-bg-elevated)',
-                        border: `1px solid ${overIndex === i ? '#60a5fa' : 'var(--admin-border)'}`,
-                        color: 'var(--admin-text)',
-                      }}
-                    >
-                      <span className="text-[10px] opacity-50 w-5">{i + 1}.</span>
-                      <span className="text-xs flex-1">{f?.label ?? key}</span>
-                      <code className="text-[10px]" style={{ color: 'var(--admin-text-muted)' }}>{key}</code>
-                      <button
-                        type="button"
-                        onClick={() => removeColumn(key)}
-                        className="text-xs px-1.5 hover:opacity-100 opacity-60"
-                        style={{ color: '#f87171' }}
-                        aria-label={`Remove ${f?.label ?? key}`}
+                    <li key={key} className="contents">
+                      <div
+                        draggable
+                        onDragStart={onColumnDragStart(key)}
+                        onDragEnd={onDragEnd}
+                        onDragOver={onRowDragOver(i)}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded cursor-grab active:cursor-grabbing"
+                        style={{
+                          background: 'var(--admin-bg-elevated)',
+                          border: '1px solid var(--admin-border)',
+                          color: 'var(--admin-text)',
+                          opacity: isDragging ? 0.4 : 1,
+                        }}
                       >
-                        ×
-                      </button>
+                        <span className="text-[10px] opacity-50 w-5">{i + 1}.</span>
+                        <span className="text-xs flex-1">{f?.label ?? key}</span>
+                        <code className="text-[10px]" style={{ color: 'var(--admin-text-muted)' }}>{key}</code>
+                        <button
+                          type="button"
+                          onClick={() => removeColumn(key)}
+                          className="text-xs px-1.5 hover:opacity-100 opacity-60"
+                          style={{ color: '#f87171' }}
+                          aria-label={`Remove ${f?.label ?? key}`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      {/* Gap below this row (i.e. insertion index i+1). */}
+                      <DropGap active={overIndex === i + 1} />
                     </li>
                   );
                 })}
@@ -326,6 +353,21 @@ export function GridColumnBuilder({
         )}
       </div>
     </div>
+  );
+}
+
+function DropGap({ active }: { active: boolean }) {
+  return (
+    <div
+      aria-hidden
+      style={{
+        height: active ? 6 : 4,
+        margin: '2px 0',
+        borderRadius: 3,
+        background: active ? '#60a5fa' : 'transparent',
+        transition: 'background 80ms, height 80ms',
+      }}
+    />
   );
 }
 
