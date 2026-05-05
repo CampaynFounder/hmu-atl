@@ -1,18 +1,45 @@
-User-Agent: *
-Allow: /
-Allow: /driver
-Allow: /rider
-Allow: /rider/browse
-Allow: /privacy
-Allow: /terms
-Allow: /blog
-Allow: /blog/
-Allow: /guide/
-Allow: /d/
-Allow: /sign-in
-Allow: /sign-up
+# Social media crawlers — full access. Listed FIRST so any parser that stops
+# at the first matching group still picks up the carve-out before falling
+# into the wildcard rules below. Required for OG/Twitter/LinkedIn/iMessage
+# previews because the og:image route lives under /api/, which the wildcard
+# group disallows.
 
-# Auth-only or per-user surfaces — keep them out of search index.
+User-agent: facebookexternalhit
+Allow: /
+
+User-agent: meta-externalagent
+Allow: /
+
+User-agent: Facebot
+Allow: /
+
+User-agent: Twitterbot
+Allow: /
+
+User-agent: LinkedInBot
+Allow: /
+
+User-agent: Slackbot
+Allow: /
+
+User-agent: Slackbot-LinkExpanding
+Allow: /
+
+User-agent: WhatsApp
+Allow: /
+
+User-agent: Discordbot
+Allow: /
+
+User-agent: TelegramBot
+Allow: /
+
+User-agent: Applebot
+Allow: /
+
+# General crawlers (Google, Bing, etc).
+User-agent: *
+Allow: /api/og/
 Disallow: /driver/home
 Disallow: /driver/feed
 Disallow: /driver/go-live
@@ -29,45 +56,6 @@ Disallow: /ride/
 Disallow: /admin/
 Disallow: /auth-callback
 Disallow: /pending
-
-# /api/ is generally off-limits, but social scrapers need /api/og/* for the
-# OG image routes used in og:image meta tags. Allow rule is intentionally
-# more specific than the Disallow so it wins for /api/og/*.
-Allow: /api/og/
 Disallow: /api/
-
-# Social media crawlers — explicitly allowlisted so OG/Twitter/LinkedIn
-# previews work even though /api/* is blocked for general crawlers.
-# Facebook's debugger reports "robots.txt block" → 403 if these are
-# missing, even when the page itself returns 200 to their UA.
-User-Agent: facebookexternalhit
-Allow: /
-
-User-Agent: meta-externalagent
-Allow: /
-
-User-Agent: Facebot
-Allow: /
-
-User-Agent: Twitterbot
-Allow: /
-
-User-Agent: LinkedInBot
-Allow: /
-
-User-Agent: Slackbot
-Allow: /
-
-User-Agent: Slackbot-LinkExpanding
-Allow: /
-
-User-Agent: WhatsApp
-Allow: /
-
-User-Agent: Discordbot
-Allow: /
-
-User-Agent: TelegramBot
-Allow: /
 
 Sitemap: https://atl.hmucashride.com/sitemap.xml
