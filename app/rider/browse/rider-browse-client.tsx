@@ -62,7 +62,7 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize, is
 
   const showBlocker = isFirstTime && paymentChecked && hasPaymentMethod === false;
 
-  const { view, setView, hydrated } = useViewMode(VIEW_STORAGE_KEY);
+  const { view, setView, hydrated } = useViewMode(VIEW_STORAGE_KEY, 'grid');
 
   // Rider geolocation for the live distance badge. Distance is computed
   // server-side from these coords + the driver's last published point;
