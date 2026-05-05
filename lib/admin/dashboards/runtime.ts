@@ -87,15 +87,16 @@ export async function loadDashboardById(id: string): Promise<DashboardWithSectio
 }
 
 // ─── Access ────────────────────────────────────────────────────────────────
-
-const ALWAYS_VISIBLE_BUILTIN_SLUGS = new Set(['default-user-profile', 'all-users']);
+// Strict grant-only visibility for non-super admins. Every dashboard a role
+// can see must have a row in admin_dashboard_role_grants. No implicit "always
+// visible" builtins, no permission-derived auto-grants — the roles UI is the
+// single source of truth.
 
 export async function canViewDashboard(
   admin: AdminUser,
   dashboard: { id: string; slug: string; is_builtin: boolean },
 ): Promise<boolean> {
   if (admin.is_super) return true;
-  if (dashboard.is_builtin && ALWAYS_VISIBLE_BUILTIN_SLUGS.has(dashboard.slug)) return true;
   // admin.admin_role_id is set by requireAdmin (and overridden by preview-swap),
   // so this naturally honors "Preview as <role>".
   if (!admin.admin_role_id) return false;
@@ -118,15 +119,14 @@ export async function listAccessibleDashboards(
       ORDER BY is_builtin DESC, label ASC`;
     return rows.map(rowToDashboard);
   }
-  const alwaysVisible = Array.from(ALWAYS_VISIBLE_BUILTIN_SLUGS);
+  if (!admin.admin_role_id) return [];
   const rows = await sql`
-    SELECT DISTINCT d.id, d.slug, d.label, d.description, d.scope, d.market_id, d.is_builtin,
+    SELECT d.id, d.slug, d.label, d.description, d.scope, d.market_id, d.is_builtin,
            d.created_by, d.created_at, d.updated_at
     FROM admin_dashboards d
-    LEFT JOIN admin_dashboard_role_grants g
+    INNER JOIN admin_dashboard_role_grants g
       ON g.dashboard_id = d.id AND g.role_id = ${admin.admin_role_id}
     WHERE d.scope = ${scope}
-      AND (g.role_id IS NOT NULL OR (d.is_builtin = TRUE AND d.slug = ANY(${alwaysVisible}::text[])))
     ORDER BY d.is_builtin DESC, d.label ASC`;
   return rows.map(rowToDashboard);
 }

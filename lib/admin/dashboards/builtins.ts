@@ -23,17 +23,6 @@ interface BuiltinDashboard {
   description: string;
   scope: DashboardScope;
   sections: BuiltinSection[];
-  /**
-   * Permissions whose holders should be granted access at seed time. Any role
-   * with a matching `<slug>.view`, `.edit`, or `.publish` permission gets a
-   * grant row. Empty array = builtin has no auto-grants (super-only until the
-   * roles matrix is used to grant manually).
-   *
-   * NOTE: this is a one-shot at seed time — new roles with the permission do
-   * NOT automatically receive a grant later. Use the roles matrix to manage
-   * grants going forward.
-   */
-  default_grant_permissions: string[];
 }
 
 const IDENTITY_BASICS = [
@@ -104,8 +93,6 @@ export const BUILTIN_DASHBOARDS: BuiltinDashboard[] = [
         col_span: 12,
       },
     ],
-    // Always-visible — bypasses the grant table via ALWAYS_VISIBLE_BUILTIN_SLUGS.
-    default_grant_permissions: [],
   },
   {
     slug: 'default-user-profile',
@@ -117,9 +104,6 @@ export const BUILTIN_DASHBOARDS: BuiltinDashboard[] = [
       { label: 'Driver coverage', field_keys: ['driver.area_slugs', 'driver.services_entire_market', 'driver.accepts_long_distance'], col_span: 6 },
       { label: 'Rider areas', field_keys: ['rider.home_area', 'rider.recent_post_areas'], col_span: 6 },
     ],
-    // Always-visible — bypasses the grant table via ALWAYS_VISIBLE_BUILTIN_SLUGS
-    // in runtime.ts.
-    default_grant_permissions: [],
   },
   {
     slug: 'support-user-overview',
@@ -133,7 +117,6 @@ export const BUILTIN_DASHBOARDS: BuiltinDashboard[] = [
       { label: 'Recent rides', field_keys: ['collection.recent_rides'], col_span: 12 },
       { label: 'Notes', field_keys: ['collection.admin_notes'], col_span: 12 },
     ],
-    default_grant_permissions: ['act.support', 'act.users'],
   },
   {
     slug: 'safety-user-review',
@@ -157,9 +140,6 @@ export const BUILTIN_DASHBOARDS: BuiltinDashboard[] = [
       { label: 'Disputes', field_keys: ['collection.recent_disputes'], col_span: 12 },
       { label: 'Recent rides', field_keys: ['collection.recent_rides'], col_span: 12 },
     ],
-    // No `act.safety` slug exists today (/admin/safety is super-only). Use
-    // act.disputes as a proxy until safety has its own slug.
-    default_grant_permissions: ['act.disputes'],
   },
   {
     slug: 'driver-coverage-review',
@@ -177,7 +157,6 @@ export const BUILTIN_DASHBOARDS: BuiltinDashboard[] = [
       { label: 'Ratings', field_keys: RATINGS_BASICS, col_span: 6 },
       { label: 'Verification', field_keys: VERIFICATION_BASICS, col_span: 6 },
     ],
-    default_grant_permissions: ['monitor.liveops', 'grow.outreach'],
   },
   {
     slug: 'rider-history',
@@ -195,7 +174,6 @@ export const BUILTIN_DASHBOARDS: BuiltinDashboard[] = [
       { label: 'Recent rides', field_keys: ['collection.recent_rides'], col_span: 12 },
       { label: 'Notes', field_keys: ['collection.admin_notes'], col_span: 12 },
     ],
-    default_grant_permissions: ['act.support', 'act.users'],
   },
 ];
 
@@ -207,6 +185,10 @@ export const BUILTIN_DASHBOARDS: BuiltinDashboard[] = [
  * Section reconciliation does a full delete + insert (delete all sections for
  * the dashboard, re-insert from BUILTIN_DASHBOARDS). Simpler than per-row
  * diffing and the row count is tiny.
+ *
+ * Does NOT touch admin_dashboard_role_grants — the roles UI is the single
+ * source of truth for who can view what. Grant changes made there persist
+ * across reconciles and deploys.
  */
 export async function reconcileBuiltinDashboards(): Promise<void> {
   for (const def of BUILTIN_DASHBOARDS) {
@@ -236,25 +218,6 @@ export async function reconcileBuiltinDashboards(): Promise<void> {
           ${i},
           ${s.col_span ?? 12}
         )
-      `;
-    }
-
-    // Default grants — one-shot at seed time. Grant any role whose
-    // permissions[] contains <slug>.view / .edit / .publish for any of the
-    // permissions listed. ON CONFLICT DO NOTHING means re-running the
-    // reconciler doesn't grant the same dashboard twice or override manual
-    // revocations.
-    if (def.default_grant_permissions.length > 0) {
-      const expanded = def.default_grant_permissions.flatMap((slug) => [
-        `${slug}.view`, `${slug}.edit`, `${slug}.publish`,
-      ]);
-      await sql`
-        INSERT INTO admin_dashboard_role_grants (dashboard_id, role_id)
-        SELECT ${dashboardId}, ar.id
-        FROM admin_roles ar
-        WHERE ar.is_super = FALSE
-          AND ar.permissions && ${expanded}::text[]
-        ON CONFLICT (dashboard_id, role_id) DO NOTHING
       `;
     }
   }
