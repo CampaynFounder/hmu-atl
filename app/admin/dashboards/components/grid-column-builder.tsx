@@ -296,7 +296,6 @@ export function GridColumnBuilder({
             <table className="w-full text-xs">
               <thead>
                 <tr style={{ background: 'var(--admin-bg)' }}>
-                  <th className="text-[10px] uppercase tracking-wider font-semibold px-2 py-1 text-left whitespace-nowrap" style={{ color: 'var(--admin-text-muted)' }}>User</th>
                   {fieldKeys.map((k) => (
                     <th key={k} className="text-[10px] uppercase tracking-wider font-semibold px-2 py-1 text-left whitespace-nowrap" style={{ color: 'var(--admin-text-muted)' }}>
                       {fieldByKey.get(k)?.label ?? k}
@@ -307,10 +306,6 @@ export function GridColumnBuilder({
               <tbody>
                 {previewRows.map((r) => (
                   <tr key={r.id} className="border-t" style={{ borderColor: 'var(--admin-border)' }}>
-                    <td className="px-2 py-1.5 text-[11px] whitespace-nowrap">
-                      <code style={{ color: 'var(--admin-text-muted)' }}>{r.id.substring(0, 8)}…</code>
-                      <div className="text-[10px]" style={{ color: 'var(--admin-text-muted)' }}>{r.profile_type}</div>
-                    </td>
                     {fieldKeys.map((k) => (
                       <td key={k} className="px-2 py-1.5 text-[11px] whitespace-nowrap">
                         <PreviewCell value={r.values[k]} error={r.errors[k]} />
@@ -320,7 +315,7 @@ export function GridColumnBuilder({
                 ))}
                 {previewRows.length === 0 && !previewLoading && (
                   <tr>
-                    <td colSpan={fieldKeys.length + 1} className="px-2 py-3 text-center text-[11px]" style={{ color: 'var(--admin-text-muted)' }}>
+                    <td colSpan={fieldKeys.length} className="px-2 py-3 text-center text-[11px]" style={{ color: 'var(--admin-text-muted)' }}>
                       No users matched.
                     </td>
                   </tr>

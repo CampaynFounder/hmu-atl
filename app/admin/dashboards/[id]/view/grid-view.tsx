@@ -4,7 +4,6 @@
 // fetch/render loop. Cell rendering uses each FieldDefinition's `Cell` if
 // declared, falling back to a generic value-as-text cell.
 
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useMarket } from '@/app/admin/components/market-context';
 import { getField } from '@/lib/admin/dashboards/fields/registry';
@@ -143,7 +142,9 @@ export function GridView({ dashboardId, columns }: { dashboardId: string; column
         </div>
       )}
 
-      {/* Table */}
+      {/* Table — columns are entirely driven by the dashboard config.
+          Each row links to /admin/users/[id] so click-through doesn't need
+          a dedicated id column. */}
       <div
         className="rounded-lg overflow-x-auto"
         style={{ background: 'var(--admin-bg-elevated)', border: '1px solid var(--admin-border)' }}
@@ -151,7 +152,6 @@ export function GridView({ dashboardId, columns }: { dashboardId: string; column
         <table className="w-full text-xs">
           <thead>
             <tr style={{ background: 'var(--admin-bg)' }}>
-              <Th>User</Th>
               {visibleColumns.map((c) => (
                 <Th key={c.key} title={c.description}>{c.label}</Th>
               ))}
@@ -159,19 +159,14 @@ export function GridView({ dashboardId, columns }: { dashboardId: string; column
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id} className="border-t" style={{ borderColor: 'var(--admin-border)' }}>
-                <Td>
-                  <Link
-                    href={`/admin/users/${row.id}`}
-                    className="text-xs font-medium"
-                    style={{ color: '#60a5fa' }}
-                  >
-                    {row.id.substring(0, 8)}…
-                  </Link>
-                  <div className="text-[10px]" style={{ color: 'var(--admin-text-muted)' }}>
-                    {row.profile_type}
-                  </div>
-                </Td>
+              <tr
+                key={row.id}
+                className="border-t cursor-pointer transition-colors"
+                style={{ borderColor: 'var(--admin-border)' }}
+                onClick={() => { window.location.href = `/admin/users/${row.id}`; }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--admin-bg)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = ''; }}
+              >
                 {visibleColumns.map((c) => (
                   <Td key={c.key}>
                     <CellRenderer fieldKey={c.key} row={row} />
@@ -181,7 +176,7 @@ export function GridView({ dashboardId, columns }: { dashboardId: string; column
             ))}
             {rows.length === 0 && !loading && (
               <tr>
-                <td className="p-6 text-center text-xs" colSpan={visibleColumns.length + 1} style={{ color: 'var(--admin-text-muted)' }}>
+                <td className="p-6 text-center text-xs" colSpan={visibleColumns.length} style={{ color: 'var(--admin-text-muted)' }}>
                   No users match the current filters.
                 </td>
               </tr>
