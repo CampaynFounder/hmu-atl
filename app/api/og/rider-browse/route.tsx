@@ -1,5 +1,4 @@
 import { ImageResponse } from 'next/og';
-import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
 
 // Custom OG card for /rider/browse — a 3x2 grid of driver photos,
@@ -27,8 +26,47 @@ const BLUR_RADIUS = 35;
 // Oversample candidates so a few cf.image failures don't shrink the grid.
 const QUERY_LIMIT = 24;
 
-function fallback(req: NextRequest) {
-  return NextResponse.redirect(new URL('/og-image.jpeg', req.url), 302);
+// Photo-less fallback — used when the DB query returns zero rows or every
+// cf.image transform fails. We DO NOT redirect to /og-image.jpeg here; that
+// gets the homepage logo permanently cached by Facebook/Twitter/LinkedIn as
+// the OG image for /rider/browse, which is the wrong card. Render an inline
+// "BROWSE DRIVERS" card with the brand gradient instead — different enough
+// from the logo that scrapers can't conflate them, distinct enough that we
+// can spot it in social previews if it ever fires in prod.
+function noPhotosCard(): Response {
+  return new ImageResponse(
+    <div style={{
+      width: '100%', height: '100%',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      background: 'radial-gradient(ellipse at 50% 30%, #1a1a1a 0%, #080808 70%)',
+      fontFamily: 'sans-serif',
+    }}>
+      <div style={{
+        background: '#00E676', color: '#080808',
+        fontSize: '20px', fontWeight: 800,
+        padding: '8px 22px', borderRadius: '100px',
+        letterSpacing: '3px', marginBottom: '24px',
+      }}>HMU ATL</div>
+      <div style={{
+        fontSize: '108px', fontWeight: 900, color: '#ffffff',
+        lineHeight: 1, letterSpacing: '-2px', textAlign: 'center',
+      }}>BROWSE DRIVERS</div>
+      <div style={{
+        marginTop: '20px', fontSize: '28px', color: '#e6e6e6',
+        textAlign: 'center', maxWidth: '900px',
+      }}>Pick a driver. Send a request. Pull up.</div>
+      <div style={{
+        marginTop: '28px',
+        display: 'flex',
+        background: 'rgba(0,230,118,0.18)',
+        border: '2px solid rgba(0,230,118,0.5)',
+        color: '#00E676', fontSize: '18px', fontWeight: 700,
+        padding: '10px 18px', borderRadius: '100px', letterSpacing: '1px',
+      }}>atl.hmucashride.com/rider/browse</div>
+    </div>,
+    { width: 1200, height: 630 },
+  );
 }
 
 // Pull a transformed (resized + lightly blurred) JPEG from the source URL
@@ -64,7 +102,7 @@ async function fetchBlurredTile(url: string): Promise<string | null> {
   }
 }
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   // Pull a sample of drivers — same eligibility as /rider/browse but scoped
   // to those who have a vehicle photo so every tile renders with media.
   const rows = await sql`
@@ -83,12 +121,12 @@ export async function GET(req: NextRequest) {
     .map((r) => ((r.vehicle_info as Record<string, unknown> | null)?.photo_url as string | null))
     .filter((u: string | null): u is string => !!u);
 
-  if (photoUrls.length === 0) return fallback(req);
+  if (photoUrls.length === 0) return noPhotosCard();
 
   // Fetch all tiles in parallel — each one is independent.
   const tiles = await Promise.all(photoUrls.map(fetchBlurredTile));
   const usable = tiles.filter((t): t is string => !!t);
-  if (usable.length === 0) return fallback(req);
+  if (usable.length === 0) return noPhotosCard();
 
   // Build the final 16-tile array, cycling through whatever succeeded so
   // the grid is always full even if the query returned fewer than 16

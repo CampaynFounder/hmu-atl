@@ -17,7 +17,9 @@ const OG_DESCRIPTION = 'Pick a driver. Send a request. Pull up. Local Atlanta dr
 // Version param on the og:image URL so any social platform with a stuck
 // cached image fetches the new one as a different entity. Bump when the
 // rendering route changes substantively (template, layout, brand).
-const OG_IMAGE_URL = 'https://atl.hmucashride.com/api/og/rider-browse?v=2';
+// v=3: dropped the redirect-to-/og-image.jpeg fallback that was getting
+// the homepage logo permanently cached as the rider/browse OG image.
+const OG_IMAGE_URL = 'https://atl.hmucashride.com/api/og/rider-browse?v=3';
 
 export const metadata: Metadata = {
   title: OG_TITLE,
