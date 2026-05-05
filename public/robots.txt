@@ -2,6 +2,7 @@ User-Agent: *
 Allow: /
 Allow: /driver
 Allow: /rider
+Allow: /rider/browse
 Allow: /privacy
 Allow: /terms
 Allow: /blog
@@ -11,6 +12,7 @@ Allow: /d/
 Allow: /sign-in
 Allow: /sign-up
 
+# Auth-only or per-user surfaces — keep them out of search index.
 Disallow: /driver/home
 Disallow: /driver/feed
 Disallow: /driver/go-live
@@ -20,13 +22,52 @@ Disallow: /driver/payout-setup
 Disallow: /driver/rides
 Disallow: /driver/schedule
 Disallow: /rider/home
-Disallow: /rider/browse
 Disallow: /rider/profile
 Disallow: /rider/settings
+Disallow: /rider/booking-sent
 Disallow: /ride/
 Disallow: /admin/
 Disallow: /auth-callback
 Disallow: /pending
+
+# /api/ is generally off-limits, but social scrapers need /api/og/* for the
+# OG image routes used in og:image meta tags. Allow rule is intentionally
+# more specific than the Disallow so it wins for /api/og/*.
+Allow: /api/og/
 Disallow: /api/
+
+# Social media crawlers — explicitly allowlisted so OG/Twitter/LinkedIn
+# previews work even though /api/* is blocked for general crawlers.
+# Facebook's debugger reports "robots.txt block" → 403 if these are
+# missing, even when the page itself returns 200 to their UA.
+User-Agent: facebookexternalhit
+Allow: /
+
+User-Agent: meta-externalagent
+Allow: /
+
+User-Agent: Facebot
+Allow: /
+
+User-Agent: Twitterbot
+Allow: /
+
+User-Agent: LinkedInBot
+Allow: /
+
+User-Agent: Slackbot
+Allow: /
+
+User-Agent: Slackbot-LinkExpanding
+Allow: /
+
+User-Agent: WhatsApp
+Allow: /
+
+User-Agent: Discordbot
+Allow: /
+
+User-Agent: TelegramBot
+Allow: /
 
 Sitemap: https://atl.hmucashride.com/sitemap.xml
