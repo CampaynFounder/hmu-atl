@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { auth, clerkClient } from '@clerk/nextjs/server';
+import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { queryBrowseDrivers } from '@/lib/hmu/browse-drivers-query';
 import { getPlatformConfig } from '@/lib/platform-config/get';
@@ -52,7 +52,6 @@ export default async function RiderBrowsePage() {
   // Anon viewers get the page with default preference (no rider_profiles row
   // to read). The drawer routes them through draft-then-auth on submit.
   let driverPreference: string | null = null;
-  let isDriverProfile = false;
   if (clerkId) {
     const riderRows = await sql`
       SELECT rp.driver_preference
@@ -62,14 +61,6 @@ export default async function RiderBrowsePage() {
       LIMIT 1
     `;
     driverPreference = (riderRows[0]?.driver_preference as string | null) ?? null;
-    // Detect already-converted drivers so we can hide the recruit banner —
-    // there's no point pitching them. Read from Clerk publicMetadata since
-    // it's the same source the auth-callback router uses.
-    try {
-      const cc = await clerkClient();
-      const u = await cc.users.getUser(clerkId);
-      isDriverProfile = (u.publicMetadata?.profileType as string | undefined) === 'driver';
-    } catch { /* fall through — banner shows */ }
   }
 
   const [drivers, bannerRaw] = await Promise.all([
@@ -83,13 +74,17 @@ export default async function RiderBrowsePage() {
   ]);
   const bannerConfig = bannerRaw as unknown as RiderBrowseBannerConfig;
 
+  // Banner targets anon visitors only — once a user is signed in (rider or
+  // driver) they're already in the funnel; the recruit pitch becomes noise.
+  const hideBanner = !!clerkId;
+
   return (
     <RiderBrowseClient
       initialDrivers={drivers}
       initialBatchSize={INITIAL_BATCH}
       isAuthenticated={!!clerkId}
       bannerConfig={bannerConfig}
-      hideBannerForDriver={isDriverProfile}
+      hideBanner={hideBanner}
     />
   );
 }

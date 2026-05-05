@@ -25,7 +25,7 @@ interface Props {
   initialBatchSize: number;
   isAuthenticated?: boolean;
   bannerConfig?: RiderBrowseBannerConfig;
-  hideBannerForDriver?: boolean;
+  hideBanner?: boolean;
 }
 
 export default function RiderBrowseClient({
@@ -33,7 +33,7 @@ export default function RiderBrowseClient({
   initialBatchSize,
   isAuthenticated = true,
   bannerConfig,
-  hideBannerForDriver = false,
+  hideBanner = false,
 }: Props) {
   const [filterFwu, setFilterFwu] = useState(false);
   const [filterMaxPrice, setFilterMaxPrice] = useState('');
@@ -287,7 +287,7 @@ export default function RiderBrowseClient({
           padding: '56px 20px 12px',
         }}>
           {bannerConfig && (
-            <BrowseBanner config={bannerConfig} hideForDriver={hideBannerForDriver} />
+            <BrowseBanner config={bannerConfig} hide={hideBanner} />
           )}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h1 style={{

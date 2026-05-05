@@ -6,8 +6,9 @@ import type { RiderBrowseBannerConfig } from '@/lib/admin/rider-browse-banner';
 
 interface Props {
   config: RiderBrowseBannerConfig;
-  // Hide for already-converted drivers — the banner is a recruit pitch.
-  hideForDriver?: boolean;
+  // Hide once the user is signed in (rider or driver) — the banner is a
+  // recruit pitch for anon visitors. Already-funneled users don't need it.
+  hide?: boolean;
 }
 
 const DISMISS_KEY = 'hmu_browse_banner_dismissed';
@@ -18,11 +19,12 @@ const DISMISS_KEY = 'hmu_browse_banner_dismissed';
  * Mobile-first (390px target) with desktop comfort up to ~640px width.
  *
  * - Skipped server-side when config.enabled === false (component never renders)
- * - Dismissible per session via sessionStorage so a returning rider doesn't
- *   see it five times an hour
+ * - Skipped for any signed-in user via the `hide` prop
+ * - Dismissible per session via sessionStorage so a returning anon visitor
+ *   doesn't see it five times an hour
  * - External http(s) URLs open in a new tab; internal paths stay in-tab
  */
-export default function BrowseBanner({ config, hideForDriver = false }: Props) {
+export default function BrowseBanner({ config, hide = false }: Props) {
   const [dismissed, setDismissed] = useState(false);
   // Hydration guard — sessionStorage is unavailable during SSR; render
   // unconditionally on the server, then hide once we know it's dismissed.
@@ -35,7 +37,7 @@ export default function BrowseBanner({ config, hideForDriver = false }: Props) {
     setHydrated(true);
   }, []);
 
-  if (!config.enabled || hideForDriver) return null;
+  if (!config.enabled || hide) return null;
   if (hydrated && dismissed) return null;
 
   const isExternal = /^https?:\/\//i.test(config.cta_url);
