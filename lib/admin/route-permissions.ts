@@ -87,6 +87,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/hmu-config',          rule: { kind: 'super' } },
   { pattern: '/admin/onboarding-config',   rule: { kind: 'super' } },
   { pattern: '/admin/realtime-notifications', rule: { kind: 'super' } },
+  { pattern: '/admin/rider-browse-banner',  rule: { kind: 'super' } },
   { pattern: '/admin/maintenance',         rule: { kind: 'super' } },
   { pattern: '/admin/voip-debug',          rule: { kind: 'super' } },
   { pattern: '/admin/chill-config',        rule: { kind: 'super' } },

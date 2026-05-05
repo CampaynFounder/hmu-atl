@@ -1,7 +1,13 @@
 import type { Metadata } from 'next';
-import { auth } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { queryBrowseDrivers } from '@/lib/hmu/browse-drivers-query';
+import { getPlatformConfig } from '@/lib/platform-config/get';
+import {
+  RIDER_BROWSE_BANNER_DEFAULTS,
+  RIDER_BROWSE_BANNER_KEY,
+  type RiderBrowseBannerConfig,
+} from '@/lib/admin/rider-browse-banner';
 import RiderBrowseClient from './rider-browse-client';
 
 export const dynamic = 'force-dynamic';
@@ -46,6 +52,7 @@ export default async function RiderBrowsePage() {
   // Anon viewers get the page with default preference (no rider_profiles row
   // to read). The drawer routes them through draft-then-auth on submit.
   let driverPreference: string | null = null;
+  let isDriverProfile = false;
   if (clerkId) {
     const riderRows = await sql`
       SELECT rp.driver_preference
@@ -55,15 +62,34 @@ export default async function RiderBrowsePage() {
       LIMIT 1
     `;
     driverPreference = (riderRows[0]?.driver_preference as string | null) ?? null;
+    // Detect already-converted drivers so we can hide the recruit banner —
+    // there's no point pitching them. Read from Clerk publicMetadata since
+    // it's the same source the auth-callback router uses.
+    try {
+      const cc = await clerkClient();
+      const u = await cc.users.getUser(clerkId);
+      isDriverProfile = (u.publicMetadata?.profileType as string | undefined) === 'driver';
+    } catch { /* fall through — banner shows */ }
   }
 
-  const drivers = await queryBrowseDrivers({ driverPreference }, 0, INITIAL_BATCH);
+  const [drivers, bannerRaw] = await Promise.all([
+    queryBrowseDrivers({ driverPreference }, 0, INITIAL_BATCH),
+    // getPlatformConfig requires Record<string,unknown> for the merge default;
+    // cast through unknown matches how other call sites in this repo handle it.
+    getPlatformConfig(
+      RIDER_BROWSE_BANNER_KEY,
+      RIDER_BROWSE_BANNER_DEFAULTS as unknown as Record<string, unknown>,
+    ),
+  ]);
+  const bannerConfig = bannerRaw as unknown as RiderBrowseBannerConfig;
 
   return (
     <RiderBrowseClient
       initialDrivers={drivers}
       initialBatchSize={INITIAL_BATCH}
       isAuthenticated={!!clerkId}
+      bannerConfig={bannerConfig}
+      hideBannerForDriver={isDriverProfile}
     />
   );
 }

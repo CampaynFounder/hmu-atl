@@ -12,8 +12,10 @@ import Chip from '@/components/hmu/browse/chip';
 import { FeedSkeleton, GridSkeleton } from '@/components/hmu/browse/skeletons';
 import { useInfiniteList } from '@/components/hmu/browse/use-infinite-list';
 import type { BrowseDriverRow } from '@/lib/hmu/browse-drivers-query';
+import type { RiderBrowseBannerConfig } from '@/lib/admin/rider-browse-banner';
 import BookingDrawer from './booking-drawer';
 import { FirstTimePaymentBlocker } from '@/components/rider/first-time-payment-blocker';
+import BrowseBanner from '@/components/rider/browse-banner';
 
 const VIEW_STORAGE_KEY = 'hmu_rider_browse_view';
 const PAGE_SIZE = 12;
@@ -22,9 +24,17 @@ interface Props {
   initialDrivers: BrowseDriverRow[];
   initialBatchSize: number;
   isAuthenticated?: boolean;
+  bannerConfig?: RiderBrowseBannerConfig;
+  hideBannerForDriver?: boolean;
 }
 
-export default function RiderBrowseClient({ initialDrivers, initialBatchSize, isAuthenticated = true }: Props) {
+export default function RiderBrowseClient({
+  initialDrivers,
+  initialBatchSize,
+  isAuthenticated = true,
+  bannerConfig,
+  hideBannerForDriver = false,
+}: Props) {
   const [filterFwu, setFilterFwu] = useState(false);
   const [filterMaxPrice, setFilterMaxPrice] = useState('');
   const [filterArea, setFilterArea] = useState('');
@@ -276,6 +286,9 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize, is
             : { position: 'sticky', top: 0, zIndex: 30, background: '#080808' }),
           padding: '56px 20px 12px',
         }}>
+          {bannerConfig && (
+            <BrowseBanner config={bannerConfig} hideForDriver={hideBannerForDriver} />
+          )}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h1 style={{
               fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",

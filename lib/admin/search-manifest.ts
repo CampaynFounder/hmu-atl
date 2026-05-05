@@ -340,6 +340,15 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     keywords: ['signup banner', 'super admin alert', 'live notification'],
   },
   {
+    id: 'rider-browse-banner',
+    label: 'Browse Banner',
+    description: 'Edit the driver-recruit banner on /rider/browse',
+    href: '/admin/rider-browse-banner',
+    section: 'System',
+    icon: '📣',
+    keywords: ['browse banner', 'driver recruit', 'rider page banner', 'apply here', 'cta'],
+  },
+  {
     id: 'maintenance',
     label: 'Maintenance',
     description: 'Run cleanup jobs and backfills',
