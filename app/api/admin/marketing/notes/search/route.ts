@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         WHERE n.body ILIKE ${pattern}
+          AND n.target_user_id IS NULL
         ORDER BY n.updated_at DESC
         LIMIT 50
       `) as SearchHit[]
@@ -55,7 +56,9 @@ export async function GET(req: NextRequest) {
         JOIN users u ON u.id = n.admin_id
         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-        WHERE n.admin_id = ${admin.id} AND n.body ILIKE ${pattern}
+        WHERE n.admin_id = ${admin.id}
+          AND n.body ILIKE ${pattern}
+          AND n.target_user_id IS NULL
         ORDER BY n.updated_at DESC
         LIMIT 50
       `) as SearchHit[];

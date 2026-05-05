@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { UserProfile } from './user-profile';
+import { useRouter } from 'next/navigation';
 import { PendingQueue } from './pending-queue';
 import { UserGrowthChart } from './user-growth-chart';
 import { useMarket } from '@/app/admin/components/market-context';
@@ -22,12 +22,12 @@ interface UserItem {
 }
 
 export function UserManagement() {
+  const router = useRouter();
   const [users, setUsers] = useState<UserItem[]>([]);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [visibilityFilter, setVisibilityFilter] = useState(''); // '' | 'visible' | 'hidden'
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [tab, setTab] = useState<'search' | 'growth' | 'pending'>('search');
   const [loading, setLoading] = useState(false);
   const { selectedMarketId } = useMarket();
@@ -80,20 +80,6 @@ export function UserManagement() {
       setUsers(prev => prev.map(u => (u.id === id ? { ...u, profileVisible: !next } : u)));
     }
   }, []);
-
-  if (selectedUserId) {
-    return (
-      <div>
-        <button
-          onClick={() => setSelectedUserId(null)}
-          className="text-xs text-neutral-500 hover:text-white mb-4 flex items-center gap-1"
-        >
-          &larr; Back to users
-        </button>
-        <UserProfile userId={selectedUserId} onBack={() => { setSelectedUserId(null); fetchUsers(); }} />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -204,7 +190,7 @@ export function UserManagement() {
                     users.map((user) => (
                       <tr
                         key={user.id}
-                        onClick={() => setSelectedUserId(user.id)}
+                        onClick={() => router.push(`/admin/users/${user.id}`)}
                         className="border-b border-neutral-800/50 hover:bg-white/5 cursor-pointer transition-colors"
                       >
                         <td className="p-3">

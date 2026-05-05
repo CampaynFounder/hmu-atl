@@ -20,10 +20,13 @@ interface NoteRow {
 const NOT_FOUND = NextResponse.json({ error: 'Note not found' }, { status: 404 });
 
 async function loadOwn(noteId: string, adminId: string): Promise<NoteRow | null> {
+  // Scoped to scratchpad notes only (target_user_id IS NULL). User-targeted
+  // notes get their own routes in Phase 1 when the user.admin_notes dashboard
+  // block ships, so the marketing endpoints never touch them.
   const rows = (await sql`
     SELECT id, admin_id, body, created_at, updated_at, archived_at
     FROM admin_notes
-    WHERE id = ${noteId} AND admin_id = ${adminId}
+    WHERE id = ${noteId} AND admin_id = ${adminId} AND target_user_id IS NULL
     LIMIT 1
   `) as NoteRow[];
   return rows[0] ?? null;

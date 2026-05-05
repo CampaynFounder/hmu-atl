@@ -42,6 +42,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN driver_profiles dp ON dp.user_id = u.id
       LEFT JOIN rider_profiles rp ON rp.user_id = u.id
       WHERE n.archived_at IS NULL
+        AND n.target_user_id IS NULL
       ORDER BY admin_name ASC, n.updated_at DESC
     `) as NoteWithAdmin[];
 
@@ -71,7 +72,9 @@ export async function GET(req: NextRequest) {
   const rows = (await sql`
     SELECT id, admin_id, body, created_at, updated_at, archived_at
     FROM admin_notes
-    WHERE admin_id = ${admin.id} AND archived_at IS NULL
+    WHERE admin_id = ${admin.id}
+      AND archived_at IS NULL
+      AND target_user_id IS NULL
     ORDER BY updated_at DESC
     LIMIT 1
   `) as NoteRow[];

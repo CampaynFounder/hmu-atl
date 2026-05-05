@@ -488,3 +488,51 @@ export interface PlatformSafetyConfig {
     speed_max_mph: number;
   };
 }
+
+// =============================================================================
+// Admin Dashboards (see docs/ADMIN-DASHBOARDS-SPEC.md)
+// =============================================================================
+export type DashboardScope = 'user_detail' | 'market_overview';
+
+export interface AdminDashboard {
+  id: string;
+  slug: string;
+  label: string;
+  description: string | null;
+  scope: DashboardScope;
+  market_id: string | null;
+  is_builtin: boolean;
+  created_by: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface AdminDashboardBlock {
+  id: string;
+  dashboard_id: string;
+  block_key: string;
+  config: Record<string, unknown>;
+  sort_order: number;
+  col_span: number;
+  created_at: Date;
+}
+
+export interface AdminDashboardRoleGrant {
+  dashboard_id: string;
+  role_id: string;
+  granted_by: string | null;
+  granted_at: Date;
+}
+
+// Compact shape returned by /api/admin/users/search — used by UserSearchPicker.
+export interface AdminUserSearchResult {
+  id: string;
+  clerk_id: string;
+  profile_type: ProfileType;
+  display_name: string | null;
+  handle: string | null;
+  phone: string | null;
+  market_id: string | null;
+  market_label: string | null;
+  account_status: AccountStatus;
+}

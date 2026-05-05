@@ -80,6 +80,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   // ── SYSTEM ──────────────────────────────────────────────────────────
   { pattern: '/admin/roles',               rule: { kind: 'permission', slug: 'admin.roles' } },
   { pattern: '/admin/audit',               rule: { kind: 'permission', slug: 'admin.audit' } },
+  { pattern: '/admin/dashboards',          rule: { kind: 'super' } }, // Phase 0: super-only builder. /[slug] viewer in Phase 2 will do its own grant check at the page level.
   { pattern: '/admin/markets',             rule: { kind: 'super' } },
   { pattern: '/admin/feature-flags',       rule: { kind: 'super' } },
   { pattern: '/admin/hmu-config',          rule: { kind: 'super' } },
