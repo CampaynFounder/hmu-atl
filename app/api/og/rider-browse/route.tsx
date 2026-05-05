@@ -14,11 +14,18 @@ import { sql } from '@/lib/db/client';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const TILE_W = 400;
-const TILE_H = 315;
-const GRID_COLS = 3;
-const GRID_ROWS = 2;
+// 4x4 grid covers the 1200x630 frame at 300x158 per tile (158 ≈ 630/4).
+// Blur is heavy enough to obscure faces but the silhouettes + colors stay
+// readable so the card reads as "many real drivers" — intriguing without
+// being a privacy leak.
+const TILE_W = 300;
+const TILE_H = 158;
+const GRID_COLS = 4;
+const GRID_ROWS = 4;
 const TILE_COUNT = GRID_COLS * GRID_ROWS;
+const BLUR_RADIUS = 35;
+// Oversample candidates so a few cf.image failures don't shrink the grid.
+const QUERY_LIMIT = 24;
 
 function fallback(req: NextRequest) {
   return NextResponse.redirect(new URL('/og-image.jpeg', req.url), 302);
@@ -39,7 +46,7 @@ async function fetchBlurredTile(url: string): Promise<string | null> {
           fit: 'cover',
           format: 'jpeg',
           quality: 75,
-          blur: 12, // 1–250; 8–15 keeps faces recognizable but soft
+          blur: BLUR_RADIUS, // 1–250; ~35 obscures faces while keeping color/shape
         },
       },
     } as RequestInit);
@@ -69,7 +76,7 @@ export async function GET(req: NextRequest) {
       AND dp.vehicle_info ? 'photo_url'
       AND dp.vehicle_info->>'photo_url' IS NOT NULL
     ORDER BY u.tier DESC, u.chill_score DESC, dp.handle ASC
-    LIMIT ${TILE_COUNT}
+    LIMIT ${QUERY_LIMIT}
   `;
 
   const photoUrls = (rows as Array<Record<string, unknown>>)
@@ -83,8 +90,13 @@ export async function GET(req: NextRequest) {
   const usable = tiles.filter((t): t is string => !!t);
   if (usable.length === 0) return fallback(req);
 
-  // Pad the grid out so the layout stays even if some fetches failed.
-  while (usable.length < TILE_COUNT) usable.push(usable[usable.length % Math.max(1, photoUrls.length)]);
+  // Build the final 16-tile array, cycling through whatever succeeded so
+  // the grid is always full even if the query returned fewer than 16
+  // drivers or some cf.image fetches failed.
+  const gridTiles: string[] = [];
+  for (let i = 0; i < TILE_COUNT; i++) {
+    gridTiles.push(usable[i % usable.length]);
+  }
 
   return new ImageResponse(
     <div
@@ -97,14 +109,14 @@ export async function GET(req: NextRequest) {
         fontFamily: 'sans-serif',
       }}
     >
-      {/* Photo grid — 3 columns × 2 rows, fills the entire 1200x630 frame. */}
+      {/* Photo grid — 4 columns × 4 rows, fills the entire 1200x630 frame. */}
       <div style={{
         position: 'absolute',
         inset: 0,
         display: 'flex',
         flexWrap: 'wrap',
       }}>
-        {usable.slice(0, TILE_COUNT).map((src, i) => (
+        {gridTiles.map((src, i) => (
           // eslint-disable-next-line @next/next/no-img-element -- next/og Satori only supports <img>
           <img
             key={i}
