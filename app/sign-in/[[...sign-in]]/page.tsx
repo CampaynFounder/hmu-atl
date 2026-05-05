@@ -4,15 +4,18 @@ import { SignUpTypeStore } from '../../sign-up/[[...sign-up]]/type-store';
 import { InAppBrowserGate } from '@/components/auth/in-app-browser-gate';
 
 interface Props {
-  searchParams: Promise<{ type?: string; returnTo?: string }>;
+  searchParams: Promise<{ type?: string; returnTo?: string; draft?: string; handle?: string }>;
 }
 
 export default async function SignInPage({ searchParams }: Props) {
-  const { type, returnTo } = await searchParams;
+  const { type, returnTo, draft, handle } = await searchParams;
 
   const callbackParams = new URLSearchParams();
   if (type) callbackParams.set('type', type);
   if (returnTo && returnTo.startsWith('/d/')) callbackParams.set('returnTo', returnTo);
+  // Booking-funnel draft from /rider/browse — auth-callback consumes it.
+  if (draft) callbackParams.set('draft', draft);
+  if (handle) callbackParams.set('handle', handle);
   const afterSignInUrl = `/auth-callback${callbackParams.size ? `?${callbackParams}` : ''}`;
 
   const isDriver = type === 'driver';
@@ -29,7 +32,7 @@ export default async function SignInPage({ searchParams }: Props) {
       background: '#080808',
       padding: '20px',
     }}>
-      <SignUpTypeStore type={type} returnTo={returnTo} />
+      <SignUpTypeStore type={type} returnTo={returnTo} draft={draft} handle={handle} />
 
       {/* Type-aware header */}
       {(isDriver || isRider) && (
@@ -66,6 +69,8 @@ export default async function SignInPage({ searchParams }: Props) {
           const p = new URLSearchParams();
           if (type) p.set('type', type);
           if (returnTo) p.set('returnTo', returnTo);
+          if (draft) p.set('draft', draft);
+          if (handle) p.set('handle', handle);
           return `/sign-up${p.size ? `?${p}` : ''}`;
         })()}
         appearance={{

@@ -180,6 +180,48 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
     onMessage: handleAblyMessage,
   });
 
+  // Browse-funnel draft pickup: a new rider who hit /sign-up from
+  // /rider/browse may have a parked draft that didn't submit at auth-callback
+  // time (account_status was still 'pending'). Now that they've reached
+  // rider home — implying account_status is 'active' — try to consume.
+  // Single-use: cleared regardless of outcome so a stale draft never sticks.
+  useEffect(() => {
+    const draftId = localStorage.getItem('hmu_pending_draft');
+    const draftHandle = localStorage.getItem('hmu_pending_draft_handle');
+    if (!draftId || !draftHandle) return;
+    localStorage.removeItem('hmu_pending_draft');
+    localStorage.removeItem('hmu_pending_draft_handle');
+    (async () => {
+      try {
+        const draftRes = await fetch(`/api/public/draft-booking/${draftId}`, { cache: 'no-store' });
+        if (!draftRes.ok) return;
+        const draft = await draftRes.json() as {
+          handle: string;
+          payload: { price: number; isCash: boolean; timeWindow: Record<string, unknown> };
+        };
+        const submitHandle = draft.handle || draftHandle;
+        const bookRes = await fetch(`/api/drivers/${submitHandle}/book`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            price: draft.payload.price,
+            is_cash: false,
+            timeWindow: draft.payload.timeWindow,
+          }),
+        });
+        if (bookRes.ok) {
+          fetch(`/api/public/draft-booking/${draftId}`, { method: 'POST' }).catch(() => {});
+          posthog.capture('public_draft_booking_consumed', { driverHandle: submitHandle, source: 'rider_home' });
+          // Refresh posts so the new direct_booking shows up immediately.
+          fetch('/api/rider/posts')
+            .then((r) => r.json())
+            .then((data) => { if (data.posts) setPosts(data.posts); })
+            .catch(() => {});
+        }
+      } catch { /* silent — drawer can be re-opened */ }
+    })();
+  }, []);
+
   // Check for active ride on mount
   useEffect(() => {
     const pendingRide = localStorage.getItem('hmu_pending_ride');

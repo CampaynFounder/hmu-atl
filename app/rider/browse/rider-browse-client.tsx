@@ -21,9 +21,10 @@ const PAGE_SIZE = 12;
 interface Props {
   initialDrivers: BrowseDriverRow[];
   initialBatchSize: number;
+  isAuthenticated?: boolean;
 }
 
-export default function RiderBrowseClient({ initialDrivers, initialBatchSize }: Props) {
+export default function RiderBrowseClient({ initialDrivers, initialBatchSize, isAuthenticated = true }: Props) {
   const [filterFwu, setFilterFwu] = useState(false);
   const [filterMaxPrice, setFilterMaxPrice] = useState('');
   const [filterArea, setFilterArea] = useState('');
@@ -262,7 +263,11 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize }: 
       </div>
 
       {bookingDriver && (
-        <BookingDrawer driver={bookingDriver} onClose={() => setBookingHandle(null)} />
+        <BookingDrawer
+          driver={bookingDriver}
+          onClose={() => setBookingHandle(null)}
+          isAuthenticated={isAuthenticated}
+        />
       )}
       {profileHandle && (
         <DriverProfileOverlay

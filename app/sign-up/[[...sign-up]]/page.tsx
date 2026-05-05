@@ -7,11 +7,11 @@ import { MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver'
 import { getMarketBranding } from '@/lib/markets/branding';
 
 interface Props {
-  searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string; mode?: string }>;
+  searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string; mode?: string; draft?: string; handle?: string }>;
 }
 
 export default async function SignUpPage({ searchParams }: Props) {
-  const [{ type, returnTo, cash, persona, funnel_stage, mode }, h] = await Promise.all([
+  const [{ type, returnTo, cash, persona, funnel_stage, mode, draft, handle }, h] = await Promise.all([
     searchParams,
     headers(),
   ]);
@@ -25,6 +25,9 @@ export default async function SignUpPage({ searchParams }: Props) {
     callbackParams.set('returnTo', returnTo);
   }
   if (mode === 'express') callbackParams.set('mode', 'express');
+  // Booking-funnel draft from /rider/browse — auth-callback consumes it.
+  if (draft) callbackParams.set('draft', draft);
+  if (handle) callbackParams.set('handle', handle);
   const afterSignUpUrl = `/auth-callback${callbackParams.size ? `?${callbackParams}` : ''}`;
 
   const isDriver = type === 'driver';
@@ -53,6 +56,10 @@ export default async function SignUpPage({ searchParams }: Props) {
   if (persona) unsafeMetadata.persona = persona;
   if (funnel_stage) unsafeMetadata.funnel_stage = funnel_stage;
   if (mode === 'express') unsafeMetadata.onboardingMode = 'express';
+  // Persist booking-draft pointers on the Clerk user so OAuth round-trips
+  // can recover them even if URL params + localStorage are both wiped.
+  if (draft) unsafeMetadata.draft_booking_id = draft;
+  if (handle) unsafeMetadata.draft_booking_handle = handle;
 
   return (
     <InAppBrowserGate>
@@ -65,7 +72,7 @@ export default async function SignUpPage({ searchParams }: Props) {
       background: '#080808',
       padding: '60px 20px 20px',
     }}>
-      <SignUpTypeStore type={type} returnTo={returnTo} cash={cash} mode={mode} />
+      <SignUpTypeStore type={type} returnTo={returnTo} cash={cash} mode={mode} draft={draft} handle={handle} />
 
       {/* Type-aware header */}
       <div style={{ textAlign: 'center', marginBottom: '24px', maxWidth: '340px' }}>
@@ -138,6 +145,8 @@ export default async function SignUpPage({ searchParams }: Props) {
           const p = new URLSearchParams();
           if (type) p.set('type', type);
           if (returnTo) p.set('returnTo', returnTo);
+          if (draft) p.set('draft', draft);
+          if (handle) p.set('handle', handle);
           return `/sign-in${p.size ? `?${p}` : ''}`;
         })()}
         unsafeMetadata={unsafeMetadata}

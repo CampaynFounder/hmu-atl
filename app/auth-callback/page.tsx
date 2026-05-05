@@ -27,6 +27,48 @@ export default function AuthCallbackPage() {
     checkOnboardingAndRedirect();
   }, [isLoaded, isSignedIn]);
 
+  // Consume a parked /rider/browse draft and submit it via the existing
+  // direct-booking endpoint. Returns the path to redirect to. Falls back to
+  // a soft toast on /rider/browse if the draft is missing/expired/invalid.
+  const consumeDraftBooking = async (draftId: string, handle: string): Promise<string | null> => {
+    try {
+      const draftRes = await fetch(`/api/public/draft-booking/${draftId}`, { cache: 'no-store' });
+      if (!draftRes.ok) {
+        if (draftRes.status === 410) return '/rider/browse?draftExpired=1';
+        return null;
+      }
+      const draft = await draftRes.json() as {
+        handle: string;
+        payload: { price: number; isCash: boolean; timeWindow: Record<string, unknown> };
+      };
+      // Belt-and-suspenders: only submit to the handle the draft was created
+      // for, not whatever the caller pinned in the URL.
+      const submitHandle = draft.handle || handle;
+      const bookRes = await fetch(`/api/drivers/${submitHandle}/book`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          price: draft.payload.price,
+          is_cash: false,
+          timeWindow: draft.payload.timeWindow,
+        }),
+      });
+      if (bookRes.ok) {
+        // Mark consumed — single-use even if URL leaks.
+        fetch(`/api/public/draft-booking/${draftId}`, { method: 'POST' }).catch(() => {});
+        return `/rider/home?bookingSent=${submitHandle}`;
+      }
+      // Booking failed (driver unavailable, conflict, etc) — drop them on
+      // /rider/home with the error visible so they can try another driver.
+      const errData = await bookRes.json().catch(() => ({}));
+      console.warn('[auth-callback] booking submit failed', errData);
+      return `/rider/home?bookingFailed=1`;
+    } catch (e) {
+      console.error('[auth-callback] draft consume threw', e);
+      return null;
+    }
+  };
+
   const checkOnboardingAndRedirect = async () => {
     const params = new URLSearchParams(window.location.search);
 
@@ -35,12 +77,21 @@ export default function AuthCallbackPage() {
     const returnTo = params.get('returnTo') || localStorage.getItem('hmu_signup_returnTo');
     const isCash = params.get('cash') || localStorage.getItem('hmu_signup_cash');
     const mode = params.get('mode') || localStorage.getItem('hmu_signup_mode');
+    // Booking funnel: /rider/browse → /sign-up → here. Both branches forward
+    // the params, but OAuth round-trips can drop them, so localStorage and
+    // the Clerk user's unsafeMetadata both back-stop.
+    const draftFromMeta = (user?.unsafeMetadata?.draft_booking_id as string | undefined) || '';
+    const handleFromMeta = (user?.unsafeMetadata?.draft_booking_handle as string | undefined) || '';
+    const draftId = params.get('draft') || localStorage.getItem('hmu_signup_draft') || draftFromMeta || '';
+    const draftHandle = params.get('handle') || localStorage.getItem('hmu_signup_handle') || handleFromMeta || '';
 
     // Clean up localStorage after reading — one-time use
     localStorage.removeItem('hmu_signup_type');
     localStorage.removeItem('hmu_signup_returnTo');
     localStorage.removeItem('hmu_signup_cash');
     localStorage.removeItem('hmu_signup_mode');
+    localStorage.removeItem('hmu_signup_draft');
+    localStorage.removeItem('hmu_signup_handle');
 
     // Retry the onboarding-status fetch once on transient failure. A single
     // Neon/Worker cold-start blip must NEVER drop an existing user onto
@@ -85,6 +136,12 @@ export default function AuthCallbackPage() {
 
     const hasProfile = data.hasDriverProfile || data.hasRiderProfile;
     if (hasProfile) {
+      // Booking-funnel: existing rider had a draft parked → submit it now and
+      // land them on home with confirmation context.
+      if (draftId && draftHandle && data.profileType === 'rider') {
+        const target = await consumeDraftBooking(draftId, draftHandle);
+        if (target) { router.replace(target); return; }
+      }
       // Rider ad-funnel landing — re-arriving riders go straight back to it,
       // and the page itself routes them on to /rider/browse.
       if (returnTo && returnTo.startsWith('/r/')) {
@@ -125,6 +182,18 @@ export default function AuthCallbackPage() {
       if (returnTo) onboardingParams.set('returnTo', returnTo);
       if (isCash === '1') onboardingParams.set('cash', '1');
       if (mode === 'express') onboardingParams.set('mode', 'express');
+      // New rider with a parked browse-draft. Forward through onboarding;
+      // the post-onboarding handler reads these and submits the booking once
+      // account_status flips to 'active'. Until then we re-park in localStorage
+      // since onboarding may not preserve all query params end-to-end.
+      if (draftId && draftHandle) {
+        onboardingParams.set('draft', draftId);
+        onboardingParams.set('handle', draftHandle);
+        try {
+          localStorage.setItem('hmu_pending_draft', draftId);
+          localStorage.setItem('hmu_pending_draft_handle', draftHandle);
+        } catch { /* ignore */ }
+      }
       const onboardingUrl = `/onboarding${onboardingParams.size ? `?${onboardingParams}` : ''}`;
       router.replace(onboardingUrl);
     }

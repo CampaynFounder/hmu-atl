@@ -1,97 +1,105 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
 import { parseTimeShorthand } from '@/lib/utils/time-parser';
 import { posthog } from '@/components/analytics/posthog-provider';
 import type { BrowseDriverRow } from '@/lib/hmu/browse-drivers-query';
 
-const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
-
 interface Props {
   driver: BrowseDriverRow;
   onClose: () => void;
+  isAuthenticated?: boolean;
 }
 
 /**
- * Bottom-sheet booking flow for /rider/browse. Mirrors the legacy InlineBookingForm
- * exactly — payment-method gate, cash toggle, time parser, below-min warning,
- * pending-request 409 handling — but presented as an overlay so it composes with
- * the new feed/grid layouts where there's no room to expand inline.
+ * Bottom-sheet booking flow for /rider/browse. Digital-only in this surface
+ * (cash toggle hidden) and PM gate is deferred to /api/rides/[id]/coo
+ * (Pull Up). Anon riders submit → /api/public/draft-booking → continue to
+ * sign-up/sign-in with the draft id; auth-callback consumes the draft and
+ * forwards it to /api/drivers/[handle]/book.
  */
-export default function BookingDrawer({ driver, onClose }: Props) {
-  const { handle, displayName, minPrice, enforceMinimum, fwu, acceptsCash, cashOnly } = driver;
+export default function BookingDrawer({ driver, onClose, isAuthenticated = true }: Props) {
+  const { handle, displayName, minPrice, enforceMinimum, fwu } = driver;
   const defaultAmount = (minPrice > 0 && !fwu) ? String(minPrice) : '15';
 
   const [destination, setDestination] = useState('');
   const [time, setTime] = useState('');
   const [amount, setAmount] = useState(defaultAmount);
-  const [isCash, setIsCash] = useState(cashOnly);
+  const [recurring, setRecurring] = useState(false);
+  const [showRecurringModal, setShowRecurringModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
-  const [hasPaymentMethod, setHasPaymentMethod] = useState<boolean | null>(null);
-  const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  // Anon path — once a draft is parked, drawer offers Sign Up / Sign In CTAs.
+  const [draftId, setDraftId] = useState<string | null>(null);
 
   const parsedAmount = parseFloat(amount) || 0;
   const belowMin = enforceMinimum && minPrice > 0 && parsedAmount > 0 && parsedAmount < minPrice;
   const parsedTime = parseTimeShorthand(time);
 
-  useEffect(() => {
-    if (cashOnly) { setHasPaymentMethod(true); return; }
-    fetch('/api/rider/payment-methods')
-      .then((r) => r.json())
-      .then((data) => {
-        const methods = data.methods || data.paymentMethods || [];
-        setHasPaymentMethod(Array.isArray(methods) && methods.length > 0);
-      })
-      .catch(() => setHasPaymentMethod(false));
-  }, [cashOnly]);
-
-  // Lock body scroll while the sheet is open so the page underneath doesn't scroll
-  // when the user drags within the form.
+  // Lock body scroll while the sheet is open so the page underneath doesn't
+  // scroll when the user drags within the form.
   useEffect(() => {
     const previous = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = previous; };
   }, []);
 
-  const needsPaymentMethod = !isCash && hasPaymentMethod === false;
-
   async function handleSubmit() {
     if (!destination.trim()) { setError('Where you going?'); return; }
     if (parsedAmount < 1) { setError('Minimum $1'); return; }
     if (belowMin) return;
-    if (needsPaymentMethod) { setShowPaymentForm(true); return; }
 
     setSubmitting(true);
     setError(null);
+
+    const timeWindow = {
+      destination: destination.trim(),
+      time: parsedTime.display,
+      message: `${destination.trim()} $${parsedAmount} ${parsedTime.display}`,
+    };
+
     try {
+      if (!isAuthenticated) {
+        // Anon path: park the draft and let the user pick sign-up/sign-in.
+        const res = await fetch('/api/public/draft-booking', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ handle, price: parsedAmount, timeWindow }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          posthog.capture('public_draft_booking_created', {
+            driverHandle: handle, price: parsedAmount, recurringInterest: recurring,
+          });
+          setDraftId(data.draftId as string);
+        } else {
+          setError(data.error || 'Failed to save your request. Try again.');
+        }
+        setSubmitting(false);
+        return;
+      }
+
+      // Authed path — existing direct-booking endpoint, digital only.
       const res = await fetch(`/api/drivers/${handle}/book`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           price: parsedAmount,
-          is_cash: isCash,
-          timeWindow: {
-            destination: destination.trim(),
-            time: parsedTime.display,
-            message: `${destination.trim()} $${parsedAmount} ${parsedTime.display}`,
-          },
+          is_cash: false,
+          timeWindow,
         }),
       });
       const data = await res.json();
       if (res.ok) {
         posthog.capture('direct_booking_sent', {
-          driverHandle: handle, price: parsedAmount, destination: destination.trim(), isCash,
+          driverHandle: handle, price: parsedAmount, destination: destination.trim(), isCash: false,
         });
         setExpiresAt((data.expiresAt as string) || null);
         setSuccess(true);
-      } else if (data.code === 'no_payment_method') {
-        setShowPaymentForm(true);
       } else if (res.status === 409 && data.postId) {
         setActiveBookingId(data.postId);
         setError('You already have a pending request with this driver');
@@ -102,12 +110,6 @@ export default function BookingDrawer({ driver, onClose }: Props) {
       setError('Network error');
     }
     setSubmitting(false);
-  }
-
-  function handlePaymentMethodSaved() {
-    setHasPaymentMethod(true);
-    setShowPaymentForm(false);
-    setTimeout(() => handleSubmit(), 300);
   }
 
   async function handleCancelBooking() {
@@ -125,6 +127,14 @@ export default function BookingDrawer({ driver, onClose }: Props) {
       setError('Network error');
     }
     setCancelling(false);
+  }
+
+  function authQueryString(): string {
+    const p = new URLSearchParams();
+    p.set('type', 'rider');
+    if (draftId) p.set('draft', draftId);
+    p.set('handle', handle);
+    return p.toString();
   }
 
   return (
@@ -155,7 +165,59 @@ export default function BookingDrawer({ driver, onClose }: Props) {
           borderRadius: 2, margin: '0 auto 14px',
         }} aria-hidden />
 
-        {success ? (
+        {draftId ? (
+          // Anon → continue to auth.
+          <div style={{ padding: '8px 8px 0', textAlign: 'center' }}>
+            <div style={{ fontSize: 32, marginBottom: 6 }}>👋</div>
+            <div style={{
+              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+              fontSize: 22, color: '#00E676', marginBottom: 6,
+            }}>
+              ALMOST THERE
+            </div>
+            <div style={{ fontSize: 13, color: '#ccc', marginBottom: 18, lineHeight: 1.5 }}>
+              Sign up or sign in to send your ride to {displayName}.
+              We&apos;ll save your details — you won&apos;t have to fill them in again.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 320, margin: '0 auto' }}>
+              <a
+                href={`/sign-up?${authQueryString()}`}
+                style={{
+                  display: 'block', padding: '14px 18px', borderRadius: 100,
+                  background: '#00E676', color: '#080808',
+                  fontWeight: 700, fontSize: 15, textDecoration: 'none',
+                  fontFamily: 'inherit',
+                }}
+              >
+                I&apos;m new — Sign Up
+              </a>
+              <a
+                href={`/sign-in?${authQueryString()}`}
+                style={{
+                  display: 'block', padding: '14px 18px', borderRadius: 100,
+                  border: '1px solid rgba(255,255,255,0.18)', background: 'transparent',
+                  color: '#fff',
+                  fontWeight: 600, fontSize: 14, textDecoration: 'none',
+                  fontFamily: 'inherit',
+                }}
+              >
+                I have an account — Sign In
+              </a>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  marginTop: 4, padding: 10, borderRadius: 100,
+                  background: 'transparent', color: '#888',
+                  border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Maybe later
+              </button>
+            </div>
+          </div>
+        ) : success ? (
           <div style={{ padding: '24px 8px 8px', textAlign: 'center' }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>{'✅'}</div>
             <div style={{
@@ -236,48 +298,50 @@ export default function BookingDrawer({ driver, onClose }: Props) {
                 </div>
               </div>
 
-              {acceptsCash && !cashOnly && (
-                <div style={{
+              {/* Recurring toggle — disabled "Coming soon" placeholder. Tapping
+                  the row opens the email capture modal so we can build the
+                  early-access list. */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRecurringModal(true);
+                  posthog.capture('recurring_toggle_interest_shown', { driverHandle: handle });
+                }}
+                style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.06)',
-                  borderRadius: 12, padding: '10px 14px',
-                }}>
-                  <div>
-                    <div style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>Cash Ride</div>
-                    <div style={{ fontSize: 11, color: '#888' }}>
-                      {isCash ? 'No payment method needed' : 'Payment verified before pickup'}
-                    </div>
+                  borderRadius: 12, padding: '10px 14px', textAlign: 'left',
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 13, color: '#fff', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    Recurring ride
+                    <span style={{
+                      padding: '2px 8px', borderRadius: 100,
+                      background: 'rgba(255,179,0,0.12)', color: '#FFB300',
+                      fontSize: 10, fontWeight: 700, letterSpacing: 0.5,
+                    }}>
+                      Coming Soon
+                    </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => { setIsCash(!isCash); setShowPaymentForm(false); setError(null); }}
-                    style={{
-                      width: 48, height: 28, borderRadius: 14, border: 'none',
-                      background: isCash ? '#00E676' : 'rgba(255,255,255,0.12)',
-                      position: 'relative', cursor: 'pointer',
-                      transition: 'background 0.2s',
-                    }}
-                  >
-                    <div style={{
-                      width: 22, height: 22, borderRadius: '50%',
-                      background: '#fff',
-                      position: 'absolute', top: 3,
-                      left: isCash ? 23 : 3,
-                      transition: 'left 0.2s',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                    }} />
-                  </button>
+                  <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                    Daily/weekly rides — same driver, same price.
+                  </div>
                 </div>
-              )}
-
-              {cashOnly && (
                 <div style={{
-                  fontSize: 12, color: '#4CAF50', padding: '8px 12px',
-                  background: 'rgba(76,175,80,0.08)', borderRadius: 10,
+                  width: 48, height: 28, borderRadius: 14,
+                  background: 'rgba(255,255,255,0.06)',
+                  position: 'relative',
+                  opacity: 0.6,
                 }}>
-                  This driver only accepts cash rides
+                  <div style={{
+                    width: 22, height: 22, borderRadius: '50%',
+                    background: '#444',
+                    position: 'absolute', top: 3, left: 3,
+                  }} />
                 </div>
-              )}
+              </button>
 
               {belowMin && (
                 <div style={{
@@ -315,27 +379,11 @@ export default function BookingDrawer({ driver, onClose }: Props) {
                 </button>
               )}
 
-              {showPaymentForm && !isCash && (
+              {!isAuthenticated && (
                 <div style={{
-                  background: '#141414', border: '1px solid rgba(0,230,118,0.2)',
-                  borderRadius: 14, padding: 16,
+                  fontSize: 11, color: '#888', textAlign: 'center', padding: '4px 8px',
                 }}>
-                  <div style={{ fontSize: 13, color: '#00E676', fontWeight: 600, marginBottom: 4 }}>
-                    Link a payment method
-                  </div>
-                  <div style={{ fontSize: 11, color: '#888', marginBottom: 12 }}>
-                    Required for digital rides. Your card is saved for one-tap booking.
-                  </div>
-                  <InlinePaymentForm onSuccess={handlePaymentMethodSaved} />
-                </div>
-              )}
-
-              {needsPaymentMethod && !showPaymentForm && (
-                <div style={{
-                  fontSize: 12, color: '#FFB300', padding: '8px 12px',
-                  background: 'rgba(255,179,0,0.08)', borderRadius: 10,
-                }}>
-                  You&apos;ll need to link a payment method for digital rides
+                  We&apos;ll save your request and ask you to sign up before sending it.
                 </div>
               )}
 
@@ -353,28 +401,37 @@ export default function BookingDrawer({ driver, onClose }: Props) {
                 >
                   Back
                 </button>
-                {!showPaymentForm && (
-                  <button
-                    onClick={handleSubmit}
-                    disabled={submitting || belowMin}
-                    style={{
-                      flex: 1.4, padding: 14, borderRadius: 100, border: 'none',
-                      background: belowMin ? '#333' : '#00E676',
-                      color: belowMin ? '#888' : '#080808',
-                      fontWeight: 700, fontSize: 15,
-                      cursor: submitting || belowMin ? 'not-allowed' : 'pointer',
-                      opacity: submitting ? 0.5 : 1,
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    {submitting ? 'Sending...' : `Send to ${displayName}`}
-                  </button>
-                )}
+                <button
+                  onClick={handleSubmit}
+                  disabled={submitting || belowMin}
+                  style={{
+                    flex: 1.4, padding: 14, borderRadius: 100, border: 'none',
+                    background: belowMin ? '#333' : '#00E676',
+                    color: belowMin ? '#888' : '#080808',
+                    fontWeight: 700, fontSize: 15,
+                    cursor: submitting || belowMin ? 'not-allowed' : 'pointer',
+                    opacity: submitting ? 0.5 : 1,
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {submitting ? 'Sending...' : isAuthenticated ? `Send to ${displayName}` : 'Continue'}
+                </button>
               </div>
             </div>
           </>
         )}
       </div>
+
+      {showRecurringModal && (
+        <RecurringInterestModal
+          driverHandle={handle}
+          onClose={() => setShowRecurringModal(false)}
+          onCaptured={() => {
+            setRecurring(true);
+            setShowRecurringModal(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -427,6 +484,159 @@ function ExpiryCountdown({ expiresAt, driverName }: { expiresAt: string; driverN
   );
 }
 
+function RecurringInterestModal({
+  driverHandle, onClose, onCaptured,
+}: {
+  driverHandle: string;
+  onClose: () => void;
+  onCaptured: () => void;
+}) {
+  const [email, setEmail] = useState('');
+  const [frequency, setFrequency] = useState<'daily' | 'weekly' | ''>('');
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit() {
+    if (!email.trim() || !email.includes('@')) {
+      setError('Drop your email so we can hit you back.');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/public/recurring-interest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          intendedFrequency: frequency || null,
+          source: 'browse_drawer',
+          driverHandle,
+        }),
+      });
+      if (res.ok) {
+        posthog.capture('recurring_interest_captured', { driverHandle, frequency });
+        setDone(true);
+        setTimeout(onCaptured, 1200);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || 'Failed to save. Try again.');
+      }
+    } catch {
+      setError('Network error');
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => { if (e.currentTarget === e.target) onClose(); }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9100,
+        background: 'rgba(0,0,0,0.72)',
+        backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+      }}
+    >
+      <div style={{
+        background: '#141414', borderRadius: 20, padding: 22,
+        maxWidth: 360, width: '100%',
+        border: '1px solid rgba(255,255,255,0.08)',
+      }}>
+        {done ? (
+          <div style={{ textAlign: 'center', padding: '12px 0' }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🎉</div>
+            <div style={{
+              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+              fontSize: 20, color: '#00E676', marginBottom: 4,
+            }}>
+              YOU&apos;RE ON THE LIST
+            </div>
+            <div style={{ fontSize: 13, color: '#888' }}>
+              We&apos;ll hit you back when recurring rides drop.
+            </div>
+          </div>
+        ) : (
+          <>
+            <div style={{
+              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+              fontSize: 22, marginBottom: 4, color: '#fff',
+            }}>
+              RECURRING RIDES INCOMING
+            </div>
+            <div style={{ fontSize: 13, color: '#888', marginBottom: 16, lineHeight: 1.5 }}>
+              Same driver, same price, every day. Drop your email for early access.
+            </div>
+
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@email.com"
+              style={{ ...modalInput, width: '100%', marginBottom: 10 }}
+            />
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+              {(['daily', 'weekly'] as const).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setFrequency(frequency === f ? '' : f)}
+                  style={{
+                    flex: 1, padding: 10, borderRadius: 12,
+                    border: 'none', cursor: 'pointer',
+                    background: frequency === f ? 'rgba(0,230,118,0.15)' : '#1a1a1a',
+                    color: frequency === f ? '#00E676' : '#bbb',
+                    fontWeight: 600, fontSize: 12,
+                    fontFamily: 'inherit',
+                    textTransform: 'capitalize',
+                  }}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+
+            {error && (
+              <div style={{ fontSize: 12, color: '#FF5252', marginBottom: 10 }}>{error}</div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  flex: 1, padding: 12, borderRadius: 100,
+                  background: 'transparent', color: '#bbb',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                Skip
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={submitting}
+                style={{
+                  flex: 1.4, padding: 12, borderRadius: 100, border: 'none',
+                  background: '#00E676', color: '#080808',
+                  fontWeight: 700, fontSize: 13, cursor: submitting ? 'not-allowed' : 'pointer',
+                  opacity: submitting ? 0.6 : 1, fontFamily: 'inherit',
+                }}
+              >
+                {submitting ? 'Saving...' : 'Notify me'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const inputStyle: React.CSSProperties = {
   background: '#1a1a1a',
   border: '1px solid rgba(255,255,255,0.08)',
@@ -436,4 +646,9 @@ const inputStyle: React.CSSProperties = {
   fontSize: 14,
   outline: 'none',
   fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+};
+
+const modalInput: React.CSSProperties = {
+  ...inputStyle,
+  background: '#0d0d0d',
 };

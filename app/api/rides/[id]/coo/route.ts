@@ -178,7 +178,7 @@ export async function POST(
       pickup: validatedPickup || null,
       dropoff: validatedDropoff || null,
       stops: validatedStops || null,
-      message: 'Rider is ready — COO! Payment authorized.',
+      message: isCashRide ? 'Rider says pull up' : 'Rider says pull up — payment authorized',
     }).catch(() => {});
 
     await notifyUser(ride.driver_id as string, 'ride_update', {
@@ -187,7 +187,7 @@ export async function POST(
       riderLat: lat,
       riderLng: lng,
       riderLocation: locationText,
-      message: 'Rider says COO — payment ready, location shared',
+      message: isCashRide ? 'Rider says pull up' : 'Rider says pull up — payment ready, location shared',
     }).catch(() => {});
 
     // SMS driver that rider is payment ready
@@ -200,7 +200,7 @@ export async function POST(
       const riderName = (riderHandleRows[0] as Record<string, unknown>)?.name as string;
       if (driverPhone) {
         const dst = driverPhone.replace(/\D/g, '').replace(/^1/, '');
-        const smsMsg = `HMU: ${riderName} is payment ready. Log in to let them know you're OTW. atl.hmucashride.com/ride/${rideId}`;
+        const smsMsg = `HMU: ${riderName} says pull up. Log in to let them know you're OTW. atl.hmucashride.com/ride/${rideId}`;
         const smsParams = new URLSearchParams({
           api_username: process.env.VOIPMS_API_USERNAME || '',
           api_password: process.env.VOIPMS_API_PASSWORD || '',

@@ -3,7 +3,6 @@ import type { HmuPost } from './types';
 
 export type EligibilityCode =
   | 'ok'
-  | 'no_payment_method'
   | 'chill_score_low'
   | 'og_required'
   | 'driver_closed'
@@ -82,23 +81,12 @@ export async function checkRiderEligibility(
   const riderChillScore = rider?.chill_score ?? 100;
   const riderOgStatus = rider?.og_status ?? false;
 
-  // Effective cash flag: explicit isCash from caller OR driver is cash_only.
-  // Cash-only drivers have no digital payment path, so every booking is
-  // implicitly a cash ride and we must NOT gate on payment method.
-  const effectiveCash = isCash || driver?.cash_only === true;
-
-  // 1. Payment method check — skip for cash rides
-  if (!effectiveCash && !hasPaymentMethod) {
-    const driverHandle = driver?.handle || 'This driver';
-    return {
-      eligible: false,
-      code: 'no_payment_method',
-      reason: `${driverHandle} only accepts payment ready riders`,
-      riderChillScore,
-      riderOgStatus,
-      dailyBookingsUsed: dailyCount,
-    };
-  }
+  // Payment-method gate moved to /api/rides/[id]/coo (Pull Up). Riders no
+  // longer need a saved card to BOOK — they need one to commit. This makes
+  // the funnel single-path for anon and authed riders: pick driver → submit →
+  // driver accepts → rider taps Pull Up, and only then is a card required.
+  // hasPaymentMethod is intentionally unused here; COO is the single gate.
+  void hasPaymentMethod;
 
   // 2. Driver availability check
   if (!driver || !driver.accept_direct_bookings) {
