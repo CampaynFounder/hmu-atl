@@ -11,6 +11,7 @@ export const DASHBOARD_AUDIT = {
   DELETED: 'dashboard.deleted',
   ROLE_GRANTED: 'dashboard.role_granted',
   ROLE_REVOKED: 'dashboard.role_revoked',
+  GRANTS_UPDATED: 'dashboard.role_grants_updated',
   VIEWED: 'dashboard.viewed', // one row per render of a dashboard, not per block
 } as const;
 
@@ -21,6 +22,7 @@ export type DashboardAuditEvent = (typeof DASHBOARD_AUDIT)[keyof typeof DASHBOAR
 export const DASHBOARD_AUDIT_TARGET = {
   DASHBOARD: 'admin_dashboard',
   ROLE_GRANT: 'admin_dashboard_role_grant',
+  ROLE: 'admin_role',
 } as const;
 
 export type DashboardAuditTarget = (typeof DASHBOARD_AUDIT_TARGET)[keyof typeof DASHBOARD_AUDIT_TARGET];

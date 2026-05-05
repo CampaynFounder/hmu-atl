@@ -96,18 +96,14 @@ export async function canViewDashboard(
 ): Promise<boolean> {
   if (admin.is_super) return true;
   if (dashboard.is_builtin && ALWAYS_VISIBLE_BUILTIN_SLUGS.has(dashboard.slug)) return true;
-  const adminRoleId = await getAdminRoleIdForUser(admin.id);
-  if (!adminRoleId) return false;
+  // admin.admin_role_id is set by requireAdmin (and overridden by preview-swap),
+  // so this naturally honors "Preview as <role>".
+  if (!admin.admin_role_id) return false;
   const [row] = await sql`
     SELECT 1 AS ok FROM admin_dashboard_role_grants
-    WHERE dashboard_id = ${dashboard.id} AND role_id = ${adminRoleId}
+    WHERE dashboard_id = ${dashboard.id} AND role_id = ${admin.admin_role_id}
     LIMIT 1`;
   return Boolean(row);
-}
-
-async function getAdminRoleIdForUser(userId: string): Promise<string | null> {
-  const [row] = await sql`SELECT admin_role_id FROM users WHERE id = ${userId} LIMIT 1`;
-  return (row?.admin_role_id as string | null) ?? null;
 }
 
 export async function listAccessibleDashboards(
@@ -122,14 +118,13 @@ export async function listAccessibleDashboards(
       ORDER BY is_builtin DESC, label ASC`;
     return rows.map(rowToDashboard);
   }
-  const adminRoleId = await getAdminRoleIdForUser(admin.id);
   const alwaysVisible = Array.from(ALWAYS_VISIBLE_BUILTIN_SLUGS);
   const rows = await sql`
     SELECT DISTINCT d.id, d.slug, d.label, d.description, d.scope, d.market_id, d.is_builtin,
            d.created_by, d.created_at, d.updated_at
     FROM admin_dashboards d
     LEFT JOIN admin_dashboard_role_grants g
-      ON g.dashboard_id = d.id AND g.role_id = ${adminRoleId}
+      ON g.dashboard_id = d.id AND g.role_id = ${admin.admin_role_id}
     WHERE d.scope = ${scope}
       AND (g.role_id IS NOT NULL OR (d.is_builtin = TRUE AND d.slug = ANY(${alwaysVisible}::text[])))
     ORDER BY d.is_builtin DESC, d.label ASC`;

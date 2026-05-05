@@ -10,6 +10,8 @@ export interface AdminUser {
   clerk_id: string;
   profile_type: string;
   role_slug: string | null;
+  /** Resolved role id. In preview mode, the previewed role's id (not the user's real role). */
+  admin_role_id: string | null;
   permissions: string[];
   is_super: boolean;
   // Markets this admin is allowed to access. NULL = unrestricted (super
@@ -37,7 +39,7 @@ export async function requireAdmin(): Promise<AdminUser | null> {
   if (!clerkId) return null;
 
   const rows = await sql`
-    SELECT u.id, u.clerk_id, u.profile_type, u.admin_market_ids,
+    SELECT u.id, u.clerk_id, u.profile_type, u.admin_market_ids, u.admin_role_id,
            ar.slug as role_slug, ar.permissions, ar.is_super
     FROM users u
     LEFT JOIN admin_roles ar ON ar.id = u.admin_role_id
@@ -52,6 +54,7 @@ export async function requireAdmin(): Promise<AdminUser | null> {
     clerk_id: row.clerk_id as string,
     profile_type: row.profile_type as string,
     role_slug: (row.role_slug as string) || null,
+    admin_role_id: (row.admin_role_id as string | null) ?? null,
     permissions: (row.permissions as string[]) || [],
     is_super: (row.is_super as boolean) || false,
     admin_market_ids: (row.admin_market_ids as string[]) ?? null,
@@ -72,7 +75,7 @@ export async function requireRealAdmin(): Promise<AdminUser | null> {
   if (!clerkId) return null;
 
   const rows = await sql`
-    SELECT u.id, u.clerk_id, u.profile_type, u.admin_market_ids,
+    SELECT u.id, u.clerk_id, u.profile_type, u.admin_market_ids, u.admin_role_id,
            ar.slug as role_slug, ar.permissions, ar.is_super
     FROM users u
     LEFT JOIN admin_roles ar ON ar.id = u.admin_role_id
@@ -87,6 +90,7 @@ export async function requireRealAdmin(): Promise<AdminUser | null> {
     clerk_id: row.clerk_id as string,
     profile_type: row.profile_type as string,
     role_slug: (row.role_slug as string) || null,
+    admin_role_id: (row.admin_role_id as string | null) ?? null,
     permissions: (row.permissions as string[]) || [],
     is_super: (row.is_super as boolean) || false,
     admin_market_ids: (row.admin_market_ids as string[]) ?? null,

@@ -74,6 +74,9 @@ export async function applyPreviewSwap(realAdmin: AdminUser): Promise<EffectiveA
     effective: {
       ...realAdmin,
       role_slug: role.slug,
+      // Override admin_role_id so role-scoped checks (dashboard grants, etc.)
+      // resolve to the previewed role rather than the super's actual role.
+      admin_role_id: role.id,
       permissions: role.permissions,
       is_super: false,
       isPreview: true,

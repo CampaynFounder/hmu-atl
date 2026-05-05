@@ -6,6 +6,7 @@ import { useMarket } from '@/app/admin/components/market-context';
 import { PermissionMatrix, LEVEL_COLORS } from './permission-matrix';
 
 interface Role { id: string; slug: string; label: string; description: string | null; permissions: string[]; is_super: boolean; requires_publish_approval: boolean; admin_count: string; }
+interface DashboardOption { id: string; slug: string; label: string; description: string | null; scope: string; is_builtin: boolean; granted: boolean; }
 interface AdminRow {
   id: string;
   clerk_id: string;
@@ -79,6 +80,12 @@ export default function RolesPage() {
   const [editPerms, setEditPerms] = useState<string[]>([]);
   const [editRequiresApproval, setEditRequiresApproval] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
+  // Per-role dashboards editor — collapsible panel separate from the
+  // permissions editor since dashboards are managed independently.
+  const [dashboardEditingId, setDashboardEditingId] = useState<string | null>(null);
+  const [dashboardOptions, setDashboardOptions] = useState<DashboardOption[]>([]);
+  const [grantedIds, setGrantedIds] = useState<Set<string>>(new Set());
+  const [savingDashboards, setSavingDashboards] = useState(false);
   // Market scope editor — separate from role editor; one admin's markets are
   // edited at a time. null marketEditing means no row is open. Draft is
   // either a Set of market IDs (restricted) or null (unrestricted = all).
@@ -189,6 +196,62 @@ export default function RolesPage() {
       if (prev === null) return [marketId];
       return prev.includes(marketId) ? prev.filter((id) => id !== marketId) : [...prev, marketId];
     });
+  };
+
+  const openDashboards = async (roleId: string) => {
+    setDashboardEditingId(roleId);
+    setDashboardOptions([]);
+    setGrantedIds(new Set());
+    try {
+      const res = await fetch(`/api/admin/roles/${roleId}/dashboards`);
+      if (!res.ok) {
+        alert('Failed to load dashboards');
+        setDashboardEditingId(null);
+        return;
+      }
+      const data = await res.json();
+      const opts = (data.dashboards || []) as DashboardOption[];
+      setDashboardOptions(opts);
+      setGrantedIds(new Set(opts.filter((o) => o.granted).map((o) => o.id)));
+    } catch {
+      alert('Failed to load dashboards');
+      setDashboardEditingId(null);
+    }
+  };
+
+  const closeDashboards = () => {
+    setDashboardEditingId(null);
+    setDashboardOptions([]);
+    setGrantedIds(new Set());
+  };
+
+  const toggleDashboardGrant = (id: string) => {
+    setGrantedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const saveDashboards = async () => {
+    if (!dashboardEditingId) return;
+    setSavingDashboards(true);
+    try {
+      const res = await fetch(`/api/admin/roles/${dashboardEditingId}/dashboards`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dashboard_ids: Array.from(grantedIds) }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Failed: ${err.error || res.statusText}`);
+        return;
+      }
+      closeDashboards();
+    } catch (e) {
+      alert(`Failed: ${e}`);
+    } finally {
+      setSavingDashboards(false);
+    }
   };
 
   const startEdit = (role: Role) => {
@@ -457,6 +520,15 @@ export default function RolesPage() {
                       👁 Preview as
                     </button>
                   )}
+                  {!role.is_super && !isEditing && dashboardEditingId !== role.id && (
+                    <button
+                      onClick={() => openDashboards(role.id)}
+                      title="Pick which dashboards this role can view on /admin/users/[id]. Use 'Preview as' to test."
+                      style={{ padding: '3px 10px', borderRadius: 4, fontSize: 10, background: 'rgba(0,230,118,0.08)', color: '#00E676', border: '1px solid rgba(0,230,118,0.3)', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      📊 Dashboards
+                    </button>
+                  )}
                   {!role.is_super && !isEditing && (
                     <button onClick={() => startEdit(role)} style={{ padding: '3px 10px', borderRadius: 4, fontSize: 10, background: 'rgba(68,138,255,0.08)', color: '#448AFF', border: '1px solid rgba(68,138,255,0.3)', cursor: 'pointer', fontWeight: 600 }}>
                       ✎ Edit
@@ -480,6 +552,71 @@ export default function RolesPage() {
               ) : (
                 <div style={{ fontSize: 11, color: 'var(--admin-text-faint)', marginTop: 6, fontStyle: 'italic' }}>No permissions assigned</div>
               ))}
+
+              {dashboardEditingId === role.id && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--admin-border)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--admin-text-muted)', marginBottom: 8 }}>
+                    Pick which dashboards this role sees on <code style={{ background: 'var(--admin-bg)', padding: '1px 4px', borderRadius: 3 }}>/admin/users/[id]</code>.
+                    Builtins listed first. <strong>default-user-profile</strong> is always visible — no need to grant it.
+                    To verify, click <strong>👁 Preview as</strong> after saving, then open any user.
+                  </div>
+                  {dashboardOptions.length === 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--admin-text-faint)', fontStyle: 'italic', marginBottom: 12 }}>Loading…</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 4, marginBottom: 12, maxHeight: 320, overflowY: 'auto' }}>
+                      {dashboardOptions.map((d) => {
+                        const checked = grantedIds.has(d.id);
+                        const disabled = d.is_builtin && d.slug === 'default-user-profile';
+                        return (
+                          <label
+                            key={d.id}
+                            style={{
+                              display: 'flex', alignItems: 'flex-start', gap: 8,
+                              padding: '6px 8px', borderRadius: 4,
+                              background: checked ? 'rgba(0,230,118,0.05)' : 'transparent',
+                              cursor: disabled ? 'not-allowed' : 'pointer',
+                              opacity: disabled ? 0.6 : 1,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked || disabled}
+                              disabled={disabled}
+                              onChange={() => toggleDashboardGrant(d.id)}
+                              style={{ marginTop: 2 }}
+                            />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 13, color: 'var(--admin-text)', fontWeight: 500 }}>{d.label}</span>
+                                {d.is_builtin && (
+                                  <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(96,165,250,0.12)', color: '#60a5fa' }}>BUILTIN</span>
+                                )}
+                                <code style={{ fontSize: 10, color: 'var(--admin-text-faint)' }}>{d.slug}</code>
+                                {disabled && (
+                                  <span style={{ fontSize: 9, color: 'var(--admin-text-faint)' }}>always visible</span>
+                                )}
+                              </div>
+                              {d.description && (
+                                <div style={{ fontSize: 11, color: 'var(--admin-text-muted)', marginTop: 2 }}>
+                                  {d.description}
+                                </div>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={saveDashboards} disabled={savingDashboards || dashboardOptions.length === 0} style={{ ...primaryBtnStyle, opacity: savingDashboards || dashboardOptions.length === 0 ? 0.5 : 1 }}>
+                      {savingDashboards ? 'Saving…' : 'Save Dashboards'}
+                    </button>
+                    <button onClick={closeDashboards} disabled={savingDashboards} style={secondaryBtnStyle}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {isEditing && (
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--admin-border)' }}>
