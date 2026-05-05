@@ -248,13 +248,16 @@ export default function BookingDrawer({ driver, onClose, isAuthenticated = true 
           <>
             {/* Driver media — video first (autoplay, muted, looped) then photo
                 then fallback gradient. Mirrors the feed/grid card aesthetic
-                so the rider has visual continuity from card → drawer. */}
+                so the rider has visual continuity from card → drawer.
+                Container is 4:3; video uses object-fit:contain so portrait
+                phone videos show in full (no top crop). Photos use cover
+                with center-top focus since they tend to be face-centric. */}
             <div style={{
               width: '100%',
-              aspectRatio: '16 / 9',
+              aspectRatio: '4 / 3',
               borderRadius: 16,
               overflow: 'hidden',
-              background: '#0a0a0a',
+              background: '#000',
               marginBottom: 14,
               position: 'relative',
             }}>
@@ -266,13 +269,17 @@ export default function BookingDrawer({ driver, onClose, isAuthenticated = true 
                   loop
                   playsInline
                   preload="metadata"
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
                 />
               ) : photoUrl ? (
                 <img
                   src={photoUrl}
                   alt={displayName}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  style={{
+                    width: '100%', height: '100%',
+                    objectFit: 'cover', objectPosition: 'center top',
+                    display: 'block',
+                  }}
                 />
               ) : (
                 <div style={{
