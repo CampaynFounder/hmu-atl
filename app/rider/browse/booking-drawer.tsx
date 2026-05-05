@@ -19,7 +19,7 @@ interface Props {
  * forwards it to /api/drivers/[handle]/book.
  */
 export default function BookingDrawer({ driver, onClose, isAuthenticated = true }: Props) {
-  const { handle, displayName, minPrice, enforceMinimum, fwu } = driver;
+  const { handle, displayName, minPrice, enforceMinimum, fwu, videoUrl, photoUrl } = driver;
   const defaultAmount = (minPrice > 0 && !fwu) ? String(minPrice) : '15';
 
   const [destination, setDestination] = useState('');
@@ -246,15 +246,62 @@ export default function BookingDrawer({ driver, onClose, isAuthenticated = true 
           </div>
         ) : (
           <>
-            <div style={{ marginBottom: 14 }}>
-              <h3 style={{
-                fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-                fontSize: 24, margin: 0,
+            {/* Driver media — video first (autoplay, muted, looped) then photo
+                then fallback gradient. Mirrors the feed/grid card aesthetic
+                so the rider has visual continuity from card → drawer. */}
+            <div style={{
+              width: '100%',
+              aspectRatio: '16 / 9',
+              borderRadius: 16,
+              overflow: 'hidden',
+              background: '#0a0a0a',
+              marginBottom: 14,
+              position: 'relative',
+            }}>
+              {videoUrl ? (
+                <video
+                  src={videoUrl}
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
+              ) : photoUrl ? (
+                <img
+                  src={photoUrl}
+                  alt={displayName}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
+              ) : (
+                <div style={{
+                  width: '100%', height: '100%',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+                  fontSize: 56, color: '#444',
+                  background: 'radial-gradient(circle at 50% 40%, #1a1a1a, #0a0a0a)',
+                }}>
+                  {displayName.charAt(0).toUpperCase()}
+                </div>
+              )}
+              {/* Subtle gradient + name overlay so the driver's name is
+                  unmistakable even when the media is busy. */}
+              <div style={{
+                position: 'absolute', left: 0, right: 0, bottom: 0,
+                padding: '24px 14px 10px',
+                background: 'linear-gradient(to top, rgba(0,0,0,0.72), rgba(0,0,0,0))',
+                pointerEvents: 'none',
               }}>
-                BOOK {displayName.toUpperCase()}
-              </h3>
-              <div style={{ fontSize: 13, color: '#888', marginTop: 4 }}>
-                Send them where you&apos;re headed and how much.
+                <div style={{
+                  fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+                  fontSize: 22, color: '#fff', lineHeight: 1.05,
+                }}>
+                  BOOK {displayName.toUpperCase()}
+                </div>
+                <div style={{ fontSize: 12, color: '#bbb', marginTop: 2 }}>
+                  Send them where you&apos;re headed and how much.
+                </div>
               </div>
             </div>
 
