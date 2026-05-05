@@ -27,7 +27,7 @@ const createBody = z.object({
   slug: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/, 'kebab-case, 3-64 chars'),
   label: z.string().min(1).max(80),
   description: z.string().max(500).nullable().optional(),
-  scope: z.enum(['user_detail', 'market_overview']),
+  scope: z.enum(['user_detail', 'market_overview', 'user_grid']),
   market_id: z.string().uuid().nullable().optional(),
   sections: z.array(sectionSchema).min(1).max(20),
   role_ids: z.array(z.string().uuid()).default([]),

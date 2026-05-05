@@ -21,6 +21,7 @@ interface FieldMetadata {
   render: 'stat' | 'badge' | 'flag' | 'list';
   marketAware: boolean;
   deprecated: boolean;
+  gridable: boolean;
 }
 
 interface MarketLite {
@@ -47,7 +48,7 @@ export interface DashboardFormInitial {
   slug?: string;
   label?: string;
   description?: string | null;
-  scope?: 'user_detail' | 'market_overview';
+  scope?: 'user_detail' | 'market_overview' | 'user_grid';
   market_id?: string | null;
   sections?: SectionRow[];
   role_ids?: string[];
@@ -65,7 +66,7 @@ export function DashboardForm({
   const [slug, setSlug] = useState(initial?.slug ?? '');
   const [label, setLabel] = useState(initial?.label ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
-  const [scope, setScope] = useState<'user_detail' | 'market_overview'>(initial?.scope ?? 'user_detail');
+  const [scope, setScope] = useState<'user_detail' | 'market_overview' | 'user_grid'>(initial?.scope ?? 'user_grid');
   const [marketId, setMarketId] = useState<string | null>(initial?.market_id ?? null);
   const [sections, setSections] = useState<SectionRow[]>(
     initial?.sections ?? [{ label: '', field_keys: [], col_span: 12 }],
@@ -241,7 +242,8 @@ export function DashboardForm({
             className="w-full text-sm px-2 py-1.5 rounded outline-none disabled:opacity-50"
             style={inputStyle}
           >
-            <option value="user_detail">user_detail (bound to one user)</option>
+            <option value="user_grid">user_grid (table — rows of users, columns of fields)</option>
+            <option value="user_detail">user_detail (one user, fact sheet)</option>
             <option value="market_overview">market_overview (aggregate)</option>
           </select>
         </Field>
@@ -260,9 +262,11 @@ export function DashboardForm({
         </Field>
       </Section>
 
-      <Section title={`Sections (${sections.length})`}>
+      <Section title={scope === 'user_grid' ? `Columns (${sections[0]?.field_keys.length ?? 0})` : `Sections (${sections.length})`}>
         <p className="text-xs mb-3" style={{ color: 'var(--admin-text-muted)' }}>
-          A section groups fields under one label. Pick fields from the palette below each section.
+          {scope === 'user_grid'
+            ? 'Pick the fields to render as columns. Order = column order. Only grid-eligible fields are listed.'
+            : 'A section groups fields under one label. Pick fields from the palette below each section.'}
         </p>
         <div className="space-y-3 mb-3">
           {sections.map((s, i) => (
@@ -275,6 +279,7 @@ export function DashboardForm({
               fieldByKey={fieldByKey}
               isFirst={i === 0}
               isLast={i === sections.length - 1}
+              scope={scope}
               onMove={(d) => moveSection(i, d)}
               onRemove={() => removeSection(i)}
               onPatch={(p) => patchSection(i, p)}
@@ -283,6 +288,7 @@ export function DashboardForm({
             />
           ))}
         </div>
+        {scope !== 'user_grid' && (
         <button
           type="button"
           onClick={addSection}
@@ -291,6 +297,7 @@ export function DashboardForm({
         >
           + Add section
         </button>
+        )}
       </Section>
 
       <Section title={`Role grants (${roleIds.length})`}>
@@ -357,6 +364,7 @@ function SectionEditor({
   fieldByKey,
   isFirst,
   isLast,
+  scope,
   onMove,
   onRemove,
   onPatch,
@@ -370,6 +378,7 @@ function SectionEditor({
   fieldByKey: Map<string, FieldMetadata>;
   isFirst: boolean;
   isLast: boolean;
+  scope: 'user_detail' | 'market_overview' | 'user_grid';
   onMove: (delta: -1 | 1) => void;
   onRemove: () => void;
   onPatch: (patch: Partial<SectionRow>) => void;
@@ -382,6 +391,7 @@ function SectionEditor({
     const q = search.toLowerCase().trim();
     const filtered = registry.filter((f) => {
       if (f.deprecated) return false;
+      if (scope === 'user_grid' && !f.gridable) return false;
       if (!q) return true;
       return (
         f.key.toLowerCase().includes(q) ||
@@ -400,7 +410,7 @@ function SectionEditor({
     return order
       .filter((c) => byCat.has(c))
       .map((c) => ({ category: c, fields: byCat.get(c)! }));
-  }, [registry, categoryOrder, search]);
+  }, [registry, categoryOrder, search, scope]);
 
   const selected = new Set(section.field_keys);
 

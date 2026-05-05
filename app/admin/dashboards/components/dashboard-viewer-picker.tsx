@@ -6,6 +6,7 @@
 //
 // Editors get a "Manage" link to the builder via the parent server component.
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { UserSearchPicker } from '@/app/admin/components/user-search-picker';
@@ -16,7 +17,7 @@ interface DashboardCard {
   slug: string;
   label: string;
   description: string | null;
-  scope: 'user_detail' | 'market_overview';
+  scope: 'user_detail' | 'market_overview' | 'user_grid';
   is_builtin: boolean;
 }
 
@@ -44,15 +45,40 @@ export function DashboardViewerPicker({ dashboards }: { dashboards: DashboardCar
     );
   }
 
+  // user_grid dashboards stand alone — no user binding required.
+  // user_detail dashboards still need a user picker (legacy).
+  const needsPicker = pickedDashboard?.scope === 'user_detail';
+
   return (
     <div className="space-y-4">
       <div>
         <div className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--admin-text-muted)' }}>
-          1. Pick a dashboard
+          Pick a dashboard
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {dashboards.map((d) => {
             const active = pickedDashboard?.id === d.id;
+            // user_grid dashboards open straight away — clicking is a navigation,
+            // not just a "pick" for the next step.
+            if (d.scope === 'user_grid') {
+              return (
+                <Link
+                  key={d.id}
+                  href={`/admin/dashboards/${d.id}/view`}
+                  className="text-left rounded-lg p-3 transition-colors block"
+                  style={{
+                    background: 'var(--admin-bg-elevated)',
+                    border: '1px solid var(--admin-border)',
+                    color: 'var(--admin-text)',
+                  }}
+                >
+                  <CardHeader d={d} />
+                  <div className="text-[10px] mt-1.5 flex items-center gap-1" style={{ color: '#60a5fa' }}>
+                    Open grid →
+                  </div>
+                </Link>
+              );
+            }
             return (
               <button
                 key={d.id}
@@ -65,50 +91,62 @@ export function DashboardViewerPicker({ dashboards }: { dashboards: DashboardCar
                   color: 'var(--admin-text)',
                 }}
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-medium">{d.label}</span>
-                  {d.is_builtin && (
-                    <span
-                      className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded"
-                      style={{ background: 'rgba(96, 165, 250, 0.12)', color: '#60a5fa' }}
-                    >
-                      builtin
-                    </span>
-                  )}
-                </div>
-                <code className="text-[10px]" style={{ color: 'var(--admin-text-muted)' }}>{d.slug}</code>
-                {d.description && (
-                  <div className="text-[11px] mt-1.5" style={{ color: 'var(--admin-text-muted)' }}>
-                    {d.description}
-                  </div>
-                )}
+                <CardHeader d={d} />
               </button>
             );
           })}
         </div>
       </div>
 
-      <div>
-        <div className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--admin-text-muted)' }}>
-          2. Pick a user
+      {needsPicker && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--admin-text-muted)' }}>
+            Pick a user (this dashboard is per-user)
+          </div>
+          <div
+            className="rounded-lg p-3"
+            style={{ background: 'var(--admin-bg-elevated)', border: '1px solid var(--admin-border)' }}
+          >
+            <UserSearchPicker
+              onSelect={onUserSelect}
+              placeholder={`Search users to view "${pickedDashboard!.label}"…`}
+            />
+          </div>
+          {error && (
+            <p className="text-[11px] mt-2" style={{ color: '#f87171' }}>{error}</p>
+          )}
         </div>
-        <div
-          className="rounded-lg p-3"
-          style={{
-            background: pickedDashboard ? 'var(--admin-bg-elevated)' : 'var(--admin-bg)',
-            border: '1px solid var(--admin-border)',
-            opacity: pickedDashboard ? 1 : 0.6,
-          }}
-        >
-          <UserSearchPicker
-            onSelect={onUserSelect}
-            placeholder={pickedDashboard ? `Search users to view "${pickedDashboard.label}"…` : 'Pick a dashboard first'}
-          />
-        </div>
-        {error && (
-          <p className="text-[11px] mt-2" style={{ color: '#f87171' }}>{error}</p>
-        )}
-      </div>
+      )}
     </div>
+  );
+}
+
+function CardHeader({ d }: { d: DashboardCard }) {
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-sm font-medium">{d.label}</span>
+        {d.is_builtin && (
+          <span
+            className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+            style={{ background: 'rgba(96, 165, 250, 0.12)', color: '#60a5fa' }}
+          >
+            builtin
+          </span>
+        )}
+        <span
+          className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+          style={{ background: 'var(--admin-bg)', color: 'var(--admin-text-muted)' }}
+        >
+          {d.scope.replace('_', ' ')}
+        </span>
+      </div>
+      <code className="text-[10px]" style={{ color: 'var(--admin-text-muted)' }}>{d.slug}</code>
+      {d.description && (
+        <div className="text-[11px] mt-1.5" style={{ color: 'var(--admin-text-muted)' }}>
+          {d.description}
+        </div>
+      )}
+    </>
   );
 }

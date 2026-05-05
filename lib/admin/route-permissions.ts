@@ -81,7 +81,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/roles',               rule: { kind: 'permission', slug: 'admin.roles' } },
   { pattern: '/admin/audit',               rule: { kind: 'permission', slug: 'admin.audit' } },
   { pattern: '/admin/dashboards/manage',   rule: { kind: 'permission', slug: 'admin.dashboards' } }, // builder list — .view sees the list read-only; .edit can create/update/delete (enforced server-side + at the page level)
-  { pattern: '/admin/dashboards',          rule: { kind: 'permission', slug: 'admin.dashboards' } }, // viewer landing — picks a user to render their accessible dashboards. .view is enough.
+  { pattern: '/admin/dashboards',          rule: { kind: 'permission', slug: 'admin.dashboards' } }, // viewer landing + /[id]/view grid pages. Per-dashboard grant check happens inside the page.
   { pattern: '/admin/markets',             rule: { kind: 'super' } },
   { pattern: '/admin/feature-flags',       rule: { kind: 'super' } },
   { pattern: '/admin/hmu-config',          rule: { kind: 'super' } },

@@ -492,7 +492,7 @@ export interface PlatformSafetyConfig {
 // =============================================================================
 // Admin Dashboards (see docs/ADMIN-DASHBOARDS-SPEC.md)
 // =============================================================================
-export type DashboardScope = 'user_detail' | 'market_overview';
+export type DashboardScope = 'user_detail' | 'market_overview' | 'user_grid';
 
 export interface AdminDashboard {
   id: string;

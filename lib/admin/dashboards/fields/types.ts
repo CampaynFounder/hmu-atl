@@ -45,11 +45,28 @@ export interface FieldFetchContext {
  *  - aggregate        → custom subquery returning one scalar value
  *  - collection       → custom query returning rows for a 'list' render
  */
+export interface BatchFetchContext {
+  /** All user IDs in the current grid page — sized at the grid's page limit. */
+  userIds: string[];
+  /** Resolved per field.marketScope. NULL = no market filter. */
+  marketIds: string[] | null;
+  adminUserId: string;
+}
+
 export type FieldSource =
   | { kind: 'user_column'; column: string; cast?: string }
   | { kind: 'driver_column'; column: string; cast?: string }
   | { kind: 'rider_column'; column: string; cast?: string }
-  | { kind: 'aggregate'; fetch: (ctx: FieldFetchContext) => Promise<unknown> }
+  | {
+      kind: 'aggregate';
+      fetch: (ctx: FieldFetchContext) => Promise<unknown>;
+      /**
+       * Optional batched form for grid scope. If absent the aggregate is
+       * still gridable in principle but runs N+1 (one fetch per row) — fine
+       * for tiny grids, costly otherwise. Implement when feasible.
+       */
+      batchFetch?: (ctx: BatchFetchContext) => Promise<Map<string, unknown>>;
+    }
   | { kind: 'collection'; fetch: (ctx: FieldFetchContext) => Promise<unknown> };
 
 export interface FieldDefinition<TValue = unknown> {
@@ -70,8 +87,20 @@ export interface FieldDefinition<TValue = unknown> {
   /** Market filtering — only meaningful for aggregates/collections. */
   marketAware?: boolean;
   marketScope?: MarketScopeStrategy;
-  /** Render the resolved value. Receives whatever fetch / column produced. */
+  /** Render the resolved value in the user_detail card layout. */
   Render: ComponentType<{ value: TValue; userProfileType: string }>;
+  /**
+   * Compact cell render for user_grid scope. If absent and the field is
+   * gridable, the runtime falls back to a default text rendering of the
+   * raw value.
+   */
+  Cell?: ComponentType<{ value: TValue; userProfileType: string }>;
+  /**
+   * Grid eligibility. Defaults to true for column / aggregate sources, false
+   * for collections. Override to opt out a field from grid use entirely
+   * (e.g. an aggregate that's too slow to batch).
+   */
+  gridable?: boolean;
   /** If true, hidden from builder picker (saved dashboards still render). */
   deprecated?: boolean;
 }
@@ -89,6 +118,8 @@ export interface FieldMetadata {
   render: FieldRenderKind;
   marketAware: boolean;
   deprecated: boolean;
+  /** True if this field can render in a user_grid dashboard. */
+  gridable: boolean;
 }
 
 export function fieldMetadata(f: AnyFieldDefinition): FieldMetadata {
@@ -101,7 +132,14 @@ export function fieldMetadata(f: AnyFieldDefinition): FieldMetadata {
     render: f.render,
     marketAware: f.marketAware ?? false,
     deprecated: f.deprecated ?? false,
+    gridable: isGridable(f),
   };
+}
+
+/** Default grid eligibility: explicit override wins; collections default off. */
+export function isGridable(f: AnyFieldDefinition): boolean {
+  if (f.gridable !== undefined) return f.gridable;
+  return f.source.kind !== 'collection';
 }
 
 // Section is the persisted grouping. Stored in admin_dashboard_blocks rows.

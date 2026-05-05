@@ -327,3 +327,231 @@ export async function fetchDashboardSections(
     }),
   }));
 }
+
+// ─── User grid fetching ────────────────────────────────────────────────────
+
+export interface UserGridFilters {
+  /** 'driver' | 'rider' | null (any) */
+  profileType?: string | null;
+  status?: string | null;
+  marketId?: string | null;
+  /** ILIKE %q% across name/handle/phone */
+  search?: string | null;
+  limit?: number;
+  offset?: number;
+}
+
+export interface UserGridRow {
+  id: string;
+  profile_type: string;
+  /** Map<fieldKey, value | null>. Keys present even when value is null/error. */
+  values: Record<string, unknown>;
+  /** fieldKey → error message; only present for fields that failed to resolve. */
+  errors: Record<string, string>;
+}
+
+export interface UserGridResult {
+  rows: UserGridRow[];
+  total: number;
+}
+
+interface UserGridFetchOptions {
+  admin: AdminUser;
+  fieldKeys: string[];
+  filters: UserGridFilters;
+  adminActiveMarketId?: string | null;
+}
+
+/**
+ * Resolve filters → page of user_ids → batched column / aggregate fetches per
+ * field. Designed for grid views: O(distinct source tables + distinct
+ * aggregate fields) queries, not O(rows × fields).
+ *
+ * Collection fields are silently skipped — they don't fit a grid cell. The
+ * caller is expected to filter via `isGridable()` before calling.
+ */
+export async function fetchUserGridRows(opts: UserGridFetchOptions): Promise<UserGridResult> {
+  const limit = Math.min(Math.max(opts.filters.limit ?? 50, 1), 200);
+  const offset = Math.max(opts.filters.offset ?? 0, 0);
+  const profileType = opts.filters.profileType ?? null;
+  const status = opts.filters.status ?? null;
+  const marketId = opts.filters.marketId ?? null;
+  const searchPattern = opts.filters.search?.trim() ? `%${opts.filters.search.trim()}%` : null;
+
+  // Page-of-users + total. One coalescing CTE keeps both in a single round-trip.
+  // Filters are all nullable bind params; the WHERE clause no-ops when null.
+  const userRows = await sql`
+    WITH base AS (
+      SELECT u.id, u.profile_type
+      FROM users u
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      LEFT JOIN rider_profiles  rp ON rp.user_id = u.id
+      WHERE u.is_admin = FALSE
+        AND (${profileType}::text IS NULL OR u.profile_type = ${profileType})
+        AND (${status}::text       IS NULL OR u.account_status = ${status})
+        AND (${marketId}::uuid     IS NULL OR u.market_id = ${marketId})
+        AND (${searchPattern}::text IS NULL OR
+             dp.display_name ILIKE ${searchPattern} OR
+             dp.first_name   ILIKE ${searchPattern} OR
+             rp.display_name ILIKE ${searchPattern} OR
+             rp.first_name   ILIKE ${searchPattern} OR
+             dp.handle       ILIKE ${searchPattern} OR
+             rp.handle       ILIKE ${searchPattern} OR
+             dp.phone        ILIKE ${searchPattern} OR
+             u.clerk_id      ILIKE ${searchPattern})
+    )
+    SELECT id, profile_type, (SELECT COUNT(*) FROM base)::int AS total
+    FROM base ORDER BY id LIMIT ${limit} OFFSET ${offset}
+  `;
+  const userIds: string[] = userRows.map((r: Record<string, unknown>) => r.id as string);
+  const total = userRows.length > 0 ? Number(userRows[0].total) : 0;
+
+  if (userIds.length === 0) return { rows: [], total };
+
+  // Initialize result rows.
+  const rowsById = new Map<string, UserGridRow>();
+  for (const r of userRows) {
+    const id = r.id as string;
+    rowsById.set(id, {
+      id,
+      profile_type: r.profile_type as string,
+      values: Object.create(null),
+      errors: Object.create(null),
+    });
+  }
+
+  // Bucket field defs by fetch strategy.
+  const userColumns: { key: string; column: string; cast?: string }[] = [];
+  const driverColumns: { key: string; column: string; cast?: string }[] = [];
+  const riderColumns: { key: string; column: string; cast?: string }[] = [];
+  const aggregates: { key: string; def: AnyFieldDefinition }[] = [];
+
+  for (const key of opts.fieldKeys) {
+    const def = getField(key);
+    if (!def || def.deprecated) continue;
+    if (def.source.kind === 'collection') continue; // not gridable
+    if (def.source.kind === 'user_column') {
+      userColumns.push({ key, column: def.source.column, cast: def.source.cast });
+    } else if (def.source.kind === 'driver_column') {
+      driverColumns.push({ key, column: def.source.column, cast: def.source.cast });
+    } else if (def.source.kind === 'rider_column') {
+      riderColumns.push({ key, column: def.source.column, cast: def.source.cast });
+    } else if (def.source.kind === 'aggregate') {
+      aggregates.push({ key, def });
+    }
+  }
+
+  const tasks: Promise<void>[] = [];
+
+  if (userColumns.length > 0) {
+    tasks.push((async () => {
+      try {
+        const cols = userColumns.map((c) => `${c.column}${c.cast ? `::${c.cast}` : ''} AS "${c.key}"`).join(', ');
+        const rows = (await sql(
+          `SELECT id, ${cols} FROM users WHERE id = ANY($1::uuid[])`,
+          [userIds],
+        )) as Record<string, unknown>[];
+        for (const r of rows) {
+          const row = rowsById.get(r.id as string);
+          if (!row) continue;
+          for (const c of userColumns) row.values[c.key] = r[c.key] ?? null;
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        for (const r of rowsById.values()) for (const c of userColumns) r.errors[c.key] = msg;
+      }
+    })());
+  }
+  if (driverColumns.length > 0) {
+    tasks.push((async () => {
+      try {
+        const cols = driverColumns.map((c) => `${c.column}${c.cast ? `::${c.cast}` : ''} AS "${c.key}"`).join(', ');
+        const rows = (await sql(
+          `SELECT user_id, ${cols} FROM driver_profiles WHERE user_id = ANY($1::uuid[])`,
+          [userIds],
+        )) as Record<string, unknown>[];
+        for (const r of rows) {
+          const row = rowsById.get(r.user_id as string);
+          if (!row) continue;
+          for (const c of driverColumns) row.values[c.key] = r[c.key] ?? null;
+        }
+        // Users without a driver_profile get nulls (Map default).
+        for (const row of rowsById.values()) {
+          for (const c of driverColumns) if (!(c.key in row.values)) row.values[c.key] = null;
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        for (const r of rowsById.values()) for (const c of driverColumns) r.errors[c.key] = msg;
+      }
+    })());
+  }
+  if (riderColumns.length > 0) {
+    tasks.push((async () => {
+      try {
+        const cols = riderColumns.map((c) => `${c.column}${c.cast ? `::${c.cast}` : ''} AS "${c.key}"`).join(', ');
+        const rows = (await sql(
+          `SELECT user_id, ${cols} FROM rider_profiles WHERE user_id = ANY($1::uuid[])`,
+          [userIds],
+        )) as Record<string, unknown>[];
+        for (const r of rows) {
+          const row = rowsById.get(r.user_id as string);
+          if (!row) continue;
+          for (const c of riderColumns) row.values[c.key] = r[c.key] ?? null;
+        }
+        for (const row of rowsById.values()) {
+          for (const c of riderColumns) if (!(c.key in row.values)) row.values[c.key] = null;
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        for (const r of rowsById.values()) for (const c of riderColumns) r.errors[c.key] = msg;
+      }
+    })());
+  }
+
+  // Aggregates: prefer batchFetch when defined (single SQL across all userIds).
+  // Fall back to per-user fetch (N+1) for aggregates without a batch impl —
+  // acceptable for tiny pages; opt out via gridable: false on slow ones.
+  for (const { key, def } of aggregates) {
+    if (def.source.kind !== 'aggregate') continue;
+    const marketIds = resolveMarketIds(def, {
+      admin: opts.admin,
+      adminActiveMarketId: opts.adminActiveMarketId,
+      viewedUserMarketId: null,
+    });
+    const batch = def.source.batchFetch;
+    if (batch) {
+      tasks.push((async () => {
+        try {
+          const m = await batch({ userIds, marketIds, adminUserId: opts.admin.id });
+          for (const row of rowsById.values()) row.values[key] = m.get(row.id) ?? null;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          for (const row of rowsById.values()) row.errors[key] = msg;
+        }
+      })());
+    } else {
+      // Per-user fallback. Capped naturally by `limit`.
+      tasks.push((async () => {
+        await Promise.all(userIds.map(async (uid) => {
+          try {
+            const v = await (def.source as { fetch: (c: FieldFetchContext) => Promise<unknown> })
+              .fetch({ marketIds, userId: uid, adminUserId: opts.admin.id });
+            const row = rowsById.get(uid);
+            if (row) row.values[key] = v;
+          } catch (e) {
+            const row = rowsById.get(uid);
+            if (row) row.errors[key] = e instanceof Error ? e.message : String(e);
+          }
+        }));
+      })());
+    }
+  }
+
+  await Promise.all(tasks);
+
+  // Stable order = same as userRows (id-sorted).
+  return {
+    rows: userIds.map((id) => rowsById.get(id)!).filter(Boolean),
+    total,
+  };
+}

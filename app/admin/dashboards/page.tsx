@@ -25,7 +25,11 @@ export default async function DashboardsViewerPage() {
 
   await ensureBuiltinsReconciled();
 
-  const accessible = await listAccessibleDashboards(admin, 'user_detail');
+  const [details, grids] = await Promise.all([
+    listAccessibleDashboards(admin, 'user_detail'),
+    listAccessibleDashboards(admin, 'user_grid'),
+  ]);
+  const accessible = [...grids, ...details]; // grids first — primary surface going forward
   const dashboards = accessible.map((d) => ({
     id: d.id,
     slug: d.slug,

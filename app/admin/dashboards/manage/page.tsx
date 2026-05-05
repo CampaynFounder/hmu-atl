@@ -123,17 +123,28 @@ export default async function DashboardsManagePage() {
                   )}
                 </Td>
                 <Td align="right">
-                  {canEdit ? (
-                    <Link
-                      href={`/admin/dashboards/${d.id}/edit`}
-                      className="text-xs"
-                      style={{ color: '#60a5fa' }}
-                    >
-                      edit
-                    </Link>
-                  ) : (
-                    <span className="text-xs" style={{ color: 'var(--admin-text-muted)' }}>view only</span>
-                  )}
+                  <div className="flex items-center justify-end gap-3">
+                    {d.scope === 'user_grid' && (
+                      <Link
+                        href={`/admin/dashboards/${d.id}/view`}
+                        className="text-xs"
+                        style={{ color: 'var(--admin-text-muted)' }}
+                      >
+                        view
+                      </Link>
+                    )}
+                    {canEdit ? (
+                      <Link
+                        href={`/admin/dashboards/${d.id}/edit`}
+                        className="text-xs"
+                        style={{ color: '#60a5fa' }}
+                      >
+                        edit
+                      </Link>
+                    ) : (
+                      <span className="text-xs" style={{ color: 'var(--admin-text-muted)' }}>view only</span>
+                    )}
+                  </div>
                 </Td>
               </tr>
             ))}

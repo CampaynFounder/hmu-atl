@@ -114,7 +114,7 @@ export const areaFields: FieldDefinition[] = [
         WITH recent_posts AS (
           SELECT pickup_area_slug, dropoff_area_slug
           FROM hmu_posts
-          WHERE user_id = ${ctx.userId} AND post_type = 'rider_seeking_driver'
+          WHERE user_id = ${ctx.userId} AND post_type = 'rider_request'
           ORDER BY created_at DESC LIMIT 20
         ),
         tallied AS (
