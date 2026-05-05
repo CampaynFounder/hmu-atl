@@ -74,16 +74,26 @@ export function useInfiniteList<T>({
         // End-of-list loop must still de-dupe — without this, thin lists show
         // the same card twice in grid view (and back-to-back in feed). Once a
         // loop returns zero NEW ids, we've truly seen everyone and stop.
+        //
+        // The de-dup MUST happen inside the setItems updater so it runs
+        // against current state (`prev`) — using `items` from closure can
+        // be stale when other effects (filter changes, coord refetches)
+        // have replaced items between when this fetchMore was created and
+        // when its result lands.
         if (next.length === 0) {
           setCanLoop(false);
         } else {
-          const seen = new Set(items.map(getId));
-          const fresh = next.filter((r) => !seen.has(getId(r)));
-          if (fresh.length === 0) {
-            setCanLoop(false);
-          } else {
-            setItems((prev) => prev.concat(fresh));
-          }
+          let exhausted = false;
+          setItems((prev) => {
+            const seen = new Set(prev.map(getId));
+            const fresh = next.filter((r) => !seen.has(getId(r)));
+            if (fresh.length === 0) {
+              exhausted = true;
+              return prev;
+            }
+            return prev.concat(fresh);
+          });
+          if (exhausted) setCanLoop(false);
         }
       } else {
         setItems((prev) => {

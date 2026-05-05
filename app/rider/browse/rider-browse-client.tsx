@@ -197,12 +197,22 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize, is
     [list],
   );
 
-  const filtered = useMemo(() => list.filter((d) => {
-    if (filterFwu && !d.fwu) return false;
-    if (filterMaxPrice && d.minPrice > Number(filterMaxPrice)) return false;
-    if (filterArea && !d.areas.some((a) => a.toLowerCase().includes(filterArea.toLowerCase()))) return false;
-    return true;
-  }), [list, filterFwu, filterMaxPrice, filterArea]);
+  // Defense-in-depth dedup: collapse any repeated handle to a single entry
+  // before applying client-side filters. Backstops the looping infinite-scroll
+  // engine in case any race slips a duplicate driver into state.
+  const filtered = useMemo(() => {
+    const seen = new Set<string>();
+    const out: BrowseDriverRow[] = [];
+    for (const d of list) {
+      if (seen.has(d.handle)) continue;
+      if (filterFwu && !d.fwu) continue;
+      if (filterMaxPrice && d.minPrice > Number(filterMaxPrice)) continue;
+      if (filterArea && !d.areas.some((a) => a.toLowerCase().includes(filterArea.toLowerCase()))) continue;
+      seen.add(d.handle);
+      out.push(d);
+    }
+    return out;
+  }, [list, filterFwu, filterMaxPrice, filterArea]);
 
   const bookingDriver = bookingHandle ? list.find((d) => d.handle === bookingHandle) ?? null : null;
 
