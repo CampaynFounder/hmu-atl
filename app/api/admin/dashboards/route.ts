@@ -2,6 +2,10 @@
 //   GET  → list dashboards visible to the caller (super sees all, others see
 //          their grants + always-visible builtins). Filtered by ?scope= if set.
 //   POST → create a new dashboard (super only). Body validated by zod.
+//
+// Sections are { label, field_keys, col_span } — engineers register fields in
+// lib/admin/dashboards/fields/registry.ts; superadmin assembles them into
+// sections via the builder UI without writing code.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -9,9 +13,15 @@ import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/
 import { sql } from '@/lib/db/client';
 import { listAccessibleDashboards } from '@/lib/admin/dashboards/runtime';
 import { ensureBuiltinsReconciled } from '@/lib/admin/dashboards/builtins';
-import { getBlock } from '@/lib/admin/dashboards/blocks/registry';
+import { getField } from '@/lib/admin/dashboards/fields/registry';
 import { DASHBOARD_AUDIT, DASHBOARD_AUDIT_TARGET } from '@/lib/admin/dashboards/audit-events';
 import type { DashboardScope } from '@/lib/db/types';
+
+const sectionSchema = z.object({
+  label: z.string().max(80).nullable().optional(),
+  field_keys: z.array(z.string().min(1)).min(1).max(40),
+  col_span: z.number().int().min(1).max(12).optional(),
+});
 
 const createBody = z.object({
   slug: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/, 'kebab-case, 3-64 chars'),
@@ -19,11 +29,7 @@ const createBody = z.object({
   description: z.string().max(500).nullable().optional(),
   scope: z.enum(['user_detail', 'market_overview']),
   market_id: z.string().uuid().nullable().optional(),
-  blocks: z.array(z.object({
-    block_key: z.string().min(1),
-    config: z.record(z.string(), z.unknown()).optional(),
-    col_span: z.number().int().min(1).max(12).optional(),
-  })).min(1).max(40),
+  sections: z.array(sectionSchema).min(1).max(20),
   role_ids: z.array(z.string().uuid()).default([]),
 });
 
@@ -53,27 +59,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid body', details: e instanceof Error ? e.message : String(e) }, { status: 400 });
   }
 
-  // Validate every block key is in the registry and matches the scope.
-  for (const b of parsed.blocks) {
-    const def = getBlock(b.block_key);
-    if (!def) return NextResponse.json({ error: `unknown block_key: ${b.block_key}` }, { status: 400 });
-    const scopeMap = parsed.scope === 'user_detail' ? 'user' : 'market';
-    if (def.scope !== scopeMap && def.scope !== 'global') {
-      return NextResponse.json({
-        error: `block ${b.block_key} (scope=${def.scope}) not allowed in ${parsed.scope} dashboard`,
-      }, { status: 400 });
-    }
-    // Validate each block's config against its registry schema.
-    try {
-      def.configSchema.parse(b.config ?? {});
-    } catch (e) {
-      return NextResponse.json({
-        error: `block ${b.block_key} config invalid: ${e instanceof Error ? e.message : String(e)}`,
-      }, { status: 400 });
+  // Validate every field key exists in the registry. Field-grain dashboards
+  // currently target user_detail; extend here when we ship market-overview
+  // field families.
+  const allFieldKeys = parsed.sections.flatMap((s) => s.field_keys);
+  for (const key of allFieldKeys) {
+    if (!getField(key)) {
+      return NextResponse.json({ error: `unknown field key: ${key}` }, { status: 400 });
     }
   }
 
-  // Slug uniqueness — friendlier than letting the unique constraint throw.
   const existing = await sql`SELECT 1 FROM admin_dashboards WHERE slug = ${parsed.slug} LIMIT 1`;
   if (existing.length) return NextResponse.json({ error: 'slug already exists' }, { status: 409 });
 
@@ -92,11 +87,11 @@ export async function POST(req: NextRequest) {
   `;
   const dashboardId = dash.id as string;
 
-  for (let i = 0; i < parsed.blocks.length; i++) {
-    const b = parsed.blocks[i];
+  for (let i = 0; i < parsed.sections.length; i++) {
+    const s = parsed.sections[i];
     await sql`
-      INSERT INTO admin_dashboard_blocks (dashboard_id, block_key, config, sort_order, col_span)
-      VALUES (${dashboardId}, ${b.block_key}, ${JSON.stringify(b.config ?? {})}::jsonb, ${i}, ${b.col_span ?? 12})
+      INSERT INTO admin_dashboard_blocks (dashboard_id, section_type, label, field_keys, sort_order, col_span)
+      VALUES (${dashboardId}, 'fields', ${s.label ?? null}, ${s.field_keys}::text[], ${i}, ${s.col_span ?? 12})
     `;
   }
 
@@ -110,7 +105,8 @@ export async function POST(req: NextRequest) {
 
   await logAdminAction(admin.id, DASHBOARD_AUDIT.CREATED, DASHBOARD_AUDIT_TARGET.DASHBOARD, dashboardId, {
     slug: parsed.slug,
-    block_count: parsed.blocks.length,
+    section_count: parsed.sections.length,
+    field_count: allFieldKeys.length,
     role_count: parsed.role_ids.length,
   });
 

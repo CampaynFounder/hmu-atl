@@ -1,67 +1,32 @@
-// Server-side dashboard runtime: load definitions, enforce grants, resolve
-// per-block market scope, and fan out block fetches in parallel.
-//
-// Used by /admin/users/[id] (user_detail), the future /admin/dashboards/[slug]
-// (market_overview), and the data API that re-fetches a single dashboard
-// without rerendering the whole page.
+// Server-side dashboard runtime. Fetches dashboard config, enforces grants,
+// resolves per-field marketScope, and bundles column-sourced fields by source
+// table to keep round-trip count down.
 
 import { sql } from '@/lib/db/client';
 import type { AdminUser } from '@/lib/admin/helpers';
+import type { AdminDashboard, DashboardScope } from '@/lib/db/types';
+import { getField } from './fields/registry';
 import type {
-  AdminDashboard,
-  AdminDashboardBlock,
-  DashboardScope,
-} from '@/lib/db/types';
-import { getBlock } from './blocks/registry';
-import type { AnyBlockDefinition, BlockFetchContext, MarketScopeStrategy } from './blocks/types';
+  AnyFieldDefinition,
+  FieldFetchContext,
+  MarketScopeStrategy,
+} from './fields/types';
 
-// ─── Market scope resolver ─────────────────────────────────────────────────
+// ─── Section + Field types ─────────────────────────────────────────────────
 
-interface ResolveCtx {
-  admin: AdminUser;
-  /** Active market the admin has selected, if known. Optional — only matters for 'admin_active'. */
-  adminActiveMarketId?: string | null;
-  /** market_id of the user being viewed, if dashboard scope === 'user_detail'. */
-  viewedUserMarketId?: string | null;
+export interface DashboardSection {
+  id: string;
+  dashboard_id: string;
+  section_type: string; // 'fields' for v1
+  label: string | null;
+  field_keys: string[];
+  col_span: number;
+  sort_order: number;
 }
 
-export function resolveMarketIds(
-  block: AnyBlockDefinition,
-  ctx: ResolveCtx,
-): string[] | null {
-  if (!block.marketAware) return null;
-
-  const strategy: MarketScopeStrategy = block.marketScope ?? 'admin_active';
-
-  switch (strategy) {
-    case 'viewed_user': {
-      // Only meaningful for user_detail dashboards. Falls back to admin's
-      // allowlist if the viewed user has no market_id (rare — orphan rows).
-      if (ctx.viewedUserMarketId) return [ctx.viewedUserMarketId];
-      return ctx.admin.is_super ? null : ctx.admin.admin_market_ids ?? null;
-    }
-
-    case 'admin_active': {
-      if (ctx.adminActiveMarketId) return [ctx.adminActiveMarketId];
-      // No active market chosen → fall through to allowlist so we never leak
-      // beyond what the admin can see.
-      return ctx.admin.is_super ? null : ctx.admin.admin_market_ids ?? null;
-    }
-
-    case 'admin_all_allowed': {
-      // Cross-market activity. Super sees everything; restricted admins see
-      // their full allowlist.
-      if (ctx.admin.is_super) return null;
-      return ctx.admin.admin_market_ids ?? null;
-    }
-  }
-}
-
-// ─── Dashboard loaders ─────────────────────────────────────────────────────
-
-interface DashboardWithBlocks {
+interface DashboardWithSections {
   dashboard: AdminDashboard;
-  blocks: AdminDashboardBlock[];
+  sections: DashboardSection[];
 }
 
 function rowToDashboard(r: Record<string, unknown>): AdminDashboard {
@@ -79,77 +44,64 @@ function rowToDashboard(r: Record<string, unknown>): AdminDashboard {
   };
 }
 
-function rowToBlock(r: Record<string, unknown>): AdminDashboardBlock {
+function rowToSection(r: Record<string, unknown>): DashboardSection {
   return {
     id: r.id as string,
     dashboard_id: r.dashboard_id as string,
-    block_key: r.block_key as string,
-    config: (r.config as Record<string, unknown>) ?? {},
-    sort_order: r.sort_order as number,
+    section_type: (r.section_type as string) ?? 'fields',
+    label: (r.label as string | null) ?? null,
+    field_keys: (r.field_keys as string[] | null) ?? [],
     col_span: r.col_span as number,
-    created_at: r.created_at as Date,
+    sort_order: r.sort_order as number,
   };
 }
 
-export async function loadDashboardBySlug(slug: string): Promise<DashboardWithBlocks | null> {
+// ─── Loaders ───────────────────────────────────────────────────────────────
+
+export async function loadDashboardBySlug(slug: string): Promise<DashboardWithSections | null> {
   const [dashRow] = await sql`
     SELECT id, slug, label, description, scope, market_id, is_builtin, created_by, created_at, updated_at
-    FROM admin_dashboards WHERE slug = ${slug} LIMIT 1
-  `;
+    FROM admin_dashboards WHERE slug = ${slug} LIMIT 1`;
   if (!dashRow) return null;
   const dashboard = rowToDashboard(dashRow);
-  const blockRows = await sql`
-    SELECT id, dashboard_id, block_key, config, sort_order, col_span, created_at
+  const sectionRows = await sql`
+    SELECT id, dashboard_id, section_type, label, field_keys, col_span, sort_order
     FROM admin_dashboard_blocks
     WHERE dashboard_id = ${dashboard.id}
-    ORDER BY sort_order ASC
-  `;
-  return { dashboard, blocks: blockRows.map(rowToBlock) };
+    ORDER BY sort_order ASC`;
+  return { dashboard, sections: sectionRows.map(rowToSection) };
 }
 
-export async function loadDashboardById(id: string): Promise<DashboardWithBlocks | null> {
+export async function loadDashboardById(id: string): Promise<DashboardWithSections | null> {
   const [dashRow] = await sql`
     SELECT id, slug, label, description, scope, market_id, is_builtin, created_by, created_at, updated_at
-    FROM admin_dashboards WHERE id = ${id} LIMIT 1
-  `;
+    FROM admin_dashboards WHERE id = ${id} LIMIT 1`;
   if (!dashRow) return null;
   const dashboard = rowToDashboard(dashRow);
-  const blockRows = await sql`
-    SELECT id, dashboard_id, block_key, config, sort_order, col_span, created_at
+  const sectionRows = await sql`
+    SELECT id, dashboard_id, section_type, label, field_keys, col_span, sort_order
     FROM admin_dashboard_blocks
     WHERE dashboard_id = ${dashboard.id}
-    ORDER BY sort_order ASC
-  `;
-  return { dashboard, blocks: blockRows.map(rowToBlock) };
+    ORDER BY sort_order ASC`;
+  return { dashboard, sections: sectionRows.map(rowToSection) };
 }
 
 // ─── Access ────────────────────────────────────────────────────────────────
 
-// Builtins that are visible to anyone who can reach the route (no grant
-// needed). These are pure empty-state fallbacks; specific role-scoped
-// builtins still go through the grant table.
 const ALWAYS_VISIBLE_BUILTIN_SLUGS = new Set(['default-user-profile']);
 
-/**
- * True if the admin can view the dashboard. Super always passes; the
- * always-visible builtins (e.g. default-user-profile) bypass grants;
- * otherwise we defer to admin_dashboard_role_grants. Admin without a role
- * can never see a non-builtin dashboard.
- */
 export async function canViewDashboard(
   admin: AdminUser,
   dashboard: { id: string; slug: string; is_builtin: boolean },
 ): Promise<boolean> {
   if (admin.is_super) return true;
   if (dashboard.is_builtin && ALWAYS_VISIBLE_BUILTIN_SLUGS.has(dashboard.slug)) return true;
-  // Admin must have a role to be granted anything.
   const adminRoleId = await getAdminRoleIdForUser(admin.id);
   if (!adminRoleId) return false;
   const [row] = await sql`
     SELECT 1 AS ok FROM admin_dashboard_role_grants
     WHERE dashboard_id = ${dashboard.id} AND role_id = ${adminRoleId}
-    LIMIT 1
-  `;
+    LIMIT 1`;
   return Boolean(row);
 }
 
@@ -158,10 +110,6 @@ async function getAdminRoleIdForUser(userId: string): Promise<string | null> {
   return (row?.admin_role_id as string | null) ?? null;
 }
 
-/**
- * Dashboards this admin can see for a given scope, ordered by builtin-first
- * then label. Used by /admin/users/[id] to render the tab strip.
- */
 export async function listAccessibleDashboards(
   admin: AdminUser,
   scope: DashboardScope,
@@ -171,14 +119,10 @@ export async function listAccessibleDashboards(
       SELECT id, slug, label, description, scope, market_id, is_builtin, created_by, created_at, updated_at
       FROM admin_dashboards
       WHERE scope = ${scope}
-      ORDER BY is_builtin DESC, label ASC
-    `;
+      ORDER BY is_builtin DESC, label ASC`;
     return rows.map(rowToDashboard);
   }
-
   const adminRoleId = await getAdminRoleIdForUser(admin.id);
-  // Anyone reaching this can still see the always-visible builtins, regardless
-  // of role/grants. UNION + DISTINCT keeps it one round-trip.
   const alwaysVisible = Array.from(ALWAYS_VISIBLE_BUILTIN_SLUGS);
   const rows = await sql`
     SELECT DISTINCT d.id, d.slug, d.label, d.description, d.scope, d.market_id, d.is_builtin,
@@ -187,90 +131,204 @@ export async function listAccessibleDashboards(
     LEFT JOIN admin_dashboard_role_grants g
       ON g.dashboard_id = d.id AND g.role_id = ${adminRoleId}
     WHERE d.scope = ${scope}
-      AND (
-        g.role_id IS NOT NULL
-        OR (d.is_builtin = TRUE AND d.slug = ANY(${alwaysVisible}::text[]))
-      )
-    ORDER BY d.is_builtin DESC, d.label ASC
-  `;
+      AND (g.role_id IS NOT NULL OR (d.is_builtin = TRUE AND d.slug = ANY(${alwaysVisible}::text[])))
+    ORDER BY d.is_builtin DESC, d.label ASC`;
   return rows.map(rowToDashboard);
 }
 
-// ─── Block fetching ────────────────────────────────────────────────────────
+// ─── Market scope resolver ─────────────────────────────────────────────────
 
-export interface BlockResult {
-  blockId: string;
-  blockKey: string;
-  colSpan: number;
-  data: unknown;
+interface ResolveCtx {
+  admin: AdminUser;
+  adminActiveMarketId?: string | null;
+  viewedUserMarketId?: string | null;
+}
+
+export function resolveMarketIds(field: AnyFieldDefinition, ctx: ResolveCtx): string[] | null {
+  if (!field.marketAware) return null;
+  const strategy: MarketScopeStrategy = field.marketScope ?? 'admin_active';
+  switch (strategy) {
+    case 'viewed_user':
+      if (ctx.viewedUserMarketId) return [ctx.viewedUserMarketId];
+      return ctx.admin.is_super ? null : ctx.admin.admin_market_ids ?? null;
+    case 'admin_active':
+      if (ctx.adminActiveMarketId) return [ctx.adminActiveMarketId];
+      return ctx.admin.is_super ? null : ctx.admin.admin_market_ids ?? null;
+    case 'admin_all_allowed':
+      if (ctx.admin.is_super) return null;
+      return ctx.admin.admin_market_ids ?? null;
+  }
+}
+
+// ─── Field fetching with column bundling ───────────────────────────────────
+
+export interface FieldResult {
+  fieldKey: string;
+  value: unknown;
   error: string | null;
+  /** profile_type of the viewed user — passed to renderers so they can render conditionally. */
+  userProfileType: string;
+}
+
+export interface SectionResult {
+  section: DashboardSection;
+  fields: FieldResult[];
+  /** profile_type of the viewed user. */
+  userProfileType: string;
 }
 
 interface FetchOptions {
   admin: AdminUser;
-  /** Required for user_detail dashboards. Used to scope the userId param + viewed_user marketScope. */
   viewedUserId?: string;
   viewedUserMarketId?: string | null;
-  /** Optional: market the admin has selected (for admin_active scope). */
   adminActiveMarketId?: string | null;
 }
 
-export async function fetchDashboardData(
-  blocks: AdminDashboardBlock[],
+/**
+ * Resolve every field across all sections, bundling user_column / driver_column
+ * / rider_column fields into single SELECTs per source table. Aggregate /
+ * collection fields run their own fetchers in parallel.
+ */
+export async function fetchDashboardSections(
+  sections: DashboardSection[],
   opts: FetchOptions,
-): Promise<BlockResult[]> {
-  const baseCtx: Omit<BlockFetchContext, 'marketIds'> = {
-    userId: opts.viewedUserId,
-    adminUserId: opts.admin.id,
-  };
+): Promise<SectionResult[]> {
+  // Read viewed user's profile_type once for conditional rendering downstream.
+  let userProfileType = '';
+  if (opts.viewedUserId) {
+    const [r] = await sql`SELECT profile_type FROM users WHERE id = ${opts.viewedUserId} LIMIT 1`;
+    userProfileType = (r?.profile_type as string) ?? '';
+  }
 
-  const tasks = blocks.map(async (b): Promise<BlockResult> => {
-    const def = getBlock(b.block_key);
-    if (!def) {
-      return {
-        blockId: b.id,
-        blockKey: b.block_key,
-        colSpan: b.col_span,
-        data: null,
-        error: `Unknown block: ${b.block_key}`,
-      };
-    }
-    if (def.deprecated) {
-      return {
-        blockId: b.id,
-        blockKey: b.block_key,
-        colSpan: b.col_span,
-        data: null,
-        error: 'Block is deprecated',
-      };
-    }
+  // Collect every distinct field across all sections.
+  const allKeys = Array.from(new Set(sections.flatMap((s) => s.field_keys)));
+  const definitions = allKeys.map((k) => ({ key: k, def: getField(k) }));
 
-    try {
-      const marketIds = resolveMarketIds(def, {
-        admin: opts.admin,
-        adminActiveMarketId: opts.adminActiveMarketId,
-        viewedUserMarketId: opts.viewedUserMarketId,
-      });
-      const ctx: BlockFetchContext = { ...baseCtx, marketIds };
-      const config = def.configSchema.parse(b.config);
-      const data = await def.fetch(ctx, config);
-      return {
-        blockId: b.id,
-        blockKey: b.block_key,
-        colSpan: b.col_span,
-        data,
-        error: null,
-      };
-    } catch (e) {
-      return {
-        blockId: b.id,
-        blockKey: b.block_key,
-        colSpan: b.col_span,
-        data: null,
-        error: e instanceof Error ? e.message : String(e),
-      };
-    }
-  });
+  // Bundle column fields by source table. Aggregate / collection are handled
+  // individually since each has its own fetch.
+  const userColumns: { key: string; column: string; cast?: string }[] = [];
+  const driverColumns: { key: string; column: string; cast?: string }[] = [];
+  const riderColumns: { key: string; column: string; cast?: string }[] = [];
+  const customFields: { key: string; def: AnyFieldDefinition }[] = [];
 
-  return Promise.all(tasks);
+  for (const { key, def } of definitions) {
+    if (!def) continue;
+    if (def.deprecated) continue;
+    if (def.source.kind === 'user_column') {
+      userColumns.push({ key, column: def.source.column, cast: def.source.cast });
+    } else if (def.source.kind === 'driver_column') {
+      driverColumns.push({ key, column: def.source.column, cast: def.source.cast });
+    } else if (def.source.kind === 'rider_column') {
+      riderColumns.push({ key, column: def.source.column, cast: def.source.cast });
+    } else {
+      customFields.push({ key, def });
+    }
+  }
+
+  // Bundled column fetches in parallel with custom fetches.
+  const valuesByKey = new Map<string, unknown>();
+  const errorsByKey = new Map<string, string>();
+
+  const tasks: Promise<void>[] = [];
+
+  if (opts.viewedUserId) {
+    if (userColumns.length > 0) {
+      tasks.push((async () => {
+        try {
+          const cols = userColumns.map((c) => `${c.column}${c.cast ? `::${c.cast}` : ''} AS "${c.key}"`).join(', ');
+          // Direct-call form (sql(query, params)) is required because the
+          // column list is dynamic. Column names come from the typed registry,
+          // never user input — safe from injection.
+          const rows = (await sql(
+            `SELECT ${cols} FROM users WHERE id = $1 LIMIT 1`,
+            [opts.viewedUserId!],
+          )) as Record<string, unknown>[];
+          const row = rows[0];
+          if (row) {
+            for (const c of userColumns) valuesByKey.set(c.key, row[c.key]);
+          }
+        } catch (e) {
+          for (const c of userColumns) {
+            errorsByKey.set(c.key, e instanceof Error ? e.message : String(e));
+          }
+        }
+      })());
+    }
+    if (driverColumns.length > 0) {
+      tasks.push((async () => {
+        try {
+          const cols = driverColumns.map((c) => `${c.column}${c.cast ? `::${c.cast}` : ''} AS "${c.key}"`).join(', ');
+          const rows = (await sql(
+            `SELECT ${cols} FROM driver_profiles WHERE user_id = $1 LIMIT 1`,
+            [opts.viewedUserId!],
+          )) as Record<string, unknown>[];
+          const row = rows[0];
+          for (const c of driverColumns) valuesByKey.set(c.key, row?.[c.key] ?? null);
+        } catch (e) {
+          for (const c of driverColumns) {
+            errorsByKey.set(c.key, e instanceof Error ? e.message : String(e));
+          }
+        }
+      })());
+    }
+    if (riderColumns.length > 0) {
+      tasks.push((async () => {
+        try {
+          const cols = riderColumns.map((c) => `${c.column}${c.cast ? `::${c.cast}` : ''} AS "${c.key}"`).join(', ');
+          const rows = (await sql(
+            `SELECT ${cols} FROM rider_profiles WHERE user_id = $1 LIMIT 1`,
+            [opts.viewedUserId!],
+          )) as Record<string, unknown>[];
+          const row = rows[0];
+          for (const c of riderColumns) valuesByKey.set(c.key, row?.[c.key] ?? null);
+        } catch (e) {
+          for (const c of riderColumns) {
+            errorsByKey.set(c.key, e instanceof Error ? e.message : String(e));
+          }
+        }
+      })());
+    }
+  }
+
+  for (const { key, def } of customFields) {
+    tasks.push((async () => {
+      try {
+        const marketIds = resolveMarketIds(def, {
+          admin: opts.admin,
+          adminActiveMarketId: opts.adminActiveMarketId,
+          viewedUserMarketId: opts.viewedUserMarketId,
+        });
+        const ctx: FieldFetchContext = {
+          marketIds,
+          userId: opts.viewedUserId,
+          adminUserId: opts.admin.id,
+        };
+        if (def.source.kind !== 'aggregate' && def.source.kind !== 'collection') {
+          throw new Error(`Unexpected source kind for ${key}: ${def.source.kind}`);
+        }
+        const value = await def.source.fetch(ctx);
+        valuesByKey.set(key, value);
+      } catch (e) {
+        errorsByKey.set(key, e instanceof Error ? e.message : String(e));
+      }
+    })());
+  }
+
+  await Promise.all(tasks);
+
+  // Assemble per-section results in field-key order so renderers can iterate.
+  return sections.map((section) => ({
+    section,
+    userProfileType,
+    fields: section.field_keys.map((key) => {
+      const def = getField(key);
+      if (!def) {
+        return { fieldKey: key, value: null, error: `Unknown field: ${key}`, userProfileType };
+      }
+      if (errorsByKey.has(key)) {
+        return { fieldKey: key, value: null, error: errorsByKey.get(key) ?? 'unknown error', userProfileType };
+      }
+      return { fieldKey: key, value: valuesByKey.get(key), error: null, userProfileType };
+    }),
+  }));
 }

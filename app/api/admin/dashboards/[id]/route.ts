@@ -1,8 +1,8 @@
 // /api/admin/dashboards/[id]
-//   GET    → dashboard + blocks + grants. Any admin with grant (or super).
-//   PATCH  → super-only update. Body shape mirrors POST. Blocks + grants are
-//            full-replace (delete-all + reinsert) inside one round-trip per
-//            list — simpler than per-row diffs and the lists are tiny.
+//   GET    → dashboard + sections + grants. Any admin with grant (or super).
+//   PATCH  → super-only update. Sections + grants are full-replace
+//            (delete-all + reinsert) — simpler than per-row diffs and the
+//            lists are tiny.
 //   DELETE → super only. Blocked when is_builtin=true.
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,18 +13,20 @@ import {
   loadDashboardById,
   canViewDashboard,
 } from '@/lib/admin/dashboards/runtime';
-import { getBlock } from '@/lib/admin/dashboards/blocks/registry';
+import { getField } from '@/lib/admin/dashboards/fields/registry';
 import { DASHBOARD_AUDIT, DASHBOARD_AUDIT_TARGET } from '@/lib/admin/dashboards/audit-events';
+
+const sectionSchema = z.object({
+  label: z.string().max(80).nullable().optional(),
+  field_keys: z.array(z.string().min(1)).min(1).max(40),
+  col_span: z.number().int().min(1).max(12).optional(),
+});
 
 const patchBody = z.object({
   label: z.string().min(1).max(80).optional(),
   description: z.string().max(500).nullable().optional(),
   market_id: z.string().uuid().nullable().optional(),
-  blocks: z.array(z.object({
-    block_key: z.string().min(1),
-    config: z.record(z.string(), z.unknown()).optional(),
-    col_span: z.number().int().min(1).max(12).optional(),
-  })).min(1).max(40).optional(),
+  sections: z.array(sectionSchema).min(1).max(20).optional(),
   role_ids: z.array(z.string().uuid()).optional(),
 });
 
@@ -49,7 +51,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
   return NextResponse.json({
     dashboard: bundle.dashboard,
-    blocks: bundle.blocks,
+    sections: bundle.sections,
     grants: grantRows,
   });
 }
@@ -70,28 +72,16 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     return NextResponse.json({ error: 'invalid body', details: e instanceof Error ? e.message : String(e) }, { status: 400 });
   }
 
-  // Block validation against registry + scope.
-  if (parsed.blocks) {
-    for (const b of parsed.blocks) {
-      const def = getBlock(b.block_key);
-      if (!def) return NextResponse.json({ error: `unknown block_key: ${b.block_key}` }, { status: 400 });
-      const scopeMap = existing.dashboard.scope === 'user_detail' ? 'user' : 'market';
-      if (def.scope !== scopeMap && def.scope !== 'global') {
-        return NextResponse.json({
-          error: `block ${b.block_key} (scope=${def.scope}) not allowed in ${existing.dashboard.scope} dashboard`,
-        }, { status: 400 });
-      }
-      try {
-        def.configSchema.parse(b.config ?? {});
-      } catch (e) {
-        return NextResponse.json({
-          error: `block ${b.block_key} config invalid: ${e instanceof Error ? e.message : String(e)}`,
-        }, { status: 400 });
+  if (parsed.sections) {
+    for (const s of parsed.sections) {
+      for (const key of s.field_keys) {
+        if (!getField(key)) {
+          return NextResponse.json({ error: `unknown field key: ${key}` }, { status: 400 });
+        }
       }
     }
   }
 
-  // Update the row's mutable fields. Slug + scope + is_builtin stay fixed.
   await sql`
     UPDATE admin_dashboards SET
       label = COALESCE(${parsed.label ?? null}, label),
@@ -101,13 +91,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     WHERE id = ${id}
   `;
 
-  if (parsed.blocks) {
+  if (parsed.sections) {
     await sql`DELETE FROM admin_dashboard_blocks WHERE dashboard_id = ${id}`;
-    for (let i = 0; i < parsed.blocks.length; i++) {
-      const b = parsed.blocks[i];
+    for (let i = 0; i < parsed.sections.length; i++) {
+      const s = parsed.sections[i];
       await sql`
-        INSERT INTO admin_dashboard_blocks (dashboard_id, block_key, config, sort_order, col_span)
-        VALUES (${id}, ${b.block_key}, ${JSON.stringify(b.config ?? {})}::jsonb, ${i}, ${b.col_span ?? 12})
+        INSERT INTO admin_dashboard_blocks (dashboard_id, section_type, label, field_keys, sort_order, col_span)
+        VALUES (${id}, 'fields', ${s.label ?? null}, ${s.field_keys}::text[], ${i}, ${s.col_span ?? 12})
       `;
     }
   }

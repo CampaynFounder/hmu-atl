@@ -28,10 +28,10 @@ export default async function EditDashboardPage({ params }: { params: Promise<{ 
     description: bundle.dashboard.description,
     scope: bundle.dashboard.scope,
     market_id: bundle.dashboard.market_id,
-    blocks: bundle.blocks.map((b) => ({
-      block_key: b.block_key,
-      config: JSON.stringify(b.config ?? {}, null, 2),
-      col_span: b.col_span,
+    sections: bundle.sections.map((s) => ({
+      label: s.label ?? '',
+      field_keys: s.field_keys,
+      col_span: s.col_span,
     })),
     role_ids: grantRows.map((r: Record<string, unknown>) => r.role_id as string),
   };

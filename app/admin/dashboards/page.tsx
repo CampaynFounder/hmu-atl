@@ -20,7 +20,7 @@ export default async function DashboardsListPage() {
     SELECT
       d.id, d.slug, d.label, d.description, d.scope, d.is_builtin,
       d.created_at, d.updated_at,
-      (SELECT COUNT(*) FROM admin_dashboard_blocks b WHERE b.dashboard_id = d.id)::int AS block_count,
+      (SELECT COUNT(*) FROM admin_dashboard_blocks b WHERE b.dashboard_id = d.id)::int AS section_count,
       (SELECT COUNT(*) FROM admin_dashboard_role_grants g WHERE g.dashboard_id = d.id)::int AS grant_count
     FROM admin_dashboards d
     ORDER BY d.is_builtin DESC, d.label ASC
@@ -32,7 +32,7 @@ export default async function DashboardsListPage() {
         <div>
           <h1 className="text-lg font-semibold" style={{ color: 'var(--admin-text)' }}>Dashboards</h1>
           <p className="text-xs mt-1" style={{ color: 'var(--admin-text-muted)' }}>
-            Configurable role-scoped views built from the block registry. {rows.length} total.
+            Configurable role-scoped views assembled from the field registry. {rows.length} total.
           </p>
         </div>
         <Link
@@ -57,7 +57,7 @@ export default async function DashboardsListPage() {
               <Th>Label</Th>
               <Th>Slug</Th>
               <Th>Scope</Th>
-              <Th align="right">Blocks</Th>
+              <Th align="right">Sections</Th>
               <Th align="right">Grants</Th>
               <Th>Type</Th>
               <Th></Th>
@@ -88,7 +88,7 @@ export default async function DashboardsListPage() {
                     {d.scope as string}
                   </span>
                 </Td>
-                <Td align="right">{d.block_count as number}</Td>
+                <Td align="right">{d.section_count as number}</Td>
                 <Td align="right">{d.grant_count as number}</Td>
                 <Td>
                   {d.is_builtin ? (

@@ -1,21 +1,25 @@
 'use client';
 
-// Builder form for creating or editing a dashboard. Same component for both
-// — pass `mode='create'` or `mode='edit'` plus optional initial values. No
-// drag-and-drop in v1 (Phase 3); reorder via up/down buttons. No schema-aware
-// config UI; per-block config is a JSON textarea seeded with defaultConfig.
+// Builder for creating or editing a dashboard. Same component for both —
+// pass `mode='create'` or `mode='edit'` plus optional initial values.
+//
+// Composition model: a dashboard has 1..n sections; each section has a
+// label, col_span, and an ordered list of field keys picked from a
+// searchable palette. Engineers register fields in
+// lib/admin/dashboards/fields/registry.ts; superadmin assembles them here.
+// No drag-and-drop in v1 (Phase 3); reorder via up/down buttons.
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-interface BlockMetadata {
+interface FieldMetadata {
   key: string;
   label: string;
-  description: string;
-  scope: 'user' | 'market' | 'global';
+  category: string;
+  description?: string;
+  applies_to: ('rider' | 'driver' | 'admin' | 'any')[];
+  render: 'stat' | 'badge' | 'flag' | 'list';
   marketAware: boolean;
-  marketScope: 'viewed_user' | 'admin_active' | 'admin_all_allowed';
-  defaultConfig: unknown;
   deprecated: boolean;
 }
 
@@ -32,9 +36,9 @@ interface RoleLite {
   is_super: boolean;
 }
 
-interface BlockRow {
-  block_key: string;
-  config: string;       // JSON string for the textarea
+interface SectionRow {
+  label: string;
+  field_keys: string[];
   col_span: number;
 }
 
@@ -45,7 +49,7 @@ export interface DashboardFormInitial {
   description?: string | null;
   scope?: 'user_detail' | 'market_overview';
   market_id?: string | null;
-  blocks?: BlockRow[];
+  sections?: SectionRow[];
   role_ids?: string[];
 }
 
@@ -63,58 +67,73 @@ export function DashboardForm({
   const [description, setDescription] = useState(initial?.description ?? '');
   const [scope, setScope] = useState<'user_detail' | 'market_overview'>(initial?.scope ?? 'user_detail');
   const [marketId, setMarketId] = useState<string | null>(initial?.market_id ?? null);
-  const [blocks, setBlocks] = useState<BlockRow[]>(initial?.blocks ?? []);
+  const [sections, setSections] = useState<SectionRow[]>(
+    initial?.sections ?? [{ label: '', field_keys: [], col_span: 12 }],
+  );
   const [roleIds, setRoleIds] = useState<string[]>(initial?.role_ids ?? []);
 
-  const [registry, setRegistry] = useState<BlockMetadata[]>([]);
+  const [fieldRegistry, setFieldRegistry] = useState<FieldMetadata[]>([]);
+  const [categoryOrder, setCategoryOrder] = useState<string[]>([]);
   const [markets, setMarkets] = useState<MarketLite[]>([]);
   const [roles, setRoles] = useState<RoleLite[]>([]);
-  const [adding, setAdding] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/admin/dashboards/blocks').then((r) => r.ok ? r.json() : { blocks: [] }),
+      fetch('/api/admin/dashboards/fields').then((r) => r.ok ? r.json() : { fields: [], categories: [] }),
       fetch('/api/admin/markets').then((r) => r.ok ? r.json() : { markets: [] }),
       fetch('/api/admin/roles').then((r) => r.ok ? r.json() : { roles: [] }),
-    ]).then(([b, m, ro]) => {
-      setRegistry(b.blocks ?? []);
+    ]).then(([f, m, ro]) => {
+      setFieldRegistry(f.fields ?? []);
+      setCategoryOrder(f.categories ?? []);
       setMarkets(m.markets ?? []);
       setRoles((ro.roles ?? []).filter((r: RoleLite) => !r.is_super));
     });
   }, []);
 
-  const eligibleRegistry = useMemo(() => {
-    const wantScope = scope === 'user_detail' ? 'user' : 'market';
-    return registry.filter((b) => !b.deprecated && (b.scope === wantScope || b.scope === 'global'));
-  }, [registry, scope]);
+  // Quick lookup for rendering field labels in the section editor.
+  const fieldByKey = useMemo(() => {
+    const map = new Map<string, FieldMetadata>();
+    for (const f of fieldRegistry) map.set(f.key, f);
+    return map;
+  }, [fieldRegistry]);
 
-  function addBlock() {
-    if (!adding) return;
-    const def = registry.find((b) => b.key === adding);
-    if (!def) return;
-    setBlocks([
-      ...blocks,
-      { block_key: def.key, config: JSON.stringify(def.defaultConfig ?? {}, null, 2), col_span: 12 },
-    ]);
-    setAdding('');
+  function addSection() {
+    setSections([...sections, { label: '', field_keys: [], col_span: 12 }]);
   }
 
-  function moveBlock(idx: number, delta: -1 | 1) {
-    const next = [...blocks];
+  function moveSection(idx: number, delta: -1 | 1) {
+    const next = [...sections];
     const target = idx + delta;
     if (target < 0 || target >= next.length) return;
     [next[idx], next[target]] = [next[target], next[idx]];
-    setBlocks(next);
+    setSections(next);
   }
 
-  function removeBlock(idx: number) {
-    setBlocks(blocks.filter((_, i) => i !== idx));
+  function removeSection(idx: number) {
+    setSections(sections.filter((_, i) => i !== idx));
   }
 
-  function patchBlock(idx: number, patch: Partial<BlockRow>) {
-    setBlocks(blocks.map((b, i) => i === idx ? { ...b, ...patch } : b));
+  function patchSection(idx: number, patch: Partial<SectionRow>) {
+    setSections(sections.map((s, i) => i === idx ? { ...s, ...patch } : s));
+  }
+
+  function toggleFieldInSection(idx: number, key: string) {
+    const s = sections[idx];
+    const has = s.field_keys.includes(key);
+    patchSection(idx, {
+      field_keys: has ? s.field_keys.filter((k) => k !== key) : [...s.field_keys, key],
+    });
+  }
+
+  function moveFieldInSection(idx: number, fieldIdx: number, delta: -1 | 1) {
+    const s = sections[idx];
+    const next = [...s.field_keys];
+    const target = fieldIdx + delta;
+    if (target < 0 || target >= next.length) return;
+    [next[fieldIdx], next[target]] = [next[target], next[fieldIdx]];
+    patchSection(idx, { field_keys: next });
   }
 
   function toggleRole(id: string) {
@@ -125,25 +144,21 @@ export function DashboardForm({
     setSubmitting(true);
     setError(null);
 
-    // Parse each block's config from JSON. Surface the first parse failure.
-    const parsedBlocks: { block_key: string; config: Record<string, unknown>; col_span: number }[] = [];
-    for (let i = 0; i < blocks.length; i++) {
-      const b = blocks[i];
-      try {
-        const cfg = b.config.trim() === '' ? {} : JSON.parse(b.config);
-        parsedBlocks.push({ block_key: b.block_key, config: cfg, col_span: b.col_span });
-      } catch (e) {
-        setSubmitting(false);
-        setError(`Block #${i + 1} (${b.block_key}) config is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
-        return;
-      }
+    if (sections.some((s) => s.field_keys.length === 0)) {
+      setSubmitting(false);
+      setError('Each section needs at least one field.');
+      return;
     }
 
     const body: Record<string, unknown> = {
       label,
       description: description || null,
       market_id: marketId || null,
-      blocks: parsedBlocks,
+      sections: sections.map((s) => ({
+        label: s.label.trim() === '' ? null : s.label,
+        field_keys: s.field_keys,
+        col_span: s.col_span,
+      })),
       role_ids: roleIds,
     };
     if (mode === 'create') {
@@ -187,7 +202,6 @@ export function DashboardForm({
 
   return (
     <div className="space-y-6">
-      {/* Identity */}
       <Section title="Identity">
         <Field label="Label">
           <input
@@ -196,11 +210,7 @@ export function DashboardForm({
             onChange={(e) => setLabel(e.target.value)}
             placeholder="e.g. Support: user overview"
             className="w-full text-sm px-2 py-1.5 rounded outline-none"
-            style={{
-              background: 'var(--admin-bg)',
-              color: 'var(--admin-text)',
-              border: '1px solid var(--admin-border)',
-            }}
+            style={inputStyle}
           />
         </Field>
         <Field label="Slug" hint={mode === 'edit' ? 'slug is fixed once created' : 'kebab-case, 3–64 chars'}>
@@ -211,11 +221,7 @@ export function DashboardForm({
             disabled={mode === 'edit'}
             placeholder="support-user-overview"
             className="w-full text-sm px-2 py-1.5 rounded outline-none disabled:opacity-50"
-            style={{
-              background: 'var(--admin-bg)',
-              color: 'var(--admin-text)',
-              border: '1px solid var(--admin-border)',
-            }}
+            style={inputStyle}
           />
         </Field>
         <Field label="Description">
@@ -224,11 +230,7 @@ export function DashboardForm({
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
             className="w-full text-sm px-2 py-1.5 rounded outline-none"
-            style={{
-              background: 'var(--admin-bg)',
-              color: 'var(--admin-text)',
-              border: '1px solid var(--admin-border)',
-            }}
+            style={inputStyle}
           />
         </Field>
         <Field label="Scope" hint={mode === 'edit' ? 'scope is fixed once created' : undefined}>
@@ -237,11 +239,7 @@ export function DashboardForm({
             onChange={(e) => setScope(e.target.value as typeof scope)}
             disabled={mode === 'edit'}
             className="w-full text-sm px-2 py-1.5 rounded outline-none disabled:opacity-50"
-            style={{
-              background: 'var(--admin-bg)',
-              color: 'var(--admin-text)',
-              border: '1px solid var(--admin-border)',
-            }}
+            style={inputStyle}
           >
             <option value="user_detail">user_detail (bound to one user)</option>
             <option value="market_overview">market_overview (aggregate)</option>
@@ -252,11 +250,7 @@ export function DashboardForm({
             value={marketId ?? ''}
             onChange={(e) => setMarketId(e.target.value || null)}
             className="w-full text-sm px-2 py-1.5 rounded outline-none"
-            style={{
-              background: 'var(--admin-bg)',
-              color: 'var(--admin-text)',
-              border: '1px solid var(--admin-border)',
-            }}
+            style={inputStyle}
           >
             <option value="">All markets</option>
             {markets.map((m) => (
@@ -266,111 +260,39 @@ export function DashboardForm({
         </Field>
       </Section>
 
-      {/* Blocks */}
-      <Section title={`Blocks (${blocks.length})`}>
-        {blocks.length === 0 && (
-          <p className="text-xs mb-3" style={{ color: 'var(--admin-text-muted)' }}>
-            Add at least one block. Order here is the render order.
-          </p>
-        )}
-        <div className="space-y-2 mb-3">
-          {blocks.map((b, i) => {
-            const def = registry.find((d) => d.key === b.block_key);
-            return (
-              <div
-                key={i}
-                className="rounded p-3"
-                style={{ border: '1px solid var(--admin-border)', background: 'var(--admin-bg)' }}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs font-medium" style={{ color: 'var(--admin-text)' }}>
-                    {i + 1}. {def?.label ?? b.block_key}
-                  </span>
-                  <code className="text-[10px]" style={{ color: 'var(--admin-text-muted)' }}>
-                    {b.block_key}
-                  </code>
-                  <div className="flex-1" />
-                  <button type="button" onClick={() => moveBlock(i, -1)} disabled={i === 0}
-                          className="text-xs px-1.5 disabled:opacity-30">↑</button>
-                  <button type="button" onClick={() => moveBlock(i, 1)} disabled={i === blocks.length - 1}
-                          className="text-xs px-1.5 disabled:opacity-30">↓</button>
-                  <button type="button" onClick={() => removeBlock(i)}
-                          className="text-xs px-1.5" style={{ color: '#f87171' }}>remove</button>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div className="sm:col-span-1">
-                    <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--admin-text-muted)' }}>
-                      col_span
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={12}
-                      value={b.col_span}
-                      onChange={(e) => patchBlock(i, { col_span: Math.max(1, Math.min(12, Number(e.target.value) || 12)) })}
-                      className="w-full text-xs px-2 py-1 rounded outline-none"
-                      style={{
-                        background: 'var(--admin-bg-elevated)',
-                        color: 'var(--admin-text)',
-                        border: '1px solid var(--admin-border)',
-                      }}
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--admin-text-muted)' }}>
-                      config (JSON)
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={b.config}
-                      onChange={(e) => patchBlock(i, { config: e.target.value })}
-                      className="w-full text-[11px] font-mono px-2 py-1 rounded outline-none"
-                      style={{
-                        background: 'var(--admin-bg-elevated)',
-                        color: 'var(--admin-text)',
-                        border: '1px solid var(--admin-border)',
-                      }}
-                    />
-                  </div>
-                </div>
-                {def?.description && (
-                  <p className="text-[10px] mt-2" style={{ color: 'var(--admin-text-muted)' }}>
-                    {def.description}
-                  </p>
-                )}
-              </div>
-            );
-          })}
+      <Section title={`Sections (${sections.length})`}>
+        <p className="text-xs mb-3" style={{ color: 'var(--admin-text-muted)' }}>
+          A section groups fields under one label. Pick fields from the palette below each section.
+        </p>
+        <div className="space-y-3 mb-3">
+          {sections.map((s, i) => (
+            <SectionEditor
+              key={i}
+              index={i}
+              section={s}
+              registry={fieldRegistry}
+              categoryOrder={categoryOrder}
+              fieldByKey={fieldByKey}
+              isFirst={i === 0}
+              isLast={i === sections.length - 1}
+              onMove={(d) => moveSection(i, d)}
+              onRemove={() => removeSection(i)}
+              onPatch={(p) => patchSection(i, p)}
+              onToggleField={(k) => toggleFieldInSection(i, k)}
+              onMoveField={(fi, d) => moveFieldInSection(i, fi, d)}
+            />
+          ))}
         </div>
-        <div className="flex items-center gap-2">
-          <select
-            value={adding}
-            onChange={(e) => setAdding(e.target.value)}
-            className="flex-1 text-xs px-2 py-1.5 rounded outline-none"
-            style={{
-              background: 'var(--admin-bg)',
-              color: 'var(--admin-text)',
-              border: '1px solid var(--admin-border)',
-            }}
-          >
-            <option value="">Add block…</option>
-            {eligibleRegistry.map((b) => (
-              <option key={b.key} value={b.key}>{b.label} ({b.key})</option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={addBlock}
-            disabled={!adding}
-            className="text-xs px-3 py-1.5 rounded font-medium disabled:opacity-50"
-            style={{ background: 'var(--admin-bg-elevated)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}
-          >
-            Add
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={addSection}
+          className="text-xs px-3 py-1.5 rounded font-medium"
+          style={{ background: 'var(--admin-bg)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}
+        >
+          + Add section
+        </button>
       </Section>
 
-      {/* Role grants */}
       <Section title={`Role grants (${roleIds.length})`}>
         <p className="text-xs mb-3" style={{ color: 'var(--admin-text-muted)' }}>
           Super admins always see every dashboard. Pick which non-super roles can view this one.
@@ -393,7 +315,6 @@ export function DashboardForm({
         </div>
       </Section>
 
-      {/* Submit / delete */}
       {error && (
         <div
           className="rounded p-3 text-xs"
@@ -406,7 +327,7 @@ export function DashboardForm({
         <button
           type="button"
           onClick={submit}
-          disabled={submitting || !label || (mode === 'create' && !slug) || blocks.length === 0}
+          disabled={submitting || !label || (mode === 'create' && !slug) || sections.length === 0}
           className="text-sm px-4 py-2 rounded font-medium disabled:opacity-50"
           style={{ background: '#60a5fa', color: 'white' }}
         >
@@ -427,6 +348,200 @@ export function DashboardForm({
     </div>
   );
 }
+
+function SectionEditor({
+  index,
+  section,
+  registry,
+  categoryOrder,
+  fieldByKey,
+  isFirst,
+  isLast,
+  onMove,
+  onRemove,
+  onPatch,
+  onToggleField,
+  onMoveField,
+}: {
+  index: number;
+  section: SectionRow;
+  registry: FieldMetadata[];
+  categoryOrder: string[];
+  fieldByKey: Map<string, FieldMetadata>;
+  isFirst: boolean;
+  isLast: boolean;
+  onMove: (delta: -1 | 1) => void;
+  onRemove: () => void;
+  onPatch: (patch: Partial<SectionRow>) => void;
+  onToggleField: (key: string) => void;
+  onMoveField: (fieldIdx: number, delta: -1 | 1) => void;
+}) {
+  const [search, setSearch] = useState('');
+
+  const grouped = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    const filtered = registry.filter((f) => {
+      if (f.deprecated) return false;
+      if (!q) return true;
+      return (
+        f.key.toLowerCase().includes(q) ||
+        f.label.toLowerCase().includes(q) ||
+        f.category.toLowerCase().includes(q) ||
+        (f.description ?? '').toLowerCase().includes(q)
+      );
+    });
+    const byCat = new Map<string, FieldMetadata[]>();
+    for (const f of filtered) {
+      const arr = byCat.get(f.category) ?? [];
+      arr.push(f);
+      byCat.set(f.category, arr);
+    }
+    const order = categoryOrder.length > 0 ? categoryOrder : Array.from(byCat.keys());
+    return order
+      .filter((c) => byCat.has(c))
+      .map((c) => ({ category: c, fields: byCat.get(c)! }));
+  }, [registry, categoryOrder, search]);
+
+  const selected = new Set(section.field_keys);
+
+  return (
+    <div
+      className="rounded p-3"
+      style={{ border: '1px solid var(--admin-border)', background: 'var(--admin-bg)' }}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs font-medium" style={{ color: 'var(--admin-text)' }}>
+          {index + 1}. Section
+        </span>
+        <div className="flex-1" />
+        <button type="button" onClick={() => onMove(-1)} disabled={isFirst}
+                className="text-xs px-1.5 disabled:opacity-30">↑</button>
+        <button type="button" onClick={() => onMove(1)} disabled={isLast}
+                className="text-xs px-1.5 disabled:opacity-30">↓</button>
+        <button type="button" onClick={onRemove}
+                className="text-xs px-1.5" style={{ color: '#f87171' }}>remove</button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+        <div className="sm:col-span-2">
+          <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--admin-text-muted)' }}>
+            label
+          </label>
+          <input
+            type="text"
+            value={section.label}
+            onChange={(e) => onPatch({ label: e.target.value })}
+            placeholder="(optional, e.g. Identity)"
+            className="w-full text-sm px-2 py-1 rounded outline-none"
+            style={{ background: 'var(--admin-bg-elevated)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}
+          />
+        </div>
+        <div className="sm:col-span-1">
+          <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--admin-text-muted)' }}>
+            col_span (1–12)
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={12}
+            value={section.col_span}
+            onChange={(e) => onPatch({ col_span: Math.max(1, Math.min(12, Number(e.target.value) || 12)) })}
+            className="w-full text-sm px-2 py-1 rounded outline-none"
+            style={{ background: 'var(--admin-bg-elevated)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}
+          />
+        </div>
+      </div>
+
+      <div className="mb-2">
+        <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--admin-text-muted)' }}>
+          fields ({section.field_keys.length})
+        </label>
+        {section.field_keys.length === 0 ? (
+          <p className="text-[11px]" style={{ color: 'var(--admin-text-muted)' }}>
+            No fields yet — pick from the palette below.
+          </p>
+        ) : (
+          <ul className="space-y-1">
+            {section.field_keys.map((key, fi) => {
+              const f = fieldByKey.get(key);
+              return (
+                <li key={key} className="flex items-center gap-2 text-xs">
+                  <span className="opacity-50 w-4">{fi + 1}.</span>
+                  <span style={{ color: 'var(--admin-text)' }}>{f?.label ?? key}</span>
+                  <code className="text-[10px]" style={{ color: 'var(--admin-text-muted)' }}>{key}</code>
+                  <div className="flex-1" />
+                  <button type="button" onClick={() => onMoveField(fi, -1)} disabled={fi === 0}
+                          className="px-1.5 disabled:opacity-30">↑</button>
+                  <button type="button" onClick={() => onMoveField(fi, 1)} disabled={fi === section.field_keys.length - 1}
+                          className="px-1.5 disabled:opacity-30">↓</button>
+                  <button type="button" onClick={() => onToggleField(key)}
+                          className="px-1.5" style={{ color: '#f87171' }}>×</button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      <div
+        className="rounded p-2"
+        style={{ background: 'var(--admin-bg-elevated)', border: '1px solid var(--admin-border)' }}
+      >
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search fields by name, key, or category…"
+          className="w-full text-xs px-2 py-1 rounded outline-none mb-2"
+          style={{ background: 'var(--admin-bg)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}
+        />
+        <div className="max-h-60 overflow-y-auto space-y-3">
+          {grouped.map(({ category, fields }) => (
+            <div key={category}>
+              <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--admin-text-muted)' }}>
+                {category}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                {fields.map((f) => {
+                  const checked = selected.has(f.key);
+                  return (
+                    <label
+                      key={f.key}
+                      className="flex items-start gap-2 text-[11px] cursor-pointer rounded px-1.5 py-1 hover:bg-black/5"
+                      title={f.description}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => onToggleField(f.key)}
+                        className="mt-0.5"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div style={{ color: 'var(--admin-text)' }}>{f.label}</div>
+                        <code className="text-[10px]" style={{ color: 'var(--admin-text-muted)' }}>{f.key}</code>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          {grouped.length === 0 && (
+            <p className="text-[11px]" style={{ color: 'var(--admin-text-muted)' }}>
+              No fields match.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  background: 'var(--admin-bg)',
+  color: 'var(--admin-text)',
+  border: '1px solid var(--admin-border)',
+};
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
