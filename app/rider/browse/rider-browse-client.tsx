@@ -62,15 +62,29 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize, is
 
   const { view, setView, hydrated } = useViewMode(VIEW_STORAGE_KEY);
 
+  // Rider geolocation for the live distance badge. Distance is computed
+  // server-side from these coords + the driver's last published point;
+  // driver coords NEVER reach the client.
+  const [riderCoords, setRiderCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [coordsResolved, setCoordsResolved] = useState(false);
+
   const fetchPage = useCallback(async (offset: number, limit: number) => {
-    const res = await fetch(`/api/rider/browse/list?offset=${offset}&limit=${limit}`);
+    const params = new URLSearchParams();
+    params.set('offset', String(offset));
+    params.set('limit', String(limit));
+    if (riderCoords) {
+      params.set('lat', String(riderCoords.lat));
+      params.set('lng', String(riderCoords.lng));
+    }
+    const res = await fetch(`/api/rider/browse/list?${params.toString()}`);
     if (!res.ok) throw new Error('fetch failed');
     const data = await res.json();
     return { items: (data.drivers as BrowseDriverRow[]) ?? [], hasMore: !!data.hasMore };
-  }, []);
+  }, [riderCoords]);
 
   const {
     items: list,
+    setItems,
     fetchingMore,
     sentinelRef,
   } = useInfiniteList<BrowseDriverRow>({
@@ -81,6 +95,59 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize, is
     getId: (d) => d.handle,
     fetchPage,
   });
+
+  // Best-effort geolocation request on mount. If the user denies or the
+  // browser doesn't support it, we just don't show distance — never blocks
+  // the UI. Once coords arrive, refetch the first batch so the visible
+  // cards get a distance badge instead of having to scroll for it.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setCoordsResolved(true);
+      return;
+    }
+    let cancelled = false;
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        if (cancelled) return;
+        setRiderCoords({ lat: p.coords.latitude, lng: p.coords.longitude });
+        setCoordsResolved(true);
+      },
+      () => { if (!cancelled) setCoordsResolved(true); },
+      { enableHighAccuracy: false, maximumAge: 60_000, timeout: 8_000 },
+    );
+    return () => { cancelled = true; };
+  }, []);
+
+  // Once we have coords, replace the SSR-seeded first page with a coord-
+  // aware fetch so the visible cards render with distance immediately.
+  useEffect(() => {
+    if (!riderCoords) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        params.set('offset', '0');
+        params.set('limit', String(initialBatchSize));
+        params.set('lat', String(riderCoords.lat));
+        params.set('lng', String(riderCoords.lng));
+        const res = await fetch(`/api/rider/browse/list?${params.toString()}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const fresh = (data.drivers as BrowseDriverRow[]) ?? [];
+        if (!cancelled && fresh.length) {
+          // Replace just the first batch — paginated tail was fetched with
+          // coords already (or not, in which case it'll catch up next page).
+          setItems((prev) => {
+            const tail = prev.slice(initialBatchSize);
+            return [...fresh, ...tail];
+          });
+        }
+      } catch { /* silent */ }
+    })();
+    return () => { cancelled = true; };
+  }, [riderCoords, initialBatchSize, setItems]);
+  // coordsResolved is for future "permission denied" UI hint; suppress unused.
+  void coordsResolved;
 
   const allAreas = useMemo(
     () => Array.from(new Set(list.flatMap((d) => d.areas))).sort(),
@@ -281,6 +348,14 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize, is
   );
 }
 
+function formatDistance(mi: number | null | undefined): string | null {
+  if (mi == null || !Number.isFinite(mi)) return null;
+  if (mi < 0.1) return 'right here';
+  if (mi < 0.5) return '<½ mi away';
+  if (mi < 10) return `${mi.toFixed(1)} mi away`;
+  return `${Math.round(mi)} mi away`;
+}
+
 function pillStyle(active: boolean): React.CSSProperties {
   return {
     padding: '8px 14px', borderRadius: 100, border: 'none',
@@ -455,7 +530,7 @@ function FeedDriverCard({
           )}
 
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
             fontSize: 12, color: '#bbb', marginBottom: 10,
           }}>
             <span>
@@ -467,6 +542,14 @@ function FeedDriverCard({
               </span>
               chill
             </span>
+            {formatDistance(driver.distanceMi) && (
+              <>
+                <span style={{ color: '#444' }}>·</span>
+                <span style={{ color: '#00E676', fontWeight: 600 }}>
+                  📍 {formatDistance(driver.distanceMi)}
+                </span>
+              </>
+            )}
             {driver.vehicleSummary && (
               <>
                 <span style={{ color: '#444' }}>·</span>
@@ -583,7 +666,7 @@ function GridDriverCard({
           {driver.areas.length ? driver.areas.join(', ') : 'Area not set'}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#bbb', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#bbb', marginBottom: 8, flexWrap: 'wrap' }}>
           <span style={{
             fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
             color: '#00E676', fontSize: 16,
@@ -594,6 +677,14 @@ function GridDriverCard({
             <>
               <span style={{ color: '#444' }}>·</span>
               <span>${driver.minPrice}+</span>
+            </>
+          )}
+          {formatDistance(driver.distanceMi) && (
+            <>
+              <span style={{ color: '#444' }}>·</span>
+              <span style={{ color: '#00E676', fontWeight: 600 }}>
+                📍 {formatDistance(driver.distanceMi)}
+              </span>
             </>
           )}
         </div>

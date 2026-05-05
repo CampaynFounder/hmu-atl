@@ -136,6 +136,7 @@ const isPublicRoute = createRouteMatcher([
   '/rider/home',
   '/rider/browse',
   '/api/public/(.*)',
+  '/api/rider/browse/(.*)',
   '/privacy',
   '/terms',
   '/about',

@@ -11,6 +11,11 @@ export interface BrowseRiderContext {
    * values that hard-filter; everything else (no_preference, prefer_*, null) is a
    * sort hint at most. */
   driverPreference: string | null;
+  /** Optional rider coords for distance computation. When both are present,
+   * each row gets a scalar distance_mi (driver's coords NEVER leak — only the
+   * computed scalar). Stale rule: driver location older than 5min → null. */
+  riderLat?: number | null;
+  riderLng?: number | null;
 }
 
 export interface BrowseDriverRow {
@@ -34,7 +39,16 @@ export interface BrowseDriverRow {
   hasVibeVideo: boolean;
   payoutReady: boolean;
   verificationStatus: VerificationStatus;
+  /** Miles from the rider, computed server-side via Haversine. Null when
+   * either side is missing a fresh location point. NEVER includes coords. */
+  distanceMi: number | null;
 }
+
+// Driver locations older than this are treated as missing. Mirror this
+// in the SQL below — sql tagged template can't parameterize an interval
+// literal, so the value is duplicated. Bump both if you change it.
+const STALE_LOCATION_MINUTES = 5;
+void STALE_LOCATION_MINUTES;
 
 export async function queryBrowseDrivers(
   rider: BrowseRiderContext,
@@ -45,6 +59,13 @@ export async function queryBrowseDrivers(
   const strictFilter: 'female' | 'male' | null =
     pref === 'women_only' || pref === 'female' ? 'female' :
     pref === 'men_only'   || pref === 'male'   ? 'male' : null;
+
+  // Validate rider coords once — passing nonsense to the SQL would just yield
+  // garbage distances, so coerce to null if either side is invalid.
+  const riderLat = Number.isFinite(rider.riderLat) ? Number(rider.riderLat) : null;
+  const riderLng = Number.isFinite(rider.riderLng) ? Number(rider.riderLng) : null;
+  const haveRiderCoords = riderLat !== null && riderLng !== null
+    && riderLat >= -90 && riderLat <= 90 && riderLng >= -180 && riderLng <= 180;
 
   const rows = await sql`
     SELECT dp.handle, dp.display_name, dp.areas, dp.pricing, dp.video_url,
@@ -59,7 +80,21 @@ export async function queryBrowseDrivers(
             FROM driver_service_menu dsm
             LEFT JOIN service_menu_items smi ON dsm.item_id = smi.id
             WHERE dsm.driver_id = dp.user_id AND dsm.is_active = true
-           ) AS service_icons
+           ) AS service_icons,
+           CASE
+             WHEN ${haveRiderCoords}::boolean
+              AND dp.current_lat IS NOT NULL
+              AND dp.current_lng IS NOT NULL
+              AND dp.location_updated_at > NOW() - INTERVAL '5 minutes'
+             THEN
+               -- Haversine, miles. Earth radius 3959mi.
+               2 * 3959 * ASIN(SQRT(
+                 POWER(SIN(RADIANS(dp.current_lat - ${riderLat ?? 0}::numeric) / 2), 2)
+                 + COS(RADIANS(${riderLat ?? 0}::numeric)) * COS(RADIANS(dp.current_lat))
+                   * POWER(SIN(RADIANS(dp.current_lng - ${riderLng ?? 0}::numeric) / 2), 2)
+               ))
+             ELSE NULL
+           END AS distance_mi
     FROM driver_profiles dp
     JOIN users u ON u.id = dp.user_id
     LEFT JOIN hmu_posts hp ON hp.user_id = dp.user_id
@@ -96,6 +131,11 @@ export async function queryBrowseDrivers(
       licensePlate: (vi?.license_plate as string | null) ?? null,
     });
 
+    const rawDistance = d.distance_mi;
+    const distanceMi = rawDistance !== null && rawDistance !== undefined
+      ? Number(rawDistance)
+      : null;
+
     return {
       handle: d.handle as string,
       displayName: (d.display_name as string) || 'Driver',
@@ -119,6 +159,7 @@ export async function queryBrowseDrivers(
         : [],
       vehicleSummary,
       verificationStatus,
+      distanceMi: distanceMi !== null && Number.isFinite(distanceMi) ? distanceMi : null,
     };
   });
 }
