@@ -177,7 +177,7 @@ export function DashboardForm({
         setSubmitting(false);
         return;
       }
-      router.push('/admin/dashboards');
+      router.push('/admin/dashboards/manage');
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

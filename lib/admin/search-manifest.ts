@@ -297,11 +297,20 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'dashboards',
     label: 'Dashboards',
-    description: 'Build role-scoped dashboards from the field registry',
+    description: 'View role-scoped dashboards. Pick a dashboard + user to render.',
     href: '/admin/dashboards',
     section: 'System',
     icon: '📊',
-    keywords: ['custom views', 'fields', 'sections', 'role grants', 'user profile', 'builder'],
+    keywords: ['view', 'custom views', 'role-scoped', 'user profile'],
+  },
+  {
+    id: 'dashboards-manage',
+    label: 'Manage dashboards',
+    description: 'Build role-scoped dashboards from the field registry',
+    href: '/admin/dashboards/manage',
+    section: 'System',
+    icon: '⚙',
+    keywords: ['builder', 'fields', 'sections', 'role grants', 'configure', 'create dashboard'],
   },
   {
     id: 'markets',

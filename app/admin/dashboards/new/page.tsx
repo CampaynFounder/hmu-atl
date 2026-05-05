@@ -9,14 +9,14 @@ export default async function NewDashboardPage() {
   const admin = await requireAdmin();
   if (!admin) redirect('/admin-login');
   if (!admin.is_super && !hasPermission(admin, 'admin.dashboards.edit')) {
-    redirect('/admin/dashboards');
+    redirect('/admin/dashboards/manage');
   }
 
   return (
     <div className="p-4 sm:p-6 max-w-3xl mx-auto">
       <div className="mb-6 flex items-baseline justify-between">
         <h1 className="text-lg font-semibold" style={{ color: 'var(--admin-text)' }}>New dashboard</h1>
-        <Link href="/admin/dashboards" className="text-xs" style={{ color: 'var(--admin-text-muted)' }}>
+        <Link href="/admin/dashboards/manage" className="text-xs" style={{ color: 'var(--admin-text-muted)' }}>
           ← back to list
         </Link>
       </div>

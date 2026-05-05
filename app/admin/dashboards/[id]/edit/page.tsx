@@ -12,7 +12,7 @@ export default async function EditDashboardPage({ params }: { params: Promise<{ 
   const admin = await requireAdmin();
   if (!admin) redirect('/admin-login');
   if (!admin.is_super && !hasPermission(admin, 'admin.dashboards.edit')) {
-    redirect('/admin/dashboards');
+    redirect('/admin/dashboards/manage');
   }
 
   const { id } = await params;
@@ -51,7 +51,7 @@ export default async function EditDashboardPage({ params }: { params: Promise<{ 
             </p>
           )}
         </div>
-        <Link href="/admin/dashboards" className="text-xs" style={{ color: 'var(--admin-text-muted)' }}>
+        <Link href="/admin/dashboards/manage" className="text-xs" style={{ color: 'var(--admin-text-muted)' }}>
           ← back to list
         </Link>
       </div>
