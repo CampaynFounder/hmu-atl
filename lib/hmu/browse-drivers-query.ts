@@ -130,8 +130,24 @@ export async function queryBrowseDrivers(
             AND dp.vehicle_info->>'photo_url' <> '')
       )
     ORDER BY
+      -- 1. Drivers with a photo OR video on top — bare profiles read as
+      --    low-effort/spam and tank rider trust. Pushed to the bottom so
+      --    they still appear but don't poison the first impression.
+      CASE
+        WHEN (dp.video_url IS NOT NULL AND dp.video_url <> '')
+          OR (dp.vehicle_info ? 'photo_url'
+              AND dp.vehicle_info->>'photo_url' IS NOT NULL
+              AND dp.vehicle_info->>'photo_url' <> '')
+        THEN 0 ELSE 1
+      END,
+      -- 2. Drivers actively broadcasting (live HMU post) within each media
+      --    bucket — they're online right now.
       CASE WHEN hp.id IS NOT NULL THEN 0 ELSE 1 END,
-      u.tier DESC, u.chill_score DESC, dp.handle ASC
+      -- 3. Paid tier + reputation signals. HMU First drivers get the
+      --    placement boost they're paying for; high chill_score breaks ties.
+      u.tier DESC, u.chill_score DESC,
+      -- 4. Alphabetical fallback so ordering is stable.
+      dp.handle ASC
     OFFSET ${offset}
     LIMIT  ${limit}
   `;
