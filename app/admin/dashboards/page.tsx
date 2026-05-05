@@ -5,14 +5,18 @@
 
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { requireAdmin } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 import { ensureBuiltinsReconciled } from '@/lib/admin/dashboards/builtins';
 
 export default async function DashboardsListPage() {
   const admin = await requireAdmin();
   if (!admin) redirect('/admin-login');
-  if (!admin.is_super) redirect('/admin');
+  // Route-level guard already runs in app/admin/layout.tsx — defense in depth.
+  if (!admin.is_super && !hasPermission(admin, 'admin.dashboards.view')) {
+    redirect('/admin');
+  }
+  const canEdit = admin.is_super || hasPermission(admin, 'admin.dashboards.edit');
 
   await ensureBuiltinsReconciled();
 
@@ -35,16 +39,18 @@ export default async function DashboardsListPage() {
             Configurable role-scoped views assembled from the field registry. {rows.length} total.
           </p>
         </div>
-        <Link
-          href="/admin/dashboards/new"
-          className="text-xs px-3 py-1.5 rounded font-medium"
-          style={{
-            background: '#60a5fa',
-            color: 'white',
-          }}
-        >
-          + New dashboard
-        </Link>
+        {canEdit && (
+          <Link
+            href="/admin/dashboards/new"
+            className="text-xs px-3 py-1.5 rounded font-medium"
+            style={{
+              background: '#60a5fa',
+              color: 'white',
+            }}
+          >
+            + New dashboard
+          </Link>
+        )}
       </div>
 
       <div
@@ -107,13 +113,17 @@ export default async function DashboardsListPage() {
                   )}
                 </Td>
                 <Td align="right">
-                  <Link
-                    href={`/admin/dashboards/${d.id}/edit`}
-                    className="text-xs"
-                    style={{ color: '#60a5fa' }}
-                  >
-                    edit
-                  </Link>
+                  {canEdit ? (
+                    <Link
+                      href={`/admin/dashboards/${d.id}/edit`}
+                      className="text-xs"
+                      style={{ color: '#60a5fa' }}
+                    >
+                      edit
+                    </Link>
+                  ) : (
+                    <span className="text-xs" style={{ color: 'var(--admin-text-muted)' }}>view only</span>
+                  )}
                 </Td>
               </tr>
             ))}

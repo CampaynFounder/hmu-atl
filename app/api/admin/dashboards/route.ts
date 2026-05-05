@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
+import { requireAdmin, unauthorizedResponse, logAdminAction, hasPermission } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 import { listAccessibleDashboards } from '@/lib/admin/dashboards/runtime';
 import { ensureBuiltinsReconciled } from '@/lib/admin/dashboards/builtins';
@@ -49,7 +49,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
-  if (!admin.is_super) return NextResponse.json({ error: 'super only' }, { status: 403 });
+  if (!admin.is_super && !hasPermission(admin, 'admin.dashboards.edit')) {
+    return NextResponse.json({ error: 'admin.dashboards.edit required' }, { status: 403 });
+  }
 
   let parsed: z.infer<typeof createBody>;
   try {

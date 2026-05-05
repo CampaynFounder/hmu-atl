@@ -3,7 +3,7 @@
 
 import Link from 'next/link';
 import { redirect, notFound } from 'next/navigation';
-import { requireAdmin } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 import { loadDashboardById } from '@/lib/admin/dashboards/runtime';
 import { DashboardForm, type DashboardFormInitial } from '../../components/dashboard-form';
@@ -11,7 +11,9 @@ import { DashboardForm, type DashboardFormInitial } from '../../components/dashb
 export default async function EditDashboardPage({ params }: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
   if (!admin) redirect('/admin-login');
-  if (!admin.is_super) redirect('/admin');
+  if (!admin.is_super && !hasPermission(admin, 'admin.dashboards.edit')) {
+    redirect('/admin/dashboards');
+  }
 
   const { id } = await params;
   const bundle = await loadDashboardById(id);

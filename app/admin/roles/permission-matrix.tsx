@@ -35,6 +35,7 @@ const PERMISSION_SECTIONS = [
   ]},
   { group: 'SYSTEM', items: [
     { key: 'admin.roles', label: 'Roles' },
+    { key: 'admin.dashboards', label: 'Dashboards' },
     { key: 'admin.audit', label: 'Audit Log' },
   ]},
   { group: 'TOOLS', items: [

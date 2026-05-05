@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
+import { requireAdmin, unauthorizedResponse, logAdminAction, hasPermission } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 import {
   loadDashboardById,
@@ -59,7 +59,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
-  if (!admin.is_super) return NextResponse.json({ error: 'super only' }, { status: 403 });
+  if (!admin.is_super && !hasPermission(admin, 'admin.dashboards.edit')) {
+    return NextResponse.json({ error: 'admin.dashboards.edit required' }, { status: 403 });
+  }
   const { id } = await ctx.params;
 
   const existing = await loadDashboardById(id);
@@ -122,7 +124,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
-  if (!admin.is_super) return NextResponse.json({ error: 'super only' }, { status: 403 });
+  if (!admin.is_super && !hasPermission(admin, 'admin.dashboards.edit')) {
+    return NextResponse.json({ error: 'admin.dashboards.edit required' }, { status: 403 });
+  }
   const { id } = await ctx.params;
 
   const existing = await loadDashboardById(id);

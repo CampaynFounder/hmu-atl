@@ -2,13 +2,15 @@
 
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { requireAdmin } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission } from '@/lib/admin/helpers';
 import { DashboardForm } from '../components/dashboard-form';
 
 export default async function NewDashboardPage() {
   const admin = await requireAdmin();
   if (!admin) redirect('/admin-login');
-  if (!admin.is_super) redirect('/admin');
+  if (!admin.is_super && !hasPermission(admin, 'admin.dashboards.edit')) {
+    redirect('/admin/dashboards');
+  }
 
   return (
     <div className="p-4 sm:p-6 max-w-3xl mx-auto">
