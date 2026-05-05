@@ -9,7 +9,7 @@
 // lib/admin/dashboards/fields/registry.ts; superadmin assembles them here.
 // No drag-and-drop in v1 (Phase 3); reorder via up/down buttons.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { GridColumnBuilder } from './grid-column-builder';
 
@@ -80,6 +80,8 @@ export function DashboardForm({
   const [roles, setRoles] = useState<RoleLite[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Auto-save status (edit mode only).
+  const [autoSaveState, setAutoSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   useEffect(() => {
     Promise.all([
@@ -100,6 +102,55 @@ export function DashboardForm({
     for (const f of fieldRegistry) map.set(f.key, f);
     return map;
   }, [fieldRegistry]);
+
+  // ─── Auto-save (edit mode only) ────────────────────────────────────────
+  // Skip the very first effect run so loading the initial values doesn't
+  // immediately PATCH the dashboard. After that, debounce 500ms and PATCH
+  // whenever any persisted field changes (label, description, market_id,
+  // sections, role_ids). Slug + scope are immutable post-create.
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSaveSkipFirst = useRef(true);
+  useEffect(() => {
+    if (mode !== 'edit' || !initial?.id) return;
+    if (autoSaveSkipFirst.current) {
+      autoSaveSkipFirst.current = false;
+      return;
+    }
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    setAutoSaveState('saving');
+    autoSaveTimer.current = setTimeout(async () => {
+      // Skip if any section is empty — server rejects, and the user is
+      // probably mid-edit. Surface as 'idle' to avoid alarm.
+      if (sections.some((s) => s.field_keys.length === 0)) {
+        setAutoSaveState('idle');
+        return;
+      }
+      try {
+        const res = await fetch(`/api/admin/dashboards/${initial.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            label,
+            description: description || null,
+            market_id: marketId || null,
+            sections: sections.map((s) => ({
+              label: s.label.trim() === '' ? null : s.label,
+              field_keys: s.field_keys,
+              col_span: s.col_span,
+            })),
+            role_ids: roleIds,
+          }),
+        });
+        setAutoSaveState(res.ok ? 'saved' : 'error');
+        // Reset to idle after a moment so the badge isn't permanently green.
+        if (res.ok) setTimeout(() => setAutoSaveState('idle'), 1200);
+      } catch {
+        setAutoSaveState('error');
+      }
+    }, 500);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [label, description, marketId, sections, roleIds]);
 
   function addSection() {
     setSections([...sections, { label: '', field_keys: [], col_span: 12 }]);
@@ -347,8 +398,10 @@ export function DashboardForm({
           className="text-sm px-4 py-2 rounded font-medium disabled:opacity-50"
           style={{ background: '#60a5fa', color: 'white' }}
         >
-          {submitting ? 'Saving…' : mode === 'create' ? 'Create dashboard' : 'Save changes'}
+          {submitting ? 'Saving…' : mode === 'create' ? 'Create dashboard' : 'Done'}
         </button>
+        {mode === 'edit' && <AutoSaveBadge state={autoSaveState} />}
+        <div className="flex-1" />
         {mode === 'edit' && (
           <button
             type="button"
@@ -571,6 +624,21 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--admin-text)' }}>{title}</h2>
       {children}
     </div>
+  );
+}
+
+function AutoSaveBadge({ state }: { state: 'idle' | 'saving' | 'saved' | 'error' }) {
+  if (state === 'idle') return null;
+  const map = {
+    saving: { text: 'Saving…', color: 'var(--admin-text-muted)' },
+    saved:  { text: 'Saved',   color: '#4ade80' },
+    error:  { text: 'Save failed', color: '#f87171' },
+  } as const;
+  const { text, color } = map[state];
+  return (
+    <span className="text-[11px]" style={{ color }}>
+      {text}
+    </span>
   );
 }
 
