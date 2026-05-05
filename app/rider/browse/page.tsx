@@ -14,7 +14,10 @@ export const dynamic = 'force-dynamic';
 
 const OG_TITLE = 'Browse Drivers — HMU ATL';
 const OG_DESCRIPTION = 'Pick a driver. Send a request. Pull up. Local Atlanta drivers, your price.';
-const OG_IMAGE_URL = 'https://atl.hmucashride.com/api/og/rider-browse';
+// Version param on the og:image URL so any social platform with a stuck
+// cached image fetches the new one as a different entity. Bump when the
+// rendering route changes substantively (template, layout, brand).
+const OG_IMAGE_URL = 'https://atl.hmucashride.com/api/og/rider-browse?v=2';
 
 export const metadata: Metadata = {
   title: OG_TITLE,
@@ -30,6 +33,9 @@ export const metadata: Metadata = {
         width: 1200,
         height: 630,
         alt: 'Browse drivers on HMU ATL',
+        // Explicit type tag — FB and Slack are happier when this is
+        // declared rather than inferred from Content-Type.
+        type: 'image/png',
       },
     ],
     type: 'website',
