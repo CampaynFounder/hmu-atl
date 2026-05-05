@@ -36,6 +36,10 @@ export async function GET(req: NextRequest) {
 
   const riderLat = parseCoord(req.nextUrl.searchParams.get('lat'), 'lat');
   const riderLng = parseCoord(req.nextUrl.searchParams.get('lng'), 'lng');
+  const rawGender = req.nextUrl.searchParams.get('gender');
+  const genderFilter: 'female' | 'male' | null =
+    rawGender === 'female' || rawGender === 'male' ? rawGender : null;
+  const hasMediaOnly = req.nextUrl.searchParams.get('hasMedia') === '1';
 
   let driverPreference: string | null = null;
   if (clerkId) {
@@ -50,7 +54,7 @@ export async function GET(req: NextRequest) {
   }
 
   const drivers = await queryBrowseDrivers(
-    { driverPreference, riderLat, riderLng },
+    { driverPreference, genderFilter, hasMediaOnly, riderLat, riderLng },
     offset,
     limit,
   );

@@ -11,6 +11,14 @@ export interface BrowseRiderContext {
    * values that hard-filter; everything else (no_preference, prefer_*, null) is a
    * sort hint at most. */
   driverPreference: string | null;
+  /** Explicit UI gender filter — overrides driverPreference when set. UI picks
+   * 'female' / 'male' from the filter bar; passed through verbatim from the
+   * client. Null means "fall back to driverPreference". */
+  genderFilter?: 'female' | 'male' | null;
+  /** Limit to drivers who have at least one piece of media — vehicle photo
+   * or vibe video. Useful filter for riders who want to actually see the
+   * driver before booking. */
+  hasMediaOnly?: boolean;
   /** Optional rider coords for distance computation. When both are present,
    * each row gets a scalar distance_mi (driver's coords NEVER leak — only the
    * computed scalar). Stale rule: driver location older than 5min → null. */
@@ -55,10 +63,15 @@ export async function queryBrowseDrivers(
   offset: number,
   limit: number,
 ): Promise<BrowseDriverRow[]> {
+  // Explicit UI filter wins; profile preference is the fallback.
   const pref = rider.driverPreference;
-  const strictFilter: 'female' | 'male' | null =
+  const profileStrict: 'female' | 'male' | null =
     pref === 'women_only' || pref === 'female' ? 'female' :
     pref === 'men_only'   || pref === 'male'   ? 'male' : null;
+  const strictFilter: 'female' | 'male' | null =
+    rider.genderFilter === 'female' || rider.genderFilter === 'male'
+      ? rider.genderFilter
+      : profileStrict;
 
   // Validate rider coords once — passing nonsense to the SQL would just yield
   // garbage distances, so coerce to null if either side is invalid.
@@ -107,6 +120,12 @@ export async function queryBrowseDrivers(
         ${strictFilter}::text IS NULL
         OR (${strictFilter} = 'female' AND LOWER(dp.gender) IN ('female','woman'))
         OR (${strictFilter} = 'male'   AND LOWER(dp.gender) IN ('male','man'))
+      )
+      AND (
+        NOT ${rider.hasMediaOnly === true}::boolean
+        OR dp.video_url IS NOT NULL
+        OR dp.vibe_video_url IS NOT NULL
+        OR (dp.vehicle_info ? 'photo_url' AND dp.vehicle_info->>'photo_url' IS NOT NULL)
       )
     ORDER BY
       CASE WHEN hp.id IS NOT NULL THEN 0 ELSE 1 END,

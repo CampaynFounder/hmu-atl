@@ -28,6 +28,8 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize, is
   const [filterFwu, setFilterFwu] = useState(false);
   const [filterMaxPrice, setFilterMaxPrice] = useState('');
   const [filterArea, setFilterArea] = useState('');
+  const [filterGender, setFilterGender] = useState<'female' | 'male' | null>(null);
+  const [filterHasMedia, setFilterHasMedia] = useState(false);
   const [bookingHandle, setBookingHandle] = useState<string | null>(null);
   const [profileHandle, setProfileHandle] = useState<string | null>(null);
 
@@ -76,11 +78,17 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize, is
       params.set('lat', String(riderCoords.lat));
       params.set('lng', String(riderCoords.lng));
     }
+    if (filterGender) {
+      params.set('gender', filterGender);
+    }
+    if (filterHasMedia) {
+      params.set('hasMedia', '1');
+    }
     const res = await fetch(`/api/rider/browse/list?${params.toString()}`);
     if (!res.ok) throw new Error('fetch failed');
     const data = await res.json();
     return { items: (data.drivers as BrowseDriverRow[]) ?? [], hasMore: !!data.hasMore };
-  }, [riderCoords]);
+  }, [riderCoords, filterGender, filterHasMedia]);
 
   const {
     items: list,
@@ -149,6 +157,41 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize, is
   // coordsResolved is for future "permission denied" UI hint; suppress unused.
   void coordsResolved;
 
+  // Refetch from offset 0 when a server-side filter changes — replaces items
+  // so the visible cards reflect the filter immediately. Pagination tail
+  // will pick up the same filter via fetchPage's closure.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        params.set('offset', '0');
+        params.set('limit', String(initialBatchSize));
+        if (riderCoords) {
+          params.set('lat', String(riderCoords.lat));
+          params.set('lng', String(riderCoords.lng));
+        }
+        if (filterGender) params.set('gender', filterGender);
+        if (filterHasMedia) params.set('hasMedia', '1');
+        const res = await fetch(`/api/rider/browse/list?${params.toString()}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const fresh = (data.drivers as BrowseDriverRow[]) ?? [];
+        if (!cancelled) {
+          // Replace the entire list — server-side filters change the result
+          // set, so we can't keep the old tail; the infinite-scroll engine
+          // will re-paginate from where we left off.
+          setItems(fresh);
+        }
+      } catch { /* silent */ }
+    })();
+    return () => { cancelled = true; };
+    // riderCoords intentionally excluded — the coords-acquired effect above
+    // already handles the first-page replace; we only want this to fire on
+    // server-filter changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterGender, filterHasMedia]);
+
   const allAreas = useMemo(
     () => Array.from(new Set(list.flatMap((d) => d.areas))).sort(),
     [list],
@@ -199,8 +242,14 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize, is
     fbCustomEvent('FunnelLead_payment_linked', { funnel_stage: 'payment_linked', audience: 'rider_ad_funnel' });
   }, []);
 
-  const filtersActive = filterFwu || filterArea || filterMaxPrice;
-  const clearFilters = () => { setFilterFwu(false); setFilterArea(''); setFilterMaxPrice(''); };
+  const filtersActive = filterFwu || filterArea || filterMaxPrice || filterGender || filterHasMedia;
+  const clearFilters = () => {
+    setFilterFwu(false);
+    setFilterArea('');
+    setFilterMaxPrice('');
+    setFilterGender(null);
+    setFilterHasMedia(false);
+  };
 
   return (
     <>
@@ -231,6 +280,27 @@ export default function RiderBrowseClient({ initialDrivers, initialBatchSize, is
           </div>
 
           <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+            <button
+              onClick={() => setFilterGender(filterGender === 'female' ? null : 'female')}
+              style={pillStyle(filterGender === 'female')}
+              aria-label="Filter to women drivers"
+            >
+              Women
+            </button>
+            <button
+              onClick={() => setFilterGender(filterGender === 'male' ? null : 'male')}
+              style={pillStyle(filterGender === 'male')}
+              aria-label="Filter to men drivers"
+            >
+              Men
+            </button>
+            <button
+              onClick={() => setFilterHasMedia(!filterHasMedia)}
+              style={pillStyle(filterHasMedia)}
+              aria-label="Show only drivers with photos or videos"
+            >
+              Has Photo
+            </button>
             <button onClick={() => setFilterFwu(!filterFwu)} style={pillStyle(filterFwu)}>
               FWU
             </button>
@@ -476,17 +546,12 @@ function FeedDriverCard({
               }}>
                 {driver.displayName}
               </div>
-              <button
-                onClick={onProfile}
-                style={{
-                  fontSize: 12, color: '#888', background: 'none', border: 'none',
-                  padding: 0, cursor: 'pointer',
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  fontFamily: 'inherit',
-                }}
-              >
-                @{driver.handle} <span style={{ fontSize: 10, color: '#00E676' }}>view</span>
-              </button>
+              <div style={{
+                fontSize: 12, color: '#888',
+                fontFamily: 'inherit',
+              }}>
+                @{driver.handle}
+              </div>
             </div>
             {driver.minPrice > 0 && (
               <div style={{ textAlign: 'right' }}>
@@ -606,10 +671,9 @@ function GridDriverCard({
       }}
     >
       <div
-        onClick={onProfile}
         style={{
           width: '100%', aspectRatio: '4 / 3', overflow: 'hidden',
-          position: 'relative', background: '#0A0A0A', cursor: 'pointer',
+          position: 'relative', background: '#0A0A0A',
         }}
       >
         {driver.videoUrl ? (
