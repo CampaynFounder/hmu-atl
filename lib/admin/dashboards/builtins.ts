@@ -83,6 +83,7 @@ export const BUILTIN_DASHBOARDS: BuiltinDashboard[] = [
       {
         label: null,
         field_keys: [
+          'users.avatar',
           'users.display_name',
           'users.handle',
           'users.profile_type',

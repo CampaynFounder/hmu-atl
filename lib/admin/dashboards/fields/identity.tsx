@@ -16,7 +16,71 @@ const TIER_COLOR: Record<string, string> = {
   hmu_first: '#60a5fa',
 };
 
+interface AvatarValue {
+  url: string | null;
+  initials: string;
+}
+
+function buildInitials(name: string | null, handle: string | null): string {
+  const src = (name && name.trim()) || (handle && handle.trim()) || '';
+  if (!src) return '?';
+  const parts = src.replace('@', '').split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export const identityFields: FieldDefinition[] = [
+  {
+    key: 'users.avatar',
+    label: 'Avatar',
+    category: 'Identity',
+    description: 'Profile picture (riders) or initials fallback. No avatar for drivers yet — falls back to initials.',
+    applies_to: ['any'],
+    render: 'stat',
+    source: {
+      kind: 'aggregate',
+      // Single-row fallback. fetchUserGridRows uses batchFetch when present.
+      fetch: async (ctx) => {
+        const { sql } = await import('@/lib/db/client');
+        const [r] = await sql`
+          SELECT rp.avatar_url AS url,
+                 COALESCE(dp.display_name, dp.first_name, rp.display_name, rp.first_name) AS name,
+                 COALESCE(dp.handle, rp.handle) AS handle
+          FROM users u
+          LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+          LEFT JOIN rider_profiles  rp ON rp.user_id = u.id
+          WHERE u.id = ${ctx.userId} LIMIT 1`;
+        return {
+          url: (r?.url as string | null) ?? null,
+          initials: buildInitials((r?.name as string | null) ?? null, (r?.handle as string | null) ?? null),
+        } satisfies AvatarValue;
+      },
+      // Batched: one SELECT for the whole grid page.
+      batchFetch: async (ctx) => {
+        const { sql } = await import('@/lib/db/client');
+        const rows = await sql`
+          SELECT u.id,
+                 rp.avatar_url AS url,
+                 COALESCE(dp.display_name, dp.first_name, rp.display_name, rp.first_name) AS name,
+                 COALESCE(dp.handle, rp.handle) AS handle
+          FROM users u
+          LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+          LEFT JOIN rider_profiles  rp ON rp.user_id = u.id
+          WHERE u.id = ANY(${ctx.userIds}::uuid[])`;
+        const m = new Map<string, unknown>();
+        for (const r of rows as Record<string, unknown>[]) {
+          m.set(r.id as string, {
+            url: (r.url as string | null) ?? null,
+            initials: buildInitials((r.name as string | null) ?? null, (r.handle as string | null) ?? null),
+          } satisfies AvatarValue);
+        }
+        return m;
+      },
+    },
+    Render: ({ value }) => <AvatarBlock value={value as AvatarValue | null} size={56} />,
+    Cell: ({ value }) => <AvatarBlock value={value as AvatarValue | null} size={28} />,
+  },
   {
     key: 'users.display_name',
     label: 'Display name',
@@ -163,3 +227,35 @@ export const identityFields: FieldDefinition[] = [
     Render: ({ value }) => <StatTile label="Phone" value={(value as string) ?? '—'} />,
   },
 ];
+
+function AvatarBlock({ value, size }: { value: AvatarValue | null; size: number }) {
+  const url = value?.url ?? null;
+  const initials = value?.initials ?? '?';
+  const fontSize = Math.max(10, Math.round(size * 0.42));
+  if (url) {
+    return (
+      <span
+        className="inline-block rounded-full overflow-hidden"
+        style={{ width: size, height: size, background: 'var(--admin-bg)', border: '1px solid var(--admin-border)' }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center justify-center rounded-full font-semibold uppercase"
+      style={{
+        width: size,
+        height: size,
+        fontSize,
+        background: 'rgba(96, 165, 250, 0.12)',
+        color: '#60a5fa',
+        border: '1px solid var(--admin-border)',
+      }}
+    >
+      {initials}
+    </span>
+  );
+}
