@@ -15,9 +15,10 @@ export interface BrowseRiderContext {
    * 'female' / 'male' from the filter bar; passed through verbatim from the
    * client. Null means "fall back to driverPreference". */
   genderFilter?: 'female' | 'male' | null;
-  /** Limit to drivers who have at least one piece of media — vehicle photo
-   * or vibe video. Useful filter for riders who want to actually see the
-   * driver before booking. */
+  /** Limit to drivers whose card will actually render media — i.e. a non-empty
+   * `video_url` OR a non-empty `vehicle_info.photo_url`. Vibe videos don't
+   * render on the browse card, so they don't count here (otherwise drivers
+   * with only a vibe video pass the filter and then show a fallback letter). */
   hasMediaOnly?: boolean;
   /** Optional rider coords for distance computation. When both are present,
    * each row gets a scalar distance_mi (driver's coords NEVER leak — only the
@@ -123,9 +124,10 @@ export async function queryBrowseDrivers(
       )
       AND (
         NOT ${rider.hasMediaOnly === true}::boolean
-        OR dp.video_url IS NOT NULL
-        OR dp.vibe_video_url IS NOT NULL
-        OR (dp.vehicle_info ? 'photo_url' AND dp.vehicle_info->>'photo_url' IS NOT NULL)
+        OR (dp.video_url IS NOT NULL AND dp.video_url <> '')
+        OR (dp.vehicle_info ? 'photo_url'
+            AND dp.vehicle_info->>'photo_url' IS NOT NULL
+            AND dp.vehicle_info->>'photo_url' <> '')
       )
     ORDER BY
       CASE WHEN hp.id IS NOT NULL THEN 0 ELSE 1 END,

@@ -109,28 +109,39 @@ export async function GET(req: NextRequest) {
         fontFamily: 'sans-serif',
       }}
     >
-      {/* Photo grid — 4 columns × 4 rows, fills the entire 1200x630 frame. */}
+      {/* Photo grid — 4 columns × 4 rows, fills the entire 1200x630 frame.
+          Satori's flex-wrap doesn't reliably wrap inside absolutely-positioned
+          containers (it lets children overflow rather than wrapping), so we
+          use an explicit column-of-rows nested flex layout instead. */}
       <div style={{
         position: 'absolute',
         inset: 0,
         display: 'flex',
-        flexWrap: 'wrap',
+        flexDirection: 'column',
       }}>
-        {gridTiles.map((src, i) => (
-          // eslint-disable-next-line @next/next/no-img-element -- next/og Satori only supports <img>
-          <img
-            key={i}
-            src={src}
-            alt=""
-            width={TILE_W}
-            height={TILE_H}
-            style={{
-              width: `${TILE_W}px`,
-              height: `${TILE_H}px`,
-              objectFit: 'cover',
-              display: 'block',
-            }}
-          />
+        {Array.from({ length: GRID_ROWS }).map((_, rowIdx) => (
+          <div key={rowIdx} style={{ display: 'flex', flexDirection: 'row' }}>
+            {Array.from({ length: GRID_COLS }).map((__, colIdx) => {
+              const idx = rowIdx * GRID_COLS + colIdx;
+              const src = gridTiles[idx];
+              return (
+                // eslint-disable-next-line @next/next/no-img-element -- next/og Satori only supports <img>
+                <img
+                  key={colIdx}
+                  src={src}
+                  alt=""
+                  width={TILE_W}
+                  height={TILE_H}
+                  style={{
+                    width: `${TILE_W}px`,
+                    height: `${TILE_H}px`,
+                    objectFit: 'cover',
+                    display: 'block',
+                  }}
+                />
+              );
+            })}
+          </div>
         ))}
       </div>
 
