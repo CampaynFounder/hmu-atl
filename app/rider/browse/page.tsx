@@ -14,12 +14,20 @@ export const dynamic = 'force-dynamic';
 
 const OG_TITLE = 'Browse Drivers — HMU ATL';
 const OG_DESCRIPTION = 'Pick a driver. Send a request. Pull up. Local Atlanta drivers, your price.';
-// Version param on the og:image URL so any social platform with a stuck
-// cached image fetches the new one as a different entity. Bump when the
-// rendering route changes substantively (template, layout, brand).
-// v=3: dropped the redirect-to-/og-image.jpeg fallback that was getting
-// the homepage logo permanently cached as the rider/browse OG image.
-const OG_IMAGE_URL = 'https://atl.hmucashride.com/api/og/rider-browse?v=3';
+// Static JPEG matches the homepage /og-image.jpeg pattern: a real file on disk
+// that social scrapers (FB, Twitter, LinkedIn, iMessage) fetch once and cache
+// against the URL — no dynamic generation, no redirect fallbacks, no edge
+// surprises. The dynamic endpoint at /api/og/rider-browse used to redirect to
+// /og-image.jpeg on errors, which got the homepage logo permanently cached by
+// FB as the canonical OG image for /rider/browse. Even after killing the
+// redirect, FB's cache stayed sticky against the dynamic URL. Static file +
+// fresh path (?v=4) gives FB a clean entity to scrape.
+//
+// To regenerate this image (e.g. driver pool changed substantially):
+//   curl https://atl.hmucashride.com/api/og/rider-browse?v=3 -o /tmp/og.png
+//   sips -s format jpeg -s formatOptions 88 /tmp/og.png --out public/og-rider-browse.jpg
+// Then bump the ?v= param below so social platforms re-fetch.
+const OG_IMAGE_URL = 'https://atl.hmucashride.com/og-rider-browse.jpg?v=4';
 
 export const metadata: Metadata = {
   title: OG_TITLE,
@@ -37,7 +45,7 @@ export const metadata: Metadata = {
         alt: 'Browse drivers on HMU ATL',
         // Explicit type tag — FB and Slack are happier when this is
         // declared rather than inferred from Content-Type.
-        type: 'image/png',
+        type: 'image/jpeg',
       },
     ],
     type: 'website',
