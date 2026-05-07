@@ -41,6 +41,8 @@ interface ProfileData {
   allowInRouteStops: boolean;
   waitMinutes: number;
   advanceNoticeHours: number;
+  /** Driver-set deposit floor for deposit-only mode. Null = use admin floor. */
+  depositFloor: number | null;
 }
 
 type Cardinal = 'westside' | 'eastside' | 'northside' | 'southside' | 'central';
@@ -706,6 +708,33 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               <div className="dp-row-sub">Outside your usual areas</div>
             </div>
             <input type="number" className="price-input" defaultValue={Number(data.pricing.out_of_town ?? 0)} onBlur={(e) => updatePricing('out_of_town', e.target.value)} placeholder="$" />
+          </div>
+          <div className="dp-row">
+            <div className="dp-row-left">
+              <div className="dp-row-label">Deposit floor</div>
+              <div className="dp-row-sub">Minimum deposit you require to start a ride. Rest is collected in cash on arrival. Leave blank to use the platform default.</div>
+            </div>
+            <input
+              type="number"
+              className="price-input"
+              defaultValue={data.depositFloor ?? ''}
+              onBlur={(e) => {
+                const raw = e.target.value.trim();
+                const num = raw === '' ? null : parseFloat(raw);
+                if (raw !== '' && (Number.isNaN(num) || (num as number) < 0)) return;
+                setData((d) => ({ ...d, depositFloor: num }));
+                fetch('/api/drivers/booking-settings', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ deposit_floor: num }),
+                });
+                setSaved('Deposit floor saved');
+                setTimeout(() => setSaved(''), 2000);
+              }}
+              placeholder="$"
+              min={0}
+              step={1}
+            />
           </div>
           <div className="save-status">{saving ? 'Saving...' : saved}</div>
         </Section>

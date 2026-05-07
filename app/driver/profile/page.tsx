@@ -63,6 +63,7 @@ export default async function DriverProfilePage() {
         allowInRouteStops: (p.allow_in_route_stops as boolean) ?? true,
         waitMinutes: Number((p as Record<string, unknown>).wait_minutes ?? 10),
         advanceNoticeHours: Number((p as Record<string, unknown>).advance_notice_hours ?? 0),
+        depositFloor: (p as Record<string, unknown>).deposit_floor != null ? Number((p as Record<string, unknown>).deposit_floor) : null,
       }}
       user={{
         tier: user.tier,

@@ -4381,6 +4381,28 @@ function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }:
   const stopKeyCounter = useRef(0);
   const prefillAttempted = useRef(false);
 
+  // Payment preview — drives the deposit/cash split shown to the rider before
+  // tap. modeKey === 'deposit_only' triggers the cash-on-hand hard gate.
+  type PaymentPreview = {
+    modeKey: string;
+    agreedPrice: number;
+    visibleDeposit: number;
+    cashRemainder: number;
+    requiresCashOnHandConfirm: boolean;
+  };
+  const [preview, setPreview] = useState<PaymentPreview | null>(null);
+  const [cashOnHandConfirmed, setCashOnHandConfirmed] = useState(false);
+
+  useEffect(() => {
+    if (isCash) return;
+    let cancelled = false;
+    fetch(`/api/rides/${rideId}/payment-preview`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (!cancelled && data) setPreview(data as PaymentPreview); })
+      .catch(() => { /* silent — falls back to legacy UI */ });
+    return () => { cancelled = true; };
+  }, [rideId, isCash]);
+
   // Prefill addresses from booking data via Mapbox geocoding
   useEffect(() => {
     if (prefillAttempted.current) return;
@@ -4713,23 +4735,64 @@ function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }:
         </div>
       )}
 
+      {/* Deposit-only mode: split display + hard-gated cash-on-hand confirm. */}
+      {preview && preview.requiresCashOnHandConfirm && (
+        <div style={{
+          background: 'rgba(0,230,118,0.06)',
+          border: '1px solid rgba(0,230,118,0.25)',
+          borderRadius: '14px', padding: '14px',
+          display: 'flex', flexDirection: 'column', gap: '10px',
+          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: COLORS.grayLight }}>
+            <span>Total ride</span>
+            <span style={{ color: COLORS.white, fontWeight: 700 }}>${preview.agreedPrice.toFixed(2)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: COLORS.grayLight }}>
+            <span>Deposit (paid now)</span>
+            <span style={{ color: COLORS.white, fontWeight: 700 }}>${preview.visibleDeposit.toFixed(2)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: COLORS.grayLight }}>
+            <span>Cash to driver on arrival</span>
+            <span style={{ color: COLORS.green, fontWeight: 800 }}>${preview.cashRemainder.toFixed(2)}</span>
+          </div>
+          <label style={{
+            display: 'flex', alignItems: 'flex-start', gap: '10px',
+            fontSize: '13px', color: COLORS.white, cursor: 'pointer',
+            paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.08)',
+          }}>
+            <input
+              type="checkbox"
+              checked={cashOnHandConfirmed}
+              onChange={(e) => setCashOnHandConfirmed(e.target.checked)}
+              style={{ marginTop: '2px', width: '18px', height: '18px', accentColor: COLORS.green }}
+            />
+            <span>
+              I have <strong>${preview.cashRemainder.toFixed(2)}</strong> in cash for my driver.
+            </span>
+          </label>
+        </div>
+      )}
+
       <button
         type="button"
         onClick={() => { setError(null); handleCoo(); }}
-        disabled={loading}
+        disabled={loading || (preview?.requiresCashOnHandConfirm === true && !cashOnHandConfirmed)}
         style={{
           width: '100%', padding: '18px', borderRadius: '100px',
           border: 'none', background: COLORS.green, color: COLORS.black,
           fontWeight: 800, fontSize: '18px', cursor: 'pointer',
           fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-          opacity: loading ? 0.4 : 1,
+          opacity: (loading || (preview?.requiresCashOnHandConfirm === true && !cashOnHandConfirmed)) ? 0.4 : 1,
         }}
       >
         {loading ? 'Sending...' : 'Pull Up \u2014 I\'m ready'}
       </button>
 
       <div style={{ fontSize: '12px', color: COLORS.gray, textAlign: 'center' }}>
-        This confirms your payment and shares your pickup location
+        {preview?.requiresCashOnHandConfirm
+          ? 'Deposit secured now \u2014 pay your driver the cash on arrival'
+          : 'This confirms your payment and shares your pickup location'}
       </div>
     </div>
   );

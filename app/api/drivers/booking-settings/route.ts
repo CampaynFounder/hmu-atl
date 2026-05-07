@@ -31,6 +31,8 @@ export async function PATCH(req: NextRequest) {
     allow_in_route_stops?: boolean;
     wait_minutes?: number;
     advance_notice_hours?: number;
+    /** Driver's deposit floor (deposit_only pricing mode). NULL clears it. */
+    deposit_floor?: number | null;
   };
   try {
     body = await req.json();
@@ -55,6 +57,21 @@ export async function PATCH(req: NextRequest) {
           jsonb_set(COALESCE(vehicle_info, '{}')::jsonb, '{license_plate}', ${JSON.stringify(body.license_plate)}::jsonb),
           '{plate_state}', ${JSON.stringify(body.plate_state || 'GA')}::jsonb
         ),
+        updated_at = NOW()
+      WHERE user_id = ${userId}
+    `;
+  }
+
+  // Driver-set deposit floor (deposit_only pricing mode). The strategy clamps
+  // to the admin band in pricing_modes.config; we save whatever the driver
+  // typed (validated only as non-negative number-or-null here).
+  if (body.deposit_floor !== undefined) {
+    if (body.deposit_floor !== null && (typeof body.deposit_floor !== 'number' || body.deposit_floor < 0)) {
+      return NextResponse.json({ error: 'deposit_floor must be a non-negative number or null' }, { status: 400 });
+    }
+    await sql`
+      UPDATE driver_profiles SET
+        deposit_floor = ${body.deposit_floor},
         updated_at = NOW()
       WHERE user_id = ${userId}
     `;
@@ -95,7 +112,8 @@ export async function PATCH(req: NextRequest) {
   const current = await sql`
     SELECT accept_direct_bookings, min_rider_chill_score, require_og_status,
            show_video_on_link, profile_visible, fwu, accepts_cash, cash_only,
-           allow_in_route_stops, wait_minutes, advance_notice_hours, phone
+           allow_in_route_stops, wait_minutes, advance_notice_hours, phone,
+           deposit_floor
     FROM driver_profiles WHERE user_id = ${userId} LIMIT 1
   `;
   const row = (current[0] || updated) as Record<string, unknown>;
@@ -113,5 +131,6 @@ export async function PATCH(req: NextRequest) {
     waitMinutes: row.wait_minutes,
     advanceNoticeHours: row.advance_notice_hours,
     phone: row.phone,
+    depositFloor: row.deposit_floor != null ? Number(row.deposit_floor) : null,
   });
 }
