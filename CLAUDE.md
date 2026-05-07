@@ -379,28 +379,58 @@ CREATE TABLE notifications (
 
 ## RIDE FLOW STATE MACHINE
 
+> **THE PROMISE TO DRIVERS:** Your payment is secured the moment the rider gets in your car. We do not wait until the ride ends.
+>
+> **THE TRADE-OFF (locked, accepted 2026-05-07):** Once funds release at Start Ride, there is no in-flow money-clawback mechanism. Mid-ride complaints flow to the admin queue; ratings + text comments are the public accountability layer; Stripe chargebacks (weeks later, via rider's bank) and admin-initiated `transfer.reversal` are the only post-release reversal paths. Reversal can produce a negative driver Connect balance / debt to platform — accepted as the cost of a clean driver promise.
+
 ### Driver States
 ```
-OFFLINE → AVAILABLE    (posts HMU broadcast, enters Ably Presence for area)
-AVAILABLE → MATCHED    (taps HMU on rider's request)
-MATCHED → OTW          (taps OTW — GPS tracking starts)
-OTW → HERE             (arrives at pickup — rider notified)
-HERE → RIDE_ACTIVE     (rider taps BET — coming to car)
-RIDE_ACTIVE → ENDED    (driver taps End Ride — 45min dispute window opens)
-ENDED → PAID           (window passes clean or dispute resolved for driver)
+OFFLINE → AVAILABLE      (posts HMU broadcast, enters Ably Presence for area)
+AVAILABLE → MATCHED      (taps HMU on rider's request)
+MATCHED → OTW            (taps OTW — GPS tracking starts)
+OTW → HERE               (arrives at pickup — no-show timer starts, rider notified)
+HERE → STARTING          (taps Start Ride — checks run, see Start Ride Checks)
+STARTING → RIDE_ACTIVE   (checks pass — funds capture + transfer to driver Connect)
+RIDE_ACTIVE → ENDED      (taps End Ride — ride closes, ratings/comments unlocked)
+
+Branch from HERE:
+HERE → NO_SHOW           (driver triggers after timer expires + driver-at-pickup geofence + no extension active)
 ```
 
 ### Rider States
 ```
-BROWSING → POSTED        (posts ride request to feed)
-POSTED → MATCHED         (taps COO on driver — Stripe PaymentIntent created, funds held)
-MATCHED → LOCATION_SHARED (shares geo or address)
-LOCATION_SHARED → BET    (taps BET — heading to car)
-BET → IN_RIDE            (ride active)
-IN_RIDE → DISPUTE        (files dispute within 45min of driver ending ride)
-IN_RIDE → AUTO_RELEASE   (45min passes, no dispute — driver paid)
-AUTO_RELEASE → RATE      (rider rates driver)
+BROWSING → POSTED            (posts ride request to feed)
+POSTED → MATCHED             (taps COO on driver — Stripe PaymentIntent created with manual capture, funds authorized)
+MATCHED → LOCATION_SHARED    (shares geo or address — see GPS Sharing copy)
+LOCATION_SHARED → BET        (taps BET — heading to car)
+BET → CONFIRMING             (driver taps Start Ride — rider sees "Are you in the car?")
+CONFIRMING → IN_RIDE         (rider taps yes OR auto-yes via co-motion heuristic — capture fires)
+IN_RIDE → ENDED              (driver taps End Ride)
+ENDED → RATE                 (rider + driver rate each other; text comments optional)
+
+Branch from HERE / BET:
+HERE → REQUESTING_EXTENSION  (rider asks for more time before no-show fires)
+REQUESTING_EXTENSION → BET   (driver approves — wait fee added to ride total, timer extends)
+REQUESTING_EXTENSION → BET   (driver declines — original timer continues; rider has option to cancel)
 ```
+
+### Start Ride Checks (driver-initiated, single button tap)
+1. **Pickup geofence** — driver GPS within `start_ride_pickup_geofence_m` of pickup location (default 150m, admin-configurable)
+2. **Rider proximity** — driver GPS within `start_ride_rider_proximity_m` of rider GPS (default 100m, admin-configurable). **Skip this check if rider has not shared GPS.**
+3. **Rider-in-car prompt** — rider sees "Are you in the car?" → tap yes
+4. **Auto-yes (no rider tap)** — fires when ALL of: `auto_yes_timeout_sec` elapsed since prompt (default 120s, admin-configurable) AND driver GPS speed > `auto_yes_driver_speed_min_mps` (default 2 m/s ≈ walking pace, admin-configurable) AND rider GPS movement matches driver within `auto_yes_comotion_tolerance_pct` (default 20%, admin-configurable). Rationale: rider is heads-down in the app trying to find the driver — no news is good news as long as the car is moving with them in it.
+5. **Auto-yes fallback (no rider GPS)** — flat `auto_yes_timeout_sec` after prompt + driver GPS moving → assume yes.
+6. **All passed → capture fires.** Funds move from rider to driver Connect via Destination Charge with `application_fee_amount` set at capture (see STRIPE INTEGRATION).
+7. **Cash-out unlocks** for the driver immediately. No platform-side hold beyond this point. (Stripe may impose its own holds — outside our control.)
+
+### GPS Sharing copy (rider, surfaced on first prompt + any time GPS is missing at Start Ride)
+> "GPS sharing protects you. Opting out makes it harder for drivers to find you and increases your no-show risk."
+
+### Extension Flow (rider requests, driver approves)
+- Rider taps "Request more time" while at HERE / BET → modal: *"Driver charges $X.XX/min for extra wait. Request 5 more minutes? +$X.XX"*
+- Driver gets push: approve / decline
+- Approve → `extension_minutes_per_grant` added to no-show timer (default 5 min), `wait_fee_per_minute × extension_minutes_per_grant` added to ride total, capture amount adjusts at Start Ride
+- Caps: `extension_max_grants_per_ride` (default 3), `extension_max_total_minutes` (default 30) — admin-configurable
 
 ### UI Vocabulary (USE THESE EXACT STRINGS)
 | Concept | Display Text |
@@ -410,9 +440,14 @@ AUTO_RELEASE → RATE      (rider rates driver)
 | Driver arrived | "HERE" |
 | Rider accepts + pays | "COO" |
 | Rider heading to car | "BET" |
+| Driver starts the ride | "Start Ride" |
+| Rider-in-car prompt | "You in the car?" |
 | Ride in progress | "Ride Active" |
 | End ride | "End Ride" |
-| Rider dispute action | "Nah fam, that's not right" |
+| Rider asks for more wait time | "Need a few more minutes" |
+| Driver responds to extension | "Approve" / "Decline" |
+| Driver triggers no-show | "No Show" |
+| Mid-ride complaint (admin path, not money-clawback) | "Nah fam, that's not right" |
 | Rating: good | "CHILL ✅" |
 | Rating: great | "Cool AF 😎" |
 | Rating: uncomfortable | "Kinda Creepy 👀" |
@@ -551,20 +586,33 @@ Chill % = ((CHILL count + (Cool AF count × 1.5)) / total ratings) × 100
 
 ---
 
-## ESCROW & DISPUTE LOGIC
+## CAPTURE, RELEASE & FAILURE PATHS
+
+> **Capture point is Start Ride** (driver tap + checks pass), not End Ride. There is no post-ride dispute window holding funds.
 
 | Condition | Result |
 |---|---|
-| Both within 300ft + both tap End Ride | Auto-release ✅ |
-| Both tap End Ride — geo mismatch >300ft | Hold + admin flag 🚩 |
-| Driver ends — rider disputes within 45min | Funds frozen 🔒 admin queue |
-| Driver ends — rider silent 45min | Auto-release to driver ⏱️ |
-| Driver ghosts after COO — no OTW in 30min | Auto-refund rider 🔄 |
-| Rider no-show 10min after HERE | Driver taps No Show → $5 fee to rider |
+| Start Ride checks pass (geofence + proximity + rider yes-or-auto-yes) | Capture fires → funds transfer to driver Connect → cash-out unlocks ✅ |
+| Pickup geofence fails at Start Ride | Driver sees "You're not at the pickup yet" — capture does not fire, ride stays at HERE |
+| Rider GPS proximity fails (rider sharing GPS) | Driver sees "You're not near your rider yet" — capture does not fire |
+| Rider taps NO to "You in the car?" | Capture does not fire, ride stays at HERE; driver can re-attempt Start Ride after resolving |
+| Driver ghosts after COO — no OTW in `driver_ghost_timeout_min` (default 30) | Auto-void authorization, rider notified 🔄 |
+| Rider no-show: driver-at-pickup geofence + `no_show_timer_min` expired (default 10) + no active extension | Driver triggers No Show → 25% or 50% of fare captured (driver elects), per fee structure below 🚩 |
+| Rider requests extension, driver declines, original timer expires | Same as no-show path |
+| Mid-ride complaint by rider | Logged + admin queue. NOT a fund freeze — funds already with driver. Admin discretion → manual `transfer.reversal` if upheld 🛎️ |
+| Post-ride dispute | Ratings + text comments only (public accountability layer). Money clawback path = Stripe chargeback (rider's bank, weeks later) or admin-initiated reversal |
 
-**Dispute Notifications**:
-1. Push fires immediately when driver taps End Ride — shows countdown
-2. Second push at 10 minutes remaining: "Ride ending soon — say something now"
+**No-show fee structure** (driver-elected at No Show tap, per `payment_capture_spec` carryover):
+- Driver picks 25% → platform takes 5%, rider refunded 70%
+- Driver picks 50% → platform takes 10%, rider refunded 40%
+- Add-ons / extras: 100% refunded to rider on no-show
+- Cash rides: no charge on no-show; driver assumes the risk
+
+**Reversal mechanics (when admin upholds a mid-ride or post-ride complaint):**
+- Refund rider via `stripe.refunds.create` on the captured charge
+- Reverse the destination transfer via `stripe.transfers.createReversal`
+- If driver already cashed out, Connect balance goes negative → debt to platform (accepted risk)
+- Admin action is logged in `transaction_ledger` with `reversal_reason`
 
 ---
 
@@ -591,29 +639,103 @@ admin:feed                → All system events → Admin dashboard
 
 ## STRIPE INTEGRATION
 
-### Escrow Hold (COO tap)
+### 0. UI: in-app only (LOCKED 2026-05-07)
+
+**No Stripe-hosted page is ever shown to a rider or driver.** All Stripe UI renders inside the app via official Stripe components.
+
+| Surface | What we use | Banned |
+|---|---|---|
+| Card entry, save card, Apple Pay / Google Pay / Cash App Pay | Stripe Elements / Payment Element rendered in our pages | Stripe Checkout (hosted) |
+| Driver Connect onboarding (KYC, bank, SSN/EIN) | `@stripe/react-connect-js` `ConnectAccountOnboarding` in `app/driver/payout-setup/stripe-embedded.tsx`, backed by `app/api/driver/payout-setup/session/route.ts` (`stripe.accountSessions.create`) | `stripe.accountLinks.create` (returns connect.stripe.com URL) |
+| Driver payout history + bank update | `ConnectPayouts` + `ConnectAccountManagement` in the same file | `stripe.accounts.createLoginLink` (returns express.stripe.com URL), Stripe Express Dashboard |
+| Refund / dispute admin tooling | Built in our admin pages; Stripe API calls server-side | Stripe Dashboard share-links |
+
+**Two unavoidable exceptions** (be honest — neither is "Stripe UI"):
+- **3D Secure challenge** — when a rider's bank requires step-up auth, the *bank's* page loads via `stripe.handleNextAction`. This is the issuer's UI, not Stripe's, and we cannot avoid it.
+- **Stripe-side risk holds** — Stripe may freeze a payout for fraud review. Server-only, no user-facing UI.
+
+**Live leaks (do NOT add new callers — Phase B will rip these out):**
+- `app/api/driver/payout-setup/update/route.ts` — both branches redirect off-app. Replace with `/driver/payout-setup` redirect (already renders the embedded view).
+- `lib/stripe/connect.ts:createOnboardingLink` — helper that returns a hosted URL. Audit callers + delete.
+- `lib/stripe/client.ts:createAccountLink` — helper that returns a hosted URL. Audit callers + delete.
+
+### 1. Authorize at COO tap (rider accepts price — funds held, not yet captured)
 ```typescript
 const paymentIntent = await stripe.paymentIntents.create({
   amount: rideAmountInCents,
   currency: 'usd',
   customer: rider.stripeCustomerId,
-  capture_method: 'manual',
+  capture_method: 'manual',                          // critical — capture happens later at Start Ride
   payment_method: rider.defaultPaymentMethodId,
   confirm: true,
+  transfer_data: { destination: driver.stripeAccountId }, // Destination Charge — driver Connect is the eventual payee
   metadata: { rideId, driverId, riderId }
-});
+}, { idempotencyKey: `auth_${rideId}` });
 ```
 
-### Escrow Release
+### 2. Capture at Start Ride (checks passed — money moves rider → driver Connect)
 ```typescript
-await stripe.paymentIntents.capture(paymentIntentId, {
-  amount_to_capture: rideAmountInCents,
-  application_fee_amount: Math.round(rideAmountInCents * feeRate), // 0.25 or 0.15
-  transfer_data: { destination: driver.stripeAccountId }
+// Fee calculation reads driver tier + cumulative daily earnings AT THIS MOMENT.
+// Reads admin-portal config: progressive tier table, caps, HMU First flat rate.
+const feeRate = calculatePlatformFeeRate({
+  driverTier,
+  cumulativeDailyEarnings,
+  dailyFeePaid,
+  weeklyFeePaid,
 });
+
+await stripe.paymentIntents.capture(paymentIntentId, {
+  amount_to_capture: rideAmountInCents,                  // includes any extension wait fees added at HERE
+  application_fee_amount: Math.round(rideAmountInCents * feeRate),
+  // transfer_data.destination already set on the PaymentIntent at authorize — do not re-pass here
+}, { idempotencyKey: `capture_${rideId}` });
+
+// Cash-out unlocks for driver immediately. No platform-side hold.
+// transaction_ledger gets a `capture` row + `transfer_to_connect` row.
 ```
 
-### Driver Connect Onboarding (on Clerk user.created webhook)
+### 3. Per-extra incremental capture (driver-menu add-ons during ride)
+Each extra ordered mid-ride is its own atomic money event:
+```typescript
+const extraIntent = await stripe.paymentIntents.create({
+  amount: extraAmountInCents,
+  currency: 'usd',
+  customer: rider.stripeCustomerId,
+  payment_method: rider.defaultPaymentMethodId,
+  off_session: true,
+  confirm: true,                                          // immediate capture
+  application_fee_amount: Math.round(extraAmountInCents * currentFeeRate), // recalculated against daily earnings AT THIS MOMENT
+  transfer_data: { destination: driver.stripeAccountId },
+  metadata: { rideId, extraId, driverId, riderId, kind: 'extra' }
+}, { idempotencyKey: `extra_${extraId}` });
+```
+
+### 4. No-show capture (driver elects 25% or 50% at No Show tap)
+```typescript
+const noShowAmount = Math.round(rideAmountInCents * (driverElected === '50' ? 0.5 : 0.25));
+const noShowFeeRate = driverElected === '50' ? 0.10 : 0.05; // platform's cut of the no-show
+
+await stripe.paymentIntents.capture(paymentIntentId, {
+  amount_to_capture: noShowAmount,
+  application_fee_amount: Math.round(noShowAmount * noShowFeeRate),
+}, { idempotencyKey: `noshow_${rideId}` });
+// Stripe auto-voids the difference on partial capture. Add-ons / extras refunded separately.
+```
+
+### 5. Reversal (admin upholds a complaint)
+```typescript
+const refund = await stripe.refunds.create({
+  payment_intent: paymentIntentId,
+  amount: rideAmountInCents,
+  reverse_transfer: true,                                 // pulls funds back from driver Connect
+  refund_application_fee: true,
+}, { idempotencyKey: `reversal_${rideId}` });
+// If driver already cashed out, Connect balance goes negative — accepted risk.
+```
+
+### 6. Driver Connect Onboarding (on Clerk user.created webhook)
+The `stripe.accounts.create` call below provisions the Connect account. **Do not** follow it with `stripe.accountLinks.create` — that returns a Stripe-hosted onboarding URL and violates the in-app-only lock above. The driver completes KYC/bank setup inside our app via the embedded `ConnectAccountOnboarding` component, gated by an `accountSession` client secret minted at `app/api/driver/payout-setup/session/route.ts`.
+
 ```typescript
 const account = await stripe.accounts.create({
   type: 'express',
@@ -622,12 +744,25 @@ const account = await stripe.accounts.create({
   capabilities: {
     card_payments: { requested: true },
     transfers: { requested: true }
+  },
+  settings: {
+    payouts: { schedule: { interval: 'manual' } } // platform code triggers payouts; no Stripe auto-schedule
   }
 });
 await clerkClient.users.updateUserMetadata(clerkUserId, {
   publicMetadata: { stripeAccountId: account.id }
 });
+// Driver visits /driver/payout-setup → server calls stripe.accountSessions.create → embedded onboarding renders.
 ```
+
+### Idempotency keys (required on every Stripe call)
+- `auth_${rideId}` — initial authorization at COO
+- `capture_${rideId}` — main capture at Start Ride
+- `extra_${extraId}` — per-extra incremental capture
+- `noshow_${rideId}` — no-show partial capture
+- `reversal_${rideId}` — admin-initiated reversal
+
+The webhook handler (`app/api/webhooks/stripe/route.ts`) must dedupe inbound events by `event.id` before processing — see `stripe_webhook_idempotency_bug` memory.
 
 ---
 
@@ -792,23 +927,27 @@ A feature is complete when all of the following are true:
 - Rider pays the HMU ATL platform Stripe account
 - Platform transfers net amount to driver's Stripe Connect account
 - `application_fee_amount` calculated and set at **capture time** (not create)
-- This ensures correct progressive fee tier based on daily earnings at ride end
+- Capture time = **Start Ride** (driver tap + checks pass), not ride end. See RIDE FLOW STATE MACHINE for the full check chain.
+- Per-extra captures recalculate the fee against daily-earnings tier at the moment of each extra
 
 ### Payment Flow
 ```
-Price Agreed → holdRiderPayment() [manual capture]
-  → Ride Active → Driver taps End Ride
-  → 45-min dispute window opens
-  → Window closes clean → captureRiderPayment()
-  → routeDriverPayout()
+COO tap → authorizeRiderPayment()    [manual capture, transfer_data set]
+  → HERE → no-show timer + optional rider extension requests
+  → Driver Start Ride → checks pass → captureRiderPayment()
+       ↳ Funds move rider → driver Connect via Destination Charge
+       ↳ application_fee_amount calculated against current daily earnings
+       ↳ Cash-out unlocks for driver immediately
+  → Ride Active (extras add their own incremental captures)
+  → Driver End Ride → ratings + comments unlocked
+  → Mid-ride or post-ride complaints → admin queue (no automatic clawback)
 ```
 
 ### Driver Payouts
-- **Stripe Connect Express** for bank + debit payouts (LIVE)
-- **Dots API** for Cash App, Venmo, Zelle, PayPal — **ASPIRATIONAL** (not implemented, $999/mo API tier)
-- Payout schedule: manual (code triggers all payouts)
-- HMU First: instant payout after every ride
-- Free tier: batched daily at 6am ET
+- **Stripe Connect Express** — bank + debit (LIVE)
+- **Dots API** — Cash App, Venmo, Zelle, PayPal — **ASPIRATIONAL** (not implemented, $999/mo API tier)
+- **Cash-out timing**: driver-triggered any time after Start Ride completes. No platform-side hold. Standard payout free, instant payout per `payout_strategy` memory ($1 or 1% on free tier; free for HMU First).
+- Cron-batch payouts: post-launch only
 
 ### Rider Payment Methods
 - Saved via Stripe SetupIntents (off_session usage)
@@ -820,12 +959,37 @@ Price Agreed → holdRiderPayment() [manual capture]
 2. **Auto-calculated** — system suggests based on distance/time/stops
 3. **Driver fixed** — driver posts minimum, rider takes it or leaves it
 
+### Wait Fee (NEW — net-new schema/UI)
+- Driver sets per-minute wait fee in profile, within admin-defined band (default $0.25–$2.00/min, suggested $0.50/min)
+- Triggered when rider requests extension at HERE and driver approves
+- Added to ride total before capture; rider sees concrete dollar amount in the request prompt
+
 ### Key Tables
 - `rider_payment_methods` — saved cards
 - `price_negotiations` — price proposal tracking
-- `transaction_ledger` — full audit trail for all money movement
+- `transaction_ledger` — full audit trail for all money movement (includes reversals)
 - `daily_earnings` — progressive fee tier tracking
-- `rides` columns: price_mode, proposed_price, final_agreed_price, payment tracking fields
+- `processed_webhook_events` — Stripe event-id dedup (NEW — see `stripe_webhook_idempotency_bug` memory)
+- `ride_extensions` — extension requests + approvals + wait-fee amounts (NEW)
+- `rides` columns: price_mode, proposed_price, final_agreed_price, payment tracking fields, `cashout_eligible_at` (set when capture succeeds)
+
+### Admin-Configurable Thresholds (read at Start Ride / extension / no-show)
+| Key | Default | Purpose |
+|---|---|---|
+| `start_ride_pickup_geofence_m` | 150 | Driver-to-pickup distance allowed for Start Ride |
+| `start_ride_rider_proximity_m` | 100 | Driver-to-rider GPS distance allowed (skipped if rider hasn't shared GPS) |
+| `auto_yes_timeout_sec` | 120 | Time after rider prompt before auto-yes can fire |
+| `auto_yes_driver_speed_min_mps` | 2 | Driver GPS speed threshold for "car is moving" |
+| `auto_yes_comotion_tolerance_pct` | 20 | Allowed delta between driver and rider GPS movement to confirm co-motion |
+| `no_show_timer_min` | 10 | Time at HERE before no-show can be triggered |
+| `extension_minutes_per_grant` | 5 | Minutes added per approved extension |
+| `extension_max_grants_per_ride` | 3 | Max extensions per ride |
+| `extension_max_total_minutes` | 30 | Hard cap on total extension time per ride |
+| `wait_fee_min_per_min` | 0.25 | Min wait fee a driver can set |
+| `wait_fee_max_per_min` | 2.00 | Max wait fee a driver can set |
+| `wait_fee_suggested_per_min` | 0.50 | Suggested default in driver profile |
+| `comments_visibility_default` | `visible` | Default visibility for post-ride text comments |
+| `driver_ghost_timeout_min` | 30 | Time after COO before auto-void if driver hasn't tapped OTW |
 
 ---
 
