@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { sql } from '@/lib/db/client';
 import { sendSms } from '@/lib/sms/textbee';
 import { publishAdminEvent } from '@/lib/ably/server';
+import { syncTierForCustomer } from '@/lib/stripe/sync-tier';
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2026-02-25.clover' });
@@ -170,15 +171,7 @@ export async function POST(request: NextRequest) {
         const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
         if (customerId) {
           const isActive = sub.status === 'active' || sub.status === 'trialing';
-          const tier = isActive ? 'hmu_first' : 'free';
-          await sql`
-            UPDATE users SET tier = ${tier}, updated_at = NOW()
-            WHERE id IN (
-              SELECT user_id FROM driver_profiles WHERE stripe_customer_id = ${customerId}
-              UNION
-              SELECT user_id FROM rider_profiles WHERE stripe_customer_id = ${customerId}
-            )
-          `;
+          await syncTierForCustomer(customerId, isActive ? 'hmu_first' : 'free');
         }
         break;
       }
@@ -187,14 +180,7 @@ export async function POST(request: NextRequest) {
         const sub = event.data.object as Stripe.Subscription;
         const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
         if (customerId) {
-          await sql`
-            UPDATE users SET tier = 'free', updated_at = NOW()
-            WHERE id IN (
-              SELECT user_id FROM driver_profiles WHERE stripe_customer_id = ${customerId}
-              UNION
-              SELECT user_id FROM rider_profiles WHERE stripe_customer_id = ${customerId}
-            )
-          `;
+          await syncTierForCustomer(customerId, 'free');
         }
         break;
       }
@@ -203,14 +189,7 @@ export async function POST(request: NextRequest) {
         const invoice = event.data.object as Stripe.Invoice;
         const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
         if (customerId) {
-          await sql`
-            UPDATE users SET tier = 'hmu_first', updated_at = NOW()
-            WHERE id IN (
-              SELECT user_id FROM driver_profiles WHERE stripe_customer_id = ${customerId}
-              UNION
-              SELECT user_id FROM rider_profiles WHERE stripe_customer_id = ${customerId}
-            )
-          `;
+          await syncTierForCustomer(customerId, 'hmu_first');
         }
         break;
       }
@@ -295,6 +274,15 @@ export async function POST(request: NextRequest) {
       // The SMS quotes the delta — what just cleared — not the cumulative
       // balance, so a driver who earns $10 today and $30 tomorrow sees two
       // distinct "your $X just cleared" texts.
+      //
+      // Concurrency: two balance.available webhooks for the same Connect
+      // account can fire close together (e.g. two captures landing seconds
+      // apart). The previous SELECT-then-UPDATE allowed both handlers to
+      // read the same `prev`, compute the same `delta`, and SMS twice for
+      // overlapping windows. The single-statement UPDATE below uses
+      // FOR UPDATE in the inner select to serialize concurrent handlers on
+      // the row — each observes its predecessor's post-update value, so
+      // deltas partition the cleared funds rather than double-count them.
       case 'balance.available': {
         const balance = event.data.object as Stripe.Balance;
         const accountId = event.account; // Connect events populate this
@@ -304,44 +292,38 @@ export async function POST(request: NextRequest) {
           .filter(b => b.currency === 'usd')
           .reduce((sum, b) => sum + b.amount, 0);
 
-        const rows = await sql`
-          SELECT u.id AS user_id,
-                 dp.phone,
-                 dp.display_name,
-                 COALESCE(dp.last_notified_available_cents, 0) AS last_notified
-          FROM driver_profiles dp
-          JOIN users u ON u.id = dp.user_id
+        // Atomic claim: advance watermark and return the value it had before.
+        // The FOR UPDATE row lock blocks any concurrent handler for the same
+        // account until this statement returns.
+        const claimed = await sql`
+          UPDATE driver_profiles AS dp
+          SET last_notified_available_cents = ${currentAvailableCents},
+              updated_at = NOW()
+          FROM (
+            SELECT user_id, phone, display_name,
+                   COALESCE(last_notified_available_cents, 0) AS prev
+            FROM driver_profiles
+            WHERE stripe_account_id = ${accountId}
+            FOR UPDATE
+          ) AS old
           WHERE dp.stripe_account_id = ${accountId}
-          LIMIT 1
+          RETURNING old.user_id, old.phone, old.display_name, old.prev
         `;
-        const driver = rows[0] as {
+
+        if (claimed.length === 0) break;
+        const driver = claimed[0] as {
           user_id: string;
           phone: string | null;
           display_name: string | null;
-          last_notified: number;
-        } | undefined;
+          prev: number;
+        };
 
-        if (!driver) break;
+        const deltaCents = currentAvailableCents - driver.prev;
 
-        const deltaCents = currentAvailableCents - driver.last_notified;
+        // Drops (cashouts), no-ops, and out-of-order older events: watermark
+        // already moved; nothing to SMS for.
+        if (deltaCents <= 0 || !driver.phone) break;
 
-        // Drops (cashouts) and no-op refreshes: advance the watermark
-        // immediately. There's no SMS to gate on, and we need the watermark
-        // to track downward so the next rise crosses the strict ">" check.
-        if (deltaCents <= 0 || !driver.phone) {
-          await sql`
-            UPDATE driver_profiles
-            SET last_notified_available_cents = ${currentAvailableCents}
-            WHERE user_id = ${driver.user_id}
-          `;
-          break;
-        }
-
-        // Rise with phone: send SMS FIRST. Only advance the watermark on
-        // success. If SMS fails we throw — the outer catch deletes the
-        // idempotency claim so Stripe's retry can re-attempt with watermark
-        // intact. Previously the watermark was advanced before the SMS, so
-        // a failed send permanently silenced the driver at that level.
         const firstName =
           (driver.display_name ?? '').trim().split(/\s+/)[0] || 'Hey';
         const clearedDollars = (deltaCents / 100).toFixed(2);
@@ -353,13 +335,18 @@ export async function POST(request: NextRequest) {
           eventType: 'balance_available',
         });
         if (!result.success) {
+          // Roll back the watermark we claimed so Stripe's retry can re-fire.
+          // The CAS condition ensures we don't overwrite a newer concurrent
+          // advance — if someone moved past us, their SMS already covered
+          // these funds.
+          await sql`
+            UPDATE driver_profiles
+            SET last_notified_available_cents = ${driver.prev}
+            WHERE stripe_account_id = ${accountId}
+              AND last_notified_available_cents = ${currentAvailableCents}
+          `;
           throw new Error(`balance.available SMS failed: ${result.error}`);
         }
-        await sql`
-          UPDATE driver_profiles
-          SET last_notified_available_cents = ${currentAvailableCents}
-          WHERE user_id = ${driver.user_id}
-        `;
         break;
       }
 
