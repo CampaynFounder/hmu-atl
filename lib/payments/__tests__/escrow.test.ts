@@ -28,11 +28,23 @@ vi.mock('@/lib/db/service-menu', () => ({
 }));
 
 import { holdRiderPayment, cancelPaymentHold, partialCaptureNoShow } from '../escrow';
+import { legacyFullFareStrategy, _clearStrategyCaches } from '../strategies';
 
 beforeEach(() => {
   sql.mockReset();
   sql.mockResolvedValue([]);
+  // Clear cross-test caches so each test starts with a clean slate.
+  _clearStrategyCaches();
 });
+
+// Helper: find a sql template-tag call whose strings include a substring
+// (the first arg to the tagged template is the strings array).
+function findSqlCallContaining(needle: string): unknown[] | undefined {
+  return sql.mock.calls.find((call) => {
+    const strings = call[0] as readonly string[] | undefined;
+    return Array.isArray(strings) && strings.some((s) => s.includes(needle));
+  });
+}
 
 describe('holdRiderPayment — mock mode', () => {
   it('returns a mock payment intent id with requires_capture status', async () => {
@@ -45,7 +57,7 @@ describe('holdRiderPayment — mock mode', () => {
       driverStripeAccountId: 'acct_test',
       riderId: 'rider_1',
       driverId: 'driver_1',
-    });
+    }, { strategy: legacyFullFareStrategy });
     expect(result.paymentIntentId).toMatch(/^pi_mock_/);
     expect(result.status).toBe('requires_capture');
   });
@@ -59,9 +71,9 @@ describe('holdRiderPayment — mock mode', () => {
       driverStripeAccountId: 'acct_test',
       riderId: 'rider_1',
       driverId: 'driver_1',
-    });
-    // 1 UPDATE on rides + 2 INSERTs on transaction_ledger
-    expect(sql).toHaveBeenCalledTimes(3);
+    }, { strategy: legacyFullFareStrategy });
+    // 1 hold-policy SELECT + 1 UPDATE on rides + 2 INSERTs on transaction_ledger
+    expect(sql).toHaveBeenCalledTimes(4);
   });
 
   it('defaults addOnReserve to 0 and authorizes the agreed price only', async () => {
@@ -73,12 +85,12 @@ describe('holdRiderPayment — mock mode', () => {
       driverStripeAccountId: 'acct_test',
       riderId: 'rider_1',
       driverId: 'driver_1',
-    });
-    // The first sql call is the UPDATE on rides — assert it includes the agreed
-    // price and a 0 reserve. Templates pass values through the second arg onward.
-    const updateCall = sql.mock.calls[0];
-    expect(updateCall.slice(1)).toContain(15); // final_agreed_price
-    expect(updateCall.slice(1)).toContain(0);  // add_on_reserve
+    }, { strategy: legacyFullFareStrategy });
+    // Find the UPDATE rides call (other sql calls in the path are policy/ledger).
+    const updateCall = findSqlCallContaining('UPDATE rides');
+    expect(updateCall).toBeDefined();
+    expect(updateCall!.slice(1)).toContain(15); // final_agreed_price
+    expect(updateCall!.slice(1)).toContain(0);  // add_on_reserve
   });
 });
 
@@ -110,13 +122,14 @@ describe('partialCaptureNoShow — cash ride', () => {
     sql.mockResolvedValueOnce([{
       payment_intent_id: null,
       final_agreed_price: 20,
+      visible_deposit: 0,
       add_on_reserve: 0,
       driver_id: 'driver_1',
       rider_id: 'rider_1',
       is_cash: true,
     }]);
 
-    const result = await partialCaptureNoShow('ride_1', 25);
+    const result = await partialCaptureNoShow('ride_1', 25, { strategy: legacyFullFareStrategy });
     expect(result.captured).toBe(0);
     expect(result.driverReceives).toBe(0);
     expect(result.platformReceives).toBe(0);
@@ -129,6 +142,7 @@ describe('partialCaptureNoShow — 25% scenario', () => {
     sql.mockResolvedValueOnce([{
       payment_intent_id: 'pi_mock',
       final_agreed_price: 20,
+      visible_deposit: 0,
       add_on_reserve: 5,
       driver_id: 'driver_1',
       rider_id: 'rider_1',
@@ -136,7 +150,7 @@ describe('partialCaptureNoShow — 25% scenario', () => {
     }]);
     sql.mockResolvedValueOnce([{ stripe_account_id: 'acct_test' }]);
 
-    const result = await partialCaptureNoShow('ride_1', 25);
+    const result = await partialCaptureNoShow('ride_1', 25, { strategy: legacyFullFareStrategy });
 
     expect(result.driverReceives).toBe(5);     // 20 * 0.25
     expect(result.platformReceives).toBe(1);   // 20 * 0.05
@@ -151,6 +165,7 @@ describe('partialCaptureNoShow — 50% scenario', () => {
     sql.mockResolvedValueOnce([{
       payment_intent_id: 'pi_mock',
       final_agreed_price: 20,
+      visible_deposit: 0,
       add_on_reserve: 0,
       driver_id: 'driver_1',
       rider_id: 'rider_1',
@@ -158,7 +173,7 @@ describe('partialCaptureNoShow — 50% scenario', () => {
     }]);
     sql.mockResolvedValueOnce([{ stripe_account_id: 'acct_test' }]);
 
-    const result = await partialCaptureNoShow('ride_1', 50);
+    const result = await partialCaptureNoShow('ride_1', 50, { strategy: legacyFullFareStrategy });
 
     expect(result.driverReceives).toBe(10);    // 20 * 0.50
     expect(result.platformReceives).toBe(2);   // 20 * 0.10

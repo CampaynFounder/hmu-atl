@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { fbEvent, fbCustomEvent } from '@/components/analytics/meta-pixel';
 import { loadStripe } from '@stripe/stripe-js';
 import {
@@ -24,6 +24,21 @@ export default function UpgradeOverlay({ open, onClose, onUpgraded }: Props) {
   const [isSetup, setIsSetup] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // When the active pricing mode hides subscription UI (e.g. deposit_only),
+  // show a "Coming Soon" treatment instead of the upgrade flow.
+  const [hidesSubscription, setHidesSubscription] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetch('/api/pricing-mode/active')
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (!cancelled && data) setHidesSubscription(!!data.hidesSubscription);
+      })
+      .catch(() => { if (!cancelled) setHidesSubscription(false); });
+    return () => { cancelled = true; };
+  }, [open]);
 
   const confettiColors = ['#00E676', '#FFD600', '#FF4081', '#448AFF', '#E040FB', '#FF6E40'];
   const particles = step === 'success' ? Array.from({ length: 50 }, (_, i) => ({
@@ -154,8 +169,23 @@ export default function UpgradeOverlay({ open, onClose, onUpgraded }: Props) {
         </div>
       )}
 
+      {/* Coming-soon treatment when active pricing mode hides subscription UI */}
+      {step === 'info' && open && hidesSubscription === true && (
+        <div className="uo-overlay" onClick={onClose}>
+          <div className="uo-sheet" onClick={e => e.stopPropagation()}>
+            <div className="uo-handle" />
+            <div className="uo-badge">{'🥇'} HMU First</div>
+            <div className="uo-title">COMING SOON</div>
+            <p style={{ fontSize: '15px', color: '#bbb', lineHeight: 1.5, padding: '8px 0 16px', textAlign: 'center' }}>
+              We&apos;re running on promo pricing right now &mdash; every driver gets the best deal. HMU First will return with new perks soon.
+            </p>
+            <button type="button" className="uo-btn uo-btn--ghost" onClick={onClose}>Got it</button>
+          </div>
+        </div>
+      )}
+
       {/* Info step */}
-      {step === 'info' && open && (
+      {step === 'info' && open && hidesSubscription !== true && (
         <div className="uo-overlay" onClick={onClose}>
           <div className="uo-sheet" onClick={e => e.stopPropagation()}>
             <div className="uo-handle" />
