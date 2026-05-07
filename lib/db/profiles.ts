@@ -318,7 +318,8 @@ export async function createDriverProfile(
       cash_only,
       area_slugs,
       services_entire_market,
-      accepts_long_distance
+      accepts_long_distance,
+      profile_visible
     ) VALUES (
       ${params.user_id},
       ${params.first_name},
@@ -342,7 +343,8 @@ export async function createDriverProfile(
       ${true},
       ${params.area_slugs ?? []},
       ${params.services_entire_market ?? true},
-      ${params.accepts_long_distance ?? false}
+      ${params.accepts_long_distance ?? false},
+      ${true}
     )
     RETURNING *
   `;
