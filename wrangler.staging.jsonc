@@ -1,0 +1,45 @@
+// Staging Worker config. Mirrors wrangler.worker.jsonc (production) but
+// targets the `hmu-atl-staging` Worker. All secrets must be set via:
+//   wrangler secret put <NAME> --config wrangler.staging.jsonc
+// See docs/STAGING-SETUP-RUNBOOK.md for full setup steps.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": ".open-next/worker.js",
+  "name": "hmu-atl-staging",
+  "compatibility_date": "2025-09-27",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "STATIC_ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "hmu-atl-staging"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "NEXT_INC_CACHE_R2_BUCKET",
+      "bucket_name": "hmu-atl-staging-opennext-cache"
+    },
+    {
+      "binding": "MEDIA_BUCKET",
+      "bucket_name": "hmu-atl-staging-media"
+    }
+  ],
+  "images": {
+    "binding": "IMAGES"
+  },
+  "observability": {
+    "enabled": true
+  }
+  // Routes deliberately omitted on first deploy — wrangler will publish to
+  // hmu-atl-staging.<account-subdomain>.workers.dev. Once Clerk staging app
+  // and DNS are configured for staging.hmucashride.com, add:
+  //   "routes": [
+  //     { "pattern": "staging.hmucashride.com", "custom_domain": true }
+  //   ]
+}

@@ -12,6 +12,13 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Independent Remotion sub-project with its own deps; linting it from
+    // the root crashes the parser (heap OOM on its node_modules graph).
+    "videos/**",
+    // OpenNext output and Wrangler dev artifacts.
+    ".open-next/**",
+    ".wrangler/**",
+    "coverage/**",
   ]),
 ]);
 

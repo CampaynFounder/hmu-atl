@@ -1,0 +1,104 @@
+name: Deploy → Production
+
+# Manual-only. Gated by the GitHub `production` Environment, which must
+# be configured in repo Settings → Environments with:
+#   - Required reviewers: founder (and any others)
+#   - Deployment branches: `main` only
+#
+# When you trigger this workflow, GitHub pauses the deploy job and posts an
+# approval request. Nothing ships until a reviewer clicks "Approve and deploy".
+#
+# Same anti-bake posture as deploy-staging.yml: no .env.local on the runner;
+# server secrets supplied by Worker `wrangler secret put`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Brief reason for this deploy (shown in approval prompt)'
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build + deploy to hmu-atl
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://atl.hmucashride.com
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run typecheck (gate)
+        run: npm run typecheck
+
+      - name: Run tests (gate)
+        run: npm test
+
+      - name: Build (Next.js → OpenNext → Cloudflare Worker)
+        env:
+          # Build-time NEXT_PUBLIC_* — prod values from the `production`
+          # GitHub Environment.
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_CLERK_DOMAIN: ${{ secrets.NEXT_PUBLIC_CLERK_DOMAIN }}
+          NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: /auth-callback
+          NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: /auth-callback
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN }}
+          NEXT_PUBLIC_ABLY_SUBSCRIBE_KEY: ${{ secrets.NEXT_PUBLIC_ABLY_SUBSCRIBE_KEY }}
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_HOST: https://app.posthog.com
+          NEXT_PUBLIC_APP_URL: https://atl.hmucashride.com
+          NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+        run: npx opennextjs-cloudflare build
+
+      - name: Deploy to Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --config wrangler.worker.jsonc
+
+      - name: Post-deploy health check
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" \
+              https://atl.hmucashride.com/api/health || echo "000")
+            if [[ "$CODE" == "200" ]]; then
+              cat /tmp/health.json
+              echo ""
+              echo "✓ Prod healthy"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $CODE — retrying in 10s..."
+            sleep 10
+          done
+          echo "✗ Prod health check failed after 5 attempts"
+          cat /tmp/health.json || true
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Prod deploy" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Reason: ${{ inputs.reason }}" >> $GITHUB_STEP_SUMMARY
+          echo "- SHA: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Triggered by: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY

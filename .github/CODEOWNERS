@@ -1,0 +1,24 @@
+# Default owner — every PR review request defaults here.
+* @CampaynFounder
+
+# Money-movement surfaces require explicit owner sign-off.
+/lib/payments/                          @CampaynFounder
+/lib/stripe/                            @CampaynFounder
+/app/api/webhooks/stripe/               @CampaynFounder
+/app/api/driver/upgrade/                @CampaynFounder
+/app/api/driver/upgrade-inline/         @CampaynFounder
+/app/api/driver/cashout/                @CampaynFounder
+/app/api/rides/*/end/                   @CampaynFounder
+
+# Auth + identity surfaces.
+/middleware.ts                          @CampaynFounder
+/app/api/webhooks/clerk/                @CampaynFounder
+
+# Schema changes — single owner per CLAUDE.md.
+/lib/db/migrations/                     @CampaynFounder
+/lib/db/types.ts                        @CampaynFounder
+
+# CI + deploy infrastructure.
+/.github/                               @CampaynFounder
+/wrangler.worker.jsonc                  @CampaynFounder
+/wrangler.jsonc                         @CampaynFounder

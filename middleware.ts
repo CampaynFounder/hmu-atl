@@ -100,6 +100,7 @@ const isMaintenanceExempt = createRouteMatcher([
   '/api/meta-verify',
   '/api/cron/(.*)',
   '/api/maintenance(.*)',
+  '/api/health',
   '/maintenance',
   '/events',
   '/api/events(.*)',
@@ -121,6 +122,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/meta-verify',
   '/api/cron/(.*)',
   '/api/maintenance(.*)',
+  '/api/health',
   '/d/(.*)',
   '/api/drivers/:handle',
   '/api/chat/booking',
@@ -183,6 +185,25 @@ const isProtectedRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
+  // APEX → ATL: hmucashride.com (and www.) serve the same worker as the
+  // atl subdomain, which left two canonical URLs in circulation. Social
+  // scrapers hate the canonical/og:url mismatch and any link shared at the
+  // apex skips Clerk's market-bound publishable key. 308 keeps the method
+  // and is permanently cached. /api/*, /_next/*, and /.well-known/* stay
+  // on the apex so externally-configured webhooks + domain verification
+  // don't break if anything is pointed there.
+  const host = req.headers.get('host')?.toLowerCase().split(':')[0] || '';
+  if (host === 'hmucashride.com' || host === 'www.hmucashride.com') {
+    const path = req.nextUrl.pathname;
+    const skipApexRedirect = path.startsWith('/api/')
+      || path.startsWith('/_next/')
+      || path.startsWith('/.well-known/');
+    if (!skipApexRedirect) {
+      const target = `https://atl.hmucashride.com${path}${req.nextUrl.search}`;
+      return NextResponse.redirect(target, 308);
+    }
+  }
+
   // MAINTENANCE MODE: dynamic DB-backed. When enabled, non-exempt routes
   // (authenticated app surfaces) redirect to /maintenance. Admin, webhooks,
   // crons, sign-in, and marketing all stay live.

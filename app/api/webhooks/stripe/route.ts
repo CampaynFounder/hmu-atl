@@ -25,6 +25,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
 
+  // Claim this event_id. Stripe retries on 5xx/timeout; without dedup the
+  // handlers below would fire duplicate side effects. If the INSERT returns
+  // no rows the event was already processed (or claimed in flight) — return
+  // 200 so Stripe stops retrying.
+  const claim = await sql`
+    INSERT INTO processed_webhook_events (event_id, event_type)
+    VALUES (${event.id}, ${event.type})
+    ON CONFLICT (event_id) DO NOTHING
+    RETURNING event_id
+  `;
+  if (claim.length === 0) {
+    return NextResponse.json({ received: true, deduped: true });
+  }
+
   try {
     switch (event.type) {
       // ─── Ride escrow ────────────────────────────────────────────────────────
@@ -311,19 +325,23 @@ export async function POST(request: NextRequest) {
 
         const deltaCents = currentAvailableCents - driver.last_notified;
 
-        // Update the watermark unconditionally — including on drops after a
-        // cashout — so a later clearing of the same or smaller amount still
-        // crosses strict ">" and fires the SMS. Previously this UPDATE only
-        // ran when an SMS was sent, leaving the watermark stuck high after
-        // cashouts and suppressing the next notification.
-        await sql`
-          UPDATE driver_profiles
-          SET last_notified_available_cents = ${currentAvailableCents}
-          WHERE user_id = ${driver.user_id}
-        `;
+        // Drops (cashouts) and no-op refreshes: advance the watermark
+        // immediately. There's no SMS to gate on, and we need the watermark
+        // to track downward so the next rise crosses the strict ">" check.
+        if (deltaCents <= 0 || !driver.phone) {
+          await sql`
+            UPDATE driver_profiles
+            SET last_notified_available_cents = ${currentAvailableCents}
+            WHERE user_id = ${driver.user_id}
+          `;
+          break;
+        }
 
-        if (!driver.phone || deltaCents <= 0) break;
-
+        // Rise with phone: send SMS FIRST. Only advance the watermark on
+        // success. If SMS fails we throw — the outer catch deletes the
+        // idempotency claim so Stripe's retry can re-attempt with watermark
+        // intact. Previously the watermark was advanced before the SMS, so
+        // a failed send permanently silenced the driver at that level.
         const firstName =
           (driver.display_name ?? '').trim().split(/\s+/)[0] || 'Hey';
         const clearedDollars = (deltaCents / 100).toFixed(2);
@@ -335,8 +353,13 @@ export async function POST(request: NextRequest) {
           eventType: 'balance_available',
         });
         if (!result.success) {
-          console.error('balance.available SMS failed:', result.error);
+          throw new Error(`balance.available SMS failed: ${result.error}`);
         }
+        await sql`
+          UPDATE driver_profiles
+          SET last_notified_available_cents = ${currentAvailableCents}
+          WHERE user_id = ${driver.user_id}
+        `;
         break;
       }
 
@@ -348,6 +371,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true });
   } catch (err) {
     console.error('Stripe webhook handler error:', err);
+    // Release the idempotency claim so Stripe's retry can re-process. Best
+    // effort — if this DELETE itself fails the event will be wedged and need
+    // manual cleanup, but we still want to return 500 so Stripe knows to
+    // retry.
+    await sql`DELETE FROM processed_webhook_events WHERE event_id = ${event.id}`
+      .catch((e: unknown) => console.error('Failed to release webhook claim:', e));
     return NextResponse.json({ error: 'Webhook handler failed' }, { status: 500 });
   }
 }

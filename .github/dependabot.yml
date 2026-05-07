@@ -1,0 +1,40 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      stripe:
+        patterns:
+          - "stripe"
+          - "@stripe/*"
+      clerk:
+        patterns:
+          - "@clerk/*"
+      types:
+        patterns:
+          - "@types/*"
+      tooling:
+        patterns:
+          - "eslint*"
+          - "vitest"
+          - "@vitest/*"
+          - "typescript"
+          - "wrangler"
+          - "@opennextjs/cloudflare"
+    ignore:
+      # Lock major version for Next + React until coordinated upgrade.
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

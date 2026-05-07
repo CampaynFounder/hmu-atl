@@ -1,0 +1,90 @@
+name: Deploy → Staging
+
+# Auto-deploys main to hmu-atl-staging once CI (typecheck + test) passes.
+# CI failures block the deploy because workflow_run only fires when the
+# referenced workflow concludes; we additionally gate on `success` below.
+#
+# Why GH Actions does not write .env.local in CI: that's the bake pattern
+# that caused the 2026-05-06 leak. NEXT_PUBLIC_* values are passed via
+# build-time env: only; everything else is supplied by `wrangler secret put`
+# on the Worker at runtime.
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build + deploy to hmu-atl-staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    environment:
+      name: staging
+      url: https://staging.hmucashride.com
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build (Next.js → OpenNext → Cloudflare Worker)
+        env:
+          # Build-time NEXT_PUBLIC_* — staging values from the `staging`
+          # GitHub Environment. Server-only secrets are NOT baked here;
+          # they live on the Worker via `wrangler secret put`.
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_CLERK_DOMAIN: ${{ secrets.NEXT_PUBLIC_CLERK_DOMAIN }}
+          NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: /auth-callback
+          NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: /auth-callback
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN }}
+          NEXT_PUBLIC_ABLY_SUBSCRIBE_KEY: ${{ secrets.NEXT_PUBLIC_ABLY_SUBSCRIBE_KEY }}
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_HOST: https://app.posthog.com
+          NEXT_PUBLIC_APP_URL: https://staging.hmucashride.com
+          NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+        run: npx opennextjs-cloudflare build
+
+      - name: Deploy to Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --config wrangler.staging.jsonc
+
+      - name: Post-deploy health check
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" \
+              https://staging.hmucashride.com/api/health || echo "000")
+            if [[ "$CODE" == "200" ]]; then
+              cat /tmp/health.json
+              echo ""
+              echo "✓ Staging healthy"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $CODE — retrying in 10s..."
+            sleep 10
+          done
+          echo "✗ Staging health check failed after 5 attempts"
+          cat /tmp/health.json || true
+          exit 1
