@@ -1,11 +1,13 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { Footer } from '@/components/landing/footer';
 import { CmsProvider } from '@/lib/cms/provider';
 import { useZone } from '@/lib/cms/use-zone';
 import type { ContentMap, FlagMap } from '@/lib/cms/types';
 import type { CompareSnapshot } from '@/lib/payments/strategies/compare-snapshot';
+import styles from './compare.module.css';
 
 type GridColumn = { key: string; label: string };
 type GridRow = {
@@ -136,11 +138,8 @@ function ComparePageInner({
     }
     return out;
   };
-
   const resolveScenario = (s: Scenario): Required<Pick<Scenario, 'rideTotal' | 'platformTake' | 'driverKeeps' | 'breakdown'>> => {
-    if (s.derive === 'hmu_deposit_only') {
-      return snapshot.scenario;
-    }
+    if (s.derive === 'hmu_deposit_only') return snapshot.scenario;
     return {
       rideTotal: interpolate(s.rideTotal, snapshot),
       platformTake: interpolate(s.platformTake, snapshot),
@@ -148,248 +147,204 @@ function ComparePageInner({
       breakdown: interpolate(s.breakdown, snapshot),
     };
   };
-
   const resolveFaqAnswer = (item: FaqItem): string => {
     if (item.derive === 'hmu_take_answer') return snapshot.hmuTakeAnswer;
     return item.a ?? '';
   };
 
+  // Scroll reveal — copy of the production marketing pattern. Sections marked
+  // with `.reveal` fade-and-rise once 8% in view; one-shot.
+  useEffect(() => {
+    const reveals = document.querySelectorAll(`.${styles.reveal}`);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) {
+            e.target.classList.add('visible');
+            observer.unobserve(e.target);
+          }
+        });
+      },
+      { threshold: 0.08, rootMargin: '0px 0px -40px 0px' },
+    );
+    reveals.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <div className="bg-[#080808] text-white min-h-screen" style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}>
-      {/* Local nav (marketing pages skip the global header) */}
-      <nav className="sticky top-0 z-40 bg-[#080808]/95 backdrop-blur-md border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
-          <Link href="/" className="font-bold text-white text-[22px] tracking-wide" style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
-            HMU {brandCityShort}
-          </Link>
-          <div className="flex items-center gap-3">
-            <Link href="/sign-in" className="text-sm text-zinc-300 hover:text-white">Sign In</Link>
-            <Link
-              href={heroCtaHref}
-              className="text-sm font-semibold text-black bg-[#00E676] hover:bg-[#00C864] px-4 py-2 rounded-lg transition-colors"
-            >
-              Sign Up
-            </Link>
-          </div>
+    <div className={styles.container}>
+      <div className={styles.noiseBg} />
+
+      {/* NAV (local — global header is suppressed for marketing pages) */}
+      <nav className={styles.nav}>
+        <Link href="/" className={styles.navLogo}>HMU {brandCityShort}</Link>
+        <div className={styles.navActions}>
+          <Link href="/sign-in" className={styles.navSignIn}>Sign In</Link>
+          <Link href={heroCtaHref} className={styles.navCta}>Sign Up</Link>
         </div>
       </nav>
 
       {/* HERO */}
-      <section className="px-4 sm:px-6 lg:px-8 pt-16 pb-20 sm:pt-24 sm:pb-28">
-        <div className="max-w-5xl mx-auto text-center">
-          <div className="inline-block px-4 py-2 mb-6 rounded-full border border-[#00E676]/30 bg-[#00E676]/5 text-[#00E676] text-xs uppercase tracking-[0.2em]">
+      <section className={styles.hero}>
+        <div className={styles.heroInner}>
+          <div className={`${styles.heroEyebrow} ${styles.fadeUp}`}>
             {heroEyebrow}
           </div>
-          <h1
-            className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6"
-            style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", letterSpacing: '0.5px' }}
-          >
-            <span className="block text-white">{heroLine1}</span>
-            <span className="block text-[#00E676] mt-2">{heroLine2}</span>
+          <h1 className={`${styles.heroHeadline} ${styles.fadeUp}`} style={{ animationDelay: '0.1s' }}>
+            <span className={styles.lineWhite}>{heroLine1}</span>
+            <span className={styles.lineGreen}>{heroLine2}</span>
           </h1>
           <p
-            className="text-lg sm:text-xl text-zinc-300 max-w-3xl mx-auto mb-8 leading-relaxed"
+            className={`${styles.heroSub} ${styles.fadeUp}`}
+            style={{ animationDelay: '0.2s' }}
             dangerouslySetInnerHTML={{ __html: heroSub }}
           />
-          <Link
-            href={heroCtaHref}
-            className="inline-block bg-[#00E676] hover:bg-[#00C864] text-black font-bold px-8 py-4 rounded-xl text-base transition-colors"
-          >
-            {heroCtaLabel}
-          </Link>
+          <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }}>
+            <Link href={heroCtaHref} className={styles.btnPrimary}>{heroCtaLabel}</Link>
+          </div>
         </div>
       </section>
 
       {/* THESIS */}
-      <section className="px-4 sm:px-6 lg:px-8 py-20 border-t border-white/5 bg-[#0a0a0a]">
-        <div className="max-w-3xl mx-auto text-center">
-          <div className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 mb-4">{thesisLabel}</div>
-          <h2 className="text-3xl sm:text-4xl font-bold mb-6" style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
-            {thesisHeadline}
-          </h2>
-          <p
-            className="text-base sm:text-lg text-zinc-300 leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: thesisParagraph }}
-          />
+      <section className={`${styles.section} ${styles.sectionAlt}`}>
+        <div className={`${styles.sectionInnerNarrow} ${styles.reveal}`}>
+          <div className={styles.sectionLabel}>{thesisLabel}</div>
+          <h2 className={styles.sectionHeadline}>{thesisHeadline}</h2>
+          <p className={styles.thesisBody} dangerouslySetInnerHTML={{ __html: thesisParagraph }} />
         </div>
       </section>
 
       {/* COMPARISON GRID */}
-      <section className="px-4 sm:px-6 lg:px-8 py-20 border-t border-white/5">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-12">
-            <div className="text-[11px] uppercase tracking-[0.2em] text-[#00E676] mb-4">{gridLabel}</div>
-            <h2 className="text-3xl sm:text-4xl font-bold mb-3" style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
-              {gridHeadline}
-            </h2>
-            <p className="text-zinc-400 max-w-2xl mx-auto">{gridSub}</p>
+      <section className={styles.section}>
+        <div className={styles.sectionInner}>
+          <div className={`${styles.sectionInnerNarrow} ${styles.reveal} ${styles.centered}`}>
+            <div className={`${styles.sectionLabel} ${styles.sectionLabelGreen}`}>{gridLabel}</div>
+            <h2 className={styles.sectionHeadline}>{gridHeadline}</h2>
+            <p className={styles.sectionSub}>{gridSub}</p>
           </div>
 
-          {/* Desktop: table; Mobile: stacked cards */}
-          <div className="hidden md:block overflow-x-auto rounded-2xl border border-white/10">
-            <table className="w-full">
-              <thead className="bg-white/[0.02]">
-                <tr>
-                  <th className="text-left text-[11px] uppercase tracking-[0.15em] text-zinc-500 px-6 py-4">Platform</th>
-                  {gridColumns.map((col) => (
-                    <th key={col.key} className="text-left text-[11px] uppercase tracking-[0.15em] text-zinc-500 px-6 py-4">
-                      {interpolate(col.label, snapshot)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {gridRows.map((row, i) => {
-                  const cells = resolveCells(row);
-                  return (
-                    <tr
-                      key={i}
-                      className={`border-t border-white/5 ${row.highlight ? 'bg-[#00E676]/[0.06]' : ''}`}
-                    >
-                      <td className="px-6 py-5">
-                        <div className={`text-base font-bold ${row.highlight ? 'text-[#00E676]' : 'text-white'}`}>
-                          {row.platform}
-                        </div>
-                        {row.tagline && (
-                          <div className="text-xs text-zinc-500 mt-1">{row.tagline}</div>
-                        )}
-                      </td>
-                      {gridColumns.map((col) => (
-                        <td key={col.key} className="px-6 py-5 text-sm text-zinc-300">
-                          {cells[col.key] ?? '—'}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="md:hidden space-y-4">
-            {gridRows.map((row, i) => {
-              const cells = resolveCells(row);
-              return (
-                <div
-                  key={i}
-                  className={`rounded-2xl border p-5 ${row.highlight ? 'border-[#00E676]/40 bg-[#00E676]/[0.06]' : 'border-white/10 bg-white/[0.02]'}`}
-                >
-                  <div className={`text-lg font-bold mb-1 ${row.highlight ? 'text-[#00E676]' : 'text-white'}`}>
-                    {row.platform}
-                  </div>
-                  {row.tagline && (
-                    <div className="text-xs text-zinc-500 mb-4">{row.tagline}</div>
-                  )}
-                  <dl className="space-y-2">
+          <div className={`${styles.gridWrap} ${styles.reveal}`}>
+            {/* Desktop table */}
+            <div className={styles.gridTable}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Platform</th>
                     {gridColumns.map((col) => (
-                      <div key={col.key} className="flex justify-between gap-4 text-sm">
-                        <dt className="text-zinc-500">{interpolate(col.label, snapshot)}</dt>
-                        <dd className="text-zinc-200 text-right">{cells[col.key] ?? '—'}</dd>
-                      </div>
+                      <th key={col.key}>{interpolate(col.label, snapshot)}</th>
                     ))}
-                  </dl>
-                </div>
-              );
-            })}
-          </div>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gridRows.map((row, i) => {
+                    const cells = resolveCells(row);
+                    return (
+                      <tr key={i} className={row.highlight ? styles.gridRowHighlight : ''}>
+                        <td>
+                          <div className={styles.gridPlatform}>{row.platform}</div>
+                          {row.tagline && <div className={styles.gridTagline}>{row.tagline}</div>}
+                        </td>
+                        {gridColumns.map((col) => (
+                          <td key={col.key} className={row.highlight ? styles.gridCellHighlight : ''}>
+                            {cells[col.key] ?? '—'}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
 
-          {gridFootnote && (
-            <div
-              className="mt-6 text-zinc-500 text-xs leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: gridFootnote }}
-            />
-          )}
+            {/* Mobile stacked cards */}
+            <div className={styles.gridCards}>
+              {gridRows.map((row, i) => {
+                const cells = resolveCells(row);
+                return (
+                  <div
+                    key={i}
+                    className={`${styles.gridCard} ${row.highlight ? styles.gridCardHighlight : ''}`}
+                  >
+                    <div className={styles.gridCardPlatform}>{row.platform}</div>
+                    {row.tagline && <div className={styles.gridCardTagline}>{row.tagline}</div>}
+                    <div className={styles.gridCardRows}>
+                      {gridColumns.map((col) => (
+                        <div key={col.key} className={styles.gridCardRow}>
+                          <span className={styles.gridCardRowLabel}>{interpolate(col.label, snapshot)}</span>
+                          <span className={styles.gridCardRowValue}>{cells[col.key] ?? '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {gridFootnote && (
+              <div
+                className={styles.gridFootnote}
+                dangerouslySetInnerHTML={{ __html: gridFootnote }}
+              />
+            )}
+          </div>
         </div>
       </section>
 
       {/* MEMBERSHIP CALLOUT */}
-      <section className="px-4 sm:px-6 lg:px-8 py-20 border-t border-white/5 bg-[#0a0a0a]">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 mb-4 text-center">{memLabel}</div>
-          <h2
-            className="text-3xl sm:text-4xl font-bold text-center mb-6"
-            style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}
-          >
-            {memHeadline}
-          </h2>
+      <section className={`${styles.section} ${styles.sectionAlt}`}>
+        <div className={`${styles.sectionInnerNarrow} ${styles.reveal} ${styles.centered}`}>
+          <div className={styles.sectionLabel}>{memLabel}</div>
+          <h2 className={styles.sectionHeadline}>{memHeadline}</h2>
           {memBody && (
-            <div
-              className="text-base sm:text-lg text-zinc-300 leading-relaxed text-center max-w-2xl mx-auto mb-10"
-              dangerouslySetInnerHTML={{ __html: memBody }}
-            />
-          )}
-          {memMath.length > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-              {memMath.map((item, i) => (
-                <div
-                  key={i}
-                  className={`rounded-xl border p-4 sm:p-5 text-center ${
-                    item.value === '$0/mo'
-                      ? 'border-[#00E676]/40 bg-[#00E676]/[0.08]'
-                      : 'border-white/10 bg-white/[0.02]'
-                  }`}
-                >
-                  <div className="text-[10px] uppercase tracking-[0.15em] text-zinc-500 mb-2">{item.label}</div>
-                  <div
-                    className={`text-2xl sm:text-3xl font-bold ${item.value === '$0/mo' ? 'text-[#00E676]' : 'text-white'}`}
-                    style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}
-                  >
-                    {item.value}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <div className={styles.memBody} dangerouslySetInnerHTML={{ __html: memBody }} />
           )}
         </div>
+        {memMath.length > 0 && (
+          <div className={`${styles.mathGrid} ${styles.reveal}`}>
+            {memMath.map((item, i) => (
+              <div
+                key={i}
+                className={`${styles.mathCard} ${item.value === '$0/mo' ? styles.mathCardHighlight : ''}`}
+              >
+                <div className={styles.mathLabel}>{item.label}</div>
+                <div className={styles.mathValue}>{item.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* WORKED EXAMPLE */}
-      <section className="px-4 sm:px-6 lg:px-8 py-20 border-t border-white/5">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-12">
-            <div className="text-[11px] uppercase tracking-[0.2em] text-[#00E676] mb-4">{interpolate(exLabel, snapshot)}</div>
-            <h2
-              className="text-3xl sm:text-4xl font-bold"
-              style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}
-            >
-              {exHeadline}
-            </h2>
+      <section className={styles.section}>
+        <div className={styles.sectionInner}>
+          <div className={`${styles.sectionInnerNarrow} ${styles.reveal} ${styles.centered}`}>
+            <div className={`${styles.sectionLabel} ${styles.sectionLabelGreen}`}>{interpolate(exLabel, snapshot)}</div>
+            <h2 className={styles.sectionHeadline}>{exHeadline}</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+          <div className={`${styles.scenarioGrid} ${styles.reveal}`}>
             {exScenarios.map((s, i) => {
               const r = resolveScenario(s);
               return (
                 <div
                   key={i}
-                  className={`rounded-2xl border p-6 ${
-                    s.highlight ? 'border-[#00E676]/40 bg-[#00E676]/[0.06]' : 'border-white/10 bg-white/[0.02]'
-                  }`}
+                  className={`${styles.scenarioCard} ${s.highlight ? styles.scenarioCardHighlight : ''}`}
                 >
-                  <div className={`text-sm font-bold mb-1 ${s.highlight ? 'text-[#00E676]' : 'text-white'}`}>
-                    {s.platform}
-                  </div>
-                  <div className="text-[11px] uppercase tracking-[0.15em] text-zinc-500 mb-4">Ride total {r.rideTotal}</div>
+                  <div className={styles.scenarioPlatform}>{s.platform}</div>
+                  <div className={styles.scenarioRideTotal}>Ride total {r.rideTotal}</div>
 
-                  <dl className="space-y-3 mb-4">
-                    <div className="flex justify-between text-sm">
-                      <dt className="text-zinc-500">Platform takes</dt>
-                      <dd className="text-zinc-200 font-semibold">{r.platformTake}</dd>
+                  <div className={styles.scenarioReceipt}>
+                    <div className={styles.scenarioReceiptRow}>
+                      <span className={styles.scenarioReceiptLabel}>Platform takes</span>
+                      <span className={styles.scenarioReceiptValue}>{r.platformTake}</span>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <dt className="text-zinc-500">Driver keeps</dt>
-                      <dd
-                        className={`font-semibold ${s.highlight ? 'text-[#00E676]' : 'text-white'}`}
-                        style={{ fontFamily: s.highlight ? "var(--font-display, 'Bebas Neue', sans-serif)" : undefined, fontSize: s.highlight ? '20px' : undefined }}
-                      >
-                        {r.driverKeeps}
-                      </dd>
+                    <div className={`${styles.scenarioReceiptRow} ${styles.scenarioKeepRow}`}>
+                      <span className={styles.scenarioReceiptLabel}>Driver keeps</span>
+                      <span className={styles.scenarioReceiptValue}>{r.driverKeeps}</span>
                     </div>
-                  </dl>
-
-                  <div className="text-xs text-zinc-400 leading-relaxed border-t border-white/5 pt-3">
-                    {r.breakdown}
                   </div>
+
+                  <div className={styles.scenarioBreakdown}>{r.breakdown}</div>
                 </div>
               );
             })}
@@ -398,31 +353,21 @@ function ComparePageInner({
       </section>
 
       {/* FAQ */}
-      <section className="px-4 sm:px-6 lg:px-8 py-20 border-t border-white/5 bg-[#0a0a0a]">
-        <div className="max-w-3xl mx-auto">
-          <div className="text-center mb-12">
-            <div className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 mb-4">{faqLabel}</div>
-            <h2
-              className="text-3xl sm:text-4xl font-bold"
-              style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}
-            >
-              {faqHeadline}
-            </h2>
+      <section className={`${styles.section} ${styles.sectionAlt}`}>
+        <div className={styles.sectionInner}>
+          <div className={`${styles.sectionInnerNarrow} ${styles.reveal} ${styles.centered}`}>
+            <div className={styles.sectionLabel}>{faqLabel}</div>
+            <h2 className={styles.sectionHeadline}>{faqHeadline}</h2>
           </div>
 
-          <div className="space-y-3">
+          <div className={`${styles.faqList} ${styles.reveal}`} style={{ maxWidth: 760, margin: '32px auto 0' }}>
             {faqItems.map((item, i) => (
-              <details
-                key={i}
-                className="group rounded-xl border border-white/10 bg-white/[0.02] open:bg-white/[0.04] transition-colors"
-              >
-                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 px-5 py-4 text-base font-semibold text-white">
+              <details key={i} className={styles.faqItem}>
+                <summary className={styles.faqSummary}>
                   <span>{item.q}</span>
-                  <span className="text-[#00E676] text-xl group-open:rotate-45 transition-transform">+</span>
+                  <span className={styles.faqIcon}>+</span>
                 </summary>
-                <div className="px-5 pb-5 text-sm text-zinc-300 leading-relaxed">
-                  {resolveFaqAnswer(item)}
-                </div>
+                <div className={styles.faqAnswer}>{resolveFaqAnswer(item)}</div>
               </details>
             ))}
           </div>
@@ -430,33 +375,14 @@ function ComparePageInner({
       </section>
 
       {/* FINAL CTA */}
-      <section className="px-4 sm:px-6 lg:px-8 py-24 border-t border-white/5">
-        <div className="max-w-2xl mx-auto text-center">
-          <div className="text-[11px] uppercase tracking-[0.2em] text-[#00E676] mb-4">{ctaEyebrow}</div>
-          <h2
-            className="text-4xl sm:text-5xl font-bold mb-5"
-            style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}
-          >
-            {ctaHeadline}
-          </h2>
-          {ctaSub && (
-            <p className="text-base sm:text-lg text-zinc-300 leading-relaxed mb-8">
-              {ctaSub}
-            </p>
-          )}
-          <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
-            <Link
-              href={ctaPrimaryHref}
-              className="w-full sm:w-auto bg-[#00E676] hover:bg-[#00C864] text-black font-bold px-8 py-4 rounded-xl text-base transition-colors"
-            >
-              {ctaPrimaryLabel}
-            </Link>
-            <Link
-              href={ctaSecondaryHref}
-              className="w-full sm:w-auto border border-white/20 hover:border-white/40 text-white font-semibold px-8 py-4 rounded-xl text-base transition-colors"
-            >
-              {ctaSecondaryLabel}
-            </Link>
+      <section className={`${styles.finalCta} ${styles.reveal}`}>
+        <div className={styles.finalCtaInner}>
+          <div className={`${styles.sectionLabel} ${styles.sectionLabelGreen}`}>{ctaEyebrow}</div>
+          <h2 className={styles.finalCtaHeadline}>{ctaHeadline}</h2>
+          {ctaSub && <p className={styles.finalCtaSub}>{ctaSub}</p>}
+          <div className={styles.finalCtaButtons}>
+            <Link href={ctaPrimaryHref} className={styles.btnPrimary}>{ctaPrimaryLabel}</Link>
+            <Link href={ctaSecondaryHref} className={styles.btnGhost}>{ctaSecondaryLabel}</Link>
           </div>
         </div>
       </section>
