@@ -5,7 +5,8 @@ export type PageSlug =
   | 'driver_landing'
   | 'rider_landing'
   | 'driver_guide'
-  | 'rider_guide';
+  | 'rider_guide'
+  | 'compare';
 
 export type Audience = 'driver' | 'rider' | 'all';
 
