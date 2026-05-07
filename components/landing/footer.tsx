@@ -29,6 +29,7 @@ const footerLinks = {
       { label: 'For Riders', href: '/rider' },
       { label: 'Safety', href: '/safety' },
       { label: 'Pricing', href: '/pricing' },
+      { label: 'Compare', href: '/compare' },
     ],
   },
   company: {
