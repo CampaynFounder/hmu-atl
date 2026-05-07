@@ -26,12 +26,30 @@ updates:
           - "wrangler"
           - "@opennextjs/cloudflare"
     ignore:
-      # Lock major version for Next + React until coordinated upgrade.
+      # Lock major versions on anything where a bump requires a coordinated
+      # migration (auth flow rewrites, Stripe API surface changes, build
+      # tooling regressions, etc.). Patches + minors still flow through.
       - dependency-name: "next"
         update-types: ["version-update:semver-major"]
       - dependency-name: "react"
         update-types: ["version-update:semver-major"]
       - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@clerk/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "stripe"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@stripe/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "wrangler"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@opennextjs/cloudflare"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/*"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
