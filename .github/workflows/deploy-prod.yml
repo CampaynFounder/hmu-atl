@@ -67,6 +67,26 @@ jobs:
           NEXT_PUBLIC_POSTHOG_HOST: https://app.posthog.com
           NEXT_PUBLIC_APP_URL: https://atl.hmucashride.com
           NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+          # Server-side placeholders. Real values come from `wrangler secret`
+          # at runtime; these only exist to satisfy SDK constructors that
+          # instantiate at module load (new Stripe(...), neon(...), etc.).
+          # `next build` collects page data by importing each route module,
+          # which throws if these are undefined. Same shape as local .env.local.
+          DATABASE_URL: postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder?sslmode=disable
+          DATABASE_URL_UNPOOLED: postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder?sslmode=disable
+          STRIPE_SECRET_KEY: sk_test_REPLACE_ME
+          STRIPE_WEBHOOK_SECRET: whsec_REPLACE_ME
+          STRIPE_MOCK: 'false'
+          STRIPE_PLATFORM_ACCOUNT_ID: acct_REPLACE_ME
+          HMU_FIRST_PRICE_ID: price_REPLACE_ME
+          CASH_PACK_10_PRICE_ID: price_REPLACE_ME
+          CASH_PACK_25_PRICE_ID: price_REPLACE_ME
+          CLERK_SECRET_KEY: REPLACE_ME
+          CLERK_WEBHOOK_SECRET: REPLACE_ME
+          ABLY_API_KEY: REPLACE_ME
+          OPENAI_API_KEY: REPLACE_ME
+          META_CONVERSIONS_API_TOKEN: REPLACE_ME
+          META_DATASET_ID: '4294459890828911'
         run: npx opennextjs-cloudflare build
 
       - name: Deploy to Worker
