@@ -25,12 +25,20 @@ export async function POST(
     const userId = (userRows[0] as { id: string }).id;
 
     const rideRows = await sql`
-      SELECT driver_id, rider_id, status FROM rides WHERE id = ${rideId} LIMIT 1
+      SELECT driver_id, rider_id, status, pulloff_at FROM rides WHERE id = ${rideId} LIMIT 1
     `;
     if (!rideRows.length) return NextResponse.json({ error: 'Ride not found' }, { status: 404 });
     const ride = rideRows[0] as Record<string, unknown>;
 
-    if (ride.status !== 'ended' && ride.status !== 'completed') {
+    // Cancelled rides with a pulloff_at are 0% no-show pulloffs (driver showed
+    // up, rider didn't, driver took no charge). Those still need to be
+    // rateable so the WEIRDO flag a driver gives a no-show rider actually
+    // impacts the rider's chill_score — otherwise no-show accountability is
+    // a dead letter. Other cancelled rides (rider/driver cancel before pickup)
+    // remain non-rateable.
+    const isPostRideRateable = ride.status === 'ended' || ride.status === 'completed';
+    const isNoShowRateable = ride.status === 'cancelled' && ride.pulloff_at !== null;
+    if (!isPostRideRateable && !isNoShowRateable) {
       return NextResponse.json({ error: 'Ride must be ended to rate' }, { status: 400 });
     }
 
@@ -58,7 +66,27 @@ export async function POST(
       console.error('Ratings table insert failed:', e);
     }
 
-    // Move ride to completed after any rating
+    // Recalculate chill_score for the rated user. Runs for every rating —
+    // including no-show ratings on cancelled+pulloff rides — so a WEIRDO
+    // flag from a driver actually moves the rider's score.
+    try {
+      await sql`
+        UPDATE users SET chill_score = COALESCE((
+          SELECT ROUND(
+            ((COUNT(*) FILTER (WHERE rating_type = 'chill') + COUNT(*) FILTER (WHERE rating_type = 'cool_af') * 1.5)
+            / GREATEST(COUNT(*), 1)) * 100
+          , 2)
+          FROM ratings WHERE rated_id = ${ratedUserId}
+        ), 0)
+        WHERE id = ${ratedUserId}
+      `;
+    } catch (e) {
+      console.error('Failed to recalculate chill_score:', e);
+    }
+
+    // Move ride to completed after any rating from the normal flow.
+    // No-show pulloffs stay at 'cancelled' — they're already terminal and
+    // weren't a real ride, so completed_rides doesn't increment.
     if (ride.status === 'ended') {
       await sql`UPDATE rides SET status = 'completed', completed_at = NOW(), updated_at = NOW() WHERE id = ${rideId}`;
       syncBookingFromRide(rideId, 'completed').catch(() => {});
@@ -68,22 +96,6 @@ export async function POST(
         await sql`UPDATE users SET completed_rides = COALESCE(completed_rides, 0) + 1 WHERE id IN (${ride.driver_id}, ${ride.rider_id})`;
       } catch (e) {
         console.error('Failed to increment completed_rides:', e);
-      }
-
-      // Recalculate chill_score for the rated user
-      try {
-        await sql`
-          UPDATE users SET chill_score = COALESCE((
-            SELECT ROUND(
-              ((COUNT(*) FILTER (WHERE rating_type = 'chill') + COUNT(*) FILTER (WHERE rating_type = 'cool_af') * 1.5)
-              / GREATEST(COUNT(*), 1)) * 100
-            , 2)
-            FROM ratings WHERE rated_id = ${ratedUserId}
-          ), 0)
-          WHERE id = ${ratedUserId}
-        `;
-      } catch (e) {
-        console.error('Failed to recalculate chill_score:', e);
       }
     }
 
@@ -97,7 +109,8 @@ export async function POST(
       console.error('Failed to update hmu_post status:', e);
     }
 
-    return NextResponse.json({ success: true, rating, status: 'completed' });
+    const finalStatus = ride.status === 'ended' ? 'completed' : (ride.status as string);
+    return NextResponse.json({ success: true, rating, status: finalStatus });
   } catch (error) {
     console.error('Rate error:', error);
     return NextResponse.json({ error: 'Failed' }, { status: 500 });
