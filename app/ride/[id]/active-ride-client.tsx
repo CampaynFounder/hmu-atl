@@ -162,7 +162,6 @@ export default function ActiveRideClient({
   const [waitCountdown, setWaitCountdown] = useState<number | null>(null);
   const [showPulloff, setShowPulloff] = useState(false);
   const [confirmCountdown, setConfirmCountdown] = useState<number | null>(null);
-  const autoConfirmFired = useRef(false);
   const [extensionRequested, setExtensionRequested] = useState(false);
   const [extensionPending, setExtensionPending] = useState(false);
   const [extensionsGranted, setExtensionsGranted] = useState(0);
@@ -1163,43 +1162,12 @@ export default function ActiveRideClient({
     const updateCountdown = () => {
       const remaining = Math.max(0, new Date(ride.confirmDeadline!).getTime() - Date.now());
       setConfirmCountdown(remaining);
-
-      // Auto-confirm when timer expires (rider side only)
-      if (remaining <= 0 && !isDriver && !autoConfirmFired.current) {
-        autoConfirmFired.current = true;
-        // Auto-confirm with GPS if available
-        if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              fetch(`/api/rides/${rideId}/confirm-start`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude, autoConfirmed: true }),
-              }).then(r => r.json()).then(data => {
-                if (data.status) setRide(prev => ({ ...prev, status: data.status }));
-              }).catch(() => {});
-            },
-            () => {
-              fetch(`/api/rides/${rideId}/confirm-start`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ autoConfirmed: true }),
-              }).then(r => r.json()).then(data => {
-                if (data.status) setRide(prev => ({ ...prev, status: data.status }));
-              }).catch(() => {});
-            },
-            { enableHighAccuracy: true, timeout: 3000 }
-          );
-        } else {
-          fetch(`/api/rides/${rideId}/confirm-start`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ autoConfirmed: true }),
-          }).then(r => r.json()).then(data => {
-            if (data.status) setRide(prev => ({ ...prev, status: data.status }));
-          }).catch(() => {});
-        }
-      }
+      // No silent auto-confirm. Per founder direction (2026-05-08): rider
+      // must physically tap the BET button so we have explicit consent for
+      // chargeback defense. GPS is captured at tap time as supplementary
+      // evidence but never replaces the tap. If the deadline passes without
+      // a tap, the button stays clickable; the driver can pulloff the ride
+      // (0% / 25% / 50%) if the rider truly didn't show.
     };
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
@@ -3415,25 +3383,32 @@ export default function ActiveRideClient({
               </div>
             </div>
 
-            {/* Confirm button — shows amount */}
+            {/* Confirm button — shows amount. GPS is required at tap to
+                supplement the rider's explicit consent for chargeback defense. */}
             <ActionButton
               label={`BET — Pay $${confirmTotal.toFixed(2)}`}
               color={COLORS.green}
               onPress={async () => {
                 setLoading(true);
+                setError('');
                 try {
-                  let lat: number | null = null;
-                  let lng: number | null = null;
-                  if (navigator.geolocation) {
-                    const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-                      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 3000 })
-                    ).catch(() => null);
-                    if (pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; }
+                  if (!navigator.geolocation) {
+                    setError('Location permission required to confirm. Enable GPS in your browser settings.');
+                    setLoading(false);
+                    return;
+                  }
+                  const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+                    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 5000 })
+                  ).catch(() => null);
+                  if (!pos) {
+                    setError('Couldn\'t get your location. Tap again with location access enabled.');
+                    setLoading(false);
+                    return;
                   }
                   const res = await fetch(`/api/rides/${rideId}/confirm-start`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ lat, lng, autoConfirmed: false }),
+                    body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
                   });
                   const data = await res.json();
                   if (data.status) setRide(prev => ({ ...prev, status: data.status }));

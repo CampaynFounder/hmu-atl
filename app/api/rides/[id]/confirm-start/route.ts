@@ -9,7 +9,15 @@ import { syncBookingFromRide } from '@/lib/schedule/conflicts';
 /**
  * Rider confirms they're in the car → capture payment → ride active.
  * Called after driver taps "Start Ride" and ride is in "confirming" status.
- * Also handles auto-confirm (2 min timeout triggers this from client).
+ *
+ * Per founder direction (2026-05-08), this endpoint requires:
+ *   1. The rider's explicit tap (no silent auto-confirm path).
+ *   2. Rider GPS coordinates at tap time, as supplementary chargeback
+ *      evidence (stored in rides.rider_start_lat / rider_start_lng).
+ *
+ * `autoConfirmed: true` from clients is rejected — older builds shipped a
+ * timeout-only auto-confirm that bypassed rider consent. Defense in depth:
+ * if a stale client still sends it, we 400 instead of capturing.
  */
 export async function POST(
   req: NextRequest,
@@ -23,13 +31,27 @@ export async function POST(
 
     let riderLat: number | null = null;
     let riderLng: number | null = null;
-    let autoConfirmed = false;
+    let bodyAutoConfirmed = false;
     try {
       const body = await req.json();
       riderLat = body.lat ?? body.riderLat ?? null;
       riderLng = body.lng ?? body.riderLng ?? null;
-      autoConfirmed = body.autoConfirmed ?? false;
+      bodyAutoConfirmed = body.autoConfirmed ?? false;
     } catch { /* no body is ok */ }
+
+    if (bodyAutoConfirmed) {
+      return NextResponse.json(
+        { error: 'Auto-confirm is not accepted. The rider must tap to confirm they\'re in the car.' },
+        { status: 400 }
+      );
+    }
+
+    if (typeof riderLat !== 'number' || typeof riderLng !== 'number') {
+      return NextResponse.json(
+        { error: 'Location required to confirm. Enable GPS and tap again.' },
+        { status: 400 }
+      );
+    }
 
     const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -63,7 +85,8 @@ export async function POST(
       captureResult = await captureRiderPayment(rideId);
     }
 
-    // Transition to active
+    // Transition to active. auto_confirmed is always false now — rider must
+    // tap (this endpoint rejects the auto path above).
     await sql`
       UPDATE rides SET
         status = 'active',
@@ -71,7 +94,7 @@ export async function POST(
         rider_confirmed_start = true,
         rider_start_lat = ${riderLat},
         rider_start_lng = ${riderLng},
-        auto_confirmed = ${autoConfirmed},
+        auto_confirmed = false,
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'confirming'
     `;
@@ -81,7 +104,7 @@ export async function POST(
     // Notify both parties
     await publishRideUpdate(rideId, 'status_change', {
       status: 'active',
-      message: autoConfirmed ? 'Ride auto-started' : 'Rider confirmed — ride is active',
+      message: 'Rider confirmed — ride is active',
       captured: !isCashRide,
       driverReceives: captureResult.driverReceives,
     }).catch(() => {});
@@ -89,14 +112,14 @@ export async function POST(
     await notifyUser(ride.driver_id as string, 'ride_update', {
       rideId,
       status: 'active',
-      message: autoConfirmed ? 'Ride auto-started — let\'s go!' : 'Rider confirmed — ride is active!',
+      message: 'Rider confirmed — ride is active!',
     }).catch(() => {});
 
     return NextResponse.json({
       status: 'active',
       rideId,
       captured: !isCashRide,
-      autoConfirmed,
+      autoConfirmed: false,
       driverReceives: captureResult.driverReceives,
       platformFee: captureResult.platformReceives,
       capHit: captureResult.capHit,
