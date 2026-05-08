@@ -234,6 +234,14 @@ export async function captureRiderPayment(rideId: string, options?: { strategy?:
     }
   }
 
+  // Capture is a money-movement primitive; the ride status transition is
+  // owned by the caller. Previously this UPDATE set status='completed', but
+  // capture now fires at Start Ride (per money_movement_canonical /
+  // deposit_only_launch_model — both LOCKED 2026-05-07), so 'completed' was
+  // wrong: confirm-start's subsequent `WHERE status='confirming'` UPDATE
+  // silently no-op'd, the ride sat at 'completed' for its whole active
+  // phase, and End Ride later 400'd because validateTransition rejects
+  // completed→ended. Net effect: rides got stuck mid-flow with no way out.
   await sql`
     UPDATE rides SET
       payment_captured = true,
@@ -242,8 +250,7 @@ export async function captureRiderPayment(rideId: string, options?: { strategy?:
       driver_payout_amount = ${driverReceives},
       stripe_fee_amount = ${decision.stripeFee},
       waived_fee_amount = ${waivedFee},
-      add_on_total = ${addOnTotal},
-      status = 'completed'
+      add_on_total = ${addOnTotal}
     WHERE id = ${rideId}
   `;
 
