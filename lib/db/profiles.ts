@@ -213,6 +213,10 @@ export interface CreateDriverProfileParams {
   area_slugs?: string[];
   services_entire_market?: boolean;
   accepts_long_distance?: boolean;
+  /** Legacy cash-payment flags. Default false under deposit-only — set true
+   *  only if the active pricing strategy permits cash-only rides (legacy mode). */
+  accepts_cash?: boolean;
+  cash_only?: boolean;
 }
 
 export interface UpdateDriverProfileParams {
@@ -339,8 +343,8 @@ export async function createDriverProfile(
       ${params.accept_direct_bookings ?? true},
       ${params.min_rider_chill_score ?? 0},
       ${params.require_og_status ?? false},
-      ${true},
-      ${true},
+      ${params.accepts_cash ?? false},
+      ${params.cash_only ?? false},
       ${params.area_slugs ?? []},
       ${params.services_entire_market ?? true},
       ${params.accepts_long_distance ?? false},

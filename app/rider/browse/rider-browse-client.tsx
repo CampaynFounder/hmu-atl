@@ -26,6 +26,8 @@ interface Props {
   isAuthenticated?: boolean;
   bannerConfig?: RiderBrowseBannerConfig;
   hideBanner?: boolean;
+  /** False when global default pricing strategy disallows full-cash rides. */
+  cashAllowed?: boolean;
 }
 
 export default function RiderBrowseClient({
@@ -34,6 +36,7 @@ export default function RiderBrowseClient({
   isAuthenticated = true,
   bannerConfig,
   hideBanner = false,
+  cashAllowed = true,
 }: Props) {
   const [filterFwu, setFilterFwu] = useState(false);
   const [filterMaxPrice, setFilterMaxPrice] = useState('');
@@ -394,6 +397,7 @@ export default function RiderBrowseClient({
                 onBook={() => openBooking(d.handle)}
                 onProfile={() => openProfile(d.handle)}
                 animationDelayMs={i < 4 ? i * 60 : 0}
+                cashAllowed={cashAllowed}
               />
             ))}
             {fetchingMore && <FeedSkeleton />}
@@ -413,6 +417,7 @@ export default function RiderBrowseClient({
                   onBook={() => openBooking(d.handle)}
                   onProfile={() => openProfile(d.handle)}
                   animationDelayMs={i < 8 ? i * 40 : 0}
+                  cashAllowed={cashAllowed}
                 />
               ))}
               {fetchingMore && Array.from({ length: 4 }).map((_, i) => <GridSkeleton key={`sk-${i}`} />)}
@@ -460,7 +465,7 @@ function pillStyle(active: boolean): React.CSSProperties {
   };
 }
 
-function DriverChips({ driver, compact }: { driver: BrowseDriverRow; compact?: boolean }) {
+function DriverChips({ driver, compact, cashAllowed = true }: { driver: BrowseDriverRow; compact?: boolean; cashAllowed?: boolean }) {
   return (
     <>
       {driver.verificationStatus === 'pending' && (
@@ -468,7 +473,7 @@ function DriverChips({ driver, compact }: { driver: BrowseDriverRow; compact?: b
       )}
       {driver.isHmuFirst && <Chip label={`${'🥇'} HMU 1ST`} tone="first" compact={compact} />}
       {driver.fwu && <Chip label="FWU" tone="fwu" compact={compact} />}
-      {driver.acceptsCash && (
+      {cashAllowed && driver.acceptsCash && (
         <Chip
           label={driver.cashOnly ? 'CASH ONLY' : 'CASH OK'}
           tone="cash"
@@ -483,12 +488,13 @@ function DriverChips({ driver, compact }: { driver: BrowseDriverRow; compact?: b
 // ─── Feed (TikTok) card ──────────────────────────────────────────────────────
 
 function FeedDriverCard({
-  driver, onBook, onProfile, animationDelayMs,
+  driver, onBook, onProfile, animationDelayMs, cashAllowed,
 }: {
   driver: BrowseDriverRow;
   onBook: () => void;
   onProfile: () => void;
   animationDelayMs: number;
+  cashAllowed: boolean;
 }) {
   const heroSrc = driver.photoUrl || driver.videoUrl;
 
@@ -651,7 +657,7 @@ function FeedDriverCard({
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-            <DriverChips driver={driver} />
+            <DriverChips driver={driver} cashAllowed={cashAllowed} />
           </div>
 
           <button
@@ -674,12 +680,13 @@ function FeedDriverCard({
 // ─── Grid card (compact zoom-out) ────────────────────────────────────────────
 
 function GridDriverCard({
-  driver, onBook, onProfile, animationDelayMs,
+  driver, onBook, onProfile, animationDelayMs, cashAllowed,
 }: {
   driver: BrowseDriverRow;
   onBook: () => void;
   onProfile: () => void;
   animationDelayMs: number;
+  cashAllowed: boolean;
 }) {
   return (
     <div
@@ -777,7 +784,7 @@ function GridDriverCard({
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8, minHeight: 18 }}>
-          <DriverChips driver={driver} compact />
+          <DriverChips driver={driver} compact cashAllowed={cashAllowed} />
         </div>
 
         <button

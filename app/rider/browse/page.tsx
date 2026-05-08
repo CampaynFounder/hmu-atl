@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { queryBrowseDrivers } from '@/lib/hmu/browse-drivers-query';
 import { getPlatformConfig } from '@/lib/platform-config/get';
+import { globalDefaultAllowsCashOnly } from '@/lib/payments/strategies';
 import {
   RIDER_BROWSE_BANNER_DEFAULTS,
   RIDER_BROWSE_BANNER_KEY,
@@ -79,7 +80,7 @@ export default async function RiderBrowsePage() {
     driverPreference = (riderRows[0]?.driver_preference as string | null) ?? null;
   }
 
-  const [drivers, bannerRaw] = await Promise.all([
+  const [drivers, bannerRaw, cashAllowed] = await Promise.all([
     queryBrowseDrivers({ driverPreference }, 0, INITIAL_BATCH),
     // getPlatformConfig requires Record<string,unknown> for the merge default;
     // cast through unknown matches how other call sites in this repo handle it.
@@ -87,6 +88,7 @@ export default async function RiderBrowsePage() {
       RIDER_BROWSE_BANNER_KEY,
       RIDER_BROWSE_BANNER_DEFAULTS as unknown as Record<string, unknown>,
     ),
+    globalDefaultAllowsCashOnly(),
   ]);
   const bannerConfig = bannerRaw as unknown as RiderBrowseBannerConfig;
 
@@ -101,6 +103,7 @@ export default async function RiderBrowsePage() {
       isAuthenticated={!!clerkId}
       bannerConfig={bannerConfig}
       hideBanner={hideBanner}
+      cashAllowed={cashAllowed}
     />
   );
 }

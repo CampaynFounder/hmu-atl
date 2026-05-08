@@ -8,6 +8,19 @@ import type { PricingStrategy } from './strategies';
 
 const isMock = process.env.STRIPE_MOCK === 'true';
 
+/**
+ * Returns true if a Stripe error indicates the PaymentIntent doesn't exist
+ * on the platform account — meaning it's a legacy Direct-Charge PI that lives
+ * on the driver's connected sub-account. We use this to retry the operation
+ * on the sub-account so existing in-flight rides don't break across the
+ * Direct → Destination Charges migration.
+ */
+function isLegacyDirectChargeError(err: unknown): boolean {
+  const e = err as { code?: string; type?: string; statusCode?: number } | null;
+  if (!e || typeof e !== 'object') return false;
+  return e.code === 'resource_missing' || (e.type === 'StripeInvalidRequestError' && e.statusCode === 404);
+}
+
 // Backwards-compat stubs
 export function calculateFare(..._args: unknown[]) { return { amount: 0, total: 0, baseFare: 0, distanceFee: 0, durationFee: 0, timeFee: 0, currency: 'usd' }; }
 export function createEscrow(..._args: unknown[]) { return Promise.resolve('mock_escrow'); }
@@ -68,43 +81,32 @@ export async function holdRiderPayment(params: {
     return { paymentIntentId: mockId, status: 'requires_capture', visibleDeposit, authorizedAmount: totalHold };
   }
 
-  // Clone the rider's payment method to the connected account for Direct Charges
-  const clonedPm = await stripe.paymentMethods.create({
-    customer: params.stripeCustomerId,
-    payment_method: params.paymentMethodId,
-  }, {
-    stripeAccount: params.driverStripeAccountId,
-  });
-
-  // Create a customer on the connected account to attach the cloned PM
-  const connectedCustomer = await stripe.customers.create({
-    payment_method: clonedPm.id,
-    metadata: { platformCustomerId: params.stripeCustomerId, riderId: params.riderId },
-  }, {
-    stripeAccount: params.driverStripeAccountId,
-  });
-
-  // Direct Charge: PaymentIntent created ON the connected account
+  // Destination Charge: PaymentIntent on the PLATFORM account using the
+  // rider's saved PM (which lives on the platform). transfer_data.destination
+  // routes the funds to the driver's Connect account at capture time, with
+  // application_fee_amount kept by the platform.
+  //
+  // This is the architecture locked in CLAUDE.md and in the Stripe account
+  // configuration. We previously cloned the rider's PM to the driver's
+  // sub-account (Direct Charges) which broke for Cash App Pay / Affirm /
+  // Klarna / Afterpay — those PMs cannot be shared cross-account.
   const paymentIntent = await stripe.paymentIntents.create({
     amount: amountInCents,
     currency: 'usd',
-    customer: connectedCustomer.id,
-    payment_method: clonedPm.id,
+    customer: params.stripeCustomerId,
+    payment_method: params.paymentMethodId,
     capture_method: 'manual',
     confirm: true,
-    automatic_payment_methods: {
-      enabled: true,
-      allow_redirects: 'never',
-    },
+    off_session: true,
+    transfer_data: { destination: params.driverStripeAccountId },
     statement_descriptor_suffix: 'HMU RIDE',
     metadata: {
       rideId: params.rideId,
       riderId: params.riderId,
       driverId: params.driverId,
-      platformCustomerId: params.stripeCustomerId,
+      pricingMode: holdDecision.holdMode,
     },
   }, {
-    stripeAccount: params.driverStripeAccountId,
     idempotencyKey: `hold_${params.rideId}`,
   });
 
@@ -202,17 +204,34 @@ export async function captureRiderPayment(rideId: string, options?: { strategy?:
   const platformReceives = decision.platformReceives;
 
   if (!isMock && ride.payment_intent_id && driverStripeAccountId) {
-    await stripe.paymentIntents.capture(
-      ride.payment_intent_id as string,
-      {
-        amount_to_capture: captureAmountCents,
-        application_fee_amount: applicationFeeCents,
-      },
-      {
-        stripeAccount: driverStripeAccountId,
-        idempotencyKey: `capture_${rideId}`,
+    // Destination Charge capture — runs on the platform account. The PI's
+    // transfer_data.destination already routes funds to the driver Connect
+    // account; application_fee_amount is what the platform keeps.
+    //
+    // Legacy fallback: rides authorized under the old Direct-Charge code path
+    // have their PI on the driver's sub-account; capture there returns 200
+    // and resource_missing on platform. Retry with {stripeAccount} on miss.
+    const args = {
+      amount_to_capture: captureAmountCents,
+      application_fee_amount: applicationFeeCents,
+    };
+    try {
+      await stripe.paymentIntents.capture(
+        ride.payment_intent_id as string,
+        args,
+        { idempotencyKey: `capture_${rideId}` },
+      );
+    } catch (err) {
+      if (isLegacyDirectChargeError(err)) {
+        await stripe.paymentIntents.capture(
+          ride.payment_intent_id as string,
+          args,
+          { stripeAccount: driverStripeAccountId, idempotencyKey: `capture_${rideId}` },
+        );
+      } else {
+        throw err;
       }
-    );
+    }
   }
 
   await sql`
@@ -291,21 +310,30 @@ export async function cancelPaymentHold(rideId: string, reason: string): Promise
   const ride = rideRows[0] as Record<string, unknown>;
 
   if (!isMock && ride.payment_intent_id) {
-    // Get driver's stripe account for Direct Charge cancel
-    const driverRows = await sql`
-      SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1
-    `;
-    const driverStripeId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string;
-
-    if (driverStripeId) {
+    // Destination Charge cancel — PI lives on the platform. Legacy fallback
+    // to {stripeAccount} for pre-migration rides.
+    try {
       await stripe.paymentIntents.cancel(
         ride.payment_intent_id as string,
         {},
-        {
-          stripeAccount: driverStripeId,
-          idempotencyKey: `cancel_${rideId}`,
-        }
+        { idempotencyKey: `cancel_${rideId}` },
       );
+    } catch (err) {
+      if (isLegacyDirectChargeError(err)) {
+        const driverRows = await sql`
+          SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1
+        `;
+        const driverStripeId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string;
+        if (driverStripeId) {
+          await stripe.paymentIntents.cancel(
+            ride.payment_intent_id as string,
+            {},
+            { stripeAccount: driverStripeId, idempotencyKey: `cancel_${rideId}` },
+          );
+        }
+      } else {
+        throw err;
+      }
     }
   }
 
@@ -333,26 +361,38 @@ export async function partialCaptureDeposit(
   const captureTotal = driverAmount + platformAmount;
   if (captureTotal <= 0) return;
 
-  const driverRows = await sql`
-    SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1
-  `;
-  const driverStripeId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string;
-
-  if (!isMock && ride.payment_intent_id && driverStripeId) {
+  if (!isMock && ride.payment_intent_id) {
     const captureAmountCents = Math.round(captureTotal * 100);
     const applicationFeeCents = Math.round(platformAmount * 100);
+    const args = {
+      amount_to_capture: captureAmountCents,
+      application_fee_amount: applicationFeeCents,
+    };
 
-    await stripe.paymentIntents.capture(
-      ride.payment_intent_id as string,
-      {
-        amount_to_capture: captureAmountCents,
-        application_fee_amount: applicationFeeCents,
-      },
-      {
-        stripeAccount: driverStripeId,
-        idempotencyKey: `cancel_deposit_${rideId}`,
+    // Destination Charge partial capture; legacy fallback for pre-migration PIs.
+    try {
+      await stripe.paymentIntents.capture(
+        ride.payment_intent_id as string,
+        args,
+        { idempotencyKey: `cancel_deposit_${rideId}` },
+      );
+    } catch (err) {
+      if (isLegacyDirectChargeError(err)) {
+        const driverRows = await sql`
+          SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1
+        `;
+        const driverStripeId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string;
+        if (driverStripeId) {
+          await stripe.paymentIntents.capture(
+            ride.payment_intent_id as string,
+            args,
+            { stripeAccount: driverStripeId, idempotencyKey: `cancel_deposit_${rideId}` },
+          );
+        }
+      } else {
+        throw err;
       }
-    );
+    }
   }
 
   await sql`
@@ -395,19 +435,37 @@ export async function refundRider(rideId: string, reason: string): Promise<void>
   }
 
   if (!isMock && ride.payment_intent_id) {
-    const driverRows = await sql`
-      SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1
-    `;
-    const driverStripeId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string;
-
-    if (driverStripeId) {
+    // Destination Charge refund — reverse_transfer pulls funds back from
+    // the driver's Connect balance; refund_application_fee pulls back the
+    // platform's cut. If the driver already cashed out, Connect balance can
+    // go negative — that's the accepted reversal risk per CLAUDE.md.
+    //
+    // Legacy fallback: pre-migration PIs are on the driver's sub-account.
+    // Refund there has different arg shape (no reverse_transfer needed).
+    try {
       await stripe.refunds.create(
-        { payment_intent: ride.payment_intent_id as string },
         {
-          stripeAccount: driverStripeId,
-          idempotencyKey: `refund_${rideId}`,
-        }
+          payment_intent: ride.payment_intent_id as string,
+          reverse_transfer: true,
+          refund_application_fee: true,
+        },
+        { idempotencyKey: `refund_${rideId}` },
       );
+    } catch (err) {
+      if (isLegacyDirectChargeError(err)) {
+        const driverRows = await sql`
+          SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1
+        `;
+        const driverStripeId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string;
+        if (driverStripeId) {
+          await stripe.refunds.create(
+            { payment_intent: ride.payment_intent_id as string },
+            { stripeAccount: driverStripeId, idempotencyKey: `refund_${rideId}` },
+          );
+        }
+      } else {
+        throw err;
+      }
     }
   }
 
@@ -466,26 +524,39 @@ export async function partialCaptureNoShow(
   const riderRefunded = decision.riderRefunded;
   const addOnRefunded = decision.addOnRefunded;
 
-  // Get driver's Stripe account
-  const driverRows = await sql`
-    SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1
-  `;
-  const driverStripeId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string;
-
-  if (!isMock && ride.payment_intent_id && driverStripeId && decision.captureAmountCents > 0) {
+  if (!isMock && ride.payment_intent_id && decision.captureAmountCents > 0) {
     const idempotencyKey = `noshow_${rideId}_${noShowPercent}`;
+    const args = {
+      amount_to_capture: decision.captureAmountCents,
+      application_fee_amount: decision.applicationFeeCents,
+    };
 
-    await stripe.paymentIntents.capture(
-      ride.payment_intent_id as string,
-      {
-        amount_to_capture: decision.captureAmountCents,
-        application_fee_amount: decision.applicationFeeCents,
-      },
-      {
-        stripeAccount: driverStripeId,
-        idempotencyKey,
+    // Destination Charge no-show capture — partial. Stripe auto-releases
+    // the unused authorization remainder. Legacy fallback for pre-migration
+    // PIs that still live on the driver's sub-account.
+    try {
+      await stripe.paymentIntents.capture(
+        ride.payment_intent_id as string,
+        args,
+        { idempotencyKey },
+      );
+    } catch (err) {
+      if (isLegacyDirectChargeError(err)) {
+        const driverRows = await sql`
+          SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1
+        `;
+        const driverStripeId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string;
+        if (driverStripeId) {
+          await stripe.paymentIntents.capture(
+            ride.payment_intent_id as string,
+            args,
+            { stripeAccount: driverStripeId, idempotencyKey },
+          );
+        }
+      } else {
+        throw err;
       }
-    );
+    }
   }
 
   // Update ride record

@@ -12,6 +12,7 @@ import {
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { generateRefCode } from '@/lib/rides/ref-code';
+import { driverAllowsCashOnly } from '@/lib/payments/strategies';
 
 export async function POST(
   _req: NextRequest,
@@ -57,7 +58,11 @@ export async function POST(
     const price = Number(post.price || 0);
     const timeWindow = (post.time_window || {}) as Record<string, unknown>;
     const areas = (post.areas || []) as string[];
-    const isCash = (post.is_cash as boolean) || false;
+    // The post may have been created with is_cash=true, but the driver's
+    // active pricing strategy gets the final say — deposit-only forces digital
+    // every time so the cash-only path stays disabled.
+    const cashAllowed = await driverAllowsCashOnly(driverUserId);
+    const isCash = cashAllowed ? ((post.is_cash as boolean) || false) : false;
 
     // ── Cash ride counter check ──
     if (isCash) {

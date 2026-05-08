@@ -109,6 +109,7 @@ export function calculateDepositFeeCents(depositCents: number, config: DepositOn
 export class DepositOnlyStrategy implements PricingStrategy {
   readonly modeKey = 'deposit_only';
   readonly displayName = 'Deposit-only (promo)';
+  readonly allowsCashOnly = false;
 
   async calculateHold(input: HoldInput): Promise<HoldDecision> {
     const config = await getDepositOnlyConfig();

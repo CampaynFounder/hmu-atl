@@ -52,8 +52,18 @@ jobs:
       - name: Run tests (gate)
         run: npm test
 
+      - name: Capture deploy timestamp
+        id: stamp
+        run: echo "time=$(date -u +%FT%TZ)" >> $GITHUB_OUTPUT
+
       - name: Build (Next.js → OpenNext → Cloudflare Worker)
         env:
+          # Deploy stamps — embedded in the client bundle so the admin badge
+          # can show what's running. Time is captured per-run so manual
+          # redeploys still update "X min ago" correctly.
+          NEXT_PUBLIC_DEPLOY_SHA: ${{ github.sha }}
+          NEXT_PUBLIC_DEPLOY_TIME: ${{ steps.stamp.outputs.time }}
+          NEXT_PUBLIC_DEPLOY_ENV: production
           # Build-time NEXT_PUBLIC_* — prod values from the `production`
           # GitHub Environment.
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}

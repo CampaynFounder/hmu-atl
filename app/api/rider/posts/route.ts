@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/client';
 import { publishToChannel, publishAdminEvent } from '@/lib/ably/server';
 import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
 import { parseRoute, resolveProvidedSlugs } from '@/lib/markets/parse-areas';
+import { globalDefaultAllowsCashOnly } from '@/lib/payments/strategies';
 
 // GET — list rider's active posts
 export async function GET() {
@@ -103,6 +104,13 @@ export async function POST(req: NextRequest) {
       ? await resolveProvidedSlugs(market.market_id, pickup_area_slug, dropoff_area_slug)
       : await parseRoute(message, market.market_id);
 
+    // Active pricing mode gets the final say. When deposit_only is the global
+    // default, every ride must authorize a digital deposit — the legacy
+    // is_cash post option is forced off so the COO/booking flow can't take
+    // the cash short-circuit.
+    const cashAllowed = await globalDefaultAllowsCashOnly();
+    const resolvedIsCash = cashAllowed ? Boolean(is_cash) : false;
+
     const rows = await sql`
       INSERT INTO hmu_posts (
         user_id, post_type, market_id, pickup_area_slug, dropoff_area_slug, dropoff_in_market,
@@ -112,7 +120,7 @@ export async function POST(req: NextRequest) {
         ${route.pickup_area_slug}, ${route.dropoff_area_slug}, ${route.dropoff_in_market},
         ${[market.slug.toUpperCase()]},
         ${price}, ${JSON.stringify({ message, destination: message })}::jsonb,
-        'active', NOW() + INTERVAL '2 hours', ${is_cash || false}
+        'active', NOW() + INTERVAL '2 hours', ${resolvedIsCash}
       )
       RETURNING id
     `;

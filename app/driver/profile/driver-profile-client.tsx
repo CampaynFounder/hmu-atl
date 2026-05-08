@@ -77,6 +77,9 @@ interface Props {
   subscription: SubscriptionData;
   market: { slug: string; name: string };
   marketAreas: MarketAreaChip[];
+  /** False when the active pricing strategy disallows full-cash rides
+   *  (e.g. deposit_only). Hides the Accepts Cash + Cash Only toggles. */
+  cashAllowed: boolean;
 }
 
 const CARDINAL_ORDER: Cardinal[] = ['central', 'northside', 'eastside', 'southside', 'westside'];
@@ -151,7 +154,7 @@ function Section({
   );
 }
 
-export default function DriverProfileClient({ profile, user, payout, subscription, market, marketAreas }: Props) {
+export default function DriverProfileClient({ profile, user, payout, subscription, market, marketAreas, cashAllowed }: Props) {
   const [data, setData] = useState(profile);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState('');
@@ -531,23 +534,25 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             </button>
           </div>
 
-          <div className="dp-row">
-            <div className="dp-row-left">
-              <div className="dp-row-label">Accepts Cash</div>
-              <div className="dp-row-sub">Show riders you take cash payments</div>
+          {cashAllowed && (
+            <div className="dp-row">
+              <div className="dp-row-left">
+                <div className="dp-row-label">Accepts Cash</div>
+                <div className="dp-row-sub">Show riders you take cash payments</div>
+              </div>
+              <button
+                className={`toggle ${data.acceptsCash ? 'on' : 'off'}`}
+                onClick={() => {
+                  const newVal = !data.acceptsCash;
+                  update({ acceptsCash: newVal, ...(newVal ? {} : { cashOnly: false }) });
+                }}
+              >
+                <div className="toggle-thumb" />
+              </button>
             </div>
-            <button
-              className={`toggle ${data.acceptsCash ? 'on' : 'off'}`}
-              onClick={() => {
-                const newVal = !data.acceptsCash;
-                update({ acceptsCash: newVal, ...(newVal ? {} : { cashOnly: false }) });
-              }}
-            >
-              <div className="toggle-thumb" />
-            </button>
-          </div>
+          )}
 
-          {data.acceptsCash && (
+          {cashAllowed && data.acceptsCash && (
             <div className="dp-row">
               <div className="dp-row-left">
                 <div className="dp-row-label">Cash Only</div>
@@ -572,14 +577,22 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               </button>
             </div>
           )}
-          {data.cashOnly && !payout.setupComplete && (
+          {cashAllowed && data.cashOnly && !payout.setupComplete && (
             <div style={{ padding: '0 16px 12px', fontSize: 12, color: '#FFC107' }}>
               💡 Set up your payout account to accept digital rides and earn more
             </div>
           )}
-          {!data.cashOnly && payout.setupComplete && (
+          {cashAllowed && !data.cashOnly && payout.setupComplete && (
             <div style={{ padding: '0 16px 12px', fontSize: 12, color: '#888' }}>
               Stripe typically enables same-day payouts 1-2 days after your first digital ride
+            </div>
+          )}
+          {!cashAllowed && (
+            <div className="dp-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+              <div className="dp-row-label">Payment</div>
+              <div className="dp-row-sub">
+                Every ride authorizes a digital deposit; the rest is collected in cash on arrival. Cash-only rides aren&apos;t available under the current pricing model.
+              </div>
             </div>
           )}
 

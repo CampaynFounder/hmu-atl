@@ -46,8 +46,18 @@ jobs:
 
       - run: npm ci
 
+      - name: Capture deploy timestamp
+        id: stamp
+        run: echo "time=$(date -u +%FT%TZ)" >> $GITHUB_OUTPUT
+
       - name: Build (Next.js → OpenNext → Cloudflare Worker)
         env:
+          # Deploy stamps — embedded in the client bundle so the admin badge
+          # can show what's running. Time is captured per-run so a
+          # workflow_dispatch redeploy of the same SHA still updates "X min ago".
+          NEXT_PUBLIC_DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          NEXT_PUBLIC_DEPLOY_TIME: ${{ steps.stamp.outputs.time }}
+          NEXT_PUBLIC_DEPLOY_ENV: staging
           # Build-time NEXT_PUBLIC_* — staging values from the `staging`
           # GitHub Environment. Server-only secrets are NOT baked here;
           # they live on the Worker via `wrangler secret put`.

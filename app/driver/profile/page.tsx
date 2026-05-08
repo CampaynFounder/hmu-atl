@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/client';
 import { getDriverProfileByUserId } from '@/lib/db/profiles';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { getMarketAreas } from '@/lib/markets/areas';
+import { driverAllowsCashOnly } from '@/lib/payments/strategies';
 import DriverProfileClient from './driver-profile-client';
 
 export default async function DriverProfilePage() {
@@ -29,6 +30,7 @@ export default async function DriverProfilePage() {
   const p = profile as unknown as Record<string, unknown>;
   const market = await resolveMarketForUser(user.id);
   const marketAreas = await getMarketAreas(market.market_id);
+  const cashAllowed = await driverAllowsCashOnly(user.id);
 
   return (
     <DriverProfileClient
@@ -86,6 +88,7 @@ export default async function DriverProfilePage() {
         name: a.name,
         cardinal: a.cardinal,
       }))}
+      cashAllowed={cashAllowed}
     />
   );
 }

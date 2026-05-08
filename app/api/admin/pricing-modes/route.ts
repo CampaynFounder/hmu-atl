@@ -65,6 +65,15 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'config must be a JSON object' }, { status: 400 });
   }
 
+  // Per-mode required-field validation. Defaults exist in code as a safety net,
+  // but admin-supplied config must be complete and in-range.
+  if (body.config !== undefined) {
+    const validationError = validateConfigForMode(body.modeKey, body.config);
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
+    }
+  }
+
   if (body.isDefaultGlobal === true) {
     await sql`UPDATE pricing_modes SET is_default_global = FALSE WHERE is_default_global = TRUE AND mode_key <> ${body.modeKey}`;
   }
@@ -99,4 +108,47 @@ export async function PATCH(req: NextRequest) {
       updatedAt: row.updated_at,
     },
   });
+}
+
+function validateConfigForMode(modeKey: string, config: Record<string, unknown>): string | null {
+  if (modeKey === 'deposit_only') return validateDepositOnly(config);
+  if (modeKey === 'legacy_full_fare') {
+    return Object.keys(config).length > 0
+      ? 'legacy_full_fare has no mode-level config; tune Pricing Config + Hold Policy instead'
+      : null;
+  }
+  return null;
+}
+
+function validateDepositOnly(c: Record<string, unknown>): string | null {
+  const required = [
+    'feeFloorCents',
+    'feePercent',
+    'depositMin',
+    'depositIncrement',
+    'depositMaxPctOfFare',
+    'noShowDriverPct',
+    'depositRule',
+  ] as const;
+  for (const k of required) {
+    if (c[k] === undefined || c[k] === null || c[k] === '') {
+      return `deposit_only.${k} is required`;
+    }
+  }
+  const num = (k: string) => (typeof c[k] === 'number' ? (c[k] as number) : NaN);
+  if (!Number.isFinite(num('feeFloorCents')) || num('feeFloorCents') < 0 || num('feeFloorCents') > 100000)
+    return 'deposit_only.feeFloorCents must be 0–100000 (cents)';
+  if (!Number.isFinite(num('feePercent')) || num('feePercent') < 0 || num('feePercent') > 1)
+    return 'deposit_only.feePercent must be 0–1';
+  if (!Number.isFinite(num('depositMin')) || num('depositMin') <= 0 || num('depositMin') > 1000)
+    return 'deposit_only.depositMin must be > 0 and ≤ 1000';
+  if (!Number.isFinite(num('depositIncrement')) || num('depositIncrement') <= 0 || num('depositIncrement') > 100)
+    return 'deposit_only.depositIncrement must be > 0 and ≤ 100';
+  if (!Number.isFinite(num('depositMaxPctOfFare')) || num('depositMaxPctOfFare') <= 0 || num('depositMaxPctOfFare') > 1)
+    return 'deposit_only.depositMaxPctOfFare must be > 0 and ≤ 1';
+  if (!Number.isFinite(num('noShowDriverPct')) || num('noShowDriverPct') < 0 || num('noShowDriverPct') > 1)
+    return 'deposit_only.noShowDriverPct must be 0–1';
+  if (!['rider_select', 'distance_band', 'percent_of_fare'].includes(c.depositRule as string))
+    return 'deposit_only.depositRule must be one of rider_select | distance_band | percent_of_fare';
+  return null;
 }
