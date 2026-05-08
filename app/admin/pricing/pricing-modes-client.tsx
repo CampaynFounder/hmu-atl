@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import DepositOnlyForm, { type DepositOnlyConfig } from './mode-forms/deposit-only-form';
+import LegacyFullFareInfo from './mode-forms/legacy-full-fare-info';
 
 interface PricingMode {
   id: string;
@@ -19,7 +21,6 @@ export default function PricingModesClient() {
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   async function load() {
     setLoading(true);
@@ -29,11 +30,6 @@ export default function PricingModesClient() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load');
       setModes(data.modes);
-      const initialDrafts: Record<string, string> = {};
-      for (const m of data.modes as PricingMode[]) {
-        initialDrafts[m.modeKey] = JSON.stringify(m.config, null, 2);
-      }
-      setDrafts(initialDrafts);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
@@ -62,19 +58,8 @@ export default function PricingModesClient() {
     }
   }
 
-  function handleSaveConfig(mode: PricingMode) {
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(drafts[mode.modeKey] ?? '{}');
-    } catch {
-      setError(`Invalid JSON for ${mode.modeKey}`);
-      return;
-    }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      setError(`Config for ${mode.modeKey} must be a JSON object`);
-      return;
-    }
-    patchMode(mode.modeKey, { config: parsed });
+  function handleSaveDepositOnly(modeKey: string, config: DepositOnlyConfig) {
+    patchMode(modeKey, { config: config as unknown as Record<string, unknown> });
   }
 
   if (loading) return <div className="text-neutral-400">Loading pricing modes…</div>;
@@ -95,7 +80,7 @@ export default function PricingModesClient() {
           <div key={m.id} className="rounded border border-neutral-800 p-4 space-y-3">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="font-mono text-sm font-semibold">{m.modeKey}</h3>
                   {m.isDefaultGlobal && (
                     <span className="rounded bg-emerald-900/40 px-2 py-0.5 text-xs text-emerald-300">DEFAULT</span>
@@ -139,26 +124,37 @@ export default function PricingModesClient() {
               </button>
             </div>
 
-            <div className="space-y-2">
-              <label className="block text-xs text-neutral-400">Config (JSON)</label>
-              <textarea
-                value={drafts[m.modeKey] ?? ''}
-                onChange={(e) => setDrafts((d) => ({ ...d, [m.modeKey]: e.target.value }))}
-                className="w-full rounded border border-neutral-800 bg-neutral-950 p-2 font-mono text-xs"
-                rows={Math.min(20, Math.max(6, (drafts[m.modeKey] ?? '').split('\n').length + 1))}
-                spellCheck={false}
-              />
-              <button
-                disabled={savingKey === m.modeKey}
-                onClick={() => handleSaveConfig(m)}
-                className="rounded bg-emerald-700 px-3 py-1 text-xs text-white hover:bg-emerald-600 disabled:opacity-50"
-              >
-                {savingKey === m.modeKey ? 'Saving…' : 'Save config'}
-              </button>
-            </div>
+            <ModeConfigSection
+              mode={m}
+              saving={savingKey === m.modeKey}
+              onSaveDepositOnly={(cfg) => handleSaveDepositOnly(m.modeKey, cfg)}
+            />
           </div>
         ))}
       </div>
     </section>
+  );
+}
+
+function ModeConfigSection({
+  mode,
+  saving,
+  onSaveDepositOnly,
+}: {
+  mode: PricingMode;
+  saving: boolean;
+  onSaveDepositOnly: (cfg: DepositOnlyConfig) => void;
+}) {
+  if (mode.modeKey === 'deposit_only') {
+    return <DepositOnlyForm initial={mode.config ?? {}} saving={saving} onSave={onSaveDepositOnly} />;
+  }
+  if (mode.modeKey === 'legacy_full_fare') {
+    return <LegacyFullFareInfo />;
+  }
+  return (
+    <div className="rounded border border-amber-900/50 bg-amber-950/20 p-3 text-[11px] text-amber-300">
+      No config form is implemented for <span className="font-mono">{mode.modeKey}</span>. Add one under{' '}
+      <span className="font-mono">app/admin/pricing/mode-forms/</span> before this mode can be tuned from admin.
+    </div>
   );
 }
