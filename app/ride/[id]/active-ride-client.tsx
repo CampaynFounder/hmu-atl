@@ -66,6 +66,9 @@ interface RideData {
   startedAt: string | null;
   endedAt: string | null;
   disputeWindowExpiresAt: string | null;
+  earlyEndReason: string | null;
+  earlyEndNotes: string | null;
+  riderAcknowledgedEarlyEnd: boolean | null;
   driverPayoutAmount: number;
   platformFeeAmount: number;
   cooAt: string | null;
@@ -3889,6 +3892,17 @@ export default function ActiveRideClient({
       return renderAddOnReview();
     }
 
+    // Soft confirmation: when the driver ended the ride before reaching the
+    // dropoff (early_end_reason set), the rider must acknowledge or dispute
+    // that reason before rating. Provides chargeback evidence per
+    // memory `money_movement_canonical.md`.
+    const needsEarlyEndAck =
+      !!ride.earlyEndReason && ride.riderAcknowledgedEarlyEnd === null;
+
+    if (needsEarlyEndAck) {
+      return renderEarlyEndAck();
+    }
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {/* Dispute countdown */}
@@ -3927,6 +3941,105 @@ export default function ActiveRideClient({
             Nah fam, that&apos;s not right
           </button>
         )}
+      </div>
+    );
+  }
+
+  // ── Early-end acknowledgement (rider confirms or disputes driver's reason) ──
+  function renderEarlyEndAck() {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{
+          background: 'rgba(255,82,82,0.08)',
+          border: '1px solid rgba(255,82,82,0.2)',
+          borderRadius: 14,
+          padding: '14px 16px',
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.red, marginBottom: 8 }}>
+            Your ride ended early — please confirm
+          </div>
+          <div style={{ fontSize: 14, color: COLORS.white, marginBottom: 6, lineHeight: 1.4 }}>
+            Driver said: <strong>{ride.earlyEndReason}</strong>
+          </div>
+          {ride.earlyEndNotes && (
+            <div style={{ fontSize: 13, color: COLORS.grayLight, marginBottom: 10, fontStyle: 'italic' }}>
+              &ldquo;{ride.earlyEndNotes}&rdquo;
+            </div>
+          )}
+          <div style={{ fontSize: 12, color: COLORS.grayLight, marginBottom: 12 }}>
+            Tap &ldquo;That&rsquo;s right&rdquo; if this matches what happened. Tap &ldquo;Nah, that&rsquo;s not right&rdquo; to dispute — admin will review.
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={async () => {
+                setLoading(true);
+                setError('');
+                try {
+                  const res = await fetch(`/api/rides/${rideId}/acknowledge-early-end`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ acknowledged: false }),
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    setError(data.error || `Couldn't submit (${res.status})`);
+                    setLoading(false);
+                    return;
+                  }
+                  setRide(prev => ({ ...prev, riderAcknowledgedEarlyEnd: false, status: 'disputed' }));
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Failed');
+                }
+                setLoading(false);
+              }}
+              disabled={loading}
+              style={{
+                flex: 1, padding: 12, borderRadius: 12,
+                border: '1px solid ' + COLORS.red,
+                background: 'transparent', color: COLORS.red,
+                fontFamily: FONTS.body, fontSize: 13, fontWeight: 600,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.5 : 1,
+              }}
+            >
+              Nah, that&rsquo;s not right
+            </button>
+            <button
+              onClick={async () => {
+                setLoading(true);
+                setError('');
+                try {
+                  const res = await fetch(`/api/rides/${rideId}/acknowledge-early-end`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ acknowledged: true }),
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    setError(data.error || `Couldn't submit (${res.status})`);
+                    setLoading(false);
+                    return;
+                  }
+                  setRide(prev => ({ ...prev, riderAcknowledgedEarlyEnd: true }));
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Failed');
+                }
+                setLoading(false);
+              }}
+              disabled={loading}
+              style={{
+                flex: 1, padding: 12, borderRadius: 12,
+                border: 'none',
+                background: COLORS.green ?? '#27c281', color: '#080808',
+                fontFamily: FONTS.body, fontSize: 13, fontWeight: 700,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.5 : 1,
+              }}
+            >
+              That&rsquo;s right
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
