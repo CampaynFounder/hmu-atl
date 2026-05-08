@@ -403,8 +403,8 @@ BROWSING → POSTED            (posts ride request to feed)
 POSTED → MATCHED             (taps COO on driver — Stripe PaymentIntent created with manual capture, funds authorized)
 MATCHED → LOCATION_SHARED    (shares geo or address — see GPS Sharing copy)
 LOCATION_SHARED → BET        (taps BET — heading to car)
-BET → CONFIRMING             (driver taps Start Ride — rider sees "Are you in the car?")
-CONFIRMING → IN_RIDE         (rider taps yes OR auto-yes via co-motion heuristic — capture fires)
+BET → CONFIRMING             (driver taps Start Ride — rider sees "I'm In — Pay $X" prompt)
+CONFIRMING → IN_RIDE         (rider taps "I'm In" with GPS — capture fires; no silent auto-confirm)
 IN_RIDE → ENDED              (driver taps End Ride)
 ENDED → RATE                 (rider + driver rate each other; text comments optional)
 
@@ -417,11 +417,10 @@ REQUESTING_EXTENSION → BET   (driver declines — original timer continues; ri
 ### Start Ride Checks (driver-initiated, single button tap)
 1. **Pickup geofence** — driver GPS within `start_ride_pickup_geofence_m` of pickup location (default 150m, admin-configurable)
 2. **Rider proximity** — driver GPS within `start_ride_rider_proximity_m` of rider GPS (default 100m, admin-configurable). **Skip this check if rider has not shared GPS.**
-3. **Rider-in-car prompt** — rider sees "Are you in the car?" → tap yes
-4. **Auto-yes (no rider tap)** — fires when ALL of: `auto_yes_timeout_sec` elapsed since prompt (default 120s, admin-configurable) AND driver GPS speed > `auto_yes_driver_speed_min_mps` (default 2 m/s ≈ walking pace, admin-configurable) AND rider GPS movement matches driver within `auto_yes_comotion_tolerance_pct` (default 20%, admin-configurable). Rationale: rider is heads-down in the app trying to find the driver — no news is good news as long as the car is moving with them in it.
-5. **Auto-yes fallback (no rider GPS)** — flat `auto_yes_timeout_sec` after prompt + driver GPS moving → assume yes.
-6. **All passed → capture fires.** Funds move from rider to driver Connect via Destination Charge with `application_fee_amount` set at capture (see STRIPE INTEGRATION).
-7. **Cash-out unlocks** for the driver immediately. No platform-side hold beyond this point. (Stripe may impose its own holds — outside our control.)
+3. **Rider-in-car confirmation** — rider sees the "I'm In — Pay $X" button and **must physically tap it**. There is no silent auto-confirm path; deadline expiry leaves the button clickable so the rider can still confirm late, and the driver can pulloff (0% / 25% / 50%) if the rider truly didn't show. Per 2026-05-08 direction: rider tap is the primary chargeback evidence.
+4. **GPS captured at tap** — the BET button collects rider lat/lng (`navigator.geolocation`) and the server requires it. Stored in `rides.rider_start_lat` / `rider_start_lng` as supplementary chargeback evidence. If GPS is missing/denied, the API rejects with a clear error and capture does NOT fire.
+5. **All passed → capture fires.** Funds move from rider to driver Connect via Destination Charge with `application_fee_amount` set at capture (see STRIPE INTEGRATION).
+6. **Cash-out unlocks** for the driver immediately. No platform-side hold beyond this point. (Stripe may impose its own holds — outside our control.)
 
 ### GPS Sharing copy (rider, surfaced on first prompt + any time GPS is missing at Start Ride)
 > "GPS sharing protects you. Opting out makes it harder for drivers to find you and increases your no-show risk."
@@ -441,7 +440,7 @@ REQUESTING_EXTENSION → BET   (driver declines — original timer continues; ri
 | Rider accepts + pays | "COO" |
 | Rider heading to car | "BET" |
 | Driver starts the ride | "Start Ride" |
-| Rider-in-car prompt | "You in the car?" |
+| Rider confirms in car (button label) | "I'm In — Pay $X" |
 | Ride in progress | "Ride Active" |
 | End ride | "End Ride" |
 | Rider asks for more wait time | "Need a few more minutes" |
@@ -592,10 +591,11 @@ Chill % = ((CHILL count + (Cool AF count × 1.5)) / total ratings) × 100
 
 | Condition | Result |
 |---|---|
-| Start Ride checks pass (geofence + proximity + rider yes-or-auto-yes) | Capture fires → funds transfer to driver Connect → cash-out unlocks ✅ |
+| Start Ride checks pass (geofence + proximity + rider taps "I'm In" with GPS) | Capture fires → funds transfer to driver Connect → cash-out unlocks ✅ |
 | Pickup geofence fails at Start Ride | Driver sees "You're not at the pickup yet" — capture does not fire, ride stays at HERE |
 | Rider GPS proximity fails (rider sharing GPS) | Driver sees "You're not near your rider yet" — capture does not fire |
-| Rider taps NO to "You in the car?" | Capture does not fire, ride stays at HERE; driver can re-attempt Start Ride after resolving |
+| Rider doesn't tap "I'm In" before deadline | Button stays clickable past deadline. Capture does not fire. Driver can pulloff (0% / 25% / 50%) if rider truly didn't show. |
+| Rider denies GPS or browser blocks geolocation | API rejects the confirm with a clear error; rider must enable GPS to confirm. Capture does not fire. |
 | Driver ghosts after COO — no OTW in `driver_ghost_timeout_min` (default 30) | Auto-void authorization, rider notified 🔄 |
 | Rider no-show: driver-at-pickup geofence + `no_show_timer_min` expired (default 10) + no active extension | Driver triggers No Show → 25% or 50% of fare captured (driver elects), per fee structure below 🚩 |
 | Rider requests extension, driver declines, original timer expires | Same as no-show path |
@@ -978,9 +978,6 @@ COO tap → authorizeRiderPayment()    [manual capture, transfer_data set]
 |---|---|---|
 | `start_ride_pickup_geofence_m` | 150 | Driver-to-pickup distance allowed for Start Ride |
 | `start_ride_rider_proximity_m` | 100 | Driver-to-rider GPS distance allowed (skipped if rider hasn't shared GPS) |
-| `auto_yes_timeout_sec` | 120 | Time after rider prompt before auto-yes can fire |
-| `auto_yes_driver_speed_min_mps` | 2 | Driver GPS speed threshold for "car is moving" |
-| `auto_yes_comotion_tolerance_pct` | 20 | Allowed delta between driver and rider GPS movement to confirm co-motion |
 | `no_show_timer_min` | 10 | Time at HERE before no-show can be triggered |
 | `extension_minutes_per_grant` | 5 | Minutes added per approved extension |
 | `extension_max_grants_per_ride` | 3 | Max extensions per ride |
