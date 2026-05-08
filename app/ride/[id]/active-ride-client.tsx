@@ -81,6 +81,9 @@ interface RideData {
   proposedPriceReason: string | null;
   waitMinutes: number;
   confirmDeadline: string | null;
+  /** Timestamp the rider tapped "I'm In" at status 'here'. Gates the
+   *  driver's Start Ride button. Null until confirmed. */
+  riderInCarConfirmedAt: string | null;
   addOns: { id: string; name: string; unitPrice: number; quantity: number; subtotal: number; status: string; addedBy: string }[];
   addOnTotal: number;
 }
@@ -466,7 +469,9 @@ export default function ActiveRideClient({
         break;
       }
       case 'confirm_start': {
-        // Driver tapped Start Ride — rider needs to confirm
+        // Legacy — driver tapped Start Ride first under the old flow.
+        // Kept so any ride that entered 'confirming' before the deploy
+        // still resolves cleanly.
         const deadline = data.confirmDeadline as string;
         setRide(prev => ({
           ...prev,
@@ -476,6 +481,17 @@ export default function ActiveRideClient({
         if (!isDriver) {
           showNotification('Confirm you\'re in the car', '🚗', COLORS.orange, '2 min to confirm');
           if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
+        }
+        break;
+      }
+      case 'rider_confirmed_presence': {
+        // New flow — rider tapped "I'm In" at status 'here'. Driver's
+        // Start Ride button enables on this event.
+        const at = (data.riderInCarConfirmedAt as string) || new Date().toISOString();
+        setRide(prev => ({ ...prev, riderInCarConfirmedAt: at }));
+        if (isDriver) {
+          showNotification('Rider is in the car', '✅', COLORS.green, 'Tap Start Ride');
+          if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
         }
         break;
       }
@@ -2732,35 +2748,57 @@ export default function ActiveRideClient({
                 </div>
               )}
 
-              {/* 2. START RIDE button */}
-              <ActionButton
-                label="START RIDE"
-                subtitle="rider in the car"
-                color={COLORS.green}
-                onPress={async () => {
-                  setLoading(true);
-                  try {
-                    const res = await fetch(`/api/rides/${rideId}/start`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ driverLat: geo.lat, driverLng: geo.lng }),
-                    });
-                    const data = await res.json();
-                    if (data.status) {
-                      setRide(prev => ({
-                        ...prev,
-                        status: data.status,
-                        confirmDeadline: data.confirmDeadline || null,
-                      }));
+              {/* 2. START RIDE — gated on rider tapping I'm In first. */}
+              {!ride.riderInCarConfirmedAt ? (
+                <>
+                  <ActionButton
+                    label="START RIDE"
+                    subtitle="waiting for rider to confirm"
+                    color={COLORS.green}
+                    onPress={() => { /* gated */ }}
+                    loading={false}
+                    disabled
+                  />
+                  <div style={{
+                    marginTop: 8, padding: '10px 12px', borderRadius: 12,
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    fontSize: 12, color: COLORS.grayLight, textAlign: 'center',
+                    lineHeight: 1.4,
+                  }}>
+                    Ask the rider to tap <strong style={{ color: COLORS.white }}>I&apos;m In</strong> on their screen.
+                  </div>
+                </>
+              ) : (
+                <ActionButton
+                  label="START RIDE"
+                  subtitle="rider confirmed — let&apos;s go"
+                  color={COLORS.green}
+                  onPress={async () => {
+                    setLoading(true);
+                    try {
+                      const res = await fetch(`/api/rides/${rideId}/start`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ driverLat: geo.lat, driverLng: geo.lng }),
+                      });
+                      const data = await res.json();
+                      if (data.status) {
+                        setRide(prev => ({
+                          ...prev,
+                          status: data.status,
+                          confirmDeadline: data.confirmDeadline || null,
+                        }));
+                      }
+                      if (!res.ok) setError(data.error || 'Failed to start ride');
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Failed');
                     }
-                    if (!res.ok) setError(data.error || 'Failed to start ride');
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'Failed');
-                  }
-                  setLoading(false);
-                }}
-                loading={loading}
-              />
+                    setLoading(false);
+                  }}
+                  loading={loading}
+                />
+              )}
 
               {/* 3. Extension request from rider */}
               {extensionPending && (
@@ -3320,7 +3358,59 @@ export default function ActiveRideClient({
                 </div>
               </div>
             )}
-            <StatusMessage text="Get in — driver will start the ride" />
+
+            {/* I'm In button — rider confirms presence in the car. The
+                driver's Start Ride button is gated on this. Once confirmed,
+                this swaps to a "✓ Confirmed" badge so the rider knows. */}
+            {!ride.riderInCarConfirmedAt ? (
+              <ActionButton
+                label="I'M IN"
+                subtitle="confirm you're in the car"
+                color={COLORS.green}
+                onPress={async () => {
+                  setLoading(true);
+                  try {
+                    let lat: number | null = null;
+                    let lng: number | null = null;
+                    if (navigator.geolocation) {
+                      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+                        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 3000 })
+                      ).catch(() => null);
+                      if (pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; }
+                    }
+                    const res = await fetch(`/api/rides/${rideId}/rider-confirm-presence`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ lat, lng }),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.riderInCarConfirmedAt) {
+                      setRide(prev => ({ ...prev, riderInCarConfirmedAt: data.riderInCarConfirmedAt }));
+                    } else if (!res.ok) {
+                      setError(data.error || 'Failed to confirm');
+                    }
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Failed');
+                  }
+                  setLoading(false);
+                }}
+                loading={loading}
+              />
+            ) : (
+              <div style={{
+                padding: '14px 16px', borderRadius: 14,
+                background: 'rgba(0,230,118,0.08)',
+                border: '1px solid rgba(0,230,118,0.25)',
+                textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 13, color: COLORS.green, fontWeight: 700, letterSpacing: 1 }}>
+                  ✓ YOU&apos;RE CONFIRMED
+                </div>
+                <div style={{ fontSize: 12, color: COLORS.grayLight, marginTop: 4 }}>
+                  Waiting for driver to start the ride
+                </div>
+              </div>
+            )}
           </>
         );
       }
@@ -4022,25 +4112,30 @@ function ActionButton({
   color,
   onPress,
   loading,
+  disabled = false,
 }: {
   label: string;
   subtitle?: string;
   color: string;
   onPress: () => void;
   loading: boolean;
+  /** When true, button is non-interactive and dimmed. Used to gate driver
+   *  Start Ride on rider's "I'm In" tap. */
+  disabled?: boolean;
 }) {
+  const isInactive = loading || disabled;
   return (
     <button
       onClick={onPress}
-      disabled={loading}
+      disabled={isInactive}
       style={{
         width: '100%',
         padding: subtitle ? '14px 16px' : '16px',
         borderRadius: 14,
         border: 'none',
         backgroundColor: color,
-        cursor: loading ? 'not-allowed' : 'pointer',
-        opacity: loading ? 0.6 : 1,
+        cursor: isInactive ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.4 : loading ? 0.6 : 1,
         transition: 'opacity 0.15s',
         display: 'flex',
         flexDirection: 'column',

@@ -7,7 +7,11 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   otw: ['here', 'cancelled'],
   // Driver can force-end from here if the rider never gets in the car —
   // treated as a short/aborted ride, not a no-show (driver did show up).
-  here: ['confirming', 'ended', 'cancelled'],
+  // here → active is the new "I'm In" path: rider confirms presence first,
+  // driver's Start Ride then transitions directly to active.
+  // here → confirming → active is the legacy path, kept for any ride
+  // already in 'confirming' state at the time the new flow shipped.
+  here: ['active', 'confirming', 'ended', 'cancelled'],
   // confirming → ended covers "rider never confirmed they're in the car";
   // the end-ride handler still captures payment from the existing hold.
   confirming: ['active', 'here', 'ended', 'cancelled'],
