@@ -48,6 +48,11 @@ jobs:
 
       - name: Build (Next.js → OpenNext → Cloudflare Worker)
         env:
+          # Deploy stamps — embedded in the client bundle so the admin badge
+          # can show what's running. Short SHA only; full SHA stays in CI logs.
+          NEXT_PUBLIC_DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          NEXT_PUBLIC_DEPLOY_TIME: ${{ github.event.workflow_run.updated_at || github.event.repository.pushed_at }}
+          NEXT_PUBLIC_DEPLOY_ENV: staging
           # Build-time NEXT_PUBLIC_* — staging values from the `staging`
           # GitHub Environment. Server-only secrets are NOT baked here;
           # they live on the Worker via `wrangler secret put`.

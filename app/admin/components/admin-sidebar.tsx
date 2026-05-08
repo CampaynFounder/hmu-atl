@@ -10,6 +10,7 @@ import { useSidebar } from './sidebar-context';
 import { useAdminTheme } from './theme-context';
 import { useAdminAuth } from './admin-auth-context';
 import { canAccess } from '@/lib/admin/route-permissions';
+import { DeployBadge } from './deploy-badge';
 
 type BadgeColor = 'green' | 'red' | 'amber';
 // Permissions are NOT declared inline — `canAccess(href, ...)` reads the rule
@@ -391,6 +392,14 @@ export function AdminSidebar() {
             <span className={collapsed ? 'lg:hidden' : ''}>Log Out</span>
             <span className={collapsed ? 'hidden lg:inline' : 'hidden'}>✕</span>
           </button>
+
+          {/* Deploy version + environment indicator. Color-coded so you can't
+              mistake a staging tab for a prod tab at a glance. */}
+          {!collapsed && (
+            <div className="px-3 py-2">
+              <DeployBadge />
+            </div>
+          )}
 
           {/* Collapse toggle — desktop only */}
           <button

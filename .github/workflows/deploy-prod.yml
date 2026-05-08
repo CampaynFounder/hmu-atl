@@ -54,6 +54,11 @@ jobs:
 
       - name: Build (Next.js → OpenNext → Cloudflare Worker)
         env:
+          # Deploy stamps — embedded in the client bundle so the admin badge
+          # can show what's running. Short SHA only; full SHA stays in CI logs.
+          NEXT_PUBLIC_DEPLOY_SHA: ${{ github.sha }}
+          NEXT_PUBLIC_DEPLOY_TIME: ${{ github.event.repository.pushed_at }}
+          NEXT_PUBLIC_DEPLOY_ENV: production
           # Build-time NEXT_PUBLIC_* — prod values from the `production`
           # GitHub Environment.
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}

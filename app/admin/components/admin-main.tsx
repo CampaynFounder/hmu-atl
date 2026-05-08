@@ -3,6 +3,7 @@
 import { useSidebar } from './sidebar-context';
 import { useAdminAuth } from './admin-auth-context';
 import { AdminSearchBar } from './admin-search-bar';
+import { DeployBadge } from './deploy-badge';
 
 export function AdminMain({ children }: { children: React.ReactNode }) {
   const { collapsed } = useSidebar();
@@ -23,7 +24,12 @@ export function AdminMain({ children }: { children: React.ReactNode }) {
       style={{ background: 'var(--admin-bg)', color: 'var(--admin-text)' }}
     >
       <div className="px-4 pb-4 pt-2 lg:p-6 max-w-[1600px] mx-auto">
-        <AdminSearchBar />
+        <div className="flex items-center gap-3 mb-2">
+          <div className="flex-1 min-w-0">
+            <AdminSearchBar />
+          </div>
+          <DeployBadge />
+        </div>
         {children}
       </div>
     </main>
