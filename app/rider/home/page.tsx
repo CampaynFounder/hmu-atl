@@ -1,5 +1,6 @@
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { globalDefaultAllowsCashOnly } from '@/lib/payments/strategies';
 import RiderHomeClient from './rider-home-client';
 import RiderFeedClient from './rider-feed-client';
 
@@ -36,7 +37,8 @@ export default async function RiderHomePage() {
   }
 
   if (isLoggedIn) {
-    return <RiderFeedClient displayName={displayName} userId={userId} />;
+    const cashAllowed = await globalDefaultAllowsCashOnly();
+    return <RiderFeedClient displayName={displayName} userId={userId} cashAllowed={cashAllowed} />;
   }
 
   return <RiderHomeClient />;

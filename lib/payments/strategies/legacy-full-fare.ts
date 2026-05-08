@@ -20,6 +20,7 @@ import type {
 export class LegacyFullFareStrategy implements PricingStrategy {
   readonly modeKey = 'legacy_full_fare';
   readonly displayName = 'Legacy full-fare';
+  readonly allowsCashOnly = true;
 
   async calculateHold(input: HoldInput): Promise<HoldDecision> {
     const policy = await getHoldPolicy(input.driverTier);

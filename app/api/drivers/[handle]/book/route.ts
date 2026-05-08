@@ -17,6 +17,7 @@ import {
 import { logSuspectEvent } from '@/lib/admin/suspect-events';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
+import { driverAllowsCashOnly } from '@/lib/payments/strategies';
 import { parseRoute, resolveProvidedSlugs } from '@/lib/markets/parse-areas';
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
 
@@ -87,7 +88,12 @@ export async function POST(
   //   cash_only             → forced true
   //   !accepts_cash         → forced false (digital-only driver)
   //   accepts_cash + !cash_only → honor rider's choice
-  const resolvedIsCash = driverProfile.cash_only === true
+  // Then: active pricing strategy gets the final say. Deposit-only requires a
+  // digital deposit on every ride, so cash_only is forced off when active.
+  const cashAllowed = await driverAllowsCashOnly(driverUserId);
+  const resolvedIsCash = !cashAllowed
+    ? false
+    : driverProfile.cash_only === true
     ? true
     : driverProfile.accepts_cash !== true
     ? false

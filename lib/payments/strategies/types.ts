@@ -11,6 +11,14 @@ export interface PricingStrategy {
   modeKey: ModeKey;
   displayName: string;
 
+  /**
+   * Whether this strategy permits the legacy "full cash, no Stripe" path.
+   * legacy_full_fare = true (cash-only drivers can opt out of Stripe entirely).
+   * deposit_only = false (every ride must authorize a digital deposit; the
+   * remainder is collected as cash on arrival, but Stripe is never bypassed).
+   */
+  readonly allowsCashOnly: boolean;
+
   /** Decide what Stripe authorizes at Pull Up + what shows to the rider. */
   calculateHold(input: HoldInput): Promise<HoldDecision>;
 

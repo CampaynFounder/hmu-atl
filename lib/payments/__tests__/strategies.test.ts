@@ -34,6 +34,7 @@ describe('strategy registry', () => {
     const stub: PricingStrategy = {
       modeKey: 'test_stub',
       displayName: 'Stub',
+      allowsCashOnly: true,
       calculateHold: vi.fn(),
       calculateCapture: vi.fn(),
       calculateNoShow: vi.fn(),

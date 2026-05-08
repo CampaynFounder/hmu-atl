@@ -115,6 +115,22 @@ export function _clearStrategyCaches(): void {
   globalDefaultCache = null;
 }
 
+/**
+ * Whether full-cash bookings (`is_cash=true`) are permitted under the active
+ * pricing strategy for this driver. False when deposit_only is active —
+ * deposit-only requires a digital deposit on every ride.
+ */
+export async function driverAllowsCashOnly(driverId: string): Promise<boolean> {
+  const s = await resolvePricingStrategy(driverId);
+  return s.allowsCashOnly;
+}
+
+/** Same check, scoped to the global-default mode (pre-driver contexts). */
+export async function globalDefaultAllowsCashOnly(): Promise<boolean> {
+  const s = await resolveGlobalDefault();
+  return s.allowsCashOnly;
+}
+
 export type { PricingStrategy } from './types';
 export { legacyFullFareStrategy };
 export { depositOnlyStrategy };

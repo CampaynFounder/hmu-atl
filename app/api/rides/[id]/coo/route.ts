@@ -6,6 +6,7 @@ import { holdRiderPayment } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 import { getDriverMenuForRider } from '@/lib/db/service-menu';
 import { getHoldPolicy, calculateDepositAmount } from '@/lib/payments/hold-policy';
+import { driverAllowsCashOnly } from '@/lib/payments/strategies';
 
 export async function POST(
   req: NextRequest,
@@ -41,7 +42,13 @@ export async function POST(
     }
 
     // ── Skip payment hold for cash rides ──
-    const isCashRide = !!(ride.is_cash);
+    // The active pricing strategy gets the final say. When the strategy
+    // disallows cash-only (deposit_only), we ignore ride.is_cash so legacy
+    // rides created before the booking-route fix still flow through Stripe.
+    const cashAllowed = ride.driver_id
+      ? await driverAllowsCashOnly(ride.driver_id as string)
+      : true;
+    const isCashRide = cashAllowed && !!(ride.is_cash);
     let visibleDeposit: number | null = null;
     let holdMode: string | null = null;
     let cooAgreedPrice = Number(ride.final_agreed_price || ride.amount || 0);

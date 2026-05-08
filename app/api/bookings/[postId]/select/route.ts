@@ -11,6 +11,7 @@ import {
   cancelOtherTentativeHoldsForPost,
   resolveBookingWindow,
 } from '@/lib/schedule/conflicts';
+import { driverAllowsCashOnly } from '@/lib/payments/strategies';
 
 /**
  * POST — Rider selects a driver from interested drivers.
@@ -48,7 +49,10 @@ export async function POST(
     const price = Number(post.price || 0);
     const timeWindow = (post.time_window || {}) as Record<string, unknown>;
     const areas = (post.areas || []) as string[];
-    const isCash = (post.is_cash as boolean) || false;
+    // Pricing strategy gets the final say — deposit-only forces digital, even
+    // if the post was created with is_cash=true.
+    const cashAllowed = await driverAllowsCashOnly(driverUserId);
+    const isCash = cashAllowed ? ((post.is_cash as boolean) || false) : false;
 
     // Verify interest record exists
     const interestRows = await sql`
