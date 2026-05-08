@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { PendingQueue } from './pending-queue';
 import { UserGrowthChart } from './user-growth-chart';
+import { BulkAreaModal } from './bulk-area-modal';
 import { useMarket } from '@/app/admin/components/market-context';
 
 interface UserItem {
@@ -30,7 +31,73 @@ export function UserManagement() {
   const [visibilityFilter, setVisibilityFilter] = useState(''); // '' | 'visible' | 'hidden'
   const [tab, setTab] = useState<'search' | 'growth' | 'pending'>('search');
   const [loading, setLoading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+  const [showAreaModal, setShowAreaModal] = useState(false);
   const { selectedMarketId } = useMarket();
+
+  const driverUsers = useMemo(() => users.filter((u) => u.profileType === 'driver' || u.profileType === 'both'), [users]);
+  const selectedDrivers = useMemo(
+    () => driverUsers.filter((u) => selectedIds.has(u.id)),
+    [driverUsers, selectedIds],
+  );
+
+  function toggleOne(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll(checked: boolean) {
+    if (checked) {
+      setSelectedIds(new Set(driverUsers.map((u) => u.id)));
+    } else {
+      setSelectedIds(new Set());
+    }
+  }
+
+  async function bulkUpdate(updates: Record<string, unknown>, opts: { needsMarket?: boolean } = {}) {
+    if (selectedIds.size === 0) return;
+    if (opts.needsMarket && !selectedMarketId) {
+      setBulkMessage('Pick a market in the top bar before editing areas.');
+      return;
+    }
+    setBulkBusy(true);
+    setBulkMessage(null);
+    try {
+      const res = await fetch('/api/admin/users/bulk-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userIds: Array.from(selectedIds),
+          updates,
+          marketId: opts.needsMarket ? selectedMarketId : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Bulk update failed');
+      const skippedTotal = (data.skipped?.nonDriver?.length ?? 0) + (data.skipped?.wrongMarket?.length ?? 0);
+      const parts = [`Updated ${data.updatedCount}`];
+      if (data.skipped?.nonDriver?.length) parts.push(`${data.skipped.nonDriver.length} non-driver skipped`);
+      if (data.skipped?.wrongMarket?.length) parts.push(`${data.skipped.wrongMarket.length} outside selected market`);
+      setBulkMessage(parts.join(' · ') + (skippedTotal === 0 ? ' ✓' : ''));
+      setSelectedIds(new Set());
+      fetchUsers();
+    } catch (e) {
+      setBulkMessage(e instanceof Error ? e.message : 'Bulk update failed');
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function handleClearCashFlags() {
+    if (!confirm(`Clear cash_only and accepts_cash on ${selectedIds.size} selected user(s)?`)) return;
+    await bulkUpdate({ cashOnly: false, acceptsCash: false });
+  }
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -160,12 +227,59 @@ export function UserManagement() {
             </button>
           </div>
 
+          {/* Bulk action toolbar — sticky when any drivers are selected. */}
+          {selectedIds.size > 0 && (
+            <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-700/40 bg-emerald-950/30 px-3 py-2 text-xs">
+              <div className="text-emerald-200">
+                {selectedIds.size} selected · {selectedDrivers.length} driver{selectedDrivers.length === 1 ? '' : 's'}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={handleClearCashFlags}
+                  disabled={bulkBusy || selectedDrivers.length === 0}
+                  className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 hover:bg-neutral-800 disabled:opacity-50"
+                >
+                  Clear cash flags
+                </button>
+                <button
+                  onClick={() => setShowAreaModal(true)}
+                  disabled={bulkBusy || selectedDrivers.length === 0 || !selectedMarketId}
+                  title={!selectedMarketId ? 'Pick a market in the top bar first' : undefined}
+                  className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 hover:bg-neutral-800 disabled:opacity-50"
+                >
+                  Set ride areas…
+                </button>
+                <button
+                  onClick={() => setSelectedIds(new Set())}
+                  disabled={bulkBusy}
+                  className="text-neutral-400 hover:text-white disabled:opacity-50"
+                >
+                  Clear selection
+                </button>
+              </div>
+            </div>
+          )}
+          {bulkMessage && (
+            <div className="rounded border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-300">
+              {bulkMessage}
+            </div>
+          )}
+
           {/* User Table */}
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-neutral-800 text-neutral-500">
+                    <th className="p-3 font-medium w-8">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all drivers"
+                        disabled={driverUsers.length === 0}
+                        checked={driverUsers.length > 0 && selectedIds.size === driverUsers.length}
+                        onChange={(e) => toggleAll(e.target.checked)}
+                      />
+                    </th>
                     <th className="text-left p-3 font-medium">Name</th>
                     <th className="text-left p-3 font-medium">Type</th>
                     <th className="text-left p-3 font-medium">Status</th>
@@ -180,19 +294,33 @@ export function UserManagement() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="p-8 text-center text-neutral-500">Searching...</td>
+                      <td colSpan={10} className="p-8 text-center text-neutral-500">Searching...</td>
                     </tr>
                   ) : users.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-8 text-center text-neutral-500">No users found</td>
+                      <td colSpan={10} className="p-8 text-center text-neutral-500">No users found</td>
                     </tr>
                   ) : (
-                    users.map((user) => (
+                    users.map((user) => {
+                      const isDriver = user.profileType === 'driver' || user.profileType === 'both';
+                      return (
                       <tr
                         key={user.id}
                         onClick={() => router.push(`/admin/users/${user.id}`)}
                         className="border-b border-neutral-800/50 hover:bg-white/5 cursor-pointer transition-colors"
                       >
+                        <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                          {isDriver ? (
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${user.displayName}`}
+                              checked={selectedIds.has(user.id)}
+                              onChange={() => toggleOne(user.id)}
+                            />
+                          ) : (
+                            <span className="text-[10px] text-neutral-700">—</span>
+                          )}
+                        </td>
                         <td className="p-3">
                           <p className="text-white font-medium">{user.displayName}</p>
                           {user.phone && <p className="text-neutral-600 text-[10px]">{user.phone}</p>}
@@ -268,13 +396,26 @@ export function UserManagement() {
                         </td>
                         <td className="p-3 text-neutral-500">{new Date(user.createdAt).toLocaleDateString()}</td>
                       </tr>
-                    ))
+                      );
+                    })
                   )}
                 </tbody>
               </table>
             </div>
           </div>
         </>
+      )}
+
+      {showAreaModal && selectedMarketId && (
+        <BulkAreaModal
+          marketId={selectedMarketId}
+          selectedCount={selectedDrivers.length}
+          onClose={() => setShowAreaModal(false)}
+          onApply={async ({ areaSlugs, servicesEntireMarket }) => {
+            await bulkUpdate({ areaSlugs, servicesEntireMarket }, { needsMarket: true });
+            setShowAreaModal(false);
+          }}
+        />
       )}
     </div>
   );
