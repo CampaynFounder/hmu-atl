@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
+import { captureRiderPayment } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 import { syncBookingFromRide } from '@/lib/schedule/conflicts';
+import { getPlatformConfig } from '@/lib/platform-config/get';
 
 // Haversine distance in meters
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -16,14 +18,16 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
 }
 
 const PROXIMITY_THRESHOLD_M = 100;
-const CONFIRM_TIMEOUT_MS = 120_000; // 2 minutes
+const CAPTURE_TRIGGER_KEY = 'payments.captureTrigger';
+const CAPTURE_TRIGGER_DEFAULTS = { trigger: 'driver_start_ride' as 'rider_confirm' | 'driver_start_ride' };
 
 /**
- * Driver taps "Start Ride" from HERE status.
- * - Checks proximity (100m) between driver and rider if GPS available
- * - Transitions ride to "confirming"
- * - Sends Ably confirm_start event → rider sees "Confirm you're in the car"
- * - Rider has 2 min to confirm via /confirm-start endpoint
+ * Driver taps "Start Ride" from HERE status. Gated on the rider having
+ * tapped "I'm In" first (rider_in_car_confirmed_at IS NOT NULL). Goes
+ * directly to 'active'; if platform_config.payments.captureTrigger is
+ * 'driver_start_ride' (default), capture fires here. If it's
+ * 'rider_confirm', capture already fired when the rider confirmed and
+ * this route is purely a status transition.
  */
 export async function POST(
   req: NextRequest,
@@ -49,66 +53,93 @@ export async function POST(
 
     const ride = await getRideForUser(rideId, userId);
 
-    // Only driver can initiate start
     if (ride.driver_id !== userId) {
       return NextResponse.json({ error: 'Only the driver can start the ride' }, { status: 403 });
     }
 
-    if (!validateTransition(ride.status as string, 'confirming')) {
+    if (ride.status !== 'here') {
       return NextResponse.json({ error: `Cannot start ride from status: ${ride.status}` }, { status: 400 });
     }
 
-    // Proximity check — advisory, not blocking (rider may not have GPS)
+    // Gate: rider must have tapped "I'm In" first.
+    if (!ride.rider_in_car_confirmed_at) {
+      return NextResponse.json(
+        {
+          error: 'Waiting for rider to confirm they\'re in the car',
+          code: 'rider_not_confirmed',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (!validateTransition(ride.status as string, 'active')) {
+      return NextResponse.json({ error: `Invalid transition from ${ride.status} to active` }, { status: 400 });
+    }
+
+    // Proximity check — advisory, surfaced for analytics but not blocking
     let proximityOk: boolean | null = null;
     let distanceM: number | null = null;
     const riderLat = Number(ride.rider_start_lat || ride.pickup_lat) || null;
     const riderLng = Number(ride.rider_start_lng || ride.pickup_lng) || null;
-
     if (driverLat && driverLng && riderLat && riderLng) {
       distanceM = haversineMeters(driverLat, driverLng, riderLat, riderLng);
       proximityOk = distanceM <= PROXIMITY_THRESHOLD_M;
     }
 
-    // Calculate confirm deadline
-    const confirmDeadline = new Date(Date.now() + CONFIRM_TIMEOUT_MS).toISOString();
+    // Decide whether to capture now. If trigger is rider_confirm, the rider's
+    // earlier tap already captured (or it's a cash ride / already-captured).
+    const captureCfg = await getPlatformConfig(CAPTURE_TRIGGER_KEY, CAPTURE_TRIGGER_DEFAULTS);
+    const shouldCaptureNow =
+      captureCfg.trigger === 'driver_start_ride' &&
+      !ride.is_cash &&
+      !ride.payment_captured &&
+      ride.payment_intent_id &&
+      ride.funds_held;
+
+    let captureResult: { driverReceives: number; platformReceives: number; capHit: boolean; waivedFee: number; offerActive: boolean } | null = null;
+    if (shouldCaptureNow) {
+      captureResult = await captureRiderPayment(rideId);
+    }
 
     await sql`
       UPDATE rides SET
-        status = 'confirming',
+        status = 'active',
+        started_at = COALESCE(started_at, NOW()),
         driver_start_lat = ${driverLat},
         driver_start_lng = ${driverLng},
-        confirm_deadline = ${confirmDeadline},
         proximity_check_m = ${distanceM},
+        rider_confirmed_start = TRUE,
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'here'
     `;
 
-    syncBookingFromRide(rideId, 'confirming').catch(() => {});
+    syncBookingFromRide(rideId, 'active').catch(() => {});
 
-    // Ably: tell rider to confirm
-    await publishRideUpdate(rideId, 'confirm_start', {
-      status: 'confirming',
-      confirmDeadline,
+    await publishRideUpdate(rideId, 'status_change', {
+      status: 'active',
       proximityOk,
       distanceM,
-      message: 'Driver started the ride — confirm you\'re in the car',
+      captured: !!captureResult || ride.payment_captured,
+      message: 'Ride is active',
     }).catch(() => {});
 
-    // Also push notification to rider
     await notifyUser(ride.rider_id as string, 'ride_update', {
       rideId,
-      status: 'confirming',
-      confirmDeadline,
-      message: 'Confirm you\'re in the car to start the ride',
+      status: 'active',
+      message: 'Ride started — let\'s go!',
     }).catch(() => {});
 
     return NextResponse.json({
-      status: 'confirming',
+      status: 'active',
       rideId,
-      confirmDeadline,
       proximityOk,
       distanceM: distanceM ? Math.round(distanceM) : null,
-      confirmTimeoutMs: CONFIRM_TIMEOUT_MS,
+      captured: !!captureResult || ride.payment_captured,
+      driverReceives: captureResult?.driverReceives ?? 0,
+      platformFee: captureResult?.platformReceives ?? 0,
+      capHit: captureResult?.capHit ?? false,
+      waivedFee: captureResult?.waivedFee ?? 0,
+      captureTrigger: captureCfg.trigger,
     });
   } catch (error) {
     console.error('Start ride error:', error);

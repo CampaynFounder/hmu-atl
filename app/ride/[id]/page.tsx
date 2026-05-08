@@ -105,6 +105,7 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
         proposedPriceReason: (ride.proposed_price_reason as string) || null,
         waitMinutes: Number(ride.wait_minutes ?? 5),
         confirmDeadline: (ride.confirm_deadline as string) || null,
+        riderInCarConfirmedAt: (ride.rider_in_car_confirmed_at as string) || null,
         addOns: addOnRows.map(a => ({
           id: a.id as string,
           name: a.name as string,
