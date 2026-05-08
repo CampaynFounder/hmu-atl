@@ -1163,8 +1163,8 @@ export default function ActiveRideClient({
       const remaining = Math.max(0, new Date(ride.confirmDeadline!).getTime() - Date.now());
       setConfirmCountdown(remaining);
       // No silent auto-confirm. Per founder direction (2026-05-08): rider
-      // must physically tap the BET button so we have explicit consent for
-      // chargeback defense. GPS is captured at tap time as supplementary
+      // must physically tap the "I'm In" button so we have explicit consent
+      // for chargeback defense. GPS is captured at tap time as supplementary
       // evidence but never replaces the tap. If the deadline passes without
       // a tap, the button stays clickable; the driver can pulloff the ride
       // (0% / 25% / 50%) if the rider truly didn't show.
@@ -3386,7 +3386,7 @@ export default function ActiveRideClient({
             {/* Confirm button — shows amount. GPS is required at tap to
                 supplement the rider's explicit consent for chargeback defense. */}
             <ActionButton
-              label={`BET — Pay $${confirmTotal.toFixed(2)}`}
+              label={`I'm In — Pay $${confirmTotal.toFixed(2)}`}
               color={COLORS.green}
               onPress={async () => {
                 setLoading(true);
