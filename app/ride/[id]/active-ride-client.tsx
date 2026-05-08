@@ -4355,6 +4355,41 @@ function getStatusNotificationData(
 }
 
 // ── COO Button component ──
+//
+// Some payment methods (Cash App Pay, 3DS challenges) trigger a full-page
+// redirect through Stripe and back to /payments/return → /ride/[id]. That
+// remounts this component and wipes any pickup/dropoff/stops the rider had
+// just typed. We stash the draft in sessionStorage keyed by ride id and
+// rehydrate on mount; cleared on successful Pull Up.
+type CooDraftState = {
+  locationText?: string;
+  pickupAddr?: ValidatedAddress | null;
+  dropoffAddr?: ValidatedAddress | null;
+  stopAddrs?: (ValidatedAddress & { _key?: string })[];
+};
+
+const COO_DRAFT_KEY_PREFIX = 'hmu_ride_draft_';
+
+function readCooDraft(rideId: string): CooDraftState {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.sessionStorage.getItem(COO_DRAFT_KEY_PREFIX + rideId);
+    return raw ? (JSON.parse(raw) as CooDraftState) : {};
+  } catch { return {}; }
+}
+
+function writeCooDraft(rideId: string, draft: CooDraftState) {
+  if (typeof window === 'undefined') return;
+  try { window.sessionStorage.setItem(COO_DRAFT_KEY_PREFIX + rideId, JSON.stringify(draft)); }
+  catch { /* sessionStorage may be disabled */ }
+}
+
+function clearCooDraft(rideId: string) {
+  if (typeof window === 'undefined') return;
+  try { window.sessionStorage.removeItem(COO_DRAFT_KEY_PREFIX + rideId); }
+  catch { /* */ }
+}
+
 function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }: {
   rideId: string;
   isCash: boolean;
@@ -4362,7 +4397,11 @@ function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }:
   initialPickup?: string | null;
   initialDropoff?: string | null;
 }) {
-  const [locationText, setLocationText] = useState('');
+  // Lazy initializers — synchronous read on first render, before any prefill
+  // effect runs. Empty draft falls through to the normal empty defaults.
+  const initialDraft = readCooDraft(rideId);
+
+  const [locationText, setLocationText] = useState(initialDraft.locationText ?? '');
   const [loading, setLoading] = useState(false);
   const [gettingLocation, setGettingLocation] = useState(false);
   const [geoLat, setGeoLat] = useState<number | null>(null);
@@ -4373,13 +4412,21 @@ function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }:
   const [needsPayment, setNeedsPayment] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Validated address state
-  const [pickupAddr, setPickupAddr] = useState<ValidatedAddress | null>(null);
-  const [dropoffAddr, setDropoffAddr] = useState<ValidatedAddress | null>(null);
-  const [stopAddrs, setStopAddrs] = useState<(ValidatedAddress & { _key?: string })[]>([]);
-  const [showStops, setShowStops] = useState(false);
-  const stopKeyCounter = useRef(0);
-  const prefillAttempted = useRef(false);
+  // Validated address state — rehydrated from sessionStorage on remount so
+  // a Stripe redirect (Cash App Pay / 3DS) doesn't lose the rider's input.
+  const [pickupAddr, setPickupAddr] = useState<ValidatedAddress | null>(initialDraft.pickupAddr ?? null);
+  const [dropoffAddr, setDropoffAddr] = useState<ValidatedAddress | null>(initialDraft.dropoffAddr ?? null);
+  const [stopAddrs, setStopAddrs] = useState<(ValidatedAddress & { _key?: string })[]>(initialDraft.stopAddrs ?? []);
+  const [showStops, setShowStops] = useState((initialDraft.stopAddrs ?? []).length > 0);
+  const stopKeyCounter = useRef((initialDraft.stopAddrs ?? []).length);
+  // If the draft already filled pickup/dropoff, skip the geocode-from-prefill
+  // dance — sessionStorage data is the rider's most recent intent.
+  const prefillAttempted = useRef(Boolean(initialDraft.pickupAddr || initialDraft.dropoffAddr));
+
+  // Persist the in-flight draft on every change. Cheap, scoped to this ride.
+  useEffect(() => {
+    writeCooDraft(rideId, { locationText, pickupAddr, dropoffAddr, stopAddrs });
+  }, [rideId, locationText, pickupAddr, dropoffAddr, stopAddrs]);
 
   // Payment preview — drives the deposit/cash split shown to the rider before
   // tap. modeKey === 'deposit_only' triggers the cash-on-hand hard gate.
@@ -4525,6 +4572,8 @@ function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }:
       const data = await res.json();
       if (res.ok) {
         fbEvent('InitiateCheckout', { content_name: 'ride_coo', content_category: 'rides' });
+        // Pull Up succeeded — DB now owns the addresses; drop the local draft.
+        clearCooDraft(rideId);
         onCooSent(geoLat, geoLng, pickupAddr?.address || locationText.trim() || null, pickupAddr || undefined, dropoffAddr, validatedStops.length > 0 ? validatedStops : undefined);
       } else {
         if (data.code === 'no_payment_method') {
