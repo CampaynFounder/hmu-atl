@@ -13,8 +13,15 @@
 //   user:{other}:notify   → 'ride_update' for every driver whose ride_interests
 //                           row we just expired — their /driver/home refetches
 //
-// ride_safety_* are FK CASCADE ON DELETE; we don't delete the ride row so
-// those stay for audit. user_notifications are left alone (they're history).
+// ride_safety_checks pending rows are auto-resolved as 'ride_cancelled' so
+// the admin pending-queue and ignored-streak detector treat them as
+// settled-by-cancel, not silently abandoned.
+//
+// ride_safety_events with admin_resolved_at IS NULL are auto-resolved with
+// admin_notes='Auto-resolved: ride cancelled' so the admin live-map
+// concern indicator clears for the dead ride.
+//
+// user_notifications are left alone (they're history).
 
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
@@ -106,7 +113,38 @@ export async function cascadeRideCancel(opts: CancelCascadeOptions): Promise<{
     }
   }
 
-  // 4. Realtime fan-out. Publishes are fire-and-forget — a single Ably
+  // 4. Resolve any open safety check-in prompts so they don't sit in the
+  // admin pending queue or count toward ignored-streak detection. Pending
+  // is `response IS NULL`; we settle them as 'ride_cancelled'.
+  try {
+    await sql`
+      UPDATE ride_safety_checks
+      SET response = 'ride_cancelled',
+          responded_at = NOW()
+      WHERE ride_id = ${rideId} AND response IS NULL
+    `;
+  } catch (e) {
+    console.error('[cancel-cascade] ride_safety_checks resolve failed:', e);
+  }
+
+  // 5. Auto-resolve any open safety events (off-route, GPS silence, etc.)
+  // so the admin live-map concern indicator clears. Resolved_by left NULL
+  // since this is system-driven, not an admin action.
+  try {
+    await sql`
+      UPDATE ride_safety_events
+      SET admin_resolved_at = NOW(),
+          admin_notes = COALESCE(admin_notes, '') ||
+            CASE WHEN admin_notes IS NULL OR admin_notes = ''
+                 THEN 'Auto-resolved: ride cancelled'
+                 ELSE E'\n[Auto-resolved: ride cancelled]' END
+      WHERE ride_id = ${rideId} AND admin_resolved_at IS NULL
+    `;
+  } catch (e) {
+    console.error('[cancel-cascade] ride_safety_events resolve failed:', e);
+  }
+
+  // 6. Realtime fan-out. Publishes are fire-and-forget — a single Ably
   // failure shouldn't make the HTTP response hang or fail.
   const payload = { rideId, status: 'cancelled', message: reason, ...extra };
 
