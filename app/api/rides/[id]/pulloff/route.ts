@@ -5,6 +5,7 @@ import { getRideForUser } from '@/lib/rides/state-machine';
 import { partialCaptureNoShow, cancelPaymentHold } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 import { getHoldPolicy, calculateNoShowSplit } from '@/lib/payments/hold-policy';
+import { cascadeRideCancel } from '@/lib/rides/cancel-cascade';
 
 /**
  * Driver pulls off / marks rider as no-show.
@@ -83,8 +84,23 @@ export async function POST(
     let noShowSplit = null;
 
     if (chargePercent === 0) {
-      // Full cancel — release hold
+      // Full cancel — release hold + run the shared cancel cascade so
+      // both sides get realtime cleanup (status_change publish, banner
+      // clear, calendar release, post reactivation, etc). Without the
+      // cascade, the rider's UI stays stuck on "driver is reviewing"
+      // until refresh.
       await cancelPaymentHold(rideId, 'Driver pulled off — no charge');
+      await cascadeRideCancel({
+        ride: {
+          id: rideId,
+          driver_id: ride.driver_id as string | null,
+          rider_id: ride.rider_id as string | null,
+          hmu_post_id: (ride.hmu_post_id as string | null) ?? null,
+        },
+        reason: 'Driver pulled off — no charge',
+        initiator: 'driver',
+        resolution: 'driver_pre_otw',
+      });
     } else {
       // Use hold policy progressive tiers for no-show split
       const driverTierRows = await sql`SELECT tier FROM users WHERE id = ${ride.driver_id} LIMIT 1`;

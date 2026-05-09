@@ -307,6 +307,16 @@ export async function captureRiderPayment(rideId: string, options?: { strategy?:
 
 /**
  * Cancel the payment hold (release authorized funds).
+ *
+ * Money-movement primitive ONLY — does NOT flip rides.status. The caller
+ * is responsible for the status transition via cascadeRideCancel (which
+ * publishes the realtime status_change event so both UIs clean up).
+ *
+ * Previously this UPDATE set status='cancelled' itself, which raced
+ * cascadeRideCancel: cascade's idempotency guard saw status='cancelled'
+ * already, returned alreadyCancelled=true, and skipped the Ably publish —
+ * leaving cancel-request banners and countdowns stuck open on both sides
+ * with no way to clear without a refresh.
  */
 export async function cancelPaymentHold(rideId: string, reason: string): Promise<void> {
   const rideRows = await sql`
@@ -344,7 +354,8 @@ export async function cancelPaymentHold(rideId: string, reason: string): Promise
     }
   }
 
-  await sql`UPDATE rides SET funds_held = false, status = 'cancelled' WHERE id = ${rideId}`;
+  // Status transition is the caller's concern — see comment on this function.
+  await sql`UPDATE rides SET funds_held = false WHERE id = ${rideId}`;
   await insertLedger(rideId, ride.rider_id as string, 'rider', 'hold_released', Number(ride.final_agreed_price || 0), 'release', 'Payment hold released: ' + reason, ride.payment_intent_id as string);
 }
 
