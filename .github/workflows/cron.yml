@@ -19,6 +19,7 @@ on:
   schedule:
     - cron: '*/5 * * * *'   # conversation-agent queue drain + follow-up scan
                             # + safety-scheduler (scheduled check-ins + anomaly scan)
+                            # + cancel-timeouts (backstop for stale cancel requests)
     - cron: '0 17 * * 1'    # driver-nudges weekly — Mondays 17:00 UTC (12pm ET)
   workflow_dispatch:
     inputs:
@@ -31,6 +32,7 @@ on:
           - conversation-agent
           - driver-nudges
           - safety-scheduler
+          - cancel-timeouts
 
 jobs:
   conversation-agent:
@@ -93,4 +95,26 @@ jobs:
             --max-time 60 \
             -H "X-Cron-Secret: $CRON_SECRET" \
             https://atl.hmucashride.com/api/cron/safety-scheduler)
+          echo "$response"
+
+  cancel-timeouts:
+    name: Cancel-request timeout backstop
+    # Catches cancel requests where both clients went dark before the
+    # countdown fired their POST. Same 5-min cadence as the others.
+    if: github.event.schedule == '*/5 * * * *' || github.event.inputs.job == 'cancel-timeouts'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Resolve stale cancel requests
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is not set"
+            exit 1
+          fi
+          response=$(curl --fail-with-body --silent --show-error \
+            --max-time 60 \
+            -H "X-Cron-Secret: $CRON_SECRET" \
+            https://atl.hmucashride.com/api/cron/cancel-timeouts)
           echo "$response"

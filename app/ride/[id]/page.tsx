@@ -115,6 +115,13 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
           addedBy: (a.added_by as string) || 'rider',
         })),
         addOnTotal,
+        cancelRequestedAt: ride.cancel_requested_at
+          ? new Date(ride.cancel_requested_at as string).toISOString()
+          : null,
+        cancelRequestedBy: (ride.cancel_requested_by as 'rider' | 'driver' | null) ?? null,
+        cancelRequestReason: (ride.cancel_request_reason as string) || null,
+        cancelResolution: (ride.cancel_resolution as string) || null,
+        visibleDeposit: Number(ride.visible_deposit ?? 0),
       }}
       mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''}
     />
