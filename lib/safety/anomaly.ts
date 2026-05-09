@@ -51,12 +51,15 @@ function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: 
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-/** Load the currently in-progress rides (once per cron tick). */
+/** Load currently active rides (once per cron tick). */
 async function loadActiveRides(): Promise<ActiveRideRow[]> {
+  // The rides.status enum doesn't include 'in_progress' — the value used
+  // during a ride is 'active'. Earlier code shipped with 'in_progress'
+  // and silently matched zero rows for the entire safety subsystem.
   return (await sql`
     SELECT id AS ride_id, rider_id, driver_id
     FROM rides
-    WHERE status = 'in_progress'
+    WHERE status = 'active'
   `) as ActiveRideRow[];
 }
 

@@ -1111,7 +1111,14 @@ export default function ActiveRideClient({
 
   // ── Dispute window countdown ──
   useEffect(() => {
-    if (ride.status !== 'ended' || !ride.disputeWindowExpiresAt) return;
+    // Match the wait/confirm countdown pattern: clear state on early
+    // return so the UI doesn't freeze the last-shown value when the ride
+    // transitions out of 'ended' (e.g. → 'completed' via rate, or the
+    // post-end ride is cancelled).
+    if (ride.status !== 'ended' || !ride.disputeWindowExpiresAt) {
+      setDisputeWindowRemaining(null);
+      return;
+    }
 
     const updateCountdown = () => {
       const remaining = new Date(ride.disputeWindowExpiresAt!).getTime() - Date.now();
