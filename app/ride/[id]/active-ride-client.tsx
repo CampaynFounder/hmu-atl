@@ -196,6 +196,10 @@ export default function ActiveRideClient({
     emoji: string;
     color: string;
     sub?: string;
+    /** When true, the auto-dismiss timer skips this notification.
+     *  Used for terminal events (cancellation) where the rider needs
+     *  to actually see and acknowledge the message. */
+    persistent?: boolean;
   } | null>(null);
 
   // Safety check-in prompt — server pushes via Ably when a check is due.
@@ -298,10 +302,25 @@ export default function ActiveRideClient({
             ...(newStatus === 'active' ? { startedAt: now } : {}),
             ...(newStatus === 'ended' ? { endedAt: now } : {}),
           }));
-          showStatusNotification(newStatus);
-          // Vibrate + haptic on cancel for immediate attention
-          if (newStatus === 'cancelled' && navigator.vibrate) {
-            navigator.vibrate([200, 100, 200, 100, 200]);
+          if (newStatus === 'cancelled') {
+            // cancel-cascade payload includes:
+            //   `cancelledBy`: 'rider' | 'driver' | undefined
+            //   `message`: human-readable reason
+            // Use both to render a sticky, side-aware banner instead of the
+            // sparse generic one — the rider was missing the cancel because
+            // the old "Ride Cancelled" toast auto-dismissed before they
+            // noticed it.
+            const cancelledBy = data.cancelledBy as string | undefined;
+            const cancelledByOther =
+              (cancelledBy === 'rider' && isDriver) ||
+              (cancelledBy === 'driver' && !isDriver);
+            const reason = (data.message as string | undefined) || null;
+            setNotification(
+              buildCancelledNotification(isDriver, cancelledByOther, reason)
+            );
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
+          } else {
+            showStatusNotification(newStatus);
           }
         }
         break;
@@ -1343,6 +1362,7 @@ export default function ActiveRideClient({
   // ── Notification auto-dismiss ──
   useEffect(() => {
     if (!notification) return;
+    if (notification.persistent) return; // terminal events (cancel) stay until tapped
     const t = setTimeout(() => setNotification(null), 5000);
     return () => clearTimeout(t);
   }, [notification]);
@@ -4330,10 +4350,44 @@ function getStatusNotificationData(
     case 'completed':
       return { message: 'Ride Complete', emoji: '\u2705', color: '#00E676', sub: 'Thanks for riding with HMU!' };
     case 'cancelled':
-      return { message: 'Ride Cancelled', emoji: '\u274C', color: '#FF5252' };
+      // Generic fallback when no cancelledBy hint is available. Callers that
+      // know which side cancelled should pass the side via the second arg of
+      // showStatusNotification \u2192 getStatusNotificationData and use the
+      // cancelled-by-other variant from buildCancelledNotification below.
+      return isDriver
+        ? { message: 'Ride Cancelled', emoji: '\u274C', color: '#FF5252', sub: 'Back to your home \u2014 find another rider' }
+        : { message: 'Your ride was cancelled', emoji: '\u274C', color: '#FF5252', sub: 'Find another driver from your home' };
     default:
       return null;
   }
+}
+
+// Richer cancellation notification used when we know which side cancelled
+// and (optionally) why. Persistent \u2014 caller (or user tap) must clear.
+function buildCancelledNotification(
+  isDriver: boolean,
+  cancelledByOther: boolean,
+  reason?: string | null,
+): { message: string; emoji: string; color: string; sub?: string; persistent: boolean } {
+  if (cancelledByOther) {
+    const message = isDriver
+      ? 'Rider cancelled the ride'
+      : 'Driver cancelled your ride';
+    return {
+      message,
+      emoji: '\u274C',
+      color: '#FF5252',
+      sub: reason || 'Tap anywhere to continue',
+      persistent: true,
+    };
+  }
+  return {
+    message: 'Ride Cancelled',
+    emoji: '\u274C',
+    color: '#FF5252',
+    sub: reason || 'You cancelled this ride',
+    persistent: true,
+  };
 }
 
 // ── COO Button component ──

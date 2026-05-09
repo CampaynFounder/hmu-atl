@@ -146,7 +146,18 @@ export async function cascadeRideCancel(opts: CancelCascadeOptions): Promise<{
 
   // 6. Realtime fan-out. Publishes are fire-and-forget — a single Ably
   // failure shouldn't make the HTTP response hang or fail.
-  const payload = { rideId, status: 'cancelled', message: reason, ...extra };
+  // `cancelledBy` is plumbed through so the active-ride client can render a
+  // side-aware banner (rider sees "Driver cancelled your ride", driver sees
+  // "Rider cancelled the ride"). 'mutual' is exposed verbatim for cases where
+  // the rider requested cancel and the driver agreed; clients treat it like
+  // 'rider' for messaging purposes.
+  const payload = {
+    rideId,
+    status: 'cancelled',
+    message: reason,
+    cancelledBy: initiator,
+    ...extra,
+  };
 
   const ablyJobs: Promise<unknown>[] = [
     publishRideUpdate(rideId, 'status_change', payload).catch((e) =>
