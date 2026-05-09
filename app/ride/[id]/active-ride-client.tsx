@@ -1464,6 +1464,50 @@ export default function ActiveRideClient({
     return () => clearInterval(id);
   }, [cancelRequest, rideId]);
 
+  // ── Belt-and-suspenders: clear banner whenever ride status leaves the
+  // open-cancel-request window. Catches any path where the Ably
+  // status_change handler didn't fire (reconnect outside 2-min rewind,
+  // dropped event, dual-tab desync). The banner UI is gated on the
+  // canceller-after-OTW state (status='otw' or 'here'); if the local
+  // ride snapshot says we're past that, the banner is stale by definition.
+  useEffect(() => {
+    if (!cancelRequest) return;
+    const stillOpen = ride.status === 'otw' || ride.status === 'here';
+    if (!stillOpen) {
+      setCancelRequest(null);
+      setCancelSecondsLeft(null);
+    }
+  }, [ride.status, cancelRequest]);
+
+  // ── Safety poll: refresh cancel state every 8s while a cancel request
+  // is open. Re-confirms server truth so a missed Ably event can't
+  // strand either side on a permanent banner. Lightweight single-row
+  // SELECT against /api/rides/[id]/cancel-state.
+  useEffect(() => {
+    if (!cancelRequest) return;
+    let cancelled = false;
+    async function pollOnce() {
+      try {
+        const r = await fetch(`/api/rides/${rideId}/cancel-state`);
+        if (!r.ok || cancelled) return;
+        const data = await r.json();
+        const status = data.status as string | undefined;
+        const resolution = data.cancel_resolution as string | undefined;
+        if (status === 'cancelled' || resolution) {
+          // Server says it's done — reflect that locally even if Ably
+          // didn't deliver the status_change.
+          if (status) {
+            setRide((prev) => ({ ...prev, status }));
+          }
+          setCancelRequest(null);
+          setCancelSecondsLeft(null);
+        }
+      } catch { /* network hiccup; next tick will retry */ }
+    }
+    const id = setInterval(pollOnce, 8000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [cancelRequest, rideId]);
+
   // ── Notification auto-dismiss ──
   useEffect(() => {
     if (!notification) return;

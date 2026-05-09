@@ -115,6 +115,30 @@ describe('cancelPaymentHold — mock mode', () => {
     // Only the lookup ran, nothing else.
     expect(sql).toHaveBeenCalledTimes(1);
   });
+
+  it('does NOT flip rides.status — money primitive only', async () => {
+    // Regression for the stuck-banner bug: cancelPaymentHold used to set
+    // status='cancelled' itself, which raced cascadeRideCancel — cascade
+    // hit its idempotency guard and skipped the Ably status_change publish,
+    // so cancel-request banners on both sides got stuck open until refresh.
+    sql.mockResolvedValueOnce([{
+      payment_intent_id: 'pi_mock_test',
+      final_agreed_price: 20,
+      rider_id: 'rider_1',
+      driver_id: 'driver_1',
+    }]);
+
+    await cancelPaymentHold('ride_1', 'reason');
+
+    const updateCall = sql.mock.calls.find((call) => {
+      const strings = call[0] as readonly string[] | undefined;
+      return Array.isArray(strings) && strings.some((s) => s.includes('UPDATE rides'));
+    });
+    expect(updateCall).toBeDefined();
+    const concatenated = (updateCall![0] as readonly string[]).join(' ');
+    expect(concatenated).toContain('funds_held = false');
+    expect(concatenated).not.toContain("status = 'cancelled'");
+  });
 });
 
 describe('partialCaptureNoShow — cash ride', () => {
