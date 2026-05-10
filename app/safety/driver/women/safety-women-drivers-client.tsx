@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import Link from 'next/link';
 import { ShieldCheck, ArrowLeft } from 'lucide-react';
 import { Footer } from '@/components/landing/footer';
 import { SafetyHero } from '../../_components/safety-hero';
@@ -137,7 +138,7 @@ function CTA() {
         Ready to drive?
       </motion.h3>
       <motion.div variants={FADE_UP} transition={{ duration: 0.5, ease: EASE }}>
-        <a
+        <Link
           href="/sign-up?type=driver"
           style={{
             display: 'inline-block',
@@ -151,7 +152,7 @@ function CTA() {
           }}
         >
           Start Driving
-        </a>
+        </Link>
       </motion.div>
       <motion.p
         variants={FADE_UP}
