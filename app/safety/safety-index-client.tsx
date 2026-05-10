@@ -180,6 +180,7 @@ function RoleCard({
           fill
           sizes="(max-width: 480px) 50vw, 220px"
           priority
+          unoptimized
           style={{ objectFit: 'cover' }}
         />
         <div
