@@ -376,11 +376,21 @@ export async function POST(request: NextRequest) {
               `${first_name || 'Hey'}, welcome to HMU ATL! We're Atlanta-based and built this for you. See how drivers get paid: atl.hmucashride.com/guide/driver`,
               { userId, eventType: 'welcome_driver' }
             );
+            await sendSms(
+              phone,
+              `Safety on HMU is non-negotiable. How we keep drivers safe (deposits, GPS, check-ins, women-rider matching): atl.hmucashride.com/safety/driver`,
+              { userId, eventType: 'safety_intro_driver' }
+            );
           } else {
             await sendSms(
               phone,
               `${first_name || 'Hey'}, welcome to HMU ATL! We're Atlanta-based and value every rider's voice. See how booking works: atl.hmucashride.com/guide/rider`,
               { userId, eventType: 'welcome_rider' }
+            );
+            await sendSms(
+              phone,
+              `Safety first. How we keep riders safe (women-driver filter, deposit refunds, GPS, mid-ride check-ins): atl.hmucashride.com/safety/rider`,
+              { userId, eventType: 'safety_intro_rider' }
             );
           }
         } catch (smsErr) {
