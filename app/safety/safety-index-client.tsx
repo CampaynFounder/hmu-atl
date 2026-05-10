@@ -1,6 +1,8 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import Image from 'next/image';
+import Link from 'next/link';
 import { Shield, Car, User, ArrowRight } from 'lucide-react';
 import { Footer } from '@/components/landing/footer';
 import { EASE, FADE_UP, STAGGER } from './_components/motion';
@@ -112,21 +114,23 @@ export function SafetyIndexClient() {
         <motion.div
           variants={FADE_UP}
           transition={{ duration: 0.5, ease: EASE }}
-          style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+          style={{ display: 'flex', flexDirection: 'row', gap: 12 }}
         >
           <RoleCard
             href="/safety/driver"
             color={GREEN}
-            icon={<Car size={28} color={GREEN} strokeWidth={2.2} />}
+            icon={<Car size={22} color={GREEN} strokeWidth={2.2} />}
             title="Drivers"
-            sub="Deposits, no-show pay, women-rider matching, mid-ride check-ins."
+            sub="Deposits, GPS, mid-ride check-ins, women-rider matching."
+            image="/safety/driver-hero1.jpg"
           />
           <RoleCard
             href="/safety/rider"
             color={BLUE}
-            icon={<User size={28} color={BLUE} strokeWidth={2.2} />}
+            icon={<User size={22} color={BLUE} strokeWidth={2.2} />}
             title="Riders"
-            sub="Women-driver filter, deposit refunds, GPS, mid-ride check-ins, reporting."
+            sub="Women-driver filter, refunds, GPS, check-ins."
+            image="/safety/rider-hero1.jpg"
           />
         </motion.div>
       </motion.div>
@@ -142,48 +146,112 @@ function RoleCard({
   icon,
   title,
   sub,
+  image,
 }: {
   href: string;
   color: string;
   icon: React.ReactNode;
   title: string;
   sub: string;
+  image: string;
 }) {
   return (
-    <a
-      href={href}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 16,
-        padding: 20,
-        background: '#141414',
-        border: `1px solid ${color}30`,
-        borderRadius: 20,
-        textDecoration: 'none',
-        color: '#fff',
-      }}
+    <motion.div
+      whileTap={{ scale: 0.97 }}
+      transition={{ duration: 0.12, ease: 'easeOut' }}
+      style={{ flex: 1, minWidth: 0 }}
     >
-      <div
+      <Link
+        href={href}
         style={{
-          width: 56,
-          height: 56,
-          borderRadius: 14,
-          background: `${color}1A`,
-          border: `1px solid ${color}40`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
+          position: 'relative',
+          display: 'block',
+          aspectRatio: '9 / 16',
+          borderRadius: 20,
+          overflow: 'hidden',
+          border: `1px solid ${color}55`,
+          textDecoration: 'none',
+          color: '#fff',
         }}
       >
-        {icon}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{title}</div>
-        <div style={{ fontSize: 13, color: '#9ca3af', lineHeight: 1.45 }}>{sub}</div>
-      </div>
-      <ArrowRight size={20} color={color} />
-    </a>
+        <Image
+          src={image}
+          alt={title}
+          fill
+          sizes="(max-width: 480px) 50vw, 220px"
+          priority
+          style={{ objectFit: 'cover' }}
+        />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              'linear-gradient(180deg, rgba(8,8,8,0.45) 0%, rgba(8,8,8,0) 35%), ' +
+              'linear-gradient(0deg, rgba(8,8,8,0.92) 0%, rgba(8,8,8,0.55) 35%, rgba(8,8,8,0) 60%)',
+            pointerEvents: 'none',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            top: 14,
+            left: 14,
+            width: 40,
+            height: 40,
+            borderRadius: 12,
+            background: `${color}28`,
+            border: `1px solid ${color}60`,
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {icon}
+        </div>
+        <div
+          style={{
+            position: 'absolute',
+            left: 14,
+            right: 14,
+            bottom: 14,
+            display: 'flex',
+            alignItems: 'flex-end',
+            gap: 8,
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontFamily: 'var(--font-display, Bebas Neue, sans-serif)',
+                fontSize: 28,
+                lineHeight: 1,
+                letterSpacing: 0.5,
+                marginBottom: 6,
+              }}
+            >
+              {title}
+            </div>
+            <div
+              style={{
+                fontSize: 11.5,
+                color: '#e2e8f0',
+                lineHeight: 1.4,
+              }}
+            >
+              {sub}
+            </div>
+          </div>
+          <ArrowRight
+            size={18}
+            color={color}
+            style={{ flexShrink: 0, marginBottom: 2 }}
+          />
+        </div>
+      </Link>
+    </motion.div>
   );
 }
