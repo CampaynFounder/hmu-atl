@@ -92,6 +92,10 @@ interface RideData {
   cancelRequestReason: string | null;
   cancelResolution: string | null;
   visibleDeposit: number;
+  // Linked broadcast/direct-booking post id. Used after cancel so the
+  // rider can opt to re-broadcast to other drivers without recreating
+  // the request from scratch.
+  hmuPostId: string | null;
 }
 
 interface ActiveRideClientProps {
@@ -1416,6 +1420,13 @@ export default function ActiveRideClient({
     if (chatOpen) setChatUnread(0);
   }, [chatOpen]);
 
+  // Rider-only "Find another driver" choice point. We pause the
+  // auto-redirect for the rider on a cancelled-with-post case so they
+  // can opt to re-broadcast. Default action (if they tap the home button
+  // or do nothing for ~12s) is to go home and leave the post cancelled.
+  const riderHasRebroadcastOption = !isDriver && !!ride.hmuPostId && ride.status === 'cancelled';
+  const [rebroadcasting, setRebroadcasting] = useState(false);
+
   // ── Auto-redirect on cancel + browser-state cleanup ──
   // When the cascade flips status to 'cancelled', both clients clear any
   // ride-keyed local/session storage and navigate home. Reopening the tab
@@ -1432,11 +1443,34 @@ export default function ActiveRideClient({
     } catch { /* storage may be disabled */ }
     setCancelRequest(null);
     setCancelSecondsLeft(null);
+    // Rider gets ~12s to choose re-broadcast vs back-home; everyone else
+    // bounces in 2.5s as before.
+    const delay = riderHasRebroadcastOption ? 12000 : 2500;
     const t = setTimeout(() => {
       window.location.replace(isDriver ? '/driver/home' : '/rider/home');
-    }, 2500);
+    }, delay);
     return () => clearTimeout(t);
-  }, [ride.status, isDriver, rideId]);
+  }, [ride.status, isDriver, rideId, riderHasRebroadcastOption]);
+
+  async function handleRebroadcast() {
+    if (!ride.hmuPostId || rebroadcasting) return;
+    setRebroadcasting(true);
+    try {
+      const res = await fetch(`/api/rider/posts/${ride.hmuPostId}/broadcast-after-decline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        window.location.replace('/rider/home');
+        return;
+      }
+    } catch { /* fall through to home */ }
+    setRebroadcasting(false);
+    // On failure, surface in the notification and let the auto-redirect
+    // do its thing — not a blocker for getting home.
+    showNotification("Couldn't re-broadcast — heading home.", '⚠️', COLORS.yellow);
+  }
 
   // ── Cancel-request countdown ──
   // Ticks every 250ms while a request is open. Whichever client hits zero
@@ -2484,6 +2518,69 @@ export default function ActiveRideClient({
         </div>
         </div>{/* end scrollable inner */}
       </div>
+
+      {/* Rider-only post-cancel choice overlay. Founder rule: a cancelled
+          ride means the post is dead by default; re-broadcast is opt-in.
+          We pause the auto-redirect for ~12s so the rider can pick. */}
+      {riderHasRebroadcastOption && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 100,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div style={{
+            width: '100%', maxWidth: 420,
+            background: COLORS.card,
+            borderRadius: 24,
+            padding: '28px 22px',
+            textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>{'❌'}</div>
+            <div style={{
+              fontSize: 24, fontWeight: 800, color: COLORS.white,
+              marginBottom: 8, fontFamily: FONTS.display, letterSpacing: 0.5,
+            }}>
+              Ride cancelled
+            </div>
+            <div style={{
+              fontSize: 14, color: COLORS.grayLight, lineHeight: 1.5, marginBottom: 20,
+            }}>
+              Want us to keep looking? We&rsquo;ll re-broadcast your request to other drivers in your area.
+            </div>
+            <button
+              type="button"
+              onClick={handleRebroadcast}
+              disabled={rebroadcasting}
+              style={{
+                width: '100%', padding: '14px', borderRadius: 100, border: 'none',
+                background: COLORS.green, color: COLORS.black,
+                fontSize: 15, fontWeight: 800, cursor: 'pointer',
+                fontFamily: FONTS.body, marginBottom: 10,
+                opacity: rebroadcasting ? 0.5 : 1,
+              }}
+            >
+              {rebroadcasting ? 'Broadcasting...' : 'Find another driver'}
+            </button>
+            <button
+              type="button"
+              onClick={() => window.location.replace('/rider/home')}
+              disabled={rebroadcasting}
+              style={{
+                width: '100%', padding: '14px', borderRadius: 100,
+                border: '1px solid rgba(255,255,255,0.15)',
+                background: 'transparent', color: COLORS.grayLight,
+                fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                fontFamily: FONTS.body,
+              }}
+            >
+              Back to home
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Cancel confirmation modal — replaces native confirm() so the
           canceller sees a proper sheet with optional reason input + a

@@ -170,7 +170,7 @@ describe('cascadeRideCancel — cleanup writes', () => {
     });
 
     expect(findSqlCallContaining('UPDATE rides')).toBeDefined();
-    expect(findSqlCallContaining('UPDATE hmu_posts SET status = \'active\'')).toBeDefined();
+    expect(findSqlCallContaining('UPDATE hmu_posts SET status = \'cancelled\'')).toBeDefined();
     expect(findSqlCallContaining('UPDATE ride_interests')).toBeDefined();
     expect(findSqlCallContaining('UPDATE ride_safety_checks')).toBeDefined();
     expect(findSqlCallContaining('UPDATE ride_safety_events')).toBeDefined();
