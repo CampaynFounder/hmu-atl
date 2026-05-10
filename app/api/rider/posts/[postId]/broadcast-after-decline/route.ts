@@ -6,13 +6,19 @@ import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolv
 import { resolveProvidedSlugs } from '@/lib/markets/parse-areas';
 
 /**
- * Rider converts a `declined_awaiting_rider` direct booking into a broadcast
- * `rider_request`. The original driver is recorded in `ride_interests` as
- * 'passed' so they don't see it in their feed.
+ * Rider re-broadcasts a post into `rider_request` to keep looking for
+ * a driver. Two acceptable starting states:
+ *   - 'declined_awaiting_rider' — direct booking the target driver passed on
+ *   - 'cancelled'               — matched ride that subsequently cancelled
+ *                                 (cascadeRideCancel sets the post to
+ *                                 'cancelled' by default; rider can opt-in
+ *                                 here to keep looking)
+ *
+ * The driver who was previously matched / declined is recorded in
+ * `ride_interests` as 'passed' so they don't see this re-broadcast.
  *
  * Optional body: `{ pickup_area_slug, dropoff_area_slug }` — rider can
- * broaden coverage at broadcast time (e.g. tap a cardinal like "northside"
- * instead of a single neighborhood).
+ * broaden coverage at broadcast time.
  */
 export async function POST(
   req: NextRequest,
@@ -38,12 +44,28 @@ export async function POST(
     FROM hmu_posts
     WHERE id = ${postId}
       AND user_id = ${riderId}
-      AND status = 'declined_awaiting_rider'
+      AND status IN ('declined_awaiting_rider', 'cancelled')
     LIMIT 1
   `;
 
   if (!postRows.length) {
     return NextResponse.json({ error: 'Nothing to broadcast' }, { status: 404 });
+  }
+
+  // For cancelled-state posts, last_declined_by may be null. We still want
+  // to mark the originally-matched driver (from the cancelled ride) as
+  // 'passed' so the re-broadcast doesn't re-notify them — pull it from
+  // the most recent ride that referenced this post.
+  let originallyMatchedDriverId: string | null =
+    (postRows[0] as { last_declined_by: string | null }).last_declined_by;
+  if (!originallyMatchedDriverId) {
+    const matchedRows = (await sql`
+      SELECT driver_id FROM rides
+      WHERE hmu_post_id = ${postId} AND driver_id IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    `) as Array<{ driver_id: string | null }>;
+    originallyMatchedDriverId = matchedRows[0]?.driver_id ?? null;
   }
 
   const post = postRows[0] as {
@@ -85,11 +107,12 @@ export async function POST(
     WHERE id = ${postId}
   `;
 
-  // Exclude the driver who passed from the broadcast feed
-  if (post.last_declined_by) {
+  // Exclude the original driver from the broadcast feed (covers both
+  // declined-direct and cancelled-after-match cases — see lookup above).
+  if (originallyMatchedDriverId) {
     await sql`
       INSERT INTO ride_interests (post_id, driver_id, status)
-      VALUES (${postId}, ${post.last_declined_by}, 'passed')
+      VALUES (${postId}, ${originallyMatchedDriverId}, 'passed')
       ON CONFLICT (post_id, driver_id) DO UPDATE SET status = 'passed'
     `;
   }
@@ -109,10 +132,10 @@ export async function POST(
   // Rider notify → pending-actions refetch drops the driver_passed banner
   // and (eventually) surfaces the active broadcast state.
   notifyUser(riderId, 'post_broadcast', { postId, status: 'active' }).catch(() => {});
-  // Notify the original target driver so their stale 'declined_awaiting_rider'
-  // preview clears across surfaces.
-  if (post.last_declined_by) {
-    notifyUser(post.last_declined_by, 'post_broadcast', { postId, status: 'active' }).catch(() => {});
+  // Notify the original driver so any stale ride-related card clears
+  // across surfaces. Same identity used in the 'passed' insertion above.
+  if (originallyMatchedDriverId) {
+    notifyUser(originallyMatchedDriverId, 'post_broadcast', { postId, status: 'active' }).catch(() => {});
   }
 
   return NextResponse.json({

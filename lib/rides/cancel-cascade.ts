@@ -3,7 +3,10 @@
 //
 //   rides.status      → 'cancelled' (+ cancel_resolution stamped by caller)
 //   driver_bookings   → 'cancelled' (calendar block released)
-//   hmu_posts         → reactivated + 2h expiry (rebroadcast for other drivers)
+//   hmu_posts         → 'cancelled' (the post dies with the ride; rider
+//                       can opt-in to re-broadcast via the explicit
+//                       /broadcast-after-decline endpoint if they want
+//                       to keep looking — never the default)
 //   ride_interests    → 'expired' for every driver who had ACTIVE interest
 //                       ('passed' rows are left alone — drivers who already
 //                       said no must NOT see the rebroadcast and must NOT
@@ -201,18 +204,22 @@ export async function cascadeRideCancel(opts: CancelCascadeOptions): Promise<Cas
     ),
   );
 
-  // Reactivate post + expire other drivers' interests (only meaningful for
-  // broadcast rides that went through hmu_posts → ride_interests).
+  // Cancel the linked post + expire other drivers' interests. Founder rule:
+  // a cancelled ride means the request is dead. The rider can choose to
+  // re-broadcast via the explicit /broadcast-after-decline endpoint if
+  // they want to keep looking — never automatic. Auto-reactivating posts
+  // was leaving stale "looking for drivers" countdowns on /rider/home and
+  // creating UX loops where the rider thought their request was still live.
   let interestExpireJob: Promise<Array<{ driver_id: string }>> = Promise.resolve(
     [] as Array<{ driver_id: string }>,
   );
   if (ride.hmu_post_id) {
     cleanupJobs.push(
       (sql`
-        UPDATE hmu_posts SET status = 'active', expires_at = NOW() + INTERVAL '2 hours'
+        UPDATE hmu_posts SET status = 'cancelled'
         WHERE id = ${ride.hmu_post_id}
       ` as Promise<unknown>).catch((e) =>
-        console.error('[cancel-cascade] hmu_posts reactivate failed:', e),
+        console.error('[cancel-cascade] hmu_posts cancel failed:', e),
       ),
     );
 

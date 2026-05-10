@@ -122,6 +122,7 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
         cancelRequestReason: (ride.cancel_request_reason as string) || null,
         cancelResolution: (ride.cancel_resolution as string) || null,
         visibleDeposit: Number(ride.visible_deposit ?? 0),
+        hmuPostId: (ride.hmu_post_id as string) || null,
       }}
       mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''}
     />
