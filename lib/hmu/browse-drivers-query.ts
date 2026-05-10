@@ -83,6 +83,7 @@ export async function queryBrowseDrivers(
 
   const rows = await sql`
     SELECT dp.handle, dp.display_name, dp.areas, dp.pricing, dp.video_url,
+           dp.show_video_on_link,
            dp.vehicle_info, dp.lgbtq_friendly, dp.enforce_minimum, dp.fwu,
            dp.accepts_cash, dp.cash_only,
            dp.vibe_video_url, dp.payout_setup_complete,
@@ -124,7 +125,7 @@ export async function queryBrowseDrivers(
       )
       AND (
         NOT ${rider.hasMediaOnly === true}::boolean
-        OR (dp.video_url IS NOT NULL AND dp.video_url <> '')
+        OR (dp.video_url IS NOT NULL AND dp.video_url <> '' AND dp.show_video_on_link IS NOT FALSE)
         OR (dp.vehicle_info ? 'photo_url'
             AND dp.vehicle_info->>'photo_url' IS NOT NULL
             AND dp.vehicle_info->>'photo_url' <> '')
@@ -134,7 +135,7 @@ export async function queryBrowseDrivers(
       --    low-effort/spam and tank rider trust. Pushed to the bottom so
       --    they still appear but don't poison the first impression.
       CASE
-        WHEN (dp.video_url IS NOT NULL AND dp.video_url <> '')
+        WHEN (dp.video_url IS NOT NULL AND dp.video_url <> '' AND dp.show_video_on_link IS NOT FALSE)
           OR (dp.vehicle_info ? 'photo_url'
               AND dp.vehicle_info->>'photo_url' IS NOT NULL
               AND dp.vehicle_info->>'photo_url' <> '')
@@ -178,7 +179,7 @@ export async function queryBrowseDrivers(
       displayName: (d.display_name as string) || 'Driver',
       areas: Array.isArray(d.areas) ? (d.areas as string[]) : [],
       minPrice: Number((d.pricing as Record<string, unknown>)?.minimum ?? 0),
-      videoUrl: (d.video_url as string) || null,
+      videoUrl: d.show_video_on_link === false ? null : ((d.video_url as string) || null),
       photoUrl: (vi?.photo_url as string) || null,
       lgbtqFriendly: (d.lgbtq_friendly as boolean) || false,
       chillScore: Number(d.chill_score ?? 0),
