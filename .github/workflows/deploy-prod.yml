@@ -76,6 +76,7 @@ jobs:
           NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_POSTHOG_HOST: https://app.posthog.com
           NEXT_PUBLIC_APP_URL: https://atl.hmucashride.com
+          NEXT_PUBLIC_R2_PUBLIC_URL: ${{ secrets.NEXT_PUBLIC_R2_PUBLIC_URL }}
           NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
           # Server-side placeholders. Real values come from `wrangler secret`
           # at runtime; these only exist to satisfy SDK constructors that
