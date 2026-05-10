@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import Link from 'next/link';
 import { ShieldCheck, ArrowLeft } from 'lucide-react';
 import { Footer } from '@/components/landing/footer';
 import { SafetyHero } from '../../_components/safety-hero';
@@ -161,9 +162,9 @@ function CTA() {
         style={{ fontSize: 12.5, color: '#666', marginTop: 14 }}
       >
         New to HMU?{' '}
-        <a href="/sign-up?type=rider" style={{ color: BLUE, textDecoration: 'none' }}>
+        <Link href="/sign-up?type=rider" style={{ color: BLUE, textDecoration: 'none' }}>
           Sign up
-        </a>
+        </Link>
       </motion.p>
     </motion.div>
   );
