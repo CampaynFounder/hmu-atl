@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { fbCustomEvent } from '@/components/analytics/meta-pixel';
 import { CountUp } from '@/components/shared/count-up';
+import CelebrationConfetti from '@/components/shared/celebration-confetti';
 import UpgradeOverlay from './upgrade-overlay';
 
 interface BalanceData {
@@ -237,6 +238,10 @@ export default function CashoutCard() {
       }
       fbCustomEvent('CashoutCompleted', { amount: data.amount, method: data.method, fee: data.fee });
       setResult(data);
+      // Match the onboarding celebration — same shared CelebrationConfetti
+      // (canvas-confetti, "cannon" preset). The component fires once per
+      // active=true edge; we keep it active for the same window the
+      // onboarding flows do.
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 4000);
       await loadBalance();
@@ -249,12 +254,6 @@ export default function CashoutCard() {
 
   if (loading) return null;
   if (!balance) return null;
-
-  const confettiColors = ['#00E676', '#FFD600', '#FF4081', '#448AFF', '#E040FB'];
-  const particles = showConfetti ? Array.from({ length: 40 }, (_, i) => ({
-    id: i, x: Math.random() * 100, delay: Math.random() * 1,
-    color: confettiColors[i % confettiColors.length], drift: (Math.random() - 0.5) * 80,
-  })) : [];
 
   const sliderPercent = cashableAmount > 0 ? ((payoutAmount - minPayout) / (cashableAmount - minPayout)) * 100 : 0;
 
@@ -418,12 +417,6 @@ export default function CashoutCard() {
         .co-breakdown-value--yellow { color: #FFB300; }
         .co-breakdown-divider { border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 6px 0; }
         .co-breakdown-total { font-size: 14px; font-weight: 700; }
-        @keyframes coConfetti {
-          0% { transform: translateY(-10px) translateX(0) rotate(0deg); opacity: 0; }
-          10% { opacity: 1; }
-          100% { transform: translateY(300px) translateX(var(--drift)) rotate(540deg); opacity: 0; }
-        }
-        .co-confetti { position: absolute; top: 0; width: 6px; height: 9px; border-radius: 2px; pointer-events: none; }
 
         /* First-load shimmer on the primary cashout button. Sweeps twice then
            stops — cue to tap without being obnoxious. */
@@ -494,22 +487,16 @@ export default function CashoutCard() {
         @keyframes coSpin { to { transform: rotate(360deg); } }
       `}</style>
 
+      {/* Same celebration as the onboarding flows — shared component,
+          canvas-confetti "cannon" preset. */}
+      <CelebrationConfetti active={showConfetti} variant="cannon" />
+
       <motion.div
         className="co-card"
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
       >
-        {/* Confetti */}
-        {particles.map(p => (
-          <div key={p.id} className="co-confetti" style={{
-            left: `${p.x}%`, backgroundColor: p.color,
-            // @ts-expect-error CSS custom property
-            '--drift': `${p.drift}px`,
-            animation: `coConfetti ${1.5 + Math.random()}s ease-in ${p.delay}s forwards`,
-          }} />
-        ))}
-
         {/* Tier badge */}
         <div className={`co-tier ${isHmuFirst ? 'co-tier--first' : 'co-tier--free'}`}>
           {isHmuFirst ? '\uD83E\uDD47 HMU First' : 'Free Tier'}
