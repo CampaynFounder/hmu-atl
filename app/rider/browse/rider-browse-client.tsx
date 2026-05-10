@@ -41,7 +41,11 @@ export default function RiderBrowseClient({
   const [filterFwu, setFilterFwu] = useState(false);
   const [filterMaxPrice, setFilterMaxPrice] = useState('');
   const [filterArea, setFilterArea] = useState('');
-  const [filterGender, setFilterGender] = useState<'female' | 'male' | null>(null);
+  const [filterGender, setFilterGender] = useState<'female' | 'male' | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const g = new URLSearchParams(window.location.search).get('gender');
+    return g === 'female' || g === 'male' ? g : null;
+  });
   const [filterHasMedia, setFilterHasMedia] = useState(false);
   const [bookingHandle, setBookingHandle] = useState<string | null>(null);
   const [profileHandle, setProfileHandle] = useState<string | null>(null);
