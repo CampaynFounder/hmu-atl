@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 
-const R2_PUBLIC_URL = 'https://pub-649c30e78a62433eb6ed9cb1209d112a.r2.dev';
+const R2_PUBLIC_URL =
+  process.env.NEXT_PUBLIC_R2_PUBLIC_URL ??
+  'https://pub-649c30e78a62433eb6ed9cb1209d112a.r2.dev';
 
 export async function GET(
   request: NextRequest,

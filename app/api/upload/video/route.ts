@@ -3,7 +3,9 @@ import { auth } from '@clerk/nextjs/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { sql } from '@/lib/db/client';
 
-const R2_PUBLIC_URL = 'https://pub-649c30e78a62433eb6ed9cb1209d112a.r2.dev';
+const R2_PUBLIC_URL =
+  process.env.NEXT_PUBLIC_R2_PUBLIC_URL ??
+  'https://pub-649c30e78a62433eb6ed9cb1209d112a.r2.dev';
 
 // Resolve the uploader's market slug for R2 key prefixing. Existing objects
 // uploaded before market prefixing (2026-04 and earlier) have keys without a
