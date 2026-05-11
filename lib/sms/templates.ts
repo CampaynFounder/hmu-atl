@@ -5,10 +5,12 @@
 // null sentinel to fall back to their original hardcoded literal so a missing
 // row, a malformed template, or a Neon outage never blocks an SMS.
 //
-// Cache: per-request Map (mirrors lib/feature-flags.ts) so a single request
-// hitting the same template multiple times only pays for one Neon read. Edits
-// in the admin UI are visible on the very next request — no isolate-level
-// staleness window.
+// No caching: a module-level Map persists across requests within a Worker
+// isolate and across isolates that don't see admin edits, so cached reads can
+// serve stale bodies indefinitely after an admin update. The admin UI promises
+// "live on next SMS" — we keep that promise by reading from Neon every send.
+// The lookup is a single-row PK fetch on a tiny table; the Stripe/Twilio call
+// that follows dwarfs it.
 
 import { sql } from '@/lib/db/client';
 
@@ -23,10 +25,7 @@ export interface SmsTemplate {
   updated_by: string | null;
 }
 
-const requestCache = new Map<string, SmsTemplate | null>();
-
 async function loadTemplate(eventKey: string): Promise<SmsTemplate | null> {
-  if (requestCache.has(eventKey)) return requestCache.get(eventKey) ?? null;
   try {
     const rows = await sql`
       SELECT event_key, audience, trigger_description, body, variables,
@@ -35,12 +34,9 @@ async function loadTemplate(eventKey: string): Promise<SmsTemplate | null> {
       WHERE event_key = ${eventKey}
       LIMIT 1
     `;
-    const row = (rows[0] as SmsTemplate | undefined) ?? null;
-    requestCache.set(eventKey, row);
-    return row;
+    return (rows[0] as SmsTemplate | undefined) ?? null;
   } catch (e) {
-    // DB hiccup must NOT block an SMS — caller falls back to its hardcoded
-    // literal. Don't cache the failure; next call gets a fresh attempt.
+    // DB hiccup must NOT block an SMS — caller falls back to its hardcoded literal.
     console.error('[sms-templates] loadTemplate failed:', eventKey, e);
     return null;
   }
@@ -121,8 +117,6 @@ export async function updateTemplate(
       `Allowed: ${[...allowed].join(', ') || '(none)'}`
     );
   }
-
-  requestCache.delete(eventKey);
 
   const rows = await sql`
     UPDATE sms_templates
