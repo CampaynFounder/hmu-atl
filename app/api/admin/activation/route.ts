@@ -30,6 +30,8 @@ interface DriverRow {
   vehicle_info: Record<string, unknown> | null;
   profile_visible: boolean | null;
   stripe_onboarding_complete: boolean | null;
+  deposit_floor: string | number | null;
+  location_updated_at: string | null;
   last_sign_in_at: string | null;
   area_names: string[] | null;
   has_profile_row: boolean;
@@ -82,6 +84,8 @@ export async function GET(req: NextRequest) {
       dp.vehicle_info,
       dp.profile_visible,
       dp.stripe_onboarding_complete,
+      dp.deposit_floor,
+      dp.location_updated_at,
       u.last_sign_in_at,
       u.account_status,
       ARRAY(
@@ -143,6 +147,7 @@ export async function GET(req: NextRequest) {
       video_url: d.video_url,
       vehicle_info: d.vehicle_info,
       stripe_onboarding_complete: d.stripe_onboarding_complete,
+      deposit_floor: d.deposit_floor,
       last_sign_in_at: d.last_sign_in_at,
       has_posts: d.has_posts,
     });
@@ -212,6 +217,7 @@ function serialize(checks: ActivationCheck[]) {
   return checks.map(c => ({
     key: c.key,
     label: c.label,
+    tone: c.tone,
     passed: c.passed,
     smsTemplate: c.smsTemplate,
   }));

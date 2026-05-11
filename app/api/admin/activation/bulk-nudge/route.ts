@@ -38,6 +38,8 @@ interface DriverCohortRow {
   vehicle_info: Record<string, unknown> | null;
   profile_visible: boolean | null;
   stripe_onboarding_complete: boolean | null;
+  deposit_floor: string | number | null;
+  location_updated_at: string | null;
   last_sign_in_at: string | null;
   has_profile_row: boolean;
   has_posts: boolean;
@@ -90,6 +92,7 @@ export async function POST(req: NextRequest) {
         u.id as user_id, dp.display_name, dp.handle, dp.phone, dp.area_slugs,
         dp.services_entire_market, dp.pricing, dp.thumbnail_url, dp.video_url,
         dp.vehicle_info, dp.profile_visible, dp.stripe_onboarding_complete,
+        dp.deposit_floor, dp.location_updated_at,
         u.last_sign_in_at,
         (dp.user_id IS NOT NULL) as has_profile_row,
         EXISTS (SELECT 1 FROM hmu_posts hp WHERE hp.user_id = u.id) as has_posts
@@ -113,6 +116,7 @@ export async function POST(req: NextRequest) {
         video_url: d.video_url,
         vehicle_info: d.vehicle_info,
         stripe_onboarding_complete: d.stripe_onboarding_complete,
+        deposit_floor: d.deposit_floor,
         last_sign_in_at: d.last_sign_in_at,
         has_posts: d.has_posts,
       });
@@ -125,12 +129,15 @@ export async function POST(req: NextRequest) {
         thumbnail_url: d.thumbnail_url, video_url: d.video_url,
         vehicle_info: d.vehicle_info, profile_visible: d.profile_visible,
         stripe_onboarding_complete: d.stripe_onboarding_complete,
+        deposit_floor: d.deposit_floor,
+        location_updated_at: d.location_updated_at,
         has_profile_row: d.has_profile_row,
       });
       const matchingCheck = checks.find(c => c.key === checkKey);
-      // Skip users who already pass this check — bulk send must not text users
-      // who don't need the nudge. (Cheap safety net even though stage filter
-      // usually implies the gap exists.)
+      // Skip users where the chip wouldn't show. For gap checks: passes means
+      // they already did the thing. For promo checks: passes means
+      // prerequisites NOT yet met (don't send a stale link to a half-built
+      // profile).
       if (!matchingCheck || matchingCheck.passed) continue;
 
       recipients.push({
