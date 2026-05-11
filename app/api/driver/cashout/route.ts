@@ -84,14 +84,56 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Balance too low for instant payout after fee' }, { status: 400 });
       }
 
+      // Single operation ID drives the idempotency keys for both Stripe calls
+      // below. Same string → Stripe replays the prior response, so a network
+      // retry can't double-transfer the fee or double-payout the driver.
+      const opId = crypto.randomUUID();
+
+      // STEP 1 — Move the instant-payout fee from the driver's Connect balance
+      // to the platform BEFORE the payout fires. Doing this first means:
+      //   - If the transfer fails, no payout happens. Driver can retry cleanly.
+      //   - If both succeed, driver's Connect balance ends at zero, not at $fee.
+      //     Previously the fee just sat in Connect, looking cashable to the driver
+      //     while never accruing to the platform.
+      // Skipped when fee === 0 (HMU First tier, free instant).
+      if (fee > 0) {
+        const platformAccountId = process.env.STRIPE_PLATFORM_ACCOUNT_ID;
+        if (!platformAccountId) {
+          return NextResponse.json(
+            { error: 'Platform account not configured', detail: 'STRIPE_PLATFORM_ACCOUNT_ID missing' },
+            { status: 500 }
+          );
+        }
+        await stripe.transfers.create(
+          {
+            amount: fee,
+            currency: 'usd',
+            destination: platformAccountId,
+            description: `Instant payout fee — driver ${driver.user_id}`,
+            metadata: {
+              kind: 'instant_payout_fee',
+              driver_id: driver.user_id,
+              op_id: opId,
+            },
+          },
+          {
+            stripeAccount: driver.stripe_account_id,
+            idempotencyKey: `cashout_fee_${opId}`,
+          }
+        );
+      }
+
       const payout = await stripe.payouts.create(
         {
           amount: payoutAmountCents,
           currency: 'usd',
           method: 'instant',
-          metadata: { driverId: driver.user_id, fee: String(fee) },
+          metadata: { driverId: driver.user_id, fee: String(fee), opId },
         },
-        { stripeAccount: driver.stripe_account_id }
+        {
+          stripeAccount: driver.stripe_account_id,
+          idempotencyKey: `cashout_payout_${opId}`,
+        }
       );
 
       return NextResponse.json({
