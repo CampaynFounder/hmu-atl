@@ -22,11 +22,16 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ persona });
 }
 
+const VALID_LIFECYCLE_STAGES = [
+  'any', 'signup', 'profile_incomplete', 'payment_setup', 'ready_idle', 'engaged', 'dormant',
+];
+
 export function validatePersona(body: Partial<PersonaInput>): string | null {
   if (!body.slug) return 'slug required';
   if (!body.display_name) return 'display_name required';
   if (!['female', 'male', 'nonbinary', 'any'].includes(body.gender_match as string)) return 'invalid gender_match';
   if (!['driver', 'rider', 'any'].includes(body.user_type_match as string)) return 'invalid user_type_match';
+  if (!VALID_LIFECYCLE_STAGES.includes(body.lifecycle_stage as string)) return 'invalid lifecycle_stage';
   if (!body.greeting_template) return 'greeting_template required';
   if (!body.system_prompt) return 'system_prompt required';
   if (typeof body.max_messages_per_thread !== 'number' || body.max_messages_per_thread < 1) return 'max_messages_per_thread must be >= 1';

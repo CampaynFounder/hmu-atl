@@ -5,6 +5,7 @@ import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/
 import { sendSms } from '@/lib/sms/textbee';
 import { sql } from '@/lib/db/client';
 import { resolveActionItem } from '@/lib/admin/action-items';
+import { wasRecentlySent, DEFAULT_DEDUP_WINDOW_HOURS } from '@/lib/sms/dedup';
 
 interface Recipient {
   phone: string;
@@ -30,11 +31,39 @@ export async function POST(req: NextRequest) {
   if (!admin) return unauthorizedResponse();
 
   try {
-    const { recipients, message, link } = await req.json() as {
+    const { recipients, message, link, eventType, dedup } = await req.json() as {
       recipients: Recipient[];
       message?: string;
       link?: string;
+      // Optional override — activation nudges pass `activation_nudge:{checkKey}`
+      // so sms_log can be sliced by check. Defaults to 'marketing'.
+      eventType?: string;
+      // Dedup is opt-in per request because manual marketing campaigns may
+      // intentionally re-blast. Activation flows pass dedup={ enabled: true }
+      // so the nudge-button can prompt the admin if a duplicate would result.
+      // ackDuplicate=true bypasses the 409 (admin saw the warning + said send).
+      dedup?: { enabled?: boolean; windowHours?: number; ackDuplicate?: boolean };
     };
+    const messageEventType = eventType || 'marketing';
+    const linkEventType = eventType ? `${eventType}_link` : 'marketing_link';
+
+    // Dedup check — single recipient flows only. For multi-recipient bulk sends,
+    // dedup belongs at the cohort-builder level (see /api/admin/activation/bulk-nudge).
+    if (dedup?.enabled && recipients?.length === 1 && recipients[0].userId && !dedup.ackDuplicate) {
+      const windowHours = dedup.windowHours ?? DEFAULT_DEDUP_WINDOW_HOURS;
+      const check = await wasRecentlySent({
+        userId: recipients[0].userId,
+        eventType: messageEventType,
+        windowHours,
+      });
+      if (check.recentlySent) {
+        return NextResponse.json({
+          error: 'duplicate_within_window',
+          lastSentAt: check.lastSentAt,
+          windowHours,
+        }, { status: 409 });
+      }
+    }
 
     if (!recipients?.length) {
       return NextResponse.json({ error: 'At least one recipient required' }, { status: 400 });
@@ -75,8 +104,9 @@ export async function POST(req: NextRequest) {
           : message!.replace(/\{name\}/g, '');
 
         const result = await sendSms(phone, personalizedMsg.trim(), {
-          eventType: 'marketing',
+          eventType: messageEventType,
           market: 'atl',
+          userId: recipient.userId,
         });
         if (result.success) recipientSent++;
         else recipientError = result.error || 'Failed';
@@ -88,8 +118,9 @@ export async function POST(req: NextRequest) {
         if (hasMessage) await new Promise(r => setTimeout(r, 800));
 
         const result = await sendSms(phone, link!.trim(), {
-          eventType: 'marketing_link',
+          eventType: linkEventType,
           market: 'atl',
+          userId: recipient.userId,
         });
         if (result.success) recipientSent++;
         else recipientError = result.error || 'Link send failed';
