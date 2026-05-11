@@ -483,7 +483,7 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
         title: "This Ain't Uber/Lyft",
         subtitle: 'Those platforms are for workers. HMU is for Owners.',
         cta: 'Connect w/ Riders',
-        href: '/driver/playbook#get-riders',
+        href: '/driver/find-riders',
         color: '#00E676',
         emoji: '\u{1F4B0}',
       });
@@ -529,7 +529,7 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
       title: 'Configure your menu',
       subtitle: 'Add services riders can pre-order when booking',
       cta: 'Add Services',
-      href: '/driver/profile?focus=menu',
+      href: '/driver/settings?tab=menu',
       color: '#FF9100',
       emoji: '\u{1F4CB}',
     });
