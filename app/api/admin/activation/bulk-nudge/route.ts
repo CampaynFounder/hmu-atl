@@ -19,8 +19,9 @@ import {
   computeDriverChecks, computeRiderChecks,
   classifyDriverStage, classifyRiderStage,
   renderSms, LIFECYCLE_STAGES,
-  type ActivationCheckKey, type LifecycleStage,
+  type ActivationCheck, type ActivationCheckKey, type LifecycleStage,
 } from '@/lib/admin/activation-checks';
+import { renderTemplate } from '@/lib/sms/templates';
 
 const PER_RECIPIENT_DELAY_MS = 500;
 const MAX_PER_BATCH = 100;
@@ -85,7 +86,14 @@ export async function POST(req: NextRequest) {
 
   // Build the cohort using the same query shape as /api/admin/activation,
   // then filter by stage in memory (cheap — bounded by LIMIT 500 per market).
-  const recipients: Array<{ userId: string; phone: string; displayName: string | null; smsTemplate: string }> = [];
+  // Carry the full ActivationCheck so the send loop has both the DB
+  // templateKey + variables AND the literal smsTemplate fallback.
+  const recipients: Array<{
+    userId: string;
+    phone: string;
+    displayName: string | null;
+    check: ActivationCheck;
+  }> = [];
 
   if (body.profileType === 'driver') {
     const rows = await sql`
@@ -143,7 +151,7 @@ export async function POST(req: NextRequest) {
 
       recipients.push({
         userId: d.user_id, phone: d.phone, displayName: d.display_name,
-        smsTemplate: matchingCheck.smsTemplate,
+        check: matchingCheck,
       });
     }
   } else {
@@ -190,7 +198,7 @@ export async function POST(req: NextRequest) {
 
       recipients.push({
         userId: r.user_id, phone: r.phone, displayName: r.display_name,
-        smsTemplate: matchingCheck.smsTemplate,
+        check: matchingCheck,
       });
     }
   }
@@ -231,7 +239,13 @@ export async function POST(req: NextRequest) {
 
   for (const rec of filtered) {
     const phone = rec.phone.replace(/\D/g, '');
-    const message = renderSms(rec.smsTemplate, rec.displayName);
+    // Prefer DB-rendered body (admin-editable). Fall through to the literal
+    // when the row is missing, disabled, or references a variable the check
+    // didn't supply.
+    const rendered = rec.check.templateKey
+      ? await renderTemplate(rec.check.templateKey, rec.check.variables)
+      : null;
+    const message = rendered ?? renderSms(rec.check.smsTemplate, rec.displayName);
     const truncated = message.length > 160 ? message.slice(0, 160) : message;
     const result = await sendSms(phone, truncated, {
       eventType,

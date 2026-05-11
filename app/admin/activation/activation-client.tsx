@@ -2,14 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMarket } from '@/app/admin/components/market-context';
-import { renderSms, LIFECYCLE_STAGES, type ActivationCheckTone, type CoverageBucket, type LifecycleStage } from '@/lib/admin/activation-checks';
+import { LIFECYCLE_STAGES, type ActivationCheckTone, type CoverageBucket, type LifecycleStage } from '@/lib/admin/activation-checks';
 
 interface CheckRow {
   key: string;
   label: string;
   tone: ActivationCheckTone;
   passed: boolean;
+  // smsTemplate is the literal fallback body — kept on the wire for legacy
+  // consumers but the UI should never render it directly. smsPreview is the
+  // text that will actually ship (DB-rendered when the sms_templates row is
+  // present + enabled; literal fallback otherwise).
   smsTemplate: string;
+  smsPreview: string;
 }
 
 interface DriverItem {
@@ -472,8 +477,7 @@ function NudgeChip({
 
   const doSend = async (ackDuplicate: boolean): Promise<void> => {
     if (!phone) { setStatus('error'); return; }
-    const message = renderSms(check.smsTemplate, displayName);
-    const truncated = message.length > 160 ? message.slice(0, 160) : message;
+    const truncated = check.smsPreview.length > 160 ? check.smsPreview.slice(0, 160) : check.smsPreview;
     const res = await fetch('/api/admin/marketing/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -534,7 +538,7 @@ function NudgeChip({
     <button
       onClick={send}
       disabled={busy || !phone}
-      title={renderSms(check.smsTemplate, displayName)}
+      title={check.smsPreview}
       className={`text-[10px] px-2.5 py-1 rounded-full font-semibold border transition-colors disabled:opacity-50 ${baseColor}`}
     >
       {label}

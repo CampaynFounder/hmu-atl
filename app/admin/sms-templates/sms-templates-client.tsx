@@ -22,6 +22,7 @@ function toDraft(t: SmsTemplate): Draft {
 // Sample values used in the preview pane. Variables that don't appear here
 // just render as the placeholder name so admins can see where the slot is.
 const SAMPLE_VARS: Record<string, string> = {
+  // ride flow
   riderName: 'Marcus',
   driverName: 'Tasha',
   rideId: 'r_demo123',
@@ -31,6 +32,16 @@ const SAMPLE_VARS: Record<string, string> = {
   timeLine: ' 8:30pm.',
   text: 'Your payout is on the way',
   link: 'atl.hmucashride.com/driver/home',
+  // standalone transactional
+  firstName: 'Marcus',
+  areaPart: ' in Edgewood, Old Fourth Ward',
+  clearedDollars: '24.50',
+  // activation nudges
+  name: 'Tasha',
+  profileUrl: 'atl.hmucashride.com/d/tasha',
+  viewCount: '3',
+  // quick messages
+  extra: '601 Edgewood Ave SE',
 };
 
 function preview(body: string, variables: string[]): string {

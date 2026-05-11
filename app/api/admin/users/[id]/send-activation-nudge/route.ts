@@ -26,8 +26,9 @@ import { sendSms } from '@/lib/sms/textbee';
 import { wasRecentlySent, DEFAULT_DEDUP_WINDOW_HOURS } from '@/lib/sms/dedup';
 import {
   computeDriverChecks, computeRiderChecks, renderSms,
-  type ActivationCheckKey,
+  type ActivationCheck, type ActivationCheckKey,
 } from '@/lib/admin/activation-checks';
+import { renderTemplate } from '@/lib/sms/templates';
 
 interface DriverRow {
   user_id: string;
@@ -86,7 +87,7 @@ export async function POST(
     return NextResponse.json({ error: 'user not found' }, { status: 404 });
   }
 
-  let smsTemplate = '';
+  let matchedCheck: ActivationCheck | null = null;
   let displayName: string | null = null;
   let phone: string | null = null;
 
@@ -131,7 +132,7 @@ export async function POST(
         : `Driver already cleared "${match.label}". No nudge needed.`;
       return NextResponse.json({ error: 'check_not_applicable', reason }, { status: 422 });
     }
-    smsTemplate = match.smsTemplate;
+    matchedCheck = match;
     displayName = d.display_name;
     phone = d.phone;
   } else if (user.profile_type === 'rider') {
@@ -172,7 +173,7 @@ export async function POST(
         { status: 422 },
       );
     }
-    smsTemplate = match.smsTemplate;
+    matchedCheck = match;
     displayName = r.display_name;
     phone = r.phone;
   } else {
@@ -188,7 +189,7 @@ export async function POST(
       { status: 422 },
     );
   }
-  if (!smsTemplate) {
+  if (!matchedCheck || !matchedCheck.smsTemplate) {
     return NextResponse.json(
       { error: 'check_not_applicable', reason: 'Template empty (likely missing handle).' },
       { status: 422 },
@@ -210,7 +211,12 @@ export async function POST(
   }
 
   const normalizedPhone = phone.replace(/\D/g, '');
-  const message = renderSms(smsTemplate, displayName);
+  // Prefer the admin-editable DB template; fall back to the literal in the
+  // check definition when the row is missing/disabled/malformed.
+  const rendered = matchedCheck.templateKey
+    ? await renderTemplate(matchedCheck.templateKey, matchedCheck.variables)
+    : null;
+  const message = rendered ?? renderSms(matchedCheck.smsTemplate, displayName);
   const truncated = message.length > 160 ? message.slice(0, 160) : message;
 
   const result = await sendSms(normalizedPhone, truncated, {
