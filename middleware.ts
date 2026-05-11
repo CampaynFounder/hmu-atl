@@ -166,6 +166,7 @@ const isPublicRoute = createRouteMatcher([
   '/admin(.*)',
   '/api/admin(.*)',
   '/maintenance',
+  '/debug/geo',
 ]);
 
 // Define pending-only routes (only for pending_activation users)

@@ -26,6 +26,11 @@ export function useGeolocation({ rideId, enabled, intervalMs = 10000 }: UseGeolo
   const sendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastSentRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const latestCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+  // iOS Safari often fires a TIMEOUT on the first watchPosition tick while GPS
+  // cold-starts — even when permission is granted. Swallow transient timeouts
+  // until we've seen ≥2 in a row OR ≥20s elapsed without any fix.
+  const watchStartedAtRef = useRef<number | null>(null);
+  const consecutiveErrorsRef = useRef(0);
 
   const rideIdRef = useRef(rideId);
   rideIdRef.current = rideId;
@@ -79,16 +84,19 @@ export function useGeolocation({ rideId, enabled, intervalMs = 10000 }: UseGeolo
     cleanup();
 
     setState(s => ({ ...s, tracking: true, error: null, permanentlyDenied: false }));
+    watchStartedAtRef.current = Date.now();
+    consecutiveErrorsRef.current = 0;
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
         const { latitude: lat, longitude: lng, accuracy } = pos.coords;
         latestCoordsRef.current = { lat, lng };
+        consecutiveErrorsRef.current = 0;
         setState({ lat, lng, accuracy, error: null, permanentlyDenied: false, tracking: true });
       },
       (err) => {
+        // Permission denied is a hard state — surface immediately.
         if (err.code === 1) {
-          // PERMISSION_DENIED — check if permanently blocked
           if ('permissions' in navigator) {
             navigator.permissions.query({ name: 'geolocation' }).then((result) => {
               setState(s => ({ ...s, error: 'Location access denied', permanentlyDenied: result.state === 'denied' }));
@@ -98,11 +106,20 @@ export function useGeolocation({ rideId, enabled, intervalMs = 10000 }: UseGeolo
           } else {
             setState(s => ({ ...s, error: 'Location access denied', permanentlyDenied: false }));
           }
-        } else {
+          return;
+        }
+
+        // POSITION_UNAVAILABLE / TIMEOUT — common transient on iOS cold-start.
+        // Don't flash a red overlay over the map for a single blip. Only set
+        // error once we've seen ≥2 in a row, AND ≥20s has elapsed since the
+        // watch began without any successful fix.
+        consecutiveErrorsRef.current += 1;
+        const elapsed = watchStartedAtRef.current ? Date.now() - watchStartedAtRef.current : 0;
+        if (consecutiveErrorsRef.current >= 2 && elapsed >= 20_000) {
           setState(s => ({ ...s, error: err.message, permanentlyDenied: false }));
         }
       },
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
     );
 
     // Send location at fixed interval using ref (no stale closure)
