@@ -52,14 +52,14 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/support',             rule: { kind: 'permission', slug: 'act.support' } },
   { pattern: '/admin/notifications',       rule: { kind: 'permission', slug: 'act.notifications' } },
   { pattern: '/admin/disputes',            rule: { kind: 'permission', slug: 'act.disputes' } },
-  { pattern: '/admin/safety',              rule: { kind: 'super' } }, // includes /admin/safety/archive, /admin/safety/test
+  { pattern: '/admin/safety',              rule: { kind: 'permission', slug: 'act.safety' } }, // includes /admin/safety/archive, /admin/safety/test
   { pattern: '/admin/users',               rule: { kind: 'permission', slug: 'act.users' } },
-  { pattern: '/admin/ride-requests',       rule: { kind: 'super' } },
-  { pattern: '/admin/hmus',                rule: { kind: 'super' } },
+  { pattern: '/admin/ride-requests',       rule: { kind: 'permission', slug: 'act.rides' } },
+  { pattern: '/admin/hmus',                rule: { kind: 'permission', slug: 'act.hmus' } },
   { pattern: '/admin/suspect-usage',       rule: { kind: 'permission', slug: 'act.suspect' } },
 
   // ── GROW ────────────────────────────────────────────────────────────
-  { pattern: '/admin/activation',          rule: { kind: 'super' } }, // assign a slug + add to matrix when a custom role needs to grant this
+  { pattern: '/admin/activation',          rule: { kind: 'permission', slug: 'grow.activation' } },
   { pattern: '/admin/marketing',           rule: { kind: 'permission', slug: 'grow.outreach' } },
   { pattern: '/admin/messages',            rule: { kind: 'permission', slug: 'grow.messages' } },
   { pattern: '/admin/playbook',            rule: { kind: 'permission', slug: 'grow.playbook' } },
@@ -67,9 +67,9 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/events',              rule: { kind: 'permission', slug: 'grow.events' } },
   { pattern: '/admin/content',             rule: { kind: 'permission', slug: 'grow.content' } }, // includes /calendar, /reference, /trends
   { pattern: '/admin/funnel',              rule: { kind: 'permission', slug: 'grow.funnel' } }, // includes [pageSlug], stages, personas, experiments, flags
-  { pattern: '/admin/driver-playbook',     rule: { kind: 'super' } }, // /fb-groups
-  { pattern: '/admin/conversation-agent',  rule: { kind: 'super' } },
-  { pattern: '/admin/chat-booking',        rule: { kind: 'super' } },
+  { pattern: '/admin/driver-playbook',     rule: { kind: 'permission', slug: 'grow.fbgroups' } }, // /fb-groups
+  { pattern: '/admin/conversation-agent',  rule: { kind: 'permission', slug: 'grow.convagent' } },
+  { pattern: '/admin/chat-booking',        rule: { kind: 'permission', slug: 'grow.chatbooking' } },
 
   // ── RAISE ───────────────────────────────────────────────────────────
   { pattern: '/admin/data-room',           rule: { kind: 'permission', slug: 'raise.dataroom' } },
@@ -82,14 +82,14 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/audit',               rule: { kind: 'permission', slug: 'admin.audit' } },
   { pattern: '/admin/dashboards/manage',   rule: { kind: 'permission', slug: 'admin.dashboards' } }, // builder list — .view sees the list read-only; .edit can create/update/delete (enforced server-side + at the page level)
   { pattern: '/admin/dashboards',          rule: { kind: 'permission', slug: 'admin.dashboards' } }, // viewer landing + /[id]/view grid pages. Per-dashboard grant check happens inside the page.
-  { pattern: '/admin/markets',             rule: { kind: 'super' } },
-  { pattern: '/admin/feature-flags',       rule: { kind: 'super' } },
-  { pattern: '/admin/hmu-config',          rule: { kind: 'super' } },
-  { pattern: '/admin/onboarding-config',   rule: { kind: 'super' } },
-  { pattern: '/admin/realtime-notifications', rule: { kind: 'super' } },
-  { pattern: '/admin/rider-browse-banner',  rule: { kind: 'super' } },
-  { pattern: '/admin/maintenance',         rule: { kind: 'super' } },
-  { pattern: '/admin/voip-debug',          rule: { kind: 'super' } },
+  { pattern: '/admin/markets',             rule: { kind: 'permission', slug: 'admin.markets' } },
+  { pattern: '/admin/feature-flags',       rule: { kind: 'permission', slug: 'admin.flags' } },
+  { pattern: '/admin/hmu-config',          rule: { kind: 'permission', slug: 'admin.hmuconfig' } },
+  { pattern: '/admin/onboarding-config',   rule: { kind: 'permission', slug: 'admin.onboarding' } },
+  { pattern: '/admin/realtime-notifications', rule: { kind: 'permission', slug: 'admin.banners' } },
+  { pattern: '/admin/rider-browse-banner',  rule: { kind: 'permission', slug: 'admin.browsebanner' } },
+  { pattern: '/admin/maintenance',         rule: { kind: 'permission', slug: 'admin.maintenance' } },
+  { pattern: '/admin/voip-debug',          rule: { kind: 'permission', slug: 'admin.voip' } },
   { pattern: '/admin/chill-config',        rule: { kind: 'super' } },
 
   // ── TOOLS ───────────────────────────────────────────────────────────
