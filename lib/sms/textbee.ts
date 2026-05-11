@@ -11,6 +11,7 @@
 // To add a new market: set VOIPMS_DID_{MARKET} env var (e.g. VOIPMS_DID_HOU for Houston)
 
 import { sql } from '@/lib/db/client';
+import { renderTemplate } from './templates';
 
 const API_URL = 'https://voip.ms/api/v1/rest.php';
 const MAX_RETRIES = 1;
@@ -213,19 +214,25 @@ export async function notifyDriverNewBooking(
     ? 'atl.hmucashride.com/driver/payout-setup'
     : 'atl.hmucashride.com/driver/home';
 
-  // Build message parts, then trim to fit 160 chars
-  let message = `HMU ATL: Ride from ${riderName}.`;
-  if (details?.price) message += ` $${details.price}.`;
+  // Pre-assemble optional segments so the template body can use simple
+  // {{priceLine}}{{destLine}}{{timeLine}} placeholders. Length-fitting for
+  // destination + time stays in code since it depends on the dynamic link.
+  const priceLine = details?.price ? ` $${details.price}.` : '';
+  // base length = "HMU ATL: Ride from <rider>." + price + " " + link
+  const base = `HMU ATL: Ride from ${riderName}.${priceLine}`;
+  let destLine = '';
   if (details?.destination) {
-    // Only add destination if it fits
-    const withDest = message + ` ${details.destination}.`;
-    if (withDest.length + link.length + 2 <= 160) message = withDest;
+    const candidate = ` ${details.destination}.`;
+    if (base.length + candidate.length + link.length + 1 <= 160) destLine = candidate;
   }
+  let timeLine = '';
   if (details?.time) {
-    const withTime = message + ` ${details.time}.`;
-    if (withTime.length + link.length + 2 <= 160) message = withTime;
+    const candidate = ` ${details.time}.`;
+    if (base.length + destLine.length + candidate.length + link.length + 1 <= 160) timeLine = candidate;
   }
-  message += ` ${link}`;
+
+  const tpl = await renderTemplate('new_booking', { riderName, priceLine, destLine, timeLine, link });
+  const message = tpl ?? `${base}${destLine}${timeLine} ${link}`;
 
   return sendSms(driverPhone, message, { ...options, eventType: 'new_booking' });
 }
@@ -235,7 +242,8 @@ export async function notifyDriverRideAccepted(
   riderName: string,
   options: SmsOptions = {}
 ): Promise<SendSmsResult> {
-  const message = `HMU ATL: ${riderName} confirmed payment. Check the app for pickup details. atl.hmucashride.com/driver/home`;
+  const fallback = `HMU ATL: ${riderName} confirmed payment. Check the app for pickup details. atl.hmucashride.com/driver/home`;
+  const message = (await renderTemplate('ride_accepted', { riderName })) ?? fallback;
   return sendSms(driverPhone, message, { ...options, eventType: 'ride_accepted' });
 }
 
@@ -244,7 +252,8 @@ export async function notifyDriverGeneric(
   text: string,
   options: SmsOptions = {}
 ): Promise<SendSmsResult> {
-  return sendSms(driverPhone, `HMU ATL: ${text}`, { ...options, eventType: 'generic' });
+  const message = (await renderTemplate('generic', { text })) ?? `HMU ATL: ${text}`;
+  return sendSms(driverPhone, message, { ...options, eventType: 'generic' });
 }
 
 // ── Rider Notification Templates ──
@@ -255,7 +264,8 @@ export async function notifyRiderBookingAccepted(
   rideId: string,
   options: SmsOptions = {}
 ): Promise<SendSmsResult> {
-  const message = `HMU ATL: ${driverName} accepted your ride! Open the app to tap Pull Up and share your location. atl.hmucashride.com/ride/${rideId}`;
+  const fallback = `HMU ATL: ${driverName} accepted your ride! Open the app to tap Pull Up and share your location. atl.hmucashride.com/ride/${rideId}`;
+  const message = (await renderTemplate('booking_accepted', { driverName, rideId })) ?? fallback;
   return sendSms(riderPhone, message, { ...options, eventType: 'booking_accepted', rideId });
 }
 
@@ -264,7 +274,8 @@ export async function notifyRiderBookingDeclined(
   driverName: string,
   options: SmsOptions = {}
 ): Promise<SendSmsResult> {
-  const message = `HMU ATL: ${driverName} passed on your request. Try another driver or post to the feed. atl.hmucashride.com/rider/browse`;
+  const fallback = `HMU ATL: ${driverName} passed on your request. Try another driver or post to the feed. atl.hmucashride.com/rider/browse`;
+  const message = (await renderTemplate('booking_declined', { driverName })) ?? fallback;
   return sendSms(riderPhone, message, { ...options, eventType: 'booking_declined' });
 }
 
@@ -273,7 +284,8 @@ export async function notifyRiderDriverOtw(
   driverName: string,
   options: SmsOptions = {}
 ): Promise<SendSmsResult> {
-  const message = `HMU ATL: ${driverName} is OTW to you now! Track them in the app.`;
+  const fallback = `HMU ATL: ${driverName} is OTW to you now! Track them in the app.`;
+  const message = (await renderTemplate('driver_otw', { driverName })) ?? fallback;
   return sendSms(riderPhone, message, { ...options, eventType: 'driver_otw' });
 }
 
@@ -282,6 +294,7 @@ export async function notifyRiderDriverHere(
   driverName: string,
   options: SmsOptions = {}
 ): Promise<SendSmsResult> {
-  const message = `HMU ATL: ${driverName} is HERE! Head to the car.`;
+  const fallback = `HMU ATL: ${driverName} is HERE! Head to the car.`;
+  const message = (await renderTemplate('driver_here', { driverName })) ?? fallback;
   return sendSms(riderPhone, message, { ...options, eventType: 'driver_here' });
 }

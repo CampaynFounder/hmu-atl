@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { requireAdmin, hasPermission, unauthorizedResponse } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 import { publishAdminEvent } from '@/lib/ably/server';
 
@@ -8,16 +8,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: eventId } = await params;
-  const { userId: clerkId } = await auth();
-  if (!clerkId) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
-  const userRows = (await sql`
-    SELECT id, profile_type, is_admin FROM users WHERE clerk_id = ${clerkId} LIMIT 1
-  `) as Array<{ id: string; profile_type: string; is_admin: boolean | null }>;
-  const admin = userRows[0];
-  if (!admin || (admin.profile_type !== 'admin' && admin.is_admin !== true)) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-  }
+  const admin = await requireAdmin();
+  if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'act.safety.edit')) return unauthorizedResponse();
 
   const body = (await req.json().catch(() => ({}))) as { notes?: string };
   const notes = typeof body.notes === 'string' ? body.notes.slice(0, 2000) : null;

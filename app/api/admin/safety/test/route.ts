@@ -14,7 +14,7 @@
 //   - distress : { mode, rideId, party, kind }
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate, publishAdminEvent } from '@/lib/ably/server';
 import { getPlatformSafetyConfig } from '@/lib/safety/config';
@@ -48,6 +48,7 @@ function distressToSeverity(k: DistressKind): SafetyEventSeverity {
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'act.safety.view')) return unauthorizedResponse();
 
   const params = new URL(req.url).searchParams;
   const q = (params.get('q') ?? '').trim().slice(0, 80);
@@ -87,6 +88,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'act.safety.edit')) return unauthorizedResponse();
 
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: 'bad_body' }, { status: 400 });

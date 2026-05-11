@@ -9,13 +9,14 @@
 // actions. The admin picks the target persona + phone in the body.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { getPersonaById } from '@/lib/conversation/personas';
 import { sendSms } from '@/lib/sms/textbee';
 
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'grow.convagent.edit')) return unauthorizedResponse();
 
   const body = (await req.json().catch(() => ({}))) as {
     personaId?: string;

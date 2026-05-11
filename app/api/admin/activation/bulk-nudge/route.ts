@@ -11,7 +11,7 @@
 // list of user IDs from the client — keeps the action authoritative and
 // dedupes against very-recent state changes.
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 import { sendSms } from '@/lib/sms/textbee';
 import { findRecentlyNudged, DEFAULT_DEDUP_WINDOW_HOURS } from '@/lib/sms/dedup';
@@ -61,6 +61,7 @@ interface RiderCohortRow {
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'grow.activation.edit')) return unauthorizedResponse();
 
   const body = await req.json().catch(() => ({})) as {
     stage?: string;
