@@ -7,6 +7,11 @@
 -- Variables: bodies may interpolate {{varName}} placeholders. The `variables`
 -- column is the whitelist of names a template is allowed to reference; the
 -- renderer rejects edits that include unknown placeholders.
+--
+-- event_key whitelist: the CHECK below mirrors SMS_EVENT_KEYS in
+-- lib/sms/templates.ts. Adding a new transactional SMS means updating BOTH
+-- (the TS const for compile-time safety on senders, the SQL CHECK to prevent
+-- drift via direct DB inserts). Drop+re-add the constraint on schema change.
 
 CREATE TABLE IF NOT EXISTS sms_templates (
   event_key TEXT PRIMARY KEY,
@@ -21,6 +26,20 @@ CREATE TABLE IF NOT EXISTS sms_templates (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sms_templates_audience ON sms_templates(audience);
+
+-- Whitelist of allowed event_key values. Re-applied idempotently so re-runs of
+-- this migration (and additions to the list) take effect on existing prod tables.
+ALTER TABLE sms_templates DROP CONSTRAINT IF EXISTS sms_templates_event_key_check;
+ALTER TABLE sms_templates ADD CONSTRAINT sms_templates_event_key_check
+  CHECK (event_key IN (
+    'new_booking',
+    'ride_accepted',
+    'generic',
+    'booking_accepted',
+    'booking_declined',
+    'driver_otw',
+    'driver_here'
+  ));
 
 -- Seed every event_key currently emitted by lib/sms/textbee.ts notifier helpers.
 -- Bodies match the literals in textbee.ts as of 2026-05-11 so a flip to

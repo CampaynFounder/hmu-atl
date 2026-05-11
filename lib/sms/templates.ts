@@ -14,8 +14,24 @@
 
 import { sql } from '@/lib/db/client';
 
+// Canonical list of event_keys backed by an sms_templates row. Adding a new
+// transactional SMS = (1) append the key here, (2) add a seed row in
+// sql/sms-templates.sql with a matching event_key, and (3) call renderTemplate
+// with the new key in lib/sms/textbee.ts. Step 1 makes a typo in step 3 a TS
+// error and forces step 2 into the same PR.
+export const SMS_EVENT_KEYS = [
+  'new_booking',
+  'ride_accepted',
+  'generic',
+  'booking_accepted',
+  'booking_declined',
+  'driver_otw',
+  'driver_here',
+] as const;
+export type SmsEventKey = (typeof SMS_EVENT_KEYS)[number];
+
 export interface SmsTemplate {
-  event_key: string;
+  event_key: SmsEventKey;
   audience: 'driver' | 'rider' | 'admin' | 'any';
   trigger_description: string;
   body: string;
@@ -25,7 +41,7 @@ export interface SmsTemplate {
   updated_by: string | null;
 }
 
-async function loadTemplate(eventKey: string): Promise<SmsTemplate | null> {
+async function loadTemplate(eventKey: SmsEventKey): Promise<SmsTemplate | null> {
   try {
     const rows = await sql`
       SELECT event_key, audience, trigger_description, body, variables,
@@ -52,7 +68,7 @@ const PLACEHOLDER_RE = /\{\{(\w+)\}\}/g;
  * substituted in.
  */
 export async function renderTemplate(
-  eventKey: string,
+  eventKey: SmsEventKey,
   vars: Record<string, string | number | null | undefined> = {},
 ): Promise<string | null> {
   const tpl = await loadTemplate(eventKey);
@@ -95,7 +111,7 @@ export interface TemplateUpdate {
  * variable the call sites don't pass.
  */
 export async function updateTemplate(
-  eventKey: string,
+  eventKey: SmsEventKey,
   update: TemplateUpdate,
   updatedBy: string | null,
 ): Promise<SmsTemplate> {

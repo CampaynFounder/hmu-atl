@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse, checkPermission, logAdminAction } from '@/lib/admin/helpers';
-import { updateTemplate, type TemplateUpdate } from '@/lib/sms/templates';
+import { updateTemplate, SMS_EVENT_KEYS, type SmsEventKey, type TemplateUpdate } from '@/lib/sms/templates';
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ eventKey: string }> }) {
   const admin = await requireAdmin();
@@ -8,6 +8,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ ev
   if (!checkPermission(admin, 'admin.smstemplates.edit')) return unauthorizedResponse();
 
   const { eventKey } = await params;
+  if (!(SMS_EVENT_KEYS as readonly string[]).includes(eventKey)) {
+    return NextResponse.json({ error: `unknown event_key: ${eventKey}` }, { status: 404 });
+  }
+  const typedEventKey = eventKey as SmsEventKey;
   const body = await req.json() as Partial<TemplateUpdate>;
 
   if (typeof body.body !== 'string' || body.body.trim().length === 0) {
@@ -26,8 +30,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ ev
   const update: TemplateUpdate = { body: body.body, enabled: body.enabled };
 
   try {
-    const template = await updateTemplate(eventKey, update, admin.id);
-    await logAdminAction(admin.id, 'sms_template.update', 'sms_template', eventKey, { ...update });
+    const template = await updateTemplate(typedEventKey, update, admin.id);
+    await logAdminAction(admin.id, 'sms_template.update', 'sms_template', typedEventKey, { ...update });
     return NextResponse.json({ template });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Update failed';
