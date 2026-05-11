@@ -15,11 +15,15 @@
 import { sql } from '@/lib/db/client';
 
 // Canonical list of event_keys backed by an sms_templates row. Adding a new
-// transactional SMS = (1) append the key here, (2) add a seed row in
-// sql/sms-templates.sql with a matching event_key, and (3) call renderTemplate
-// with the new key in lib/sms/textbee.ts. Step 1 makes a typo in step 3 a TS
-// error and forces step 2 into the same PR.
+// transactional SMS = (1) append the key here, (2) extend the CHECK
+// constraint and add a seed row in sql/sms-templates.sql, and (3) call
+// renderTemplate with the new key at the send site. Step 1 makes a typo in
+// step 3 a TS error; step 2 prevents direct-insert drift in prod.
+//
+// Sections below mirror the layout in sql/sms-templates.sql — keep them in
+// the same order so diffs stay readable.
 export const SMS_EVENT_KEYS = [
+  // ── Transactional ride flow ──
   'new_booking',
   'ride_accepted',
   'generic',
@@ -27,6 +31,45 @@ export const SMS_EVENT_KEYS = [
   'booking_declined',
   'driver_otw',
   'driver_here',
+  // ── Standalone transactional ──
+  'hmu_received',
+  'eta_nudge',
+  'welcome_driver',
+  'safety_intro_driver',
+  'welcome_rider',
+  'safety_intro_rider',
+  'payout_ready',
+  'balance_available',
+  'maintenance_back_live',
+  // ── Activation nudges (admin-triggered, lib/admin/activation-checks.ts) ──
+  'driver_payout_setup',
+  'driver_deposit_floor',
+  'driver_location_enabled',
+  'driver_areas',
+  'driver_pricing',
+  'driver_media',
+  'driver_handle',
+  'driver_display_name',
+  'driver_share_link_promo',
+  'driver_profile_views_promo',
+  'driver_vehicle_info',
+  'driver_visible',
+  'rider_payment_method',
+  'rider_display_name',
+  'rider_avatar',
+  'rider_recent_signin',
+  'rider_has_activity',
+  // ── Mid-ride quick messages (rider/driver tap-to-send shortcuts) ──
+  'quick_rider_eta',
+  'quick_rider_wya',
+  'quick_rider_here',
+  'quick_rider_late',
+  'quick_rider_spot',
+  'quick_driver_otw',
+  'quick_driver_5min',
+  'quick_driver_here',
+  'quick_driver_cantfind',
+  'quick_driver_pulling_up',
 ] as const;
 export type SmsEventKey = (typeof SMS_EVENT_KEYS)[number];
 
@@ -87,6 +130,52 @@ export async function renderTemplate(
 
   if (missingVar) return null;
   return rendered;
+}
+
+/**
+ * In-memory render: substitute {{name}} placeholders in a body string using
+ * the supplied vars map. Returns null if the body references a variable the
+ * caller didn't supply (config-drift signal — caller can fall back to a
+ * hardcoded literal). Use this when you've already loaded a template row
+ * (e.g. via loadTemplateMap) and want to avoid a per-call DB roundtrip —
+ * the admin activation page renders thousands of previews per load.
+ */
+export function renderBody(
+  body: string,
+  vars: Record<string, string | number | null | undefined> = {},
+): string | null {
+  let missingVar = false;
+  const rendered = body.replace(PLACEHOLDER_RE, (_, name: string) => {
+    const v = vars[name];
+    if (v === undefined) {
+      missingVar = true;
+      return '';
+    }
+    return v === null ? '' : String(v);
+  });
+  if (missingVar) return null;
+  return rendered;
+}
+
+/**
+ * Bulk-load all templates into a map keyed by event_key. Use for routes that
+ * render many previews per request (activation dashboard). Returns an empty
+ * map on DB error so callers fall through to their hardcoded literal.
+ */
+export async function loadTemplateMap(): Promise<Map<SmsEventKey, SmsTemplate>> {
+  try {
+    const rows = await sql`
+      SELECT event_key, audience, trigger_description, body, variables,
+             enabled, updated_at, updated_by
+      FROM sms_templates
+    ` as SmsTemplate[];
+    const map = new Map<SmsEventKey, SmsTemplate>();
+    for (const r of rows) map.set(r.event_key, r);
+    return map;
+  } catch (e) {
+    console.error('[sms-templates] loadTemplateMap failed:', e);
+    return new Map();
+  }
 }
 
 export async function listTemplates(): Promise<SmsTemplate[]> {

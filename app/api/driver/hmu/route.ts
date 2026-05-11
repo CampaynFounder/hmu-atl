@@ -8,6 +8,7 @@ import { sql } from '@/lib/db/client';
 import { sendHmu } from '@/lib/hmu/helpers';
 import { notifyUser } from '@/lib/ably/server';
 import { sendSms } from '@/lib/sms/textbee';
+import { renderTemplate } from '@/lib/sms/templates';
 
 export const runtime = 'nodejs';
 
@@ -83,7 +84,8 @@ export async function POST(req: NextRequest) {
       if (riderPhone) {
         const marketRows = await sql`SELECT slug FROM markets WHERE id = ${driverMarketId} LIMIT 1`;
         const marketSlug = (marketRows[0]?.slug as string | null) || 'atl';
-        const message = `Hey ${firstName}! ${driverName} said HMU on HMU ATL for Cash Rides${areaPart}. Link Up atl.hmucashride.com/rider/home`;
+        const fallback = `Hey ${firstName}! ${driverName} said HMU on HMU ATL for Cash Rides${areaPart}. Link Up atl.hmucashride.com/rider/home`;
+        const message = (await renderTemplate('hmu_received', { firstName, driverName, areaPart })) ?? fallback;
         await sendSms(riderPhone, message, { market: marketSlug, eventType: 'hmu_received' });
       }
     } catch (err) {

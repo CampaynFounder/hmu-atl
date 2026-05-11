@@ -1,6 +1,15 @@
 // Activation completeness checks. Each check is a single boolean fact about a
 // payment-ready user that, if false, gives the admin a concrete thing to nudge.
 // Keep the rules here so SMS templates and UI chips stay in lockstep.
+//
+// SMS body source of truth: the row in sms_templates with event_key matching
+// `templateKey` — admin-editable at /admin/sms-templates. The `smsTemplate`
+// literal kept on each check is a fallback used when the DB row is missing,
+// disabled, or references an undefined variable. Callers SHOULD call
+// renderTemplate(templateKey, variables) first and fall back to
+// renderSms(smsTemplate, displayName) only when null.
+
+import type { SmsEventKey } from '@/lib/sms/templates';
 
 export type ActivationCheckKey =
   // driver — gap checks (red — fix this)
@@ -59,7 +68,19 @@ export interface ActivationCheck {
   label: string;          // chip text shown in the UI
   passed: boolean;
   tone: ActivationCheckTone;
-  smsTemplate: string;    // {name} placeholder; URLs/handles baked in at compute time
+  // Primary SMS body source: the sms_templates row with this event_key. Null
+  // when the check has no associated transactional SMS (currently every check
+  // has one, but the type allows for future "UI-only" chips).
+  templateKey: SmsEventKey | null;
+  // Variables map passed to renderTemplate. Names match {{placeholders}} in
+  // the DB body. `name` is the recipient's first name; other keys (profileUrl,
+  // viewCount) are baked at check-compute time.
+  variables: Record<string, string | number>;
+  // Fallback literal used when the DB row is missing/disabled/malformed. Uses
+  // single-brace {name} placeholder (renderSms substitutes first name); other
+  // values are interpolated at compute time. Keep in sync with the DB seed in
+  // sql/sms-templates.sql.
+  smsTemplate: string;
 }
 
 // ── Driver coverage breadth ───────────────────────────────────────────────
@@ -122,6 +143,8 @@ export function computeDriverChecks(d: DriverInput): ActivationCheck[] {
     hasPricing && d.stripe_onboarding_complete === true && hasDepositFloor;
   const handle = d.handle ?? '';
   const profileUrl = handle ? `atl.hmucashride.com/d/${handle}` : '';
+  const name = firstNameOrFam(d.display_name);
+  const viewCount = randInt(1, 5);
 
   return [
     {
@@ -129,6 +152,8 @@ export function computeDriverChecks(d: DriverInput): ActivationCheck[] {
       label: 'Payout setup',
       tone: 'gap',
       passed: d.stripe_onboarding_complete === true,
+      templateKey: 'driver_payout_setup',
+      variables: { name },
       smsTemplate: '{name} — finish your payout setup so we can pay you out the second a ride caps. Takes 2 min: atl.hmucashride.com/driver/payout-setup',
     },
     {
@@ -136,6 +161,8 @@ export function computeDriverChecks(d: DriverInput): ActivationCheck[] {
       label: 'Deposit floor',
       tone: 'gap',
       passed: hasDepositFloor,
+      templateKey: 'driver_deposit_floor',
+      variables: { name },
       smsTemplate: '{name}, set your deposit floor in profile so riders can lock in rides at amounts you guarantee. 30s: atl.hmucashride.com/driver/profile',
     },
     {
@@ -143,6 +170,8 @@ export function computeDriverChecks(d: DriverInput): ActivationCheck[] {
       label: 'Live location',
       tone: 'gap',
       passed: locationEnabled,
+      templateKey: 'driver_location_enabled',
+      variables: { name },
       smsTemplate: '{name}, turn on live location so riders see how close you are. They book what\'s nearest: atl.hmucashride.com/driver/home',
     },
     {
@@ -150,6 +179,8 @@ export function computeDriverChecks(d: DriverInput): ActivationCheck[] {
       label: 'Coverage areas',
       tone: 'gap',
       passed: hasAreas,
+      templateKey: 'driver_areas',
+      variables: { name },
       smsTemplate: 'Yo {name} — add the areas you cover so riders find you in the feed: atl.hmucashride.com/driver/profile',
     },
     {
@@ -157,6 +188,8 @@ export function computeDriverChecks(d: DriverInput): ActivationCheck[] {
       label: 'Pricing set',
       tone: 'gap',
       passed: hasPricing,
+      templateKey: 'driver_pricing',
+      variables: { name },
       smsTemplate: '{name}, riders pick drivers with prices set. Add yours so you stop getting skipped: atl.hmucashride.com/driver/profile',
     },
     {
@@ -164,6 +197,8 @@ export function computeDriverChecks(d: DriverInput): ActivationCheck[] {
       label: 'Profile photo/video',
       tone: 'gap',
       passed: !!(d.thumbnail_url || d.video_url),
+      templateKey: 'driver_media',
+      variables: {},
       smsTemplate: 'Riders book drivers they can SEE. 30 sec selfie video and you show up at the top: atl.hmucashride.com/driver/profile',
     },
     {
@@ -171,6 +206,8 @@ export function computeDriverChecks(d: DriverInput): ActivationCheck[] {
       label: '@handle',
       tone: 'gap',
       passed: !!d.handle,
+      templateKey: 'driver_handle',
+      variables: { name },
       smsTemplate: '{name}, lock in your @handle so people can share your HMU page: atl.hmucashride.com/driver/profile',
     },
     {
@@ -178,6 +215,8 @@ export function computeDriverChecks(d: DriverInput): ActivationCheck[] {
       label: 'Display name',
       tone: 'gap',
       passed: !!d.display_name,
+      templateKey: 'driver_display_name',
+      variables: {},
       smsTemplate: 'Quick one — set your display name on HMU so riders know who they\'re booking: atl.hmucashride.com/driver/profile',
     },
     // Promo: payment-ready driver who has a public link → tell them to share
@@ -188,21 +227,25 @@ export function computeDriverChecks(d: DriverInput): ActivationCheck[] {
       label: 'Share HMU link',
       tone: 'promo',
       passed: !(paymentReady && handle),
+      templateKey: 'driver_share_link_promo',
+      variables: { name, profileUrl },
       smsTemplate: handle
         ? `Yo {name} — your link is ${profileUrl}. Every ride booked there is 100% deposit-guaranteed; collect the rest cash on pull up. Share it.`
         : '',
     },
     // Promo: synthetic "your profile got viewed N times" social proof. Random
-    // is generated server-side per-call and baked into the template so the
-    // admin previews the exact text that ships. Only appears once handle
-    // exists (otherwise there's no link to share).
+    // generated once per compute call and passed in both as a variable (DB
+    // template body) and baked into the literal fallback, so the admin
+    // preview and the eventual send match when rendered from the same check.
     {
       key: 'driver_profile_views_promo',
       label: 'Profile views nudge',
       tone: 'promo',
       passed: !handle,
+      templateKey: 'driver_profile_views_promo',
+      variables: { name, viewCount, profileUrl },
       smsTemplate: handle
-        ? `Yo {name} — your profile got viewed ${randInt(1, 5)} times today. Share ${profileUrl} to lock those riders before they pick someone else.`
+        ? `Yo {name} — your profile got viewed ${viewCount} times today. Share ${profileUrl} to lock those riders before they pick someone else.`
         : '',
     },
     {
@@ -210,6 +253,8 @@ export function computeDriverChecks(d: DriverInput): ActivationCheck[] {
       label: 'Vehicle info',
       tone: 'gap',
       passed: hasVehicle,
+      templateKey: 'driver_vehicle_info',
+      variables: { name },
       smsTemplate: '{name} — add your car (make/model + plate) so riders know what to look for: atl.hmucashride.com/driver/profile',
     },
     {
@@ -217,6 +262,8 @@ export function computeDriverChecks(d: DriverInput): ActivationCheck[] {
       label: 'Visible in feed',
       tone: 'gap',
       passed: d.profile_visible === true,
+      templateKey: 'driver_visible',
+      variables: { name },
       smsTemplate: 'Heads up {name}: your profile is hidden from riders. Flip it visible so the bookings come in.',
     },
   ];
@@ -240,6 +287,7 @@ export function computeRiderChecks(r: RiderInput): ActivationCheck[] {
   const last = r.last_sign_in_at ? new Date(r.last_sign_in_at).getTime() : 0;
   const recentSignin = last > 0 && (Date.now() - last) < FOURTEEN_DAYS_MS;
   const hasActivity = r.rides_completed_count > 0 || r.ride_requests_count > 0;
+  const name = firstNameOrFam(r.display_name);
 
   return [
     {
@@ -247,6 +295,8 @@ export function computeRiderChecks(r: RiderInput): ActivationCheck[] {
       label: 'Payment method',
       tone: 'gap',
       passed: r.has_payment_method,
+      templateKey: 'rider_payment_method',
+      variables: { name },
       smsTemplate: '{name}, save a card so booking takes one tap. Small deposit locks the ride, rest is cash to driver: atl.hmucashride.com/rider/profile',
     },
     {
@@ -254,6 +304,8 @@ export function computeRiderChecks(r: RiderInput): ActivationCheck[] {
       label: 'Display name',
       tone: 'gap',
       passed: !!r.display_name,
+      templateKey: 'rider_display_name',
+      variables: {},
       smsTemplate: 'Quick one — add a display name on HMU so drivers know who they\'re picking up: atl.hmucashride.com/rider/profile',
     },
     {
@@ -261,6 +313,8 @@ export function computeRiderChecks(r: RiderInput): ActivationCheck[] {
       label: 'Profile photo',
       tone: 'gap',
       passed: !!(r.thumbnail_url || r.avatar_url),
+      templateKey: 'rider_avatar',
+      variables: {},
       smsTemplate: 'Drivers vibe-check rider profiles before accepting. Drop a photo so you don\'t get skipped: atl.hmucashride.com/rider/profile',
     },
     {
@@ -268,6 +322,8 @@ export function computeRiderChecks(r: RiderInput): ActivationCheck[] {
       label: 'Active (14d)',
       tone: 'gap',
       passed: recentSignin,
+      templateKey: 'rider_recent_signin',
+      variables: { name },
       smsTemplate: '{name}, miss us? Cheap rides where you set the price. Open the app and post a ride: atl.hmucashride.com/rider',
     },
     {
@@ -275,6 +331,8 @@ export function computeRiderChecks(r: RiderInput): ActivationCheck[] {
       label: 'Booked or requested a ride',
       tone: 'gap',
       passed: hasActivity,
+      templateKey: 'rider_has_activity',
+      variables: { name },
       smsTemplate: '{name}, you\'re payment-ready on HMU but haven\'t booked yet. Post a ride and let drivers come to you: atl.hmucashride.com/rider',
     },
   ];
@@ -290,10 +348,18 @@ export function completenessPercent(checks: ActivationCheck[]): number {
   return Math.round((passed / gaps.length) * 100);
 }
 
-// Render an SMS template with the user's first name. Falls back to "fam".
+// Strip a display name down to first name; fall back to "fam" when blank.
+// Single source of truth for the {name} substitution — used by both renderSms
+// (fallback literal path) and compute*Checks (variables map for the DB
+// template path) so both render with the same name.
+export function firstNameOrFam(displayName: string | null): string {
+  return displayName?.split(/\s+/)[0] || 'fam';
+}
+
+// Render the literal-fallback smsTemplate with the user's first name. Used
+// when renderTemplate() returned null (DB row missing/disabled/malformed).
 export function renderSms(template: string, displayName: string | null): string {
-  const first = (displayName?.split(/\s+/)[0] || 'fam');
-  return template.replace(/\{name\}/g, first);
+  return template.replace(/\{name\}/g, firstNameOrFam(displayName));
 }
 
 // Classify a driver into one canonical lifecycle stage. Picks the EARLIEST

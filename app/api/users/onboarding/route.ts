@@ -12,6 +12,7 @@ import {
 import { sql } from '@/lib/db/client';
 import { getActiveOffer, enrollDriver, LAUNCH_OFFER_ENABLED } from '@/lib/db/enrollment-offers';
 import { sendSms } from '@/lib/sms/textbee';
+import { renderTemplate } from '@/lib/sms/templates';
 import { publishAdminEvent } from '@/lib/ably/server';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 import { afterResponse } from '@/lib/runtime/after-response';
@@ -370,28 +371,25 @@ export async function POST(request: NextRequest) {
       // Send welcome SMS with guide link.
       if (phone) {
         try {
+          // Greeting first name — both templates accept `firstName`, fall back
+          // to "Hey" when the user hasn't supplied one (Clerk express signups).
+          const firstName = first_name || 'Hey';
           if (profile_type === 'driver') {
-            await sendSms(
-              phone,
-              `${first_name || 'Hey'}, welcome to HMU ATL! We're Atlanta-based and built this for you. See how drivers get paid: atl.hmucashride.com/guide/driver`,
-              { userId, eventType: 'welcome_driver' }
-            );
-            await sendSms(
-              phone,
-              `Safety on HMU is non-negotiable. How we keep drivers safe (deposits, GPS, check-ins, women-rider matching): atl.hmucashride.com/safety/driver`,
-              { userId, eventType: 'safety_intro_driver' }
-            );
+            const welcomeFallback = `${firstName}, welcome to HMU ATL! We're Atlanta-based and built this for you. See how drivers get paid: atl.hmucashride.com/guide/driver`;
+            const welcome = (await renderTemplate('welcome_driver', { firstName })) ?? welcomeFallback;
+            await sendSms(phone, welcome, { userId, eventType: 'welcome_driver' });
+
+            const safetyFallback = `Safety on HMU is non-negotiable. How we keep drivers safe (deposits, GPS, check-ins, women-rider matching): atl.hmucashride.com/safety/driver`;
+            const safety = (await renderTemplate('safety_intro_driver', {})) ?? safetyFallback;
+            await sendSms(phone, safety, { userId, eventType: 'safety_intro_driver' });
           } else {
-            await sendSms(
-              phone,
-              `${first_name || 'Hey'}, welcome to HMU ATL! We're Atlanta-based and value every rider's voice. See how booking works: atl.hmucashride.com/guide/rider`,
-              { userId, eventType: 'welcome_rider' }
-            );
-            await sendSms(
-              phone,
-              `Safety first. How we keep riders safe (women-driver filter, deposit refunds, GPS, mid-ride check-ins): atl.hmucashride.com/safety/rider`,
-              { userId, eventType: 'safety_intro_rider' }
-            );
+            const welcomeFallback = `${firstName}, welcome to HMU ATL! We're Atlanta-based and value every rider's voice. See how booking works: atl.hmucashride.com/guide/rider`;
+            const welcome = (await renderTemplate('welcome_rider', { firstName })) ?? welcomeFallback;
+            await sendSms(phone, welcome, { userId, eventType: 'welcome_rider' });
+
+            const safetyFallback = `Safety first. How we keep riders safe (women-driver filter, deposit refunds, GPS, mid-ride check-ins): atl.hmucashride.com/safety/rider`;
+            const safety = (await renderTemplate('safety_intro_rider', {})) ?? safetyFallback;
+            await sendSms(phone, safety, { userId, eventType: 'safety_intro_rider' });
           }
         } catch (smsErr) {
           console.error('[ONBOARDING] Welcome SMS failed:', smsErr);

@@ -13,9 +13,10 @@ import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 import {
   computeDriverChecks, computeRiderChecks, classifyCoverage, completenessPercent,
-  classifyDriverStage, classifyRiderStage, LIFECYCLE_STAGES,
+  classifyDriverStage, classifyRiderStage, LIFECYCLE_STAGES, renderSms,
   type ActivationCheck, type LifecycleStage,
 } from '@/lib/admin/activation-checks';
+import { loadTemplateMap, renderBody, type SmsTemplate, type SmsEventKey } from '@/lib/sms/templates';
 
 interface DriverRow {
   user_id: string;
@@ -130,6 +131,11 @@ export async function GET(req: NextRequest) {
     LIMIT 500
   ` as unknown as RiderRow[];
 
+  // Pre-load every sms_templates row once; the activation page renders many
+  // previews per request (drivers × checks + riders × checks) so a per-call
+  // DB roundtrip would multiply Neon load by ~7500x at the 500-user cap.
+  const templateMap = await loadTemplateMap();
+
   let drivers = driverRows.map(d => {
     const checks = computeDriverChecks(d);
     const coverage = classifyCoverage({
@@ -162,7 +168,7 @@ export async function GET(req: NextRequest) {
       accountStatus: d.account_status,
       lastSignInAt: d.last_sign_in_at,
       completeness: completenessPercent(checks),
-      checks: serialize(checks),
+      checks: serialize(checks, d.display_name, templateMap),
     };
   });
 
@@ -192,7 +198,7 @@ export async function GET(req: NextRequest) {
       stage,
       accountStatus: r.account_status,
       completeness: completenessPercent(checks),
-      checks: serialize(checks),
+      checks: serialize(checks, r.display_name, templateMap),
     };
   });
 
@@ -213,14 +219,34 @@ export async function GET(req: NextRequest) {
   });
 }
 
-function serialize(checks: ActivationCheck[]) {
-  return checks.map(c => ({
-    key: c.key,
-    label: c.label,
-    tone: c.tone,
-    passed: c.passed,
-    smsTemplate: c.smsTemplate,
-  }));
+// Wire shape for the admin UI. `smsPreview` is the exact text that would
+// ship — DB-rendered when the template row is present + enabled and supplies
+// every {{var}} the check declares, otherwise the literal fallback rendered
+// with renderSms. The client just displays smsPreview — no client-side
+// substitution — so admin edits to /admin/sms-templates show up immediately.
+function serialize(
+  checks: ActivationCheck[],
+  displayName: string | null,
+  templateMap: Map<SmsEventKey, SmsTemplate>,
+) {
+  return checks.map(c => {
+    let smsPreview = renderSms(c.smsTemplate, displayName);
+    if (c.templateKey) {
+      const tpl = templateMap.get(c.templateKey);
+      if (tpl && tpl.enabled) {
+        const rendered = renderBody(tpl.body, c.variables);
+        if (rendered !== null) smsPreview = rendered;
+      }
+    }
+    return {
+      key: c.key,
+      label: c.label,
+      tone: c.tone,
+      passed: c.passed,
+      smsTemplate: c.smsTemplate, // kept for backwards compat with any consumer that hasn't migrated
+      smsPreview,
+    };
+  });
 }
 
 function countStages(stages: LifecycleStage[]): Record<LifecycleStage, number> {
