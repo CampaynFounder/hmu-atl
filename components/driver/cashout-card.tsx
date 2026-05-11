@@ -175,31 +175,22 @@ export default function CashoutCard() {
       setPayoutAmount(Math.min(balance.available, 1));
     } else if (balance.instantAvailable > 0) {
       setSelectedMethod('instant');
-      const floor = isHmuFirst ? 1 : 2;
-      setPayoutAmount(Math.min(balance.instantAvailable, floor));
+      setPayoutAmount(Math.min(balance.instantAvailable, 1));
     }
-  }, [balance, payoutAmount, isHmuFirst]);
+  }, [balance, payoutAmount]);
 
   // Clamp payoutAmount down if the balance shrinks (e.g. after a cashout).
   useEffect(() => {
     if (payoutAmount > cashableAmount) setPayoutAmount(cashableAmount);
   }, [cashableAmount, payoutAmount]);
 
-  // Calculate fee based on selected amount and method
-  const calculateFee = (amount: number, method: 'standard' | 'instant') => {
-    if (method === 'standard') return 0;
-    if (isHmuFirst) return 0;
-    const percentFee = amount * 0.01;
-    return Math.max(1, Math.round(percentFee * 100) / 100);
-  };
+  // Cashout-time fees are 0 — all platform revenue is collected at deposit
+  // capture (see DepositOnlyStrategy). Driver receives the full slider amount.
+  const currentFee = 0;
+  const driverReceives = payoutAmount;
 
-  const currentFee = calculateFee(payoutAmount, selectedMethod);
-  const driverReceives = Math.max(0, payoutAmount - currentFee);
-
-  // Minimum payout: $1 or the fee + $1, whichever lets driver receive something
-  const minPayout = selectedMethod === 'instant' && !isHmuFirst
-    ? Math.min(cashableAmount, 2) // At least $2 so driver gets $1 after fee
-    : Math.min(cashableAmount, 1);
+  // Minimum payout is $1 in both modes — no fee to clear.
+  const minPayout = Math.min(cashableAmount, 1);
 
   const handleMethodSelect = (method: 'standard' | 'instant') => {
     // Mark user intent FIRST so the auto-default effect above can't race us
@@ -212,8 +203,7 @@ export default function CashoutCard() {
     const newCashable = method === 'instant'
       ? (balance?.instantAvailable ?? 0)
       : (balance?.available ?? 0);
-    const floor = (method === 'instant' && !isHmuFirst) ? 2 : 1;
-    setPayoutAmount(Math.min(newCashable, floor));
+    setPayoutAmount(Math.min(newCashable, 1));
   };
 
   async function handleCashout() {
@@ -795,9 +785,7 @@ export default function CashoutCard() {
             <div className={`co-seg-detail ${
               selectedMethod === 'instant' && balance.platformInstantEnabled === false
                 ? 'co-seg-detail--locked'
-                : selectedMethod === 'instant' && !isHmuFirst
-                  ? 'co-seg-detail--fee'
-                  : 'co-seg-detail--perk'
+                : 'co-seg-detail--perk'
             }`}>
               {selectedMethod === 'standard'
                 ? (balance.fundsAvailableOn
@@ -805,9 +793,7 @@ export default function CashoutCard() {
                     : '1–2 business days · FREE')
                 : balance.platformInstantEnabled === false
                   ? `${'⏳'} Settlement in progress · see above`
-                  : isHmuFirst
-                    ? `Arrives in minutes · FREE ${'🥇'}`
-                    : 'Arrives in minutes · $1 or 1%'}
+                  : 'Arrives in minutes · FREE'}
             </div>
 
             {/* Amount Slider — shows after selecting a method */}
@@ -853,19 +839,9 @@ export default function CashoutCard() {
                   />
                 </div>
 
-                {/* Breakdown */}
+                {/* Breakdown — no cashout-time fee, so it's just one line.
+                    All platform revenue is collected at deposit capture. */}
                 <div className="co-breakdown">
-                  <div className="co-breakdown-row">
-                    <span className="co-breakdown-label">Payout amount</span>
-                    <span className="co-breakdown-value">${payoutAmount.toFixed(2)}</span>
-                  </div>
-                  {currentFee > 0 && (
-                    <div className="co-breakdown-row">
-                      <span className="co-breakdown-label">Instant fee ({isHmuFirst ? 'waived' : '$1 or 1%'})</span>
-                      <span className="co-breakdown-value co-breakdown-value--yellow">-${currentFee.toFixed(2)}</span>
-                    </div>
-                  )}
-                  <hr className="co-breakdown-divider" />
                   <div className="co-breakdown-row">
                     <span className="co-breakdown-label co-breakdown-total">You receive</span>
                     <span className="co-breakdown-value co-breakdown-value--green co-breakdown-total">
@@ -908,7 +884,7 @@ export default function CashoutCard() {
                 }}
               >
                 <span>{'⚡'}</span>
-                <span>Cash out ${balance.instantAvailable.toFixed(2)} instantly{isHmuFirst ? ' · free' : ''}</span>
+                <span>Cash out ${balance.instantAvailable.toFixed(2)} instantly</span>
               </button>
             )}
 
