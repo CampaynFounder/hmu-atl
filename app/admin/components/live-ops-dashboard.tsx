@@ -9,12 +9,20 @@ import { useMarket } from './market-context';
 import { NewUsersSheet } from './new-users-sheet';
 import { DrillDownSheet } from './drilldown-sheet';
 
-type DrillType = 'matched' | 'active' | 'completed' | 'cancelled' | 'disputed' | 'revenue' | 'unconverted' | 'abandoned' | 'drivers' | null;
+type DrillType = 'matched' | 'active' | 'completed' | 'cancelled' | 'disputed' | 'revenue' | 'unconverted' | 'abandoned' | 'onboarded' | 'drivers' | null;
 
 interface Stats {
   rides: { matched: number; active: number; completed: number; cancelled: number; disputed: number; total: number };
   revenue: { totalCaptured: number; platformFees: number; feesWaived: number };
-  users: { unconvertedRiders: number; unconvertedDrivers: number; unconvertedTotal: number; abandonedTotal: number };
+  users: {
+    unconvertedRiders: number;
+    unconvertedDrivers: number;
+    unconvertedTotal: number;
+    abandonedTotal: number;
+    onboardedRiders: number;
+    onboardedDrivers: number;
+    onboardedTotal: number;
+  };
   drivers: { onRide: number };
 }
 
@@ -149,13 +157,12 @@ export function LiveOpsDashboard() {
       </div>
 
       {/* Live + Lifetime Stats — clickable when value > 0 */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {([
           { key: 'matched' as DrillType, label: 'Matched', value: stats?.rides.matched ?? 0, subtitle: 'Live now', color: 'blue' as const },
           { key: 'active' as DrillType, label: 'Active', value: stats?.rides.active ?? 0, subtitle: 'Live now', color: 'green' as const },
           { key: 'completed' as DrillType, label: 'Completed', value: stats?.rides.completed ?? 0, subtitle: `${stats?.rides.total ?? 0} total rides`, color: 'white' as const },
           { key: 'revenue' as DrillType, label: 'Revenue', value: fmt(stats?.revenue.totalCaptured ?? 0), subtitle: `Fees: ${fmt(stats?.revenue.platformFees ?? 0)}`, color: 'green' as const },
-          { key: 'unconverted' as DrillType, label: 'Unconverted', value: stats?.users.unconvertedTotal ?? 0, subtitle: `${stats?.users.unconvertedRiders ?? 0} R / ${stats?.users.unconvertedDrivers ?? 0} D`, color: 'yellow' as const },
         ]).map(card => {
           const numVal = typeof card.value === 'number' ? card.value : parseFloat(String(card.value).replace(/[^0-9.]/g, ''));
           const clickable = numVal > 0;
@@ -169,6 +176,53 @@ export function LiveOpsDashboard() {
             </div>
           );
         })}
+      </div>
+
+      {/* Signup → Onboarding → Ride funnel.
+          Onboarded = has a rider/driver profile row (founder's "converted" definition).
+          Unconverted = onboarded but no completed ride yet (the gap to close).
+          Abandoned = pending_activation, never finished signup. */}
+      <div>
+        <div className="flex items-baseline justify-between mb-2">
+          <h2 className="text-sm font-semibold text-neutral-300">User Funnel</h2>
+          <span className="text-[10px] text-neutral-600">signup → profile → ride</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {([
+            {
+              key: 'onboarded' as DrillType,
+              label: 'Onboarded',
+              value: stats?.users.onboardedTotal ?? 0,
+              subtitle: `${stats?.users.onboardedRiders ?? 0} R / ${stats?.users.onboardedDrivers ?? 0} D · has profile`,
+              color: 'green' as const,
+            },
+            {
+              key: 'unconverted' as DrillType,
+              label: 'Unconverted',
+              value: stats?.users.unconvertedTotal ?? 0,
+              subtitle: `${stats?.users.unconvertedRiders ?? 0} R / ${stats?.users.unconvertedDrivers ?? 0} D · no ride yet`,
+              color: 'yellow' as const,
+            },
+            {
+              key: 'abandoned' as DrillType,
+              label: 'Abandoned',
+              value: stats?.users.abandonedTotal ?? 0,
+              subtitle: 'pending_activation · never finished',
+              color: 'red' as const,
+            },
+          ]).map(card => {
+            const clickable = card.value > 0;
+            return clickable ? (
+              <button key={card.key} type="button" onClick={() => setDrillType(card.key)} className="text-left cursor-pointer">
+                <StatCard label={card.label} value={card.value} subtitle={card.subtitle} color={card.color} />
+              </button>
+            ) : (
+              <div key={card.key}>
+                <StatCard label={card.label} value={card.value} subtitle={card.subtitle} color={card.color} />
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* New users since last visit + incomplete signups */}
@@ -256,7 +310,6 @@ export function LiveOpsDashboard() {
               { key: 'cancelled' as DrillType, label: 'Cancelled', value: stats?.rides.cancelled ?? 0, color: 'red' as const },
               { key: 'disputed' as DrillType, label: 'Disputed', value: stats?.rides.disputed ?? 0, color: 'yellow' as const },
               { key: 'drivers' as DrillType, label: 'Drivers Active', value: stats?.drivers.onRide ?? 0, color: 'green' as const },
-              { key: 'abandoned' as DrillType, label: 'Incomplete Signups', value: stats?.users.abandonedTotal ?? 0, color: 'red' as const },
             ]).map((card, i) => {
               const numVal = typeof card.value === 'number' ? card.value : parseFloat(String(card.value).replace(/[^0-9.]/g, ''));
               const clickable = card.key && numVal > 0;

@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   const mf = (col: string) =>
     marketId ? `AND (${col} = '${marketId}' OR ${col} IS NULL)` : '';
 
-  const [liveStats, lifetimeStats, revenueStats, driverStats, unconvertedStats] = await Promise.all([
+  const [liveStats, lifetimeStats, revenueStats, driverStats, unconvertedStats, funnelStats] = await Promise.all([
     // Live ride counts — currently active regardless of when created
     marketId ? sql`
       SELECT
@@ -100,6 +100,45 @@ export async function GET(req: NextRequest) {
       WHERE u.completed_rides = 0
         AND u.account_status NOT IN ('suspended', 'banned')
     `,
+
+    // Funnel: onboarded = has a rider/driver profile row (their profile is built),
+    // independent of whether they've completed a ride. Founder's definition of
+    // "converted" is "has a profile". Unconverted/abandoned counts above stay
+    // ride-conversion oriented; this row gives the profile-conversion view.
+    marketId ? sql`
+      SELECT
+        COUNT(*) FILTER (
+          WHERE u.profile_type = 'rider'
+            AND EXISTS (SELECT 1 FROM rider_profiles rp WHERE rp.user_id = u.id)
+        ) as onboarded_riders,
+        COUNT(*) FILTER (
+          WHERE u.profile_type = 'driver'
+            AND EXISTS (SELECT 1 FROM driver_profiles dp WHERE dp.user_id = u.id)
+        ) as onboarded_drivers,
+        COUNT(*) FILTER (
+          WHERE EXISTS (SELECT 1 FROM rider_profiles rp WHERE rp.user_id = u.id)
+             OR EXISTS (SELECT 1 FROM driver_profiles dp WHERE dp.user_id = u.id)
+        ) as onboarded_total
+      FROM users u
+      WHERE u.account_status NOT IN ('suspended', 'banned')
+        AND u.market_id = ${marketId}
+    ` : sql`
+      SELECT
+        COUNT(*) FILTER (
+          WHERE u.profile_type = 'rider'
+            AND EXISTS (SELECT 1 FROM rider_profiles rp WHERE rp.user_id = u.id)
+        ) as onboarded_riders,
+        COUNT(*) FILTER (
+          WHERE u.profile_type = 'driver'
+            AND EXISTS (SELECT 1 FROM driver_profiles dp WHERE dp.user_id = u.id)
+        ) as onboarded_drivers,
+        COUNT(*) FILTER (
+          WHERE EXISTS (SELECT 1 FROM rider_profiles rp WHERE rp.user_id = u.id)
+             OR EXISTS (SELECT 1 FROM driver_profiles dp WHERE dp.user_id = u.id)
+        ) as onboarded_total
+      FROM users u
+      WHERE u.account_status NOT IN ('suspended', 'banned')
+    `,
   ]);
 
   const live = liveStats[0] ?? {};
@@ -107,6 +146,7 @@ export async function GET(req: NextRequest) {
   const revenue = revenueStats[0] ?? {};
   const drivers = driverStats[0] ?? {};
   const unconverted = unconvertedStats[0] ?? {};
+  const funnel = funnelStats[0] ?? {};
 
   return NextResponse.json({
     rides: {
@@ -127,6 +167,9 @@ export async function GET(req: NextRequest) {
       unconvertedDrivers: Number(unconverted.active_drivers ?? 0),
       unconvertedTotal: Number(unconverted.active_total ?? 0),
       abandonedTotal: Number(unconverted.abandoned_total ?? 0),
+      onboardedRiders: Number(funnel.onboarded_riders ?? 0),
+      onboardedDrivers: Number(funnel.onboarded_drivers ?? 0),
+      onboardedTotal: Number(funnel.onboarded_total ?? 0),
     },
     drivers: {
       onRide: Number(drivers.on_ride ?? 0),
