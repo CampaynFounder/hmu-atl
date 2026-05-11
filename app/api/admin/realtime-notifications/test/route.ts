@@ -6,7 +6,7 @@
 // banner component's normal listener path is exercised end-to-end.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse } from '@/lib/admin/helpers';
 import { publishAdminEvent } from '@/lib/ably/server';
 import type { AdminRealtimeNotifType } from '@/lib/admin/realtime-notifications';
 
@@ -33,7 +33,7 @@ const TEST_PAYLOADS: Record<AdminRealtimeNotifType, { eventName: string; data: R
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
-  if (!admin.is_super) return unauthorizedResponse();
+  if (!hasPermission(admin, 'admin.banners.edit')) return unauthorizedResponse();
 
   const body = await req.json().catch(() => null) as { type?: string } | null;
   const type = body?.type as AdminRealtimeNotifType | undefined;
