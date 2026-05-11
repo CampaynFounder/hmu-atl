@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMarket } from '@/app/admin/components/market-context';
-import { renderSms, LIFECYCLE_STAGES, type CoverageBucket, type LifecycleStage } from '@/lib/admin/activation-checks';
+import { renderSms, LIFECYCLE_STAGES, type ActivationCheckTone, type CoverageBucket, type LifecycleStage } from '@/lib/admin/activation-checks';
 
 interface CheckRow {
   key: string;
   label: string;
+  tone: ActivationCheckTone;
   passed: boolean;
   smsTemplate: string;
 }
@@ -512,15 +513,22 @@ function NudgeChip({
     }
   };
 
+  // Promo chips (driver is fully payment-ready, time to push them to share)
+  // render in cyan/sky so admin reads them as "send opportunity" instead of
+  // "fix this gap." Sent + error states stay green/red across both tones.
+  const isPromo = check.tone === 'promo';
   const baseColor =
     status === 'sent' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' :
     status === 'error' ? 'bg-red-500/20 text-red-300 border-red-500/50' :
-    'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20';
+    isPromo
+      ? 'bg-sky-500/10 text-sky-300 border-sky-500/40 hover:bg-sky-500/20'
+      : 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20';
 
+  const verb = isPromo ? 'Send' : 'Nudge';
   const label =
     status === 'sent' ? `✓ ${check.label} sent` :
     status === 'error' ? `× ${check.label} failed` :
-    `Nudge: ${check.label}`;
+    `${verb}: ${check.label}`;
 
   return (
     <button

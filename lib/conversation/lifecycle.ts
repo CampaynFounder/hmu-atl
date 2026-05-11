@@ -18,6 +18,7 @@ interface DriverStateRow {
   video_url: string | null;
   vehicle_info: Record<string, unknown> | null;
   stripe_onboarding_complete: boolean | null;
+  deposit_floor: string | number | null;
   last_sign_in_at: string | null;
   has_profile_row: boolean;
   has_posts: boolean;
@@ -48,7 +49,8 @@ export async function getUserLifecycleStage(userId: string): Promise<LifecycleSt
       SELECT
         dp.display_name, dp.handle, dp.area_slugs, dp.services_entire_market,
         dp.pricing, dp.thumbnail_url, dp.video_url, dp.vehicle_info,
-        dp.stripe_onboarding_complete, u.last_sign_in_at,
+        dp.stripe_onboarding_complete, dp.deposit_floor,
+        u.last_sign_in_at,
         (dp.user_id IS NOT NULL) as has_profile_row,
         EXISTS (SELECT 1 FROM hmu_posts hp WHERE hp.user_id = u.id) as has_posts
       FROM users u
@@ -69,6 +71,7 @@ export async function getUserLifecycleStage(userId: string): Promise<LifecycleSt
       video_url: d.video_url,
       vehicle_info: d.vehicle_info,
       stripe_onboarding_complete: d.stripe_onboarding_complete,
+      deposit_floor: d.deposit_floor,
       last_sign_in_at: d.last_sign_in_at,
       has_posts: d.has_posts,
     });
