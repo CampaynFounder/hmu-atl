@@ -6,6 +6,7 @@ import { sendSms } from '@/lib/sms/textbee';
 import { isFeatureEnabled } from '@/lib/feature-flags';
 import { getConfig } from './config';
 import { pickPersonaForUser, getPersonaById, type ConversationPersona } from './personas';
+import { getUserLifecycleStage } from './lifecycle';
 
 const FLAG = 'conversation_agent';
 
@@ -123,7 +124,11 @@ export async function scheduleFirstMessageForUser(input: ScheduleInput): Promise
     const existing = await sql`SELECT id FROM conversation_threads WHERE user_id = ${input.userId} LIMIT 1`;
     if (existing[0]) return { scheduled: false, reason: 'thread-exists' };
 
-    const persona = await pickPersonaForUser(input.gender, input.profileType);
+    // Stage drives persona match — admin can author distinct personas (or
+    // distinct goals on the same persona) for signup vs payment_setup vs
+    // ready_idle, etc. Null falls back to 'any'-stage personas.
+    const stage = await getUserLifecycleStage(input.userId);
+    const persona = await pickPersonaForUser(input.gender, input.profileType, stage);
     if (!persona) return { scheduled: false, reason: 'no-matching-persona' };
 
     const config = await getConfig();
@@ -247,6 +252,25 @@ export async function drainQueue(limit = 50): Promise<DrainResult> {
         await markProcessed(msg.id, 'cancelled', 'persona-inactive');
         result.skipped++; bump(result.reasons, 'persona-inactive');
         continue;
+      }
+
+      // If the persona is stage-scoped and the user has moved past that stage
+      // since the message was scheduled, skip the send and close the thread —
+      // the activation goal is already met. Only do the lookup when stage
+      // matters; 'any'-stage personas don't pay this cost.
+      if (persona.lifecycle_stage !== 'any') {
+        const currentStage = await getUserLifecycleStage(thread.user_id);
+        if (currentStage && currentStage !== persona.lifecycle_stage) {
+          await markProcessed(msg.id, 'cancelled', 'stage-advanced');
+          await sql`
+            UPDATE conversation_threads
+            SET status = 'closed', updated_at = NOW(), flagged_for_review = FALSE,
+                flag_reason = 'stage-advanced'
+            WHERE id = ${thread.id}
+          `;
+          result.skipped++; bump(result.reasons, 'stage-advanced');
+          continue;
+        }
       }
 
       // Cap: stop outbound once persona max messages hit (unless it's the vision follow-up).

@@ -1,10 +1,21 @@
 // Conversation personas — friendly SMS concierges for new-user outreach.
-// Matched to a user by (gender, profile_type) with fallback to any-match.
+// Matched to a user by (gender, profile_type, lifecycle_stage) with fallback
+// to any-match on each dimension. Goal is a free-form activation prompt the
+// admin writes (e.g. "Get them to add a payment method") and the system_prompt
+// can reference at runtime when Claude generates replies.
 
 import { sql } from '@/lib/db/client';
 
 export type GenderMatch = 'female' | 'male' | 'nonbinary' | 'any';
 export type UserTypeMatch = 'driver' | 'rider' | 'any';
+export type LifecycleStageMatch =
+  | 'any'
+  | 'signup'
+  | 'profile_incomplete'
+  | 'payment_setup'
+  | 'ready_idle'
+  | 'engaged'
+  | 'dormant';
 
 export interface ConversationPersona {
   id: string;
@@ -12,6 +23,8 @@ export interface ConversationPersona {
   display_name: string;
   gender_match: GenderMatch;
   user_type_match: UserTypeMatch;
+  lifecycle_stage: LifecycleStageMatch;
+  goal: string | null;
   greeting_template: string;
   vision_template: string | null;
   follow_up_template: string | null;
@@ -31,6 +44,8 @@ export interface PersonaInput {
   display_name: string;
   gender_match: GenderMatch;
   user_type_match: UserTypeMatch;
+  lifecycle_stage: LifecycleStageMatch;
+  goal?: string | null;
   greeting_template: string;
   vision_template?: string | null;
   follow_up_template?: string | null;
@@ -63,13 +78,14 @@ export async function getPersonaBySlug(slug: string): Promise<ConversationPerson
 export async function createPersona(input: PersonaInput, createdBy: string): Promise<ConversationPersona> {
   const rows = await sql`
     INSERT INTO conversation_personas (
-      slug, display_name, gender_match, user_type_match,
+      slug, display_name, gender_match, user_type_match, lifecycle_stage, goal,
       greeting_template, vision_template, follow_up_template, system_prompt,
       max_messages_per_thread, quiet_hours_start, quiet_hours_end,
       follow_up_schedule_hours, is_active, sort_order,
       created_by, updated_by
     ) VALUES (
       ${input.slug}, ${input.display_name}, ${input.gender_match}, ${input.user_type_match},
+      ${input.lifecycle_stage}, ${input.goal ?? null},
       ${input.greeting_template}, ${input.vision_template ?? null}, ${input.follow_up_template ?? null}, ${input.system_prompt},
       ${input.max_messages_per_thread}, ${input.quiet_hours_start}, ${input.quiet_hours_end},
       ${input.follow_up_schedule_hours}::int[], ${input.is_active}, ${input.sort_order},
@@ -88,6 +104,8 @@ export async function updatePersona(id: string, input: PersonaInput, updatedBy: 
       display_name = ${input.display_name},
       gender_match = ${input.gender_match},
       user_type_match = ${input.user_type_match},
+      lifecycle_stage = ${input.lifecycle_stage},
+      goal = ${input.goal ?? null},
       greeting_template = ${input.greeting_template},
       vision_template = ${input.vision_template ?? null},
       follow_up_template = ${input.follow_up_template ?? null},
@@ -111,15 +129,15 @@ export async function deletePersona(id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-// Match a user to the best persona. Priority:
-//   1. exact gender + exact user_type
-//   2. exact gender + any user_type
-//   3. any gender + exact user_type
-//   4. any + any
-// Only active personas are eligible.
+// Match a user to the best persona across three dimensions: gender, user type,
+// and lifecycle stage. Exact match on each dimension scores 2; 'any' scores 1.
+// Highest total score wins; ties broken by sort_order. Only active personas
+// are eligible. When `stage` is null (caller didn't classify), stage matching
+// degrades to "any-only" eligibility (preserves Phase 2 behavior pre-staging).
 export async function pickPersonaForUser(
   gender: string | null,
   profileType: 'driver' | 'rider' | 'admin',
+  stage: LifecycleStageMatch | null = null,
 ): Promise<ConversationPersona | null> {
   const genderMatch: GenderMatch =
     gender === 'female' ? 'female' :
@@ -132,15 +150,21 @@ export async function pickPersonaForUser(
     profileType === 'rider' ? 'rider' :
     'any';
 
+  // When caller has no stage info, only 'any'-stage personas are eligible —
+  // preserves the pre-lifecycle behavior of Phase 2 where stage was uniform.
+  const stageMatch: LifecycleStageMatch = stage ?? 'any';
+
   const rows = await sql`
     SELECT *,
       (CASE WHEN gender_match = ${genderMatch} THEN 2 WHEN gender_match = 'any' THEN 1 ELSE 0 END) +
-      (CASE WHEN user_type_match = ${typeMatch} THEN 2 WHEN user_type_match = 'any' THEN 1 ELSE 0 END)
+      (CASE WHEN user_type_match = ${typeMatch} THEN 2 WHEN user_type_match = 'any' THEN 1 ELSE 0 END) +
+      (CASE WHEN lifecycle_stage = ${stageMatch} THEN 2 WHEN lifecycle_stage = 'any' THEN 1 ELSE 0 END)
       AS score
     FROM conversation_personas
     WHERE is_active = TRUE
       AND (gender_match = ${genderMatch} OR gender_match = 'any')
       AND (user_type_match = ${typeMatch} OR user_type_match = 'any')
+      AND (lifecycle_stage = ${stageMatch} OR lifecycle_stage = 'any')
     ORDER BY score DESC, sort_order ASC
     LIMIT 1
   `;
