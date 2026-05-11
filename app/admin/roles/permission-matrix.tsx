@@ -50,6 +50,7 @@ const PERMISSION_SECTIONS = [
     { key: 'admin.browsebanner', label: 'Browse Banner' },
     { key: 'admin.maintenance', label: 'Maintenance' },
     { key: 'admin.voip', label: 'VoIP Debug' },
+    { key: 'admin.smstemplates', label: 'SMS Templates' },
     { key: 'admin.dashboards', label: 'Dashboards' },
     { key: 'admin.audit', label: 'Audit Log' },
   ]},

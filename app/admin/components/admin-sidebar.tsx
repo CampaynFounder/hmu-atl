@@ -79,6 +79,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/rider-browse-banner', label: 'Browse Banner', icon: '📣' },
       { href: '/admin/maintenance', label: 'Maintenance', icon: '🚧' },
       { href: '/admin/voip-debug', label: 'VoIP Debug', icon: '📡' },
+      { href: '/admin/sms-templates', label: 'SMS Templates', icon: '✉️' },
       { href: '/admin/audit', label: 'Audit Log', icon: '📋' },
     ],
   },
