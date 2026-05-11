@@ -67,6 +67,24 @@ export async function POST(req: Request) {
   // Handle events
   const eventType = evt.type;
 
+  // Idempotency: claim the svix message id for events whose handlers have
+  // counter-style side effects (sign_in_count++, first-return SMS). Svix
+  // retries on 5xx/timeout, so without dedup the same session.created could
+  // double-increment. Mirrors the Stripe webhook pattern. We scope the dedup
+  // to the events that need it — user.created/updated/deleted are already
+  // idempotent on clerk_id.
+  if (eventType === 'session.created') {
+    const claim = await sql`
+      INSERT INTO processed_webhook_events (event_id, source, event_type)
+      VALUES (${`clerk:${svix_id}`}, 'clerk', ${eventType})
+      ON CONFLICT (event_id) DO NOTHING
+      RETURNING event_id
+    `;
+    if (claim.length === 0) {
+      return new Response('Deduped', { status: 200 });
+    }
+  }
+
   // user.created: log only. We DELIBERATELY do not create the Neon row here
   // because phone is not yet verified — unverified signups are treated as bots
   // and excluded from admin analytics. Row creation happens on user.updated
@@ -270,25 +288,41 @@ export async function POST(req: Request) {
       const clerkId = data.user_id;
       if (!clerkId) return new Response('No user_id on session', { status: 200 });
 
-      // Update sign-in tracking
+      // Update sign-in tracking. `was_first_return` is true iff this UPDATE
+      // is the one that flipped first_return_at from NULL→NOW(). RETURNING
+      // sees post-UPDATE values, so we capture the prior row in a CTE and
+      // derive the transition flag from that. The previous implementation
+      // checked `sign_in_count === 1`, which can never be true on a
+      // return-day session (signup day already incremented to 1), so the
+      // first-return SMS never fired.
       const rows = await sql`
-        UPDATE users SET
+        WITH prev AS (
+          SELECT id, first_return_at AS prev_first_return_at, created_at
+          FROM users WHERE clerk_id = ${clerkId}
+        )
+        UPDATE users u SET
           last_sign_in_at = NOW(),
-          sign_in_count = COALESCE(sign_in_count, 0) + 1,
+          sign_in_count = COALESCE(u.sign_in_count, 0) + 1,
           first_return_at = CASE
-            WHEN first_return_at IS NULL AND created_at::date < CURRENT_DATE
+            WHEN u.first_return_at IS NULL AND u.created_at::date < CURRENT_DATE
             THEN NOW()
-            ELSE first_return_at
+            ELSE u.first_return_at
           END
-        WHERE clerk_id = ${clerkId}
-        RETURNING id, profile_type, first_return_at, sign_in_count, created_at
+        FROM prev
+        WHERE u.id = prev.id
+        RETURNING
+          u.id,
+          u.profile_type,
+          u.first_return_at,
+          u.sign_in_count,
+          u.created_at,
+          (prev.prev_first_return_at IS NULL AND prev.created_at::date < CURRENT_DATE) AS was_first_return
       `;
 
       if (rows.length > 0) {
-        const user = rows[0] as { id: string; profile_type: string; first_return_at: string | null; sign_in_count: number; created_at: string };
+        const user = rows[0] as { id: string; profile_type: string; first_return_at: string | null; sign_in_count: number; created_at: string; was_first_return: boolean };
 
-        // Fire first-return notification if this is the first return (sign_in_count = 1 after signup day)
-        if (user.sign_in_count === 1 && user.first_return_at) {
+        if (user.was_first_return) {
           const notifType = user.profile_type === 'driver' ? 'driver_first_return' : 'rider_first_return';
           // Get user details for the SMS
           const profileRows = await sql`
@@ -314,6 +348,8 @@ export async function POST(req: Request) {
       return new Response('Session tracked', { status: 200 });
     } catch (error) {
       console.error('[WEBHOOK] session.created error:', error);
+      // Release the dedup claim so a Svix retry can re-process this event.
+      await sql`DELETE FROM processed_webhook_events WHERE event_id = ${`clerk:${svix_id}`}`.catch(() => {});
       return new Response('Internal server error', { status: 500 });
     }
   }

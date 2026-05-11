@@ -449,19 +449,38 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             </div>
           )}
           <div>
-            <p className="text-neutral-500">Last Sign In</p>
+            <p
+              className="text-neutral-500"
+              title="Updated by Clerk session.created webhook. Tracks distinct sign-in sessions, not app opens — a user with a long-lived session may show one count per week."
+            >
+              Last Sign In
+            </p>
             {user.lastSignInAt ? (
               <>
                 <p className="text-white">{new Date(user.lastSignInAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
                 <p className="text-neutral-400">{new Date(user.lastSignInAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</p>
               </>
             ) : (
-              <p className="text-red-400">Never returned</p>
+              <p className="text-red-400">Never signed in</p>
             )}
           </div>
           <div>
-            <p className="text-neutral-500">Sign-in Count</p>
-            <p className="text-white">{user.signInCount}</p>
+            <p
+              className="text-neutral-500"
+              title={
+                user.signInCount === 0 && user.lastSignInAt
+                  ? 'Last sign-in is known but count was never tracked (predates the session.created handler). Run the sign-in backfill or wait for the next session.'
+                  : 'Incremented once per Clerk session.created event. Not every app open — only new sessions.'
+              }
+            >
+              Sign-in Count
+            </p>
+            <p className="text-white">
+              {user.signInCount}
+              {user.signInCount === 0 && user.lastSignInAt && (
+                <span className="text-[10px] text-yellow-400 ml-2">untracked</span>
+              )}
+            </p>
           </div>
           <div>
             <p className="text-neutral-500">Profile Type</p>
