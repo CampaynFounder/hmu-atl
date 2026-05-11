@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
-import { requireAdmin, logAdminAction, unauthorizedResponse } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, logAdminAction, unauthorizedResponse } from '@/lib/admin/helpers';
 
 export const runtime = 'nodejs';
 
@@ -14,6 +14,7 @@ export async function POST(
 ) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'act.hmus.edit')) return unauthorizedResponse();
 
   const { id } = await params;
 

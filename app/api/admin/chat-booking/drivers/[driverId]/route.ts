@@ -5,7 +5,7 @@
 //   false → force chat OFF for this driver regardless of global
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 import { invalidatePlatformConfig } from '@/lib/platform-config/get';
 import { getChatBookingConfig } from '@/lib/chat/config';
@@ -16,6 +16,7 @@ export async function PATCH(
 ) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'grow.chatbooking.edit')) return unauthorizedResponse();
 
   const { driverId } = await params;
   const body = (await req.json().catch(() => null)) as { override?: boolean | null } | null;

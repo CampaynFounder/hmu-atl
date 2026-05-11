@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { getConfig, updateConfig, type ConfigUpdate } from '@/lib/conversation/config';
 
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'grow.convagent.view')) return unauthorizedResponse();
   const config = await getConfig();
   return NextResponse.json({ config });
 }
@@ -12,6 +13,7 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'grow.convagent.edit')) return unauthorizedResponse();
 
   const body = await req.json() as Partial<ConfigUpdate>;
 

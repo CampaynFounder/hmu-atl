@@ -3,11 +3,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
-import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'grow.convagent.edit')) return unauthorizedResponse();
 
   const { id } = await params;
   const rows = await sql`

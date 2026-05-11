@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { getStateFresh, updateState, type MaintenanceStateInput } from '@/lib/maintenance';
 
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'admin.maintenance.view')) return unauthorizedResponse();
   const state = await getStateFresh();
   return NextResponse.json({ state });
 }
@@ -12,6 +13,7 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'admin.maintenance.edit')) return unauthorizedResponse();
   const body = await req.json() as Partial<MaintenanceStateInput>;
 
   if (typeof body.enabled !== 'boolean') {

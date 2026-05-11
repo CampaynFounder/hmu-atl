@@ -1,7 +1,7 @@
 // CSV transcript export for compliance review + offline audit.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse } from '@/lib/admin/helpers';
 import { getThread, listMessages } from '@/lib/conversation/threads';
 
 function csvEscape(v: string | null | undefined): string {
@@ -16,6 +16,7 @@ function csvEscape(v: string | null | undefined): string {
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'grow.convagent.view')) return unauthorizedResponse();
 
   const { id } = await params;
   const thread = await getThread(id);
