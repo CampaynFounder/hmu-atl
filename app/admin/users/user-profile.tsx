@@ -88,6 +88,14 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
   const [smsSending, setSmsSending] = useState(false);
   const [smsResult, setSmsResult] = useState<string | null>(null);
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [copyFlash, setCopyFlash] = useState<string | null>(null);
+  const [nudgeSending, setNudgeSending] = useState(false);
+  const [nudgeMsg, setNudgeMsg] = useState<
+    | { kind: 'ok'; preview: string }
+    | { kind: 'error'; reason: string }
+    | { kind: 'dedup'; lastSentAt: string; windowHours: number }
+    | null
+  >(null);
 
   useEffect(() => {
     if (!avatarOpen) return;
@@ -162,6 +170,50 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
   }
 
   const { user, rides, ratings, disputes, activity = [] } = data;
+
+  const shareLinkDisplay = user.handle ? `atl.hmucashride.com/d/${user.handle}` : '';
+  const shareLinkFull = user.handle ? `https://atl.hmucashride.com/d/${user.handle}` : '';
+  const isDriver = user.profileType === 'driver' || user.profileType === 'both';
+
+  const copyShareLink = async () => {
+    if (!shareLinkFull) return;
+    try {
+      await navigator.clipboard.writeText(shareLinkFull);
+      setCopyFlash('Copied!');
+      setTimeout(() => setCopyFlash(null), 1500);
+    } catch {
+      setCopyFlash('Copy failed');
+      setTimeout(() => setCopyFlash(null), 2000);
+    }
+  };
+
+  const sendShareLinkNudge = async (ackDuplicate = false) => {
+    setNudgeSending(true);
+    setNudgeMsg(null);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/send-activation-nudge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checkKey: 'driver_share_link_promo', ackDuplicate }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setNudgeMsg({ kind: 'ok', preview: json.smsPreview || 'Sent' });
+      } else if (res.status === 409 && json.error === 'duplicate_within_window') {
+        setNudgeMsg({
+          kind: 'dedup',
+          lastSentAt: json.lastSentAt,
+          windowHours: json.windowHours ?? 72,
+        });
+      } else {
+        setNudgeMsg({ kind: 'error', reason: json.reason || json.error || `HTTP ${res.status}` });
+      }
+    } catch (err) {
+      setNudgeMsg({ kind: 'error', reason: err instanceof Error ? err.message : 'Network error' });
+    } finally {
+      setNudgeSending(false);
+    }
+  };
 
   const ratingCounts = ratings.filter((r) => r.direction === 'received').reduce(
     (acc, r) => { acc[r.type] = (acc[r.type] ?? 0) + 1; return acc; },
@@ -276,6 +328,91 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
           )}
         </div>
       </div>
+
+      {/* HMU Share Link — drivers only. Surfaces the public profile URL with
+          one-click copy + "send activation nudge" so admins can fire the
+          canonical driver_share_link_promo SMS straight from this page.
+          RBAC follow-up: gate the nudge button on a future
+          'activation:send_nudge' slug in lib/admin/route-permissions.ts so
+          roles like Sr Growth Manager can use it without full super access. */}
+      {isDriver && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold">HMU Share Link</h3>
+            {copyFlash && (
+              <span className="text-[10px] text-[#00E676] font-medium">{copyFlash}</span>
+            )}
+          </div>
+          {user.handle ? (
+            <>
+              <div className="flex items-center gap-2 mb-3">
+                <code className="flex-1 min-w-0 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-[#00E676] font-mono truncate">
+                  {shareLinkDisplay}
+                </code>
+                <button
+                  onClick={copyShareLink}
+                  className="bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors shrink-0"
+                >
+                  Copy
+                </button>
+                <a
+                  href={shareLinkFull}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors shrink-0"
+                >
+                  Open
+                </a>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => sendShareLinkNudge(false)}
+                  disabled={nudgeSending || !user.phone}
+                  className="bg-[#00E676] hover:bg-[#00C864] disabled:bg-neutral-700 disabled:text-neutral-500 text-black text-xs font-semibold px-3 py-2 rounded-lg transition-colors"
+                  title={!user.phone ? 'No phone on profile' : 'Sends the canonical share-link activation SMS'}
+                >
+                  {nudgeSending ? 'Sending…' : 'Send activation nudge'}
+                </button>
+                <span className="text-[10px] text-neutral-500">
+                  Fires <code className="font-mono">driver_share_link_promo</code> SMS to {user.phone || 'their phone'}
+                </span>
+              </div>
+              {nudgeMsg?.kind === 'ok' && (
+                <div className="mt-3 p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                  <p className="text-[11px] text-emerald-400 font-medium">Nudge sent.</p>
+                  <p className="text-[10px] text-emerald-400/70 mt-0.5 font-mono break-words">{nudgeMsg.preview}</p>
+                </div>
+              )}
+              {nudgeMsg?.kind === 'dedup' && (
+                <div className="mt-3 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                  <p className="text-[11px] text-yellow-400 font-medium">
+                    Already nudged in the last {nudgeMsg.windowHours}h
+                    {nudgeMsg.lastSentAt && (
+                      <> · last sent {new Date(nudgeMsg.lastSentAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</>
+                    )}.
+                  </p>
+                  <button
+                    onClick={() => sendShareLinkNudge(true)}
+                    disabled={nudgeSending}
+                    className="mt-2 bg-yellow-600 hover:bg-yellow-700 text-white text-[11px] font-semibold px-2.5 py-1 rounded transition-colors disabled:opacity-50"
+                  >
+                    Send anyway
+                  </button>
+                </div>
+              )}
+              {nudgeMsg?.kind === 'error' && (
+                <div className="mt-3 p-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+                  <p className="text-[11px] text-red-400 font-medium">{nudgeMsg.reason}</p>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-neutral-500">
+              Driver hasn&apos;t claimed an @handle yet — share link not available.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Quick Contact */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
