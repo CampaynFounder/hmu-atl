@@ -153,13 +153,18 @@ export class DepositOnlyStrategy implements PricingStrategy {
     const waivedFee = input.inFreeWindow ? calculateDepositFeeCents(depositCents, config) / 100 : 0;
     const driverReceives = Math.round((depositCents - feeCents)) / 100;
     const platformReceives = Math.round(feeCents) / 100;
+    // Estimate Stripe processing fee on the deposit so the ride-end breakdown
+    // can show it as a real number. Standard US card rate: 2.9% + $0.30.
+    // Stripe deducts this from the platform's net (application_fee) on
+    // destination charges; the driver Connect amount is untouched.
+    const stripeFee = (Math.round(depositCents * 0.029) + 30) / 100;
 
     return {
       captureAmountCents: depositCents,
       applicationFeeCents: feeCents,
       driverReceives,
       platformReceives,
-      stripeFee: 0, // Stripe processing fee is absorbed by connected account; not surfaced here.
+      stripeFee,
       platformFee,
       waivedFee,
       dailyCapHit: false, // Deposit-only mode does not use daily/weekly caps.
@@ -196,33 +201,62 @@ export class DepositOnlyStrategy implements PricingStrategy {
         isCash: true,
         youEarned: cashTotal,
         total: cashTotal,
-        rows: [
-          { label: 'Cash Received', value: cashTotal, role: 'total', audience: 'public' },
+        driverRows: [
+          { label: 'Cash Received', value: cashTotal, role: 'total' },
+        ],
+        riderRows: [
+          { label: 'Cash Paid', value: cashTotal, role: 'total' },
         ],
         extras: input.extras,
       };
     }
 
+    // ── Money-conservation math ──────────────────────────────────────
+    // Rider pays = visibleDeposit + sum(succeeded extra subtotals) + cash
+    //            = agreedPrice + sum(succeeded extra subtotals)
+    // Of which:
+    //   - depositReceived: driver's Connect from the deposit capture
+    //   - extrasPaid:      driver's Connect from per-extra captures
+    //   - cashReceived:    driver's cash on arrival
+    //   - hmuSplit (NET):  platform's app fee minus Stripe processing
+    //   - stripeFee:       Stripe's slice (carved out of the app fee)
+    // Identity:
+    //   depositReceived + extrasPaid + cashReceived + hmuSplit + stripeFee = total
+    // ─────────────────────────────────────────────────────────────────
+    const succeededExtrasSubtotal = round2(
+      input.extras
+        .filter(e => e.chargeStatus === 'succeeded')
+        .reduce((s, e) => s + e.subtotal, 0)
+    );
+
     const depositReceived = round2(input.driverPayoutAmount);
     const extrasPaid = round2(input.extrasDriverAmount);
-    const hmuSplit = round2(input.platformFeeAmount + input.extrasPlatformFee);
+    const hmuSplitGross = round2(input.platformFeeAmount + input.extrasPlatformFee);
     const stripeFee = round2(input.stripeFeeAmount + input.extrasStripeFee);
+    const hmuSplitNet = round2(Math.max(0, hmuSplitGross - stripeFee));
     const cashReceived = round2(Math.max(0, input.agreedPrice - input.visibleDeposit));
+
     const youEarned = round2(depositReceived + extrasPaid + cashReceived);
-    const total = round2(depositReceived + extrasPaid + hmuSplit + stripeFee + cashReceived);
+    const total = round2(input.agreedPrice + succeededExtrasSubtotal);
 
     return {
       modeKey: this.modeKey,
       isCash: false,
       youEarned,
       total,
-      rows: [
-        { label: 'Deposit Received', value: depositReceived, role: 'amount', audience: 'public' },
-        { label: 'Extras Paid', value: extrasPaid, role: 'amount', audience: 'public' },
-        { label: 'HMU Split', value: hmuSplit, role: 'muted', audience: 'driver_only' },
-        { label: 'Stripe Fee', value: stripeFee, role: 'muted', audience: 'driver_only' },
-        { label: 'Cash Received', value: cashReceived, role: 'amount', audience: 'public' },
-        { label: 'Total', value: total, role: 'total', audience: 'public' },
+      driverRows: [
+        { label: 'Deposit Received', value: depositReceived, role: 'amount' },
+        { label: 'Extras Paid', value: extrasPaid, role: 'amount' },
+        { label: 'HMU Split', value: hmuSplitNet, role: 'muted' },
+        { label: 'Stripe Fee', value: stripeFee, role: 'muted' },
+        { label: 'Cash Received', value: cashReceived, role: 'amount' },
+        { label: 'Total', value: total, role: 'total' },
+      ],
+      riderRows: [
+        { label: 'Deposit Paid', value: round2(input.visibleDeposit), role: 'amount' },
+        { label: 'Extras Paid', value: succeededExtrasSubtotal, role: 'amount' },
+        { label: 'Cash Paid', value: cashReceived, role: 'amount' },
+        { label: 'Total', value: total, role: 'total' },
       ],
       extras: input.extras,
     };
