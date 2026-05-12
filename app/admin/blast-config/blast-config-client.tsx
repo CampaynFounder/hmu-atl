@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 
 // ── Types mirror lib/blast/config.ts (kept inline so this client doesn't import server code) ──
 
@@ -170,7 +171,15 @@ export default function BlastConfigClient() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold">Blast Config</h1>
+        <div className="flex items-baseline justify-between gap-3 flex-wrap">
+          <h1 className="text-xl font-bold">Blast Config</h1>
+          <Link
+            href="/admin/blast-config/guide"
+            className="text-xs text-white bg-neutral-800 hover:bg-neutral-700 px-3 py-1.5 rounded-md transition-colors"
+          >
+            How blast booking works →
+          </Link>
+        </div>
         <p className="text-xs text-neutral-500 mt-1">
           Tunable knobs for the blast booking flow. Changes propagate within ~60s (cache TTL).
         </p>
