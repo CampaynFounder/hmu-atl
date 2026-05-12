@@ -362,6 +362,17 @@ export default function ActiveRideClient({
             ...(newStatus === 'active' ? { startedAt: now } : {}),
             ...(newStatus === 'ended' ? { endedAt: now } : {}),
           }));
+          // On transition to an end state, pull the freshly-computed
+          // breakdown. The reconciliation useEffect on mount can't catch
+          // this because mount happened while status was still active.
+          if (newStatus === 'ended' || newStatus === 'completed' || newStatus === 'disputed') {
+            fetch(`/api/rides/${rideId}/breakdown`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => {
+                if (d?.breakdown) setRide(prev => ({ ...prev, breakdown: d.breakdown }));
+              })
+              .catch(() => {});
+          }
           if (newStatus === 'cancelled') {
             // cancel-cascade payload includes:
             //   `cancelledBy`: 'rider' | 'driver' | 'mutual'
@@ -773,14 +784,24 @@ export default function ActiveRideClient({
   }, [isDriver, geo.lat, geo.lng]);
 
   // ── Defensive ride-state reconciliation ──
-  // The PWA service worker can hand back a stale bundle that never received
-  // an Ably status transition, leaving the page stuck on a pre-end view
-  // (rider showing "Confirm & Pay", driver showing $0). Hit the breakdown
-  // endpoint on mount + each time the tab regains visibility to pull the
-  // canonical server status + computed breakdown.
+  // The Ably status_change handler updates status + fires its own breakdown
+  // fetch, but two paths can still leave the UI stale:
+  //   1. The tab missed the Ably event entirely (background, disconnected).
+  //   2. The fetch ran but raced the DB commit — status published before
+  //      driver_payout_amount was visible on read.
+  // Re-poll on mount, on tab-visible, and any time `ride.status` transitions
+  // into an end state. Retries every 2s up to 5x while we're in an end state
+  // but breakdown is still null — covers the publish-before-commit window
+  // without hammering a healthy endpoint.
+  const reconcileStatus = ride.status;
+  const reconcileBreakdownReady = !!ride.breakdown;
   useEffect(() => {
     let cancelled = false;
+    let attempts = 0;
+    const isEndState = (s: string) => s === 'ended' || s === 'completed' || s === 'disputed';
+
     const reconcile = async () => {
+      if (cancelled) return;
       try {
         const r = await fetch(`/api/rides/${rideId}/breakdown`);
         if (!r.ok || cancelled) return;
@@ -792,13 +813,22 @@ export default function ActiveRideClient({
           if (d.breakdown) next.breakdown = d.breakdown;
           return next;
         });
+        const effectiveStatus = d.status || reconcileStatus;
+        const stillMissing = isEndState(effectiveStatus) && !d.breakdown;
+        if (stillMissing && attempts < 5) {
+          attempts += 1;
+          setTimeout(reconcile, 2000);
+        }
       } catch { /* offline; the next focus or Ably event retries */ }
     };
+
     reconcile();
-    const onVis = () => { if (document.visibilityState === 'visible') reconcile(); };
+    const onVis = () => { if (document.visibilityState === 'visible') { attempts = 0; reconcile(); } };
     document.addEventListener('visibilitychange', onVis);
     return () => { cancelled = true; document.removeEventListener('visibilitychange', onVis); };
-  }, [rideId]);
+    // Re-run on status transition + when breakdown gets cleared. Reads
+    // primitives only so deps stay stable.
+  }, [rideId, reconcileStatus, reconcileBreakdownReady]);
 
   // Auto-detect stop proximity during active ride (driver only)
   const reachedStopsRef = useRef<Set<number>>(new Set());
