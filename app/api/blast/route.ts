@@ -170,15 +170,21 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 4. Rate limit ──
+    // 0 on either knob = check disabled (admin can knob-out without code change).
     const ip = clientIp(req);
     const [perHour, perDay] = await Promise.all([
       getKnob<number>('blast.rate_limit_per_phone_hour', 5),
       getKnob<number>('blast.rate_limit_per_phone_day', 20),
     ]);
-    const [hourLimit, dayLimit] = await Promise.all([
-      checkRateLimit({ key: `blast:user:${riderId}:hour`, limit: perHour, windowSeconds: 3600 }),
-      checkRateLimit({ key: `blast:user:${riderId}:day`, limit: perDay, windowSeconds: 86400 }),
+    const checks = await Promise.all([
+      perHour > 0
+        ? checkRateLimit({ key: `blast:user:${riderId}:hour`, limit: perHour, windowSeconds: 3600 })
+        : Promise.resolve({ ok: true, retryAfterSeconds: 0 }),
+      perDay > 0
+        ? checkRateLimit({ key: `blast:user:${riderId}:day`, limit: perDay, windowSeconds: 86400 })
+        : Promise.resolve({ ok: true, retryAfterSeconds: 0 }),
     ]);
+    const [hourLimit, dayLimit] = checks;
     if (!hourLimit.ok || !dayLimit.ok) {
       const retry = Math.max(hourLimit.retryAfterSeconds, dayLimit.retryAfterSeconds);
       // Persist rate-limit hit for admin review (per spec §9).
