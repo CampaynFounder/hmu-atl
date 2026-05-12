@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
+import { publishRideUpdate, notifyUser, publishAdminEvent, publishToChannel } from '@/lib/ably/server';
 import { notifyRiderBookingAccepted } from '@/lib/sms/textbee';
 import {
   checkDriverAvailability,
@@ -15,7 +15,7 @@ import { generateRefCode } from '@/lib/rides/ref-code';
 import { driverAllowsCashOnly } from '@/lib/payments/strategies';
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ postId: string }> }
 ) {
   try {
@@ -45,6 +45,8 @@ export async function POST(
           (post_type = 'direct_booking' AND target_driver_id = ${driverUserId} AND booking_expires_at > NOW())
           OR
           (post_type = 'rider_request' AND expires_at > NOW())
+          OR
+          (post_type = 'blast' AND expires_at > NOW())
         )
       LIMIT 1
     `;
@@ -102,6 +104,64 @@ export async function POST(
     const driverName = (driverProfile?.handle as string) || (driverProfile?.display_name as string) || 'A driver';
 
     const isDirectBooking = post.post_type === 'direct_booking';
+    const isBlast = post.post_type === 'blast';
+
+    // ── BLAST: write to blast_driver_targets and ping the rider's offer board ──
+    // Driver UI is the same as a regular open request — no special UI on this side.
+    // The rider picks a driver via /api/blast/[id]/select; this endpoint just
+    // records the interest and surfaces it on the rider's live offer board.
+    if (isBlast) {
+      const driverActiveRides = await sql`
+        SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('otw','here','active') LIMIT 1
+      `;
+      if (driverActiveRides.length) {
+        return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });
+      }
+
+      // Optional driver-supplied counter price comes through req.json().
+      let counterPrice: number | null = null;
+      try {
+        const body = await req.json().catch(() => ({})) as { counter_price?: number };
+        if (typeof body.counter_price === 'number' && body.counter_price > 0) {
+          counterPrice = body.counter_price;
+        }
+      } catch { /* no body is fine */ }
+
+      const updated = await sql`
+        UPDATE blast_driver_targets
+           SET hmu_at = NOW(),
+               hmu_counter_price = ${counterPrice}
+         WHERE blast_id = ${postId}
+           AND driver_id = ${driverUserId}
+           AND hmu_at IS NULL
+           AND passed_at IS NULL
+         RETURNING id
+      `;
+      if (!updated.length) {
+        // Driver not in the target list (e.g., found the post via shortcode link
+        // shared by a friend) — insert a self-added target with a synthesized
+        // 0 score so the rider can still see them.
+        await sql`
+          INSERT INTO blast_driver_targets (blast_id, driver_id, match_score, hmu_at, hmu_counter_price, score_breakdown)
+          VALUES (${postId}, ${driverUserId}, 0, NOW(), ${counterPrice}, '{"self_added":1}'::jsonb)
+          ON CONFLICT (blast_id, driver_id) DO UPDATE
+            SET hmu_at = NOW(),
+                hmu_counter_price = ${counterPrice}
+        `;
+      }
+
+      // Live update to the rider's offer board.
+      publishToChannel(`blast:${postId}`, 'target_hmu', {
+        blastId: postId,
+        driverUserId,
+        driverName: driverName,
+        driverHandle: driverProfile?.handle || null,
+        driverVideoUrl: driverProfile?.video_url || null,
+        counterPrice,
+      }).catch(() => {});
+
+      return NextResponse.json({ status: 'hmu', blast: true, counterPrice });
+    }
 
     // ── OPEN REQUESTS: Register interest (rider picks later) ──
     if (!isDirectBooking) {
