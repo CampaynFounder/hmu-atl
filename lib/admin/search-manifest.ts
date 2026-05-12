@@ -259,7 +259,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'pitch-videos',
     label: 'Pitch Videos',
-    description: 'Manage investor pitch videos',
+    description: 'Manage how-it-works videos (drivers, riders, investors)',
     href: '/admin/pitch-videos',
     section: 'Raise',
     icon: '📱',

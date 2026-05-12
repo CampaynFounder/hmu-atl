@@ -323,12 +323,14 @@ function SectionCarousel({
     });
   }, [activeIndex, isActiveSection, audioOn]);
 
-  // Update hash when active chapter changes
+  // Update hash when active chapter changes — but only if the URL doesn't
+  // already point to a valid chapter (prevents the driver carousel's first
+  // mount from overwriting an incoming hash like `#rider-find-driver`).
   useEffect(() => {
-    if (isActiveSection && section.chapters[activeIndex]) {
-      const chapterId = section.chapters[activeIndex].id;
-      history.replaceState(null, '', `#${chapterId}`);
-    }
+    if (!isActiveSection || !section.chapters[activeIndex]) return;
+    const chapterId = section.chapters[activeIndex].id;
+    if (window.location.hash === `#${chapterId}`) return;
+    history.replaceState(null, '', `#${chapterId}`);
   }, [activeIndex, isActiveSection, section.chapters]);
 
   return (
@@ -497,6 +499,19 @@ export default function PitchClient() {
       .catch(() => {});
   }, []);
 
+  // When videoUrls resolves, layouts can shift (COMING SOON tile → <video>),
+  // which pushes the user past their intended chapter. Re-run hash scroll
+  // for whatever chapter is currently in the URL so they land on the right slide.
+  useEffect(() => {
+    if (Object.keys(videoUrls).length === 0) return;
+    const hash = window.location.hash.replace('#', '');
+    if (!hash) return;
+    const sectionId = SECTIONS.find((s) => s.chapters.some((c) => c.id === hash))?.id;
+    if (!sectionId) return;
+    const scrollFn = carouselScrollers.current[sectionId];
+    if (scrollFn) requestAnimationFrame(() => scrollFn(hash));
+  }, [videoUrls]);
+
   // Vertical IntersectionObserver — which section is in viewport
   useEffect(() => {
     const io = new IntersectionObserver(
@@ -535,6 +550,8 @@ export default function PitchClient() {
       const section = SECTIONS.find((s) => s.id === sectionId);
       if (section?.chapters.some((c) => c.id === hash)) {
         pendingHash.current = ''; // consume it
+        // Force the tab pill to update immediately — don't wait for IO
+        setActiveSectionId(sectionId);
         // Let the DOM settle one frame then scroll
         requestAnimationFrame(() => scrollFn(hash));
       }
@@ -569,7 +586,7 @@ export default function PitchClient() {
           <span className={styles.brandDot} />
           <span className={styles.brandName}>CASH&nbsp;RIDE</span>
         </Link>
-        <span className={styles.topbarBadge}>INVESTOR&nbsp;PREVIEW</span>
+        <span className={styles.topbarBadge}>LIVE&nbsp;PREVIEW</span>
       </header>
 
       {/* ─── Hero ─── */}
