@@ -5,7 +5,9 @@ import { motion } from 'framer-motion';
 import { fbCustomEvent } from '@/components/analytics/meta-pixel';
 import { CountUp } from '@/components/shared/count-up';
 import CelebrationConfetti from '@/components/shared/celebration-confetti';
+import { posthog } from '@/components/analytics/posthog-provider';
 import UpgradeOverlay from './upgrade-overlay';
+import DepositsDetailSheet from './deposits-detail-sheet';
 
 interface BalanceData {
   available: number;
@@ -18,6 +20,7 @@ interface BalanceData {
   cashEarnings?: { rides: number; total: number };
   digitalEarnings?: { rides: number; total: number };
   noShowEarnings?: { rides: number; total: number };
+  flags?: { depositsDetailSheet?: boolean };
 }
 
 // Arrival label in the driver's local timezone. Must agree with a live
@@ -110,6 +113,8 @@ export default function CashoutCard() {
   const [selectedMethod, setSelectedMethod] = useState<'standard' | 'instant'>('standard');
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [payoutAmount, setPayoutAmount] = useState<number>(0);
+  const [depositsOpen, setDepositsOpen] = useState(false);
+  const [depositsBucket, setDepositsBucket] = useState<'week' | 'month'>('week');
 
   const loadBalance = useCallback(async () => {
     try {
@@ -548,18 +553,53 @@ export default function CashoutCard() {
                 </div>
               )}
               {balance.digitalEarnings && balance.digitalEarnings.rides > 0 && (
-                <div style={{
-                  flex: 1, background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.12)',
-                  borderRadius: 12, padding: '10px 12px',
-                }}>
-                  <div style={{ fontSize: 10, color: '#00E676', textTransform: 'uppercase', letterSpacing: 1, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
-                    Your Deposits
+                balance.flags?.depositsDetailSheet ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      posthog.capture('deposits_tile_tapped', {
+                        total: balance.digitalEarnings?.total,
+                        rides: balance.digitalEarnings?.rides,
+                      });
+                      setDepositsOpen(true);
+                    }}
+                    aria-label="View deposits detail"
+                    style={{
+                      flex: 1, background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.12)',
+                      borderRadius: 12, padding: '10px 12px',
+                      textAlign: 'left', cursor: 'pointer',
+                      fontFamily: 'inherit',
+                      transition: 'background 0.15s, border-color 0.15s, transform 0.1s',
+                    }}
+                    onMouseDown={(e) => { e.currentTarget.style.transform = 'scale(0.985)'; }}
+                    onMouseUp={(e) => { e.currentTarget.style.transform = ''; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.transform = ''; }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: 10, color: '#00E676', textTransform: 'uppercase', letterSpacing: 1, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
+                        Your Deposits
+                      </div>
+                      <div style={{ fontSize: 10, color: '#00E676', opacity: 0.55 }} aria-hidden>{'›'}</div>
+                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#00E676', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
+                      <CountUp value={balance.digitalEarnings.total} decimals={2} prefix="$" duration={900} animateOnChange />
+                    </div>
+                    <div style={{ fontSize: 10, color: '#888' }}>{balance.digitalEarnings.rides} ride{balance.digitalEarnings.rides !== 1 ? 's' : ''} &middot; tap for detail</div>
+                  </button>
+                ) : (
+                  <div style={{
+                    flex: 1, background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.12)',
+                    borderRadius: 12, padding: '10px 12px',
+                  }}>
+                    <div style={{ fontSize: 10, color: '#00E676', textTransform: 'uppercase', letterSpacing: 1, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
+                      Your Deposits
+                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#00E676', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
+                      <CountUp value={balance.digitalEarnings.total} decimals={2} prefix="$" duration={900} animateOnChange />
+                    </div>
+                    <div style={{ fontSize: 10, color: '#888' }}>{balance.digitalEarnings.rides} ride{balance.digitalEarnings.rides !== 1 ? 's' : ''}</div>
                   </div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: '#00E676', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
-                    <CountUp value={balance.digitalEarnings.total} decimals={2} prefix="$" duration={900} animateOnChange />
-                  </div>
-                  <div style={{ fontSize: 10, color: '#888' }}>{balance.digitalEarnings.rides} ride{balance.digitalEarnings.rides !== 1 ? 's' : ''}</div>
-                </div>
+                )
               )}
             </div>
 
@@ -905,6 +945,17 @@ export default function CashoutCard() {
           </>
         )}
       </motion.div>
+
+      {balance.flags?.depositsDetailSheet && (
+        <DepositsDetailSheet
+          open={depositsOpen}
+          onClose={() => setDepositsOpen(false)}
+          totalDeposits={balance.digitalEarnings?.total ?? 0}
+          rides={balance.digitalEarnings?.rides ?? 0}
+          bucket={depositsBucket}
+          onBucketChange={setDepositsBucket}
+        />
+      )}
     </>
   );
 }
