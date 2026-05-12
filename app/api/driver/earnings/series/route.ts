@@ -8,19 +8,24 @@ import { isFeatureEnabled } from '@/lib/feature-flags';
 //
 // Definition matches /api/driver/balance digitalEarnings: digital (non-cash)
 // rides in 'ended' or 'completed' status with no no-show partial. Summed by
-// week or month in America/New_York so the buckets line up with how riders
-// experience the dates.
+// day / week / month in America/New_York so the buckets line up with how
+// drivers experience the dates.
+
+type BucketUnit = 'day' | 'week' | 'month';
 
 interface Bucket {
-  label: string;        // "W34" or "Jul 2025"
-  periodStart: string;  // ISO date for the start of the bucket
+  label: string;        // "5/12" | "W34" | "May 26"
+  periodStart: string;  // ET-local date "YYYY-MM-DD"
   amount: number;
   rides: number;
   avg: number;          // 3-period trailing moving average
 }
 
-const MAX_WINDOW = 12;
-const MIN_WINDOW = 2;
+const TZ = 'America/New_York';
+
+const WINDOW_DEFAULT: Record<BucketUnit, number> = { day: 14, week: 6, month: 6 };
+const WINDOW_MIN: Record<BucketUnit, number> = { day: 1, week: 1, month: 1 };
+const WINDOW_MAX: Record<BucketUnit, number> = { day: 30, week: 12, month: 12 };
 
 export async function GET(req: NextRequest) {
   const { userId: clerkId } = await auth();
@@ -49,19 +54,26 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const bucketParam = searchParams.get('bucket') === 'month' ? 'month' : 'week';
+  const bucketUnit: BucketUnit =
+    searchParams.get('bucket') === 'day' ? 'day'
+    : searchParams.get('bucket') === 'month' ? 'month'
+    : 'week';
+  const requestedWindow = Number(searchParams.get('window')) || WINDOW_DEFAULT[bucketUnit];
   const windowParam = Math.min(
-    MAX_WINDOW,
-    Math.max(MIN_WINDOW, Number(searchParams.get('window')) || 6)
+    WINDOW_MAX[bucketUnit],
+    Math.max(WINDOW_MIN[bucketUnit], requestedWindow)
   );
 
-  // date_trunc on the ET-local timestamp keeps weeks Sun→Sat (or Mon→Sun per
-  // PG default — Postgres treats weeks as ISO Mon-start, which is fine for
-  // analytics; we never surface the start day to the user). Months align
-  // on calendar boundaries.
+  // date_trunc on the ET-local timestamp puts day buckets at ET midnight,
+  // week buckets on Monday (Postgres ISO default), month buckets on the 1st.
+  // We always serialize period_start as the ET-local YYYY-MM-DD so timezone
+  // arithmetic never reaches the client.
   const rows = (await sql`
     SELECT
-      date_trunc(${bucketParam}, ended_at AT TIME ZONE 'America/New_York') as period_start,
+      to_char(
+        date_trunc(${bucketUnit}, ended_at AT TIME ZONE ${TZ}),
+        'YYYY-MM-DD'
+      ) as period_start,
       COALESCE(SUM(driver_payout_amount), 0) as amount,
       COUNT(*) as rides
     FROM rides
@@ -70,47 +82,33 @@ export async function GET(req: NextRequest) {
       AND status IN ('ended', 'completed')
       AND (no_show_percent IS NULL OR no_show_percent = 0)
       AND ended_at IS NOT NULL
-      AND ended_at >= NOW() - (${windowParam}::text || ' ' || ${bucketParam} || 's')::interval - INTERVAL '1 day'
+      AND ended_at >= NOW() - (${windowParam}::text || ' ' || ${bucketUnit} || 's')::interval - INTERVAL '1 day'
     GROUP BY period_start
     ORDER BY period_start ASC
-  `) as Array<{ period_start: string | Date; amount: string | number; rides: string | number }>;
+  `) as Array<{ period_start: string; amount: string | number; rides: string | number }>;
 
-  // Backfill empty buckets so the chart renders a continuous x-axis even when
-  // the driver had a quiet week. Iterate from (now - window) → now.
-  const filled: Bucket[] = [];
   const byKey = new Map<string, { amount: number; rides: number }>();
   for (const r of rows) {
-    const key = new Date(r.period_start).toISOString().slice(0, 10);
-    byKey.set(key, {
+    byKey.set(r.period_start, {
       amount: Math.round(Number(r.amount) * 100) / 100,
       rides: Number(r.rides),
     });
   }
 
-  const now = new Date();
+  // Backfill the contiguous bucket axis from (now − window + 1) → now.
+  // Day arithmetic is done in ET so DST shifts don't drift the labels.
+  const filled: Bucket[] = [];
+  const todayParts = etDateParts(new Date());
+
   for (let i = windowParam - 1; i >= 0; i--) {
-    const d = new Date(now);
-    if (bucketParam === 'week') {
-      d.setDate(d.getDate() - i * 7);
-      // Snap to Monday — matches PG date_trunc('week', ...) default.
-      const day = d.getDay();
-      const diff = (day + 6) % 7; // Mon=0
-      d.setDate(d.getDate() - diff);
-    } else {
-      d.setMonth(d.getMonth() - i, 1);
-    }
-    d.setHours(0, 0, 0, 0);
-    const key = d.toISOString().slice(0, 10);
-    const hit = byKey.get(key);
-    const label = bucketParam === 'week'
-      ? `W${weekOfYear(d)}`
-      : d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+    const periodStart = bucketStartKey(bucketUnit, todayParts, i);
+    const hit = byKey.get(periodStart);
     filled.push({
-      label,
-      periodStart: key,
+      label: formatLabel(bucketUnit, periodStart),
+      periodStart,
       amount: hit?.amount ?? 0,
       rides: hit?.rides ?? 0,
-      avg: 0, // filled in below
+      avg: 0,
     });
   }
 
@@ -127,7 +125,7 @@ export async function GET(req: NextRequest) {
   const nonZero = filled.filter(b => b.amount > 0).length;
 
   return NextResponse.json({
-    bucket: bucketParam,
+    bucket: bucketUnit,
     window: windowParam,
     series: filled,
     total: Math.round(total * 100) / 100,
@@ -136,14 +134,59 @@ export async function GET(req: NextRequest) {
   });
 }
 
-function weekOfYear(d: Date): number {
-  const target = new Date(d.valueOf());
-  const dayNr = (d.getDay() + 6) % 7;
-  target.setDate(target.getDate() - dayNr + 3);
-  const firstThursday = target.valueOf();
-  target.setMonth(0, 1);
-  if (target.getDay() !== 4) {
-    target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+interface DateParts { y: number; m: number; d: number }
+
+// "Now" expressed as Y/M/D in ET. We round-trip through Intl so the function
+// works the same whether the Worker is in UTC, ET, or any other timezone.
+function etDateParts(now: Date): DateParts {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now);
+  const lookup = (t: string) => Number(parts.find(p => p.type === t)?.value);
+  return { y: lookup('year'), m: lookup('month'), d: lookup('day') };
+}
+
+// Return the YYYY-MM-DD key for the (now − iBucketsAgo)th bucket start.
+// Operates on date math in JS — we trust that ET → UTC drift over a 30-day
+// window doesn't matter for what's effectively a histogram bin label.
+function bucketStartKey(unit: BucketUnit, today: DateParts, ago: number): string {
+  // Anchor at ET noon to dodge DST shoulders. Then subtract by unit.
+  const anchor = new Date(Date.UTC(today.y, today.m - 1, today.d, 12, 0, 0));
+
+  if (unit === 'day') {
+    anchor.setUTCDate(anchor.getUTCDate() - ago);
+  } else if (unit === 'week') {
+    anchor.setUTCDate(anchor.getUTCDate() - ago * 7);
+    // Snap to Monday — Postgres ISO week start.
+    const dow = anchor.getUTCDay();
+    const back = (dow + 6) % 7; // Mon=0
+    anchor.setUTCDate(anchor.getUTCDate() - back);
+  } else {
+    anchor.setUTCMonth(anchor.getUTCMonth() - ago, 1);
   }
-  return 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
+
+  const y = anchor.getUTCFullYear();
+  const m = String(anchor.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(anchor.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function formatLabel(unit: BucketUnit, periodStart: string): string {
+  const [y, m, d] = periodStart.split('-').map(Number);
+  if (unit === 'day') return `${m}/${d}`;
+  if (unit === 'month') {
+    const monthName = new Date(Date.UTC(y, m - 1, 1))
+      .toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
+    return `${monthName} ${String(y).slice(-2)}`;
+  }
+  // week — use ISO-style week-of-year off the bucket's Monday
+  return `W${isoWeekOfYear(y, m, d)}`;
+}
+
+function isoWeekOfYear(y: number, m: number, d: number): number {
+  const t = new Date(Date.UTC(y, m - 1, d));
+  const day = (t.getUTCDay() + 6) % 7; // Mon=0
+  t.setUTCDate(t.getUTCDate() - day + 3); // shift to Thursday of the same ISO week
+  const yearStart = Date.UTC(t.getUTCFullYear(), 0, 1);
+  return 1 + Math.round(((t.getTime() - yearStart) / 86400000 - 3 + ((new Date(yearStart).getUTCDay() + 6) % 7)) / 7);
 }

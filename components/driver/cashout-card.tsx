@@ -7,7 +7,7 @@ import { CountUp } from '@/components/shared/count-up';
 import CelebrationConfetti from '@/components/shared/celebration-confetti';
 import { posthog } from '@/components/analytics/posthog-provider';
 import UpgradeOverlay from './upgrade-overlay';
-import DepositsDetailSheet from './deposits-detail-sheet';
+import DepositsDetailSheet, { type BucketUnit as DepositsBucketUnit } from './deposits-detail-sheet';
 
 interface BalanceData {
   available: number;
@@ -114,7 +114,7 @@ export default function CashoutCard() {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [payoutAmount, setPayoutAmount] = useState<number>(0);
   const [depositsOpen, setDepositsOpen] = useState(false);
-  const [depositsBucket, setDepositsBucket] = useState<'week' | 'month'>('week');
+  const [depositsBucket, setDepositsBucket] = useState<DepositsBucketUnit>('week');
 
   const loadBalance = useCallback(async () => {
     try {

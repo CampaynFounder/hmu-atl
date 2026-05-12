@@ -2,14 +2,14 @@
 
 import { useState } from 'react';
 import { CountUp } from '@/components/shared/count-up';
-import DepositsDetailSheet from '@/components/driver/deposits-detail-sheet';
+import DepositsDetailSheet, { type BucketUnit } from '@/components/driver/deposits-detail-sheet';
 
 // Public, unauthenticated preview of the Your Deposits detail sheet.
 // Mirrors the mini tile in cashout-card.tsx — tap to open the overlay.
 // Mock numbers so we don't depend on /api/driver/balance.
 export default function DepositsPreviewClient() {
   const [open, setOpen] = useState(false);
-  const [bucket, setBucket] = useState<'week' | 'month'>('week');
+  const [bucket, setBucket] = useState<BucketUnit>('week');
 
   const mockTotal = 1358.0;
   const mockRides = 71;
