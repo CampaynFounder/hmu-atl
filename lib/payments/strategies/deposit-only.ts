@@ -21,6 +21,8 @@ import type {
   NoShowDecision,
   CancelInput,
   CancelDecision,
+  BreakdownInput,
+  BreakdownResult,
 } from './types';
 
 export interface DepositOnlyConfig {
@@ -36,6 +38,12 @@ export interface DepositOnlyConfig {
   depositMaxPctOfFare: number;
   /** What the driver keeps on no-show (1.0 = 100% of deposit minus fee). */
   noShowDriverPct: number;
+  /**
+   * Platform fee percent of each confirmed add-on (0.20 = 20%). Each extra
+   * is charged through Stripe at driver-confirm time as a destination charge
+   * with application_fee_amount = round(subtotalCents × extrasFeePercent).
+   */
+  extrasFeePercent: number;
   /** Future modes: 'rider_select' (current), 'distance_band', 'percent_of_fare'. */
   depositRule?: 'rider_select' | 'distance_band' | 'percent_of_fare';
 }
@@ -47,8 +55,14 @@ export const DEFAULT_DEPOSIT_ONLY_CONFIG: DepositOnlyConfig = {
   depositIncrement: 1,
   depositMaxPctOfFare: 0.5,
   noShowDriverPct: 1.0,
+  extrasFeePercent: 0.20,
   depositRule: 'rider_select',
 };
+
+/** Platform fee in cents on a single add-on subtotal. Floor not applied here. */
+export function calculateExtrasFeeCents(subtotalCents: number, config: DepositOnlyConfig): number {
+  return Math.max(0, Math.round(subtotalCents * config.extrasFeePercent));
+}
 
 let configCache: { config: DepositOnlyConfig; cachedAt: number } | null = null;
 const CACHE_TTL_MS = 60_000;
@@ -169,6 +183,48 @@ export class DepositOnlyStrategy implements PricingStrategy {
       platformAmount: Math.round(feeCents) / 100,
       riderRefunded: 0,
       addOnRefunded: 0,
+    };
+  }
+
+  buildBreakdownRows(input: BreakdownInput): BreakdownResult {
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    if (input.isCash) {
+      const cashTotal = round2(input.agreedPrice + input.addOnTotal);
+      return {
+        modeKey: this.modeKey,
+        isCash: true,
+        youEarned: cashTotal,
+        total: cashTotal,
+        rows: [
+          { label: 'Cash Received', value: cashTotal, role: 'total', audience: 'public' },
+        ],
+        extras: input.extras,
+      };
+    }
+
+    const depositReceived = round2(input.driverPayoutAmount);
+    const extrasPaid = round2(input.extrasDriverAmount);
+    const hmuSplit = round2(input.platformFeeAmount + input.extrasPlatformFee);
+    const stripeFee = round2(input.stripeFeeAmount + input.extrasStripeFee);
+    const cashReceived = round2(Math.max(0, input.agreedPrice - input.visibleDeposit));
+    const youEarned = round2(depositReceived + extrasPaid + cashReceived);
+    const total = round2(depositReceived + extrasPaid + hmuSplit + stripeFee + cashReceived);
+
+    return {
+      modeKey: this.modeKey,
+      isCash: false,
+      youEarned,
+      total,
+      rows: [
+        { label: 'Deposit Received', value: depositReceived, role: 'amount', audience: 'public' },
+        { label: 'Extras Paid', value: extrasPaid, role: 'amount', audience: 'public' },
+        { label: 'HMU Split', value: hmuSplit, role: 'muted', audience: 'driver_only' },
+        { label: 'Stripe Fee', value: stripeFee, role: 'muted', audience: 'driver_only' },
+        { label: 'Cash Received', value: cashReceived, role: 'amount', audience: 'public' },
+        { label: 'Total', value: total, role: 'total', audience: 'public' },
+      ],
+      extras: input.extras,
     };
   }
 

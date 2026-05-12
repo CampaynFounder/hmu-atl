@@ -81,8 +81,16 @@ interface RideData {
   proposedPriceReason: string | null;
   waitMinutes: number;
   confirmDeadline: string | null;
-  addOns: { id: string; name: string; unitPrice: number; quantity: number; subtotal: number; status: string; addedBy: string }[];
+  addOns: { id: string; name: string; unitPrice: number; quantity: number; subtotal: number; status: string; addedBy: string; chargeStatus?: string | null; errorMessage?: string | null }[];
   addOnTotal: number;
+  breakdown: {
+    modeKey: string;
+    isCash: boolean;
+    youEarned: number;
+    total: number;
+    rows: { label: string; value: number; role: 'amount' | 'muted' | 'total'; audience: 'public' | 'driver_only' }[];
+    extras: { id: string; name: string; subtotal: number; driverAmount: number; platformFee: number; status: string; chargeStatus: string | null }[];
+  } | null;
   // ── Cancel-request flow (rider-cancel-after-OTW) ──
   // Stamped server-side when the rider hits Cancel during otw/here. Both
   // clients render a countdown anchored to cancelRequestedAt; whichever
@@ -302,6 +310,14 @@ export default function ActiveRideClient({
           driverPayoutAmount: Number(data.driver_payout_amount || prev.driverPayoutAmount),
           platformFeeAmount: Number(data.platform_fee_amount || prev.platformFeeAmount),
         }));
+        // Pull the freshly-computed breakdown so the post-ride card has real
+        // numbers instead of the null initialRide value from before End Ride.
+        fetch(`/api/rides/${rideId}/breakdown`)
+          .then(r => r.ok ? r.json() : null)
+          .then(d => {
+            if (d?.breakdown) setRide(prev => ({ ...prev, breakdown: d.breakdown }));
+          })
+          .catch(() => {});
         showStatusNotification('ended');
         break;
       }
@@ -3974,68 +3990,49 @@ export default function ActiveRideClient({
 
   // ── Driver payout summary ──
   function renderDriverPayout() {
+    const b = ride.breakdown;
+    const youEarned = b?.youEarned ?? Number(ride.driverPayoutAmount || 0);
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {ride.isCash && isDriver ? (
-          /* Cash ride — show collect banner, no Stripe payout info */
-          <div style={{
-            background: 'rgba(255,193,7,0.12)', border: '1px solid rgba(255,193,7,0.3)',
-            borderRadius: 16, padding: '20px 16px', textAlign: 'center',
-          }}>
-            <div style={{ fontSize: 13, color: '#FFC107', opacity: 0.7, marginBottom: 4 }}>Cash ride complete</div>
-            <div style={{
-              fontFamily: FONTS.mono, fontSize: 42, fontWeight: 700,
-              color: '#FFC107', lineHeight: 1.1,
-            }}>
-              ${(Number(ride.agreedPrice || 0) + Number(ride.addOnTotal || 0)).toFixed(2)}
-            </div>
-            <div style={{ fontSize: 13, color: '#FFC107', opacity: 0.7, marginTop: 8 }}>
-              💵 Collect this from rider — not added to your balance
-            </div>
+        {/* You earned — bold headline */}
+        <div style={{
+          backgroundColor: COLORS.card,
+          borderRadius: 16,
+          padding: '20px 16px',
+          textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 13, color: COLORS.grayLight, marginBottom: 4 }}>
+            You earned
           </div>
-        ) : (
-          /* Digital ride — show Stripe payout info */
           <div style={{
-            backgroundColor: COLORS.card,
-            borderRadius: 16,
-            padding: '20px 16px',
-            textAlign: 'center',
+            fontFamily: FONTS.mono,
+            fontSize: 42,
+            fontWeight: 700,
+            color: COLORS.green,
+            lineHeight: 1.1,
           }}>
-            <div style={{ fontSize: 13, color: COLORS.grayLight, marginBottom: 4 }}>
-              You earned
-            </div>
-            <div style={{
-              fontFamily: FONTS.mono,
-              fontSize: 42,
-              fontWeight: 700,
-              color: COLORS.green,
-              lineHeight: 1.1,
-            }}>
-              ${Number(ride.driverPayoutAmount || 0).toFixed(2)}
-            </div>
-            <div style={{
-              fontSize: 13,
-              color: COLORS.gray,
-              marginTop: 8,
-              fontFamily: FONTS.mono,
-            }}>
-              HMU took: ${Number(ride.platformFeeAmount || 0).toFixed(2)}
-            </div>
-            {ride.platformFeeAmount === 0 && ride.driverPayoutAmount > 0 && (
-              <div style={{
-                marginTop: 8,
-                fontSize: 14,
-                color: COLORS.green,
-                fontWeight: 600,
-              }}>
-                Daily cap hit — rest of today is ALL yours
-              </div>
-            )}
+            ${Number(youEarned || 0).toFixed(2)}
           </div>
+          {ride.isCash && (
+            <div style={{ fontSize: 13, color: '#FFC107', opacity: 0.85, marginTop: 8 }}>
+              💵 Cash ride — collected at pickup
+            </div>
+          )}
+        </div>
+
+        {/* Full breakdown — rendered from strategy-supplied rows. Driver sees
+            everything; audience filtering only kicks in on the rider side. */}
+        {b && (
+          <BreakdownCard
+            rows={b.rows}
+            audience="driver"
+            extrasFailed={b.extras.filter(e => e.chargeStatus === 'failed').length}
+          />
         )}
 
         {/* Ride analytics summary */}
-        <RideAnalyticsSummary rideId={rideId} payout={ride.driverPayoutAmount} />
+        <RideAnalyticsSummary rideId={rideId} payout={youEarned} />
 
         <div style={{
           fontSize: 13,
@@ -4326,6 +4323,8 @@ export default function ActiveRideClient({
       return renderAddOnReview();
     }
 
+    const b = ride.breakdown;
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {/* Dispute countdown */}
@@ -4338,6 +4337,12 @@ export default function ActiveRideClient({
           }}>
             {disputeMinutes} min left to dispute
           </div>
+        )}
+
+        {/* What you paid — same strategy rows the driver sees, filtered to
+            the public-audience subset so HMU Split / Stripe Fee stay hidden. */}
+        {b && (
+          <BreakdownCard rows={b.rows} audience="rider" extrasFailed={0} />
         )}
 
         {renderRatingCards()}
@@ -4452,6 +4457,96 @@ export default function ActiveRideClient({
 }
 
 // ── Sub-components ──
+
+function BreakdownCard({
+  rows,
+  audience,
+  extrasFailed,
+}: {
+  rows: { label: string; value: number; role: 'amount' | 'muted' | 'total'; audience: 'public' | 'driver_only' }[];
+  audience: 'driver' | 'rider';
+  extrasFailed: number;
+}) {
+  // Rider sees public-audience rows only. Driver sees everything.
+  const visible = audience === 'driver'
+    ? rows
+    : rows.filter(r => r.audience === 'public');
+  const heading = audience === 'driver' ? 'BREAKDOWN' : 'WHAT YOU PAID';
+
+  return (
+    <div style={{
+      backgroundColor: COLORS.card,
+      borderRadius: 16,
+      padding: '16px',
+    }}>
+      <div style={{
+        fontSize: 11,
+        color: COLORS.grayLight,
+        letterSpacing: 1,
+        marginBottom: 12,
+        fontFamily: FONTS.display,
+      }}>
+        {heading}
+      </div>
+
+      {visible.map((row, idx) => {
+        const isTotal = row.role === 'total';
+        const muted = row.role === 'muted';
+        // Divider before the total row.
+        const prevWasTotal = idx > 0 && visible[idx - 1].role === 'total';
+        const showDivider = isTotal && !prevWasTotal;
+
+        return (
+          <div key={`${row.label}-${idx}`}>
+            {showDivider && (
+              <div style={{
+                height: 1,
+                background: 'rgba(255,255,255,0.08)',
+                margin: '10px 0',
+              }} />
+            )}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              padding: isTotal ? '6px 0' : '5px 0',
+            }}>
+              <span style={{
+                fontSize: isTotal ? 15 : 13,
+                color: muted ? COLORS.gray : COLORS.grayLight,
+                fontWeight: isTotal ? 600 : 400,
+              }}>
+                {row.label}
+              </span>
+              <span style={{
+                fontFamily: FONTS.mono,
+                fontSize: isTotal ? 18 : 14,
+                color: muted ? COLORS.gray : '#fff',
+                fontWeight: isTotal ? 700 : 500,
+              }}>
+                ${Number(row.value || 0).toFixed(2)}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+
+      {extrasFailed > 0 && (
+        <div style={{
+          marginTop: 10,
+          padding: '8px 10px',
+          background: 'rgba(244,67,54,0.10)',
+          border: '1px solid rgba(244,67,54,0.30)',
+          borderRadius: 8,
+          fontSize: 12,
+          color: COLORS.red,
+        }}>
+          {extrasFailed} extra{extrasFailed === 1 ? '' : 's'} failed to charge — not included in total
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ActionButton({
   label,

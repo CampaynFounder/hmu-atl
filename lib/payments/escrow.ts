@@ -5,6 +5,7 @@ import { getDriverEnrollment, updateEnrollmentProgress, isDriverInFreeWindow, ge
 import { calculateAddOnTotal } from '@/lib/db/service-menu';
 import { resolvePricingStrategy } from './strategies';
 import type { PricingStrategy } from './strategies';
+import { getDepositOnlyConfig, calculateExtrasFeeCents } from './strategies/deposit-only';
 
 const isMock = process.env.STRIPE_MOCK === 'true';
 
@@ -73,7 +74,8 @@ export async function holdRiderPayment(params: {
         payment_authorized_at = NOW(),
         final_agreed_price = ${params.agreedPrice},
         add_on_reserve = ${reserve},
-        visible_deposit = ${visibleDeposit}
+        visible_deposit = ${visibleDeposit},
+        pricing_mode_key = ${strategy.modeKey}
       WHERE id = ${params.rideId}
     `;
     await insertLedger(params.rideId, params.riderId, 'rider', 'payment_hold', totalHold, 'hold', `Ride payment held (mode: ${holdDecision.holdMode}, authorized: $${totalHold.toFixed(2)}, visible deposit: $${visibleDeposit.toFixed(2)})`, mockId);
@@ -122,7 +124,8 @@ export async function holdRiderPayment(params: {
       payment_authorized_at = NOW(),
       final_agreed_price = ${params.agreedPrice},
       add_on_reserve = ${reserve},
-      visible_deposit = ${visibleDeposit}
+      visible_deposit = ${visibleDeposit},
+      pricing_mode_key = ${strategy.modeKey}
     WHERE id = ${params.rideId}
   `;
 
@@ -623,6 +626,192 @@ export async function partialCaptureNoShow(
     riderRefunded: riderRefunded + addOnRefunded,
     addOnRefunded,
   };
+}
+
+/**
+ * Per-extra Stripe capture, fired when the driver confirms an add-on.
+ *
+ * Only runs under the deposit_only pricing strategy — in legacy_full_fare
+ * mode extras are covered by the initial add-on reserve and settle at
+ * Start Ride, so this function returns `skipped:true` for those rides.
+ *
+ * On success: row in ride_add_ons gets stripe_payment_intent_id +
+ * driver/platform amounts + paid_at; ledger gets debit/credit pair.
+ * On failure: row is marked stripe_charge_status='failed' with the
+ * Stripe decline code so the driver-confirm UI can surface it.
+ */
+export type ExtraCaptureResult =
+  | { status: 'succeeded'; paymentIntentId: string; driverCents: number; platformFeeCents: number; stripeFeeCents: number }
+  | { status: 'failed'; errorCode: string; errorMessage: string }
+  | { status: 'skipped'; reason: string };
+
+export async function captureExtraPayment(params: {
+  rideId: string;
+  addOnId: string;
+}): Promise<ExtraCaptureResult> {
+  const rideRows = await sql`
+    SELECT rider_id, driver_id, is_cash
+    FROM rides WHERE id = ${params.rideId} LIMIT 1
+  `;
+  if (!rideRows.length) return { status: 'skipped', reason: 'ride_not_found' };
+  const ride = rideRows[0] as Record<string, unknown>;
+
+  if (ride.is_cash) {
+    return { status: 'skipped', reason: 'cash_ride' };
+  }
+
+  // Only deposit_only mode does per-extra captures. legacy_full_fare settles
+  // extras at the main Start-Ride capture against the add-on reserve.
+  const strategy = await resolvePricingStrategy(ride.driver_id as string);
+  if (strategy.modeKey !== 'deposit_only') {
+    return { status: 'skipped', reason: `strategy_${strategy.modeKey}` };
+  }
+
+  const addOnRows = await sql`
+    SELECT id, subtotal, status, stripe_payment_intent_id, stripe_charge_status
+    FROM ride_add_ons WHERE id = ${params.addOnId} AND ride_id = ${params.rideId} LIMIT 1
+  `;
+  if (!addOnRows.length) return { status: 'skipped', reason: 'addon_not_found' };
+  const addOn = addOnRows[0] as Record<string, unknown>;
+
+  // Idempotency: if we've already succeeded, don't double-charge.
+  if (addOn.stripe_charge_status === 'succeeded' && addOn.stripe_payment_intent_id) {
+    return {
+      status: 'skipped',
+      reason: 'already_captured',
+    };
+  }
+
+  const subtotalCents = Math.round(Number(addOn.subtotal || 0) * 100);
+  if (subtotalCents <= 0) {
+    return { status: 'skipped', reason: 'zero_amount' };
+  }
+
+  // Pull extras fee % from the deposit-only config (admin-tunable).
+  const config = await getDepositOnlyConfig();
+  const feeCents = calculateExtrasFeeCents(subtotalCents, config);
+  const driverCents = subtotalCents - feeCents;
+
+  // Look up the rider's saved PM + customer and the driver's Connect account.
+  const [riderPmRows, driverRows, riderProfileRows] = await Promise.all([
+    sql`SELECT stripe_payment_method_id FROM rider_payment_methods WHERE rider_id = ${ride.rider_id} AND is_default = true LIMIT 1`,
+    sql`SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1`,
+    sql`SELECT stripe_customer_id FROM rider_profiles WHERE user_id = ${ride.rider_id} LIMIT 1`,
+  ]);
+  const paymentMethodId = (riderPmRows[0] as Record<string, unknown>)?.stripe_payment_method_id as string | undefined;
+  const driverStripeAccountId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string | undefined;
+  const stripeCustomerId = (riderProfileRows[0] as Record<string, unknown>)?.stripe_customer_id as string | undefined;
+
+  if (!paymentMethodId || !stripeCustomerId || !driverStripeAccountId) {
+    await sql`
+      UPDATE ride_add_ons SET
+        stripe_charge_status = 'failed',
+        error_code = 'missing_payment_setup',
+        error_message = 'Rider payment method or driver payout account missing'
+      WHERE id = ${params.addOnId}
+    `;
+    return { status: 'failed', errorCode: 'missing_payment_setup', errorMessage: 'Rider payment or driver payout not set up' };
+  }
+
+  if (isMock) {
+    const mockPi = `pi_extra_mock_${params.addOnId.slice(0, 8)}`;
+    await sql`
+      UPDATE ride_add_ons SET
+        stripe_payment_intent_id = ${mockPi},
+        stripe_charge_status = 'succeeded',
+        platform_fee_cents = ${feeCents},
+        driver_amount_cents = ${driverCents},
+        stripe_fee_cents = ${Math.round(subtotalCents * 0.029) + 30},
+        paid_at = NOW()
+      WHERE id = ${params.addOnId}
+    `;
+    await insertLedger(params.rideId, ride.rider_id as string, 'rider', 'extra_charged', subtotalCents / 100, 'debit', `Extra charged (mock)`, mockPi);
+    await insertLedger(params.rideId, ride.driver_id as string, 'driver', 'extra_earnings', driverCents / 100, 'credit', 'Extra earnings', mockPi);
+    if (feeCents > 0) {
+      await insertLedger(params.rideId, ride.driver_id as string, 'platform', 'extra_platform_fee', feeCents / 100, 'credit', 'Platform fee on extra', mockPi);
+    }
+    return { status: 'succeeded', paymentIntentId: mockPi, driverCents, platformFeeCents: feeCents, stripeFeeCents: Math.round(subtotalCents * 0.029) + 30 };
+  }
+
+  try {
+    const pi = await stripe.paymentIntents.create({
+      amount: subtotalCents,
+      currency: 'usd',
+      customer: stripeCustomerId,
+      payment_method: paymentMethodId,
+      off_session: true,
+      confirm: true,
+      application_fee_amount: feeCents,
+      transfer_data: { destination: driverStripeAccountId },
+      statement_descriptor_suffix: 'HMU EXTRA',
+      metadata: {
+        rideId: params.rideId,
+        addOnId: params.addOnId,
+        riderId: ride.rider_id as string,
+        driverId: ride.driver_id as string,
+        kind: 'extra',
+      },
+    }, {
+      idempotencyKey: `extra_${params.addOnId}`,
+    });
+
+    if (pi.status !== 'succeeded') {
+      // Card may need step-up auth — surface to driver to retry later.
+      await sql`
+        UPDATE ride_add_ons SET
+          stripe_payment_intent_id = ${pi.id},
+          stripe_charge_status = ${pi.status === 'requires_action' ? 'requires_action' : 'failed'},
+          error_code = ${pi.status},
+          error_message = 'PaymentIntent ended in unexpected status'
+        WHERE id = ${params.addOnId}
+      `;
+      return {
+        status: 'failed',
+        errorCode: pi.status,
+        errorMessage: pi.status === 'requires_action'
+          ? 'Card needs verification — rider must re-confirm in the app'
+          : `Payment ended in status: ${pi.status}`,
+      };
+    }
+
+    await sql`
+      UPDATE ride_add_ons SET
+        stripe_payment_intent_id = ${pi.id},
+        stripe_charge_status = 'succeeded',
+        platform_fee_cents = ${feeCents},
+        driver_amount_cents = ${driverCents},
+        stripe_fee_cents = ${Math.round(subtotalCents * 0.029) + 30},
+        paid_at = NOW()
+      WHERE id = ${params.addOnId}
+    `;
+    await insertLedger(params.rideId, ride.rider_id as string, 'rider', 'extra_charged', subtotalCents / 100, 'debit', `Extra charged ($${(subtotalCents / 100).toFixed(2)})`, pi.id);
+    await insertLedger(params.rideId, ride.driver_id as string, 'driver', 'extra_earnings', driverCents / 100, 'credit', 'Extra earnings', pi.id);
+    if (feeCents > 0) {
+      await insertLedger(params.rideId, ride.driver_id as string, 'platform', 'extra_platform_fee', feeCents / 100, 'credit', 'Platform fee on extra', pi.id);
+    }
+
+    return {
+      status: 'succeeded',
+      paymentIntentId: pi.id,
+      driverCents,
+      platformFeeCents: feeCents,
+      stripeFeeCents: Math.round(subtotalCents * 0.029) + 30,
+    };
+  } catch (err: unknown) {
+    const e = err as { code?: string; decline_code?: string; message?: string };
+    const errorCode = e?.code || 'unknown_error';
+    const errorMessage = e?.decline_code
+      ? `Card declined: ${e.decline_code}`
+      : (e?.message || 'Payment failed');
+    await sql`
+      UPDATE ride_add_ons SET
+        stripe_charge_status = 'failed',
+        error_code = ${errorCode},
+        error_message = ${errorMessage}
+      WHERE id = ${params.addOnId}
+    `;
+    return { status: 'failed', errorCode, errorMessage };
+  }
 }
 
 async function insertLedger(

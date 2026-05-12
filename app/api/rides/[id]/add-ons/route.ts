@@ -9,7 +9,6 @@ import {
   getRideAddOns,
   updateAddOnStatus,
   removeRideAddOn,
-  confirmAllAddOns,
   calculateAddOnTotal,
   getDriverMenuForRider,
   requestAddOnRemoval,
@@ -17,6 +16,7 @@ import {
   rejectAddOnRemoval,
 } from '@/lib/db/service-menu';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { captureExtraPayment } from '@/lib/payments/escrow';
 
 // GET — list add-ons for a ride
 export async function GET(
@@ -177,9 +177,40 @@ export async function PATCH(
     // ── DRIVER ACTIONS ──
     if (isDriver) {
       if (action === 'confirm' && add_on_id) {
-        // Driver confirms a pending add-on → it now counts toward total
+        // Driver confirms a pending add-on → fire off-session Stripe capture
+        // against rider's saved card. Only succeeded captures count toward
+        // the total. On decline, the add-on stays at pending_driver so the
+        // driver UI can show the failure and they can retry / drop the item.
+        const charge = await captureExtraPayment({ rideId, addOnId: add_on_id });
+
+        if (charge.status === 'failed') {
+          publishRideUpdate(rideId, 'add_on_payment_failed', {
+            addOnId: add_on_id,
+            errorCode: charge.errorCode,
+            errorMessage: charge.errorMessage,
+          }).catch(() => {});
+          notifyUser(otherPartyId, 'ride_update', {
+            rideId, type: 'add_on_payment_failed',
+            addOnId: add_on_id,
+            message: `Payment failed for this extra — driver may ask for cash instead`,
+          }).catch(() => {});
+          // Recalculate total (failed extras don't count) and return early.
+          const failedTotal = await calculateAddOnTotal(rideId);
+          await sql`UPDATE rides SET add_on_total = ${failedTotal} WHERE id = ${rideId}`;
+          const failedAddOns = await getRideAddOns(rideId);
+          return NextResponse.json({
+            addOns: failedAddOns,
+            total: failedTotal,
+            payment: { status: 'failed', errorCode: charge.errorCode, errorMessage: charge.errorMessage },
+          }, { status: 200 });
+        }
+
+        // succeeded (or skipped for legacy/cash modes) → mark confirmed
         await updateAddOnStatus(add_on_id, 'confirmed');
-        publishRideUpdate(rideId, 'add_on_confirmed', { addOnId: add_on_id }).catch(() => {});
+        publishRideUpdate(rideId, 'add_on_confirmed', {
+          addOnId: add_on_id,
+          paymentStatus: charge.status,
+        }).catch(() => {});
         notifyUser(otherPartyId, 'ride_update', {
           rideId, type: 'add_on_confirmed',
           message: 'Driver confirmed your add-on',
@@ -213,12 +244,32 @@ export async function PATCH(
         }).catch(() => {});
 
       } else if (action === 'confirm_all') {
-        // Driver confirms all pending add-ons at once
-        await confirmAllAddOns(rideId);
-        publishRideUpdate(rideId, 'add_ons_confirmed_all', {}).catch(() => {});
+        // Driver confirms all pending add-ons at once. Fire a Stripe capture
+        // for each; only succeeded captures get flipped to confirmed. Failed
+        // captures stay at pending_driver with error_code populated.
+        const pendingRows = await sql`
+          SELECT id FROM ride_add_ons
+          WHERE ride_id = ${rideId} AND status IN ('pending_driver', 'pre_selected')
+        ` as Array<{ id: string }>;
+
+        let succeeded = 0;
+        let failed = 0;
+        for (const row of pendingRows) {
+          const charge = await captureExtraPayment({ rideId, addOnId: row.id });
+          if (charge.status === 'failed') {
+            failed += 1;
+          } else {
+            await updateAddOnStatus(row.id, 'confirmed');
+            succeeded += 1;
+          }
+        }
+
+        publishRideUpdate(rideId, 'add_ons_confirmed_all', { succeeded, failed }).catch(() => {});
         notifyUser(otherPartyId, 'ride_update', {
           rideId, type: 'add_ons_confirmed_all',
-          message: 'Driver confirmed all add-ons',
+          message: failed > 0
+            ? `Driver confirmed ${succeeded} add-on${succeeded === 1 ? '' : 's'} (${failed} failed)`
+            : 'Driver confirmed all add-ons',
         }).catch(() => {});
 
       } else {
