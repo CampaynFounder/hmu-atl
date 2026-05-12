@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
 import { useAbly } from '@/hooks/use-ably';
 import CashoutCard from '@/components/driver/cashout-card';
@@ -62,6 +62,9 @@ export default function DriverHomeClient({
   const [pendingPassPostId, setPendingPassPostId] = useState<string | null>(null);
   const [actionToast, setActionToast] = useState<string | null>(null);
   const [focusedPostId, setFocusedPostId] = useState<string | null>(null);
+  const [newRequestIds, setNewRequestIds] = useState<Set<string>>(new Set());
+  const [exitDirs, setExitDirs] = useState<Record<string, 'left' | 'right'>>({});
+  const initialLoadDone = useRef(false);
 
   const searchParams = useSearchParams();
   const focusParam = searchParams.get('focus');
@@ -71,7 +74,40 @@ export default function DriverHomeClient({
       const res = await fetch('/api/drivers/requests');
       if (res.ok) {
         const data = await res.json();
-        setRequests(data.requests ?? []);
+        const incoming: BookingRequest[] = data.requests ?? [];
+
+        // First load: skip the glide-in/glow so we don't fanfare requests that
+        // were already sitting there. Subsequent fetches diff against current
+        // state and flag anything whose id wasn't present before.
+        if (!initialLoadDone.current) {
+          setRequests(incoming);
+          initialLoadDone.current = true;
+        } else {
+          setRequests((prev) => {
+            const prevIds = new Set(prev.map((r) => r.id));
+            const justArrived = incoming.filter((r) => !prevIds.has(r.id)).map((r) => r.id);
+            if (justArrived.length > 0) {
+              setNewRequestIds((cur) => {
+                const next = new Set(cur);
+                justArrived.forEach((id) => next.add(id));
+                return next;
+              });
+              if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+                navigator.vibrate(15);
+              }
+              // Drop the "new" flag after the glow finishes so a future status
+              // change on this card doesn't re-trigger the animation.
+              setTimeout(() => {
+                setNewRequestIds((cur) => {
+                  const next = new Set(cur);
+                  justArrived.forEach((id) => next.delete(id));
+                  return next;
+                });
+              }, 2600);
+            }
+            return incoming;
+          });
+        }
       }
     } catch {
       // silent fail — will retry on next poll
@@ -186,6 +222,9 @@ export default function DriverHomeClient({
       const res = await fetch(`/api/bookings/${postId}/accept`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
+        // Accept = throw card right. Direction set before removal so AnimatePresence
+        // picks up the directional exit variant.
+        setExitDirs((d) => ({ ...d, [postId]: 'right' }));
         if (data.rideId) {
           setRequests((prev) => prev.filter((r) => r.id !== postId));
           window.location.replace(`/ride/${data.rideId}`);
@@ -216,6 +255,8 @@ export default function DriverHomeClient({
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        // Pass = throw card left.
+        setExitDirs((d) => ({ ...d, [postId]: 'left' }));
         setRequests((prev) => prev.filter((r) => r.id !== postId));
         setActionToast(data.status === 'declined_awaiting_rider' ? 'Passed — rider notified' : 'Passed');
         setTimeout(() => setActionToast(null), 2000);
@@ -272,6 +313,19 @@ export default function DriverHomeClient({
         .loading-dot:nth-child(2) { animation-delay: 0.2s; }
         .loading-dot:nth-child(3) { animation-delay: 0.4s; }
         @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.3;transform:scale(0.6)} }
+
+        /* Brand-green glow that fires once when a new request lands. The ring
+           is brightest at 0%, softens by 60%, fully fades by 100%. Pairs with
+           the framer glide-in for a layered "this is fresh" cue. */
+        @keyframes newRequestGlow {
+          0%   { box-shadow: 0 0 0 2px rgba(0,230,118,0.8), 0 0 44px rgba(0,230,118,0.6); }
+          40%  { box-shadow: 0 0 0 2px rgba(0,230,118,0.7), 0 0 38px rgba(0,230,118,0.45); }
+          70%  { box-shadow: 0 0 0 1px rgba(0,230,118,0.35), 0 0 22px rgba(0,230,118,0.25); }
+          100% { box-shadow: 0 0 0 0 rgba(0,230,118,0), 0 0 0 rgba(0,230,118,0); }
+        }
+        .request-card.is-new {
+          animation: newRequestGlow 2.8s ease-out forwards;
+        }
 
         /* First-load shimmer — a soft sheen sweeps each primary CTA twice then
            stops. Works on any button with .shimmer-once. The ::after gives us
@@ -365,16 +419,20 @@ export default function DriverHomeClient({
             transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1], delay: 0.2 }}
           >
             <h2 className="section-title">Incoming Requests</h2>
-            {requests.map((req) => (
-              <RequestCard
-                key={req.id}
-                req={req}
-                actionLoading={actionLoading}
-                onAction={handleAction}
-                focused={focusedPostId === req.id}
-                onExpired={handleRequestExpired}
-              />
-            ))}
+            <AnimatePresence initial={false}>
+              {requests.map((req) => (
+                <RequestCard
+                  key={req.id}
+                  req={req}
+                  actionLoading={actionLoading}
+                  onAction={handleAction}
+                  focused={focusedPostId === req.id}
+                  isNew={newRequestIds.has(req.id)}
+                  exitDir={exitDirs[req.id]}
+                  onExpired={handleRequestExpired}
+                />
+              ))}
+            </AnimatePresence>
           </motion.div>
         )}
 
@@ -587,11 +645,13 @@ function getTimeAgo(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function RequestCard({ req, actionLoading, onAction, focused, onExpired }: {
+function RequestCard({ req, actionLoading, onAction, focused, isNew, exitDir, onExpired }: {
   req: BookingRequest;
   actionLoading: string | null;
   onAction: (id: string, action: 'accept' | 'decline') => void;
   focused?: boolean;
+  isNew?: boolean;
+  exitDir?: 'left' | 'right';
   onExpired?: (postId: string) => void;
 }) {
   const [showRider, setShowRider] = useState(false);
@@ -625,16 +685,29 @@ function RequestCard({ req, actionLoading, onAction, focused, onExpired }: {
 
   const isExpired = countdown === 'Expired';
 
+  const exitVariant = exitDir
+    ? {
+        x: exitDir === 'left' ? -520 : 520,
+        rotate: exitDir === 'left' ? -22 : 22,
+        opacity: 0,
+        transition: { duration: 0.55, ease: [0.32, 0, 0.67, 0] as const },
+      }
+    : { opacity: 0, x: 32, scale: 0.94, transition: { duration: 0.25, ease: 'easeIn' as const } };
+
   return (
-    <div
+    <motion.div
       id={`request-${req.id}`}
-      className="request-card"
+      className={`request-card${isNew ? ' is-new' : ''}`}
+      layout
+      initial={{ opacity: 0, y: -44, scale: 0.9 }}
+      animate={{ opacity: isExpired ? 0.5 : 1, y: 0, scale: 1 }}
+      exit={exitVariant}
+      transition={{ type: 'spring', stiffness: 180, damping: 22, mass: 1.05 }}
       style={{
-        opacity: isExpired ? 0.5 : 1,
-        ...(focused ? {
+        ...(focused && !isNew ? {
           boxShadow: '0 0 0 2px rgba(255,145,0,0.85), 0 0 32px rgba(255,145,0,0.45)',
           transition: 'box-shadow 0.3s ease-out',
-        } : { transition: 'box-shadow 0.6s ease-out' }),
+        } : !isNew ? { transition: 'box-shadow 0.6s ease-out' } : {}),
       }}
     >
       {/* Rider header — clickable */}
@@ -777,6 +850,6 @@ function RequestCard({ req, actionLoading, onAction, focused, onExpired }: {
           </button>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
