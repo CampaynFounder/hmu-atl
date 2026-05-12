@@ -50,6 +50,7 @@ next-env.d.ts
 !.env.example
 videos/public/recordings/*.mov
 videos/public/recordings/*.mp4
+pitchvideos/
 
 # Claude Code harness (local config, task outputs, transcripts)
 .claude/

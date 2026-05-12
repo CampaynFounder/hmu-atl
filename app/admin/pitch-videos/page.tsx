@@ -80,8 +80,11 @@ export default function AdminPitchVideosPage() {
     const file = e.target.files?.[0];
     if (!file || !targetChapter) return;
 
-    const MAX_UPLOAD_MB = 100;
-    if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+    const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+    const MAX_DECODE_BYTES = 2 * 1024 * 1024 * 1024; // ffmpeg.wasm tab-memory ceiling
+
+    // Hard ceiling — past ~2GB the wasm decoder OOMs the tab before it can compress
+    if (file.size > MAX_DECODE_BYTES) {
       setCompressHint({ fileName: file.name, chapterId: targetChapter });
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
@@ -90,14 +93,20 @@ export default function AdminPitchVideosPage() {
     setUploading(targetChapter);
     setProgress(0);
 
-    let uploadFile = file;
+    let uploadFile: File = file;
     const isMp4 = file.type === 'video/mp4' || file.name.toLowerCase().endsWith('.mp4');
-    const needsConversion = !isMp4;
+    const tooBigForDirect = file.size > MAX_UPLOAD_BYTES;
+    const needsConversion = !isMp4 || tooBigForDirect;
 
-    // Only convert non-MP4 files (.mov, .webm, etc.) — MP4s upload directly via streaming PUT
+    // Transcode if non-MP4 (format) or oversized MP4 (compress). MP4s under 100MB upload directly.
     if (needsConversion) {
       setConverting(true);
-      showToast(`Converting ${file.name.split('.').pop()?.toUpperCase()} to MP4...`);
+      const sizeMb = (file.size / 1024 / 1024).toFixed(1);
+      showToast(
+        !isMp4
+          ? `Converting ${file.name.split('.').pop()?.toUpperCase()} to MP4 (${sizeMb}MB)...`
+          : `Compressing ${sizeMb}MB MP4 in browser...`,
+      );
       try {
         const { FFmpeg } = await import('@ffmpeg/ffmpeg');
         const { fetchFile } = await import('@ffmpeg/util');
@@ -116,16 +125,35 @@ export default function AdminPitchVideosPage() {
         uploadFile = new File([blob], targetChapter + '.mp4', { type: 'video/mp4' });
         ffmpegRef.current = null;
         setConverting(false);
-        showToast(`Converted to MP4 (${(uploadFile.size / 1024 / 1024).toFixed(1)}MB) — uploading...`);
+        showToast(`Compressed to ${(uploadFile.size / 1024 / 1024).toFixed(1)}MB — uploading...`);
       } catch (err) {
         ffmpegRef.current = null;
         setConverting(false);
         if (!uploading) return;
         console.error('Conversion failed:', err);
-        // Fall back to uploading the original file as-is
+        if (tooBigForDirect) {
+          // Can't fall back to raw upload — the original is already over the Worker cap
+          showToast('Compression failed — try a shorter clip');
+          setUploading(null);
+          setProgress(0);
+          setTargetChapter(null);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+          return;
+        }
+        // Format conversion failed but the original fits — upload it as-is
         showToast('Conversion failed — uploading original...');
         uploadFile = file;
       }
+    }
+
+    // Final guard — if compression couldn't get it under the Worker cap, surface the fallback hint
+    if (uploadFile.size > MAX_UPLOAD_BYTES) {
+      setCompressHint({ fileName: file.name, chapterId: targetChapter });
+      setUploading(null);
+      setProgress(0);
+      setTargetChapter(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
     }
 
     try {
@@ -245,10 +273,10 @@ export default function AdminPitchVideosPage() {
       {compressHint && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="bg-neutral-900 border border-red-500/30 rounded-2xl p-6 max-w-md w-full space-y-4">
-            <h3 className="text-lg font-bold text-red-400">File Too Large</h3>
+            <h3 className="text-lg font-bold text-red-400">Still Too Large</h3>
             <p className="text-sm text-neutral-300">
-              <span className="font-mono text-white">{compressHint.fileName}</span> is over 100MB.
-              Compress it first with this command:
+              <span className="font-mono text-white">{compressHint.fileName}</span> is still over 100MB after in-browser compression.
+              Try trimming the clip or running this stronger compress locally:
             </p>
             <div className="relative">
               <pre className="bg-black rounded-lg p-3 text-xs text-[#00E676] font-mono overflow-x-auto whitespace-pre-wrap break-all">
@@ -267,7 +295,7 @@ export default function AdminPitchVideosPage() {
               </button>
             </div>
             <p className="text-xs text-neutral-500">
-              Run this in Terminal, then upload the compressed file.
+              Run this in Terminal (bump <span className="font-mono">-crf 28</span> to <span className="font-mono">32</span> or higher for more shrink), then upload the result.
             </p>
             <button
               onClick={() => setCompressHint(null)}
