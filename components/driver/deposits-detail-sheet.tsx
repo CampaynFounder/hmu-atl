@@ -16,13 +16,15 @@ import {
 import { CountUp } from '@/components/shared/count-up';
 import { posthog } from '@/components/analytics/posthog-provider';
 
+export type BucketUnit = 'day' | 'week' | 'month';
+
 interface Props {
   open: boolean;
   onClose: () => void;
   totalDeposits: number;
   rides: number;
-  bucket?: 'week' | 'month';
-  onBucketChange?: (b: 'week' | 'month') => void;
+  bucket?: BucketUnit;
+  onBucketChange?: (b: BucketUnit) => void;
   // When true, skip the network and render the baked-in mock series.
   // Used by /debug/deposits for an unauthenticated demo of the UI.
   previewMode?: boolean;
@@ -37,7 +39,7 @@ interface Bucket {
 }
 
 interface SeriesResponse {
-  bucket: 'week' | 'month';
+  bucket: BucketUnit;
   window: number;
   series: Bucket[];
   total: number;
@@ -48,18 +50,34 @@ interface SeriesResponse {
 const COLOR_DEPOSIT = '#00E676';
 const COLOR_TREND = '#FFB300';
 
-// Mock series for the preview page. Deterministic so /debug/deposits is stable.
+const WINDOW_FOR: Record<BucketUnit, number> = { day: 14, week: 6, month: 6 };
+const HEADER_FOR: Record<BucketUnit, string> = {
+  day: 'Last 14 days',
+  week: 'Last 6 weeks',
+  month: 'Last 6 months',
+};
+const UNIT_NAME: Record<BucketUnit, { single: string; short: string; pillBest: string; priorN: string; streakSuffix: string }> = {
+  day: { single: 'Day', short: 'day', pillBest: 'Best Day', priorN: 'vs Prior 7 d', streakSuffix: 'd' },
+  week: { single: 'Week', short: 'wk', pillBest: 'Best Week', priorN: 'vs Prior 4 wks', streakSuffix: 'w' },
+  month: { single: 'Month', short: 'mo', pillBest: 'Best Month', priorN: 'vs Prior 4 mos', streakSuffix: 'mo' },
+};
+
+// Deterministic mock series for the unauth /debug/deposits preview.
+const MOCK_DAYS: number[] = [12, 0, 24, 38, 0, 41, 33, 58, 14, 27, 62, 49, 71, 84];
 const MOCK_WEEKS: number[] = [124, 188, 162, 247, 296, 341];
 const MOCK_MONTHS: number[] = [412, 580, 690, 822, 945, 1108];
 
-function buildMockBuckets(raw: number[], unit: 'week' | 'month'): Bucket[] {
+function buildMockBuckets(raw: number[], unit: BucketUnit): Bucket[] {
   const movingWindow = 3;
   return raw.map((amount, i) => {
     const start = Math.max(0, i - (movingWindow - 1));
     const slice = raw.slice(start, i + 1);
     const avg = slice.reduce((s, v) => s + v, 0) / slice.length;
-    const ridesEstimate = Math.max(1, Math.round(amount / 18));
-    const label = unit === 'week' ? `W${i + 1}` : `M${i + 1}`;
+    const ridesEstimate = amount > 0 ? Math.max(1, Math.round(amount / 18)) : 0;
+    let label: string;
+    if (unit === 'day') label = `D${i + 1}`;
+    else if (unit === 'week') label = `W${i + 1}`;
+    else label = `M${i + 1}`;
     return {
       label,
       periodStart: '',
@@ -83,12 +101,13 @@ export default function DepositsDetailSheet({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset + refetch every time the sheet opens or the bucket flips.
+  // Refetch every time the sheet opens or the bucket flips.
   useEffect(() => {
     if (!open) return;
 
     if (previewMode) {
-      setData(buildMockBuckets(bucket === 'week' ? MOCK_WEEKS : MOCK_MONTHS, bucket));
+      const raw = bucket === 'day' ? MOCK_DAYS : bucket === 'week' ? MOCK_WEEKS : MOCK_MONTHS;
+      setData(buildMockBuckets(raw, bucket));
       setLoading(false);
       setError(null);
       return;
@@ -97,7 +116,7 @@ export default function DepositsDetailSheet({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetch(`/api/driver/earnings/series?bucket=${bucket}&window=6`, { cache: 'no-store' })
+    fetch(`/api/driver/earnings/series?bucket=${bucket}&window=${WINDOW_FOR[bucket]}`, { cache: 'no-store' })
       .then(async r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json() as Promise<SeriesResponse>;
@@ -121,7 +140,10 @@ export default function DepositsDetailSheet({
     const sum = data.reduce((s, d) => s + d.amount, 0);
     const best = data.reduce((m, d) => (d.amount > m.amount ? d : m), data[0]);
     const latest = data[data.length - 1];
-    const prior = data.slice(-5, -1).filter(d => d.amount > 0);
+    // "Prior period" baseline: the 4 buckets immediately before the latest
+    // (or 7 for daily). Falls back to whatever is available.
+    const priorCount = bucket === 'day' ? 7 : 4;
+    const prior = data.slice(-priorCount - 1, -1).filter(d => d.amount > 0);
     const priorAvg = prior.length
       ? prior.reduce((s, d) => s + d.amount, 0) / prior.length
       : 0;
@@ -133,7 +155,7 @@ export default function DepositsDetailSheet({
     }
     const nonZero = data.filter(d => d.amount > 0).length;
     return { sum, best, latest, priorAvg, delta, streak, nonZero };
-  }, [data]);
+  }, [data, bucket]);
 
   const heroTotal = totalDeposits > 0
     ? totalDeposits
@@ -142,11 +164,11 @@ export default function DepositsDetailSheet({
     ? rides
     : (data?.reduce((s, d) => s + d.rides, 0) ?? 0);
 
-  // We don't want a stub chart at week 1. ≥2 buckets with deposits = chart.
-  // Anything below that gets a "your story starts here" hero instead.
-  const showChart = !!totals && totals.nonZero >= 2;
+  // Show the chart the moment there's a single deposit anywhere in the window.
+  // True empty (zero deposits across all buckets) gets the encouragement card.
+  const showChart = !!totals && totals.nonZero >= 1;
 
-  const handleBucket = (b: 'week' | 'month') => {
+  const handleBucket = (b: BucketUnit) => {
     if (b === bucket) return;
     if (!previewMode) posthog.capture('deposits_sheet_bucket_toggled', { to: b });
     onBucketChange?.(b);
@@ -247,11 +269,12 @@ export default function DepositsDetailSheet({
               borderRadius: 100, padding: 4,
               marginBottom: 16,
             }}>
+              <BucketBtn label="Daily" active={bucket === 'day'} onClick={() => handleBucket('day')} />
               <BucketBtn label="Weekly" active={bucket === 'week'} onClick={() => handleBucket('week')} />
               <BucketBtn label="Monthly" active={bucket === 'month'} onClick={() => handleBucket('month')} />
             </div>
 
-            {loading && <SheetSkeleton />}
+            {loading && <SheetSkeleton bucket={bucket} />}
 
             {!loading && error && (
               <div style={{
@@ -266,7 +289,7 @@ export default function DepositsDetailSheet({
               showChart ? (
                 <ChartBlock data={data} bucket={bucket} totals={totals!} />
               ) : (
-                <FirstStepBlock bucket={bucket} latest={data[data.length - 1]} />
+                <FirstStepBlock />
               )
             )}
 
@@ -290,7 +313,7 @@ function BucketBtn({ label, active, onClick }: { label: string; active: boolean;
     <button
       onClick={onClick}
       style={{
-        flex: 1, padding: '8px 14px', border: 'none', cursor: 'pointer',
+        flex: 1, padding: '8px 10px', border: 'none', cursor: 'pointer',
         borderRadius: 100, fontSize: 13, fontWeight: 600,
         fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
         background: active ? '#00E676' : 'transparent',
@@ -317,7 +340,11 @@ function ChartBlock({
   data,
   bucket,
   totals,
-}: { data: Bucket[]; bucket: 'week' | 'month'; totals: TotalsShape }) {
+}: { data: Bucket[]; bucket: BucketUnit; totals: TotalsShape }) {
+  const unit = UNIT_NAME[bucket];
+  // Daily mode crowds the x-axis at 14 ticks — only show every other label.
+  const xInterval = bucket === 'day' ? 1 : 0;
+
   return (
     <>
       <div style={{
@@ -329,7 +356,7 @@ function ChartBlock({
             fontFamily: "var(--font-mono, 'Space Mono', monospace)",
             fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1.5,
           }}>
-            Last 6 {bucket === 'week' ? 'weeks' : 'months'}
+            {HEADER_FOR[bucket]}
           </div>
           <div style={{ display: 'flex', gap: 10, fontSize: 10, color: '#666' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -352,6 +379,7 @@ function ChartBlock({
                 tick={{ fill: '#666', fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}
+                interval={xInterval}
               />
               <YAxis
                 tick={{ fill: '#666', fontSize: 10 }}
@@ -393,18 +421,18 @@ function ChartBlock({
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
         <StoryPill
-          label={`Best ${bucket === 'week' ? 'Week' : 'Month'}`}
+          label={unit.pillBest}
           value={`$${totals.best.amount.toFixed(0)}`}
           accent={COLOR_DEPOSIT}
         />
         <StoryPill
-          label={`vs Prior ${bucket === 'week' ? '4 wks' : '4 mos'}`}
+          label={unit.priorN}
           value={totals.priorAvg > 0 ? `${totals.delta >= 0 ? '+' : ''}${totals.delta.toFixed(0)}%` : '—'}
-          accent={totals.delta >= 0 ? COLOR_DEPOSIT : '#FF4081'}
+          accent={totals.priorAvg > 0 && totals.delta < 0 ? '#FF4081' : COLOR_DEPOSIT}
         />
         <StoryPill
           label="Active Streak"
-          value={`${totals.streak}${bucket === 'week' ? 'w' : 'mo'}`}
+          value={`${totals.streak}${unit.streakSuffix}`}
           accent="#FFC107"
         />
       </div>
@@ -412,48 +440,43 @@ function ChartBlock({
   );
 }
 
-function FirstStepBlock({ bucket, latest }: { bucket: 'week' | 'month'; latest: Bucket | undefined }) {
-  const hasAny = latest && latest.amount > 0;
+function FirstStepBlock() {
   return (
     <div style={{
       background: '#141414', borderRadius: 16, padding: 24,
       border: '1px solid rgba(0,230,118,0.12)', marginBottom: 16,
       textAlign: 'center',
     }}>
-      <div style={{ fontSize: 32, marginBottom: 8 }} aria-hidden>
-        {hasAny ? '\u{1F331}' : '\u{1F4B5}'}
-      </div>
+      <div style={{ fontSize: 32, marginBottom: 8 }} aria-hidden>{'\u{1F4B5}'}</div>
       <div style={{
         fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
         fontSize: 22, color: '#fff', lineHeight: 1.1, marginBottom: 6,
       }}>
-        {hasAny
-          ? `Your first ${bucket === 'week' ? 'weeks' : 'months'} of deposits`
-          : 'Your first deposit lands here'}
+        Your first deposit lands here
       </div>
       <div style={{ fontSize: 12, color: '#888', lineHeight: 1.5 }}>
-        {hasAny
-          ? `We'll plot a chart once you have ${bucket === 'week' ? 'two weeks' : 'two months'} of activity. Keep going.`
-          : 'Run one digital ride and your earnings curve starts here. Cash rides stay in Your Cash.'}
+        Run one digital ride and your earnings curve starts here. Cash rides stay in Your Cash.
       </div>
     </div>
   );
 }
 
-function SheetSkeleton() {
+function SheetSkeleton({ bucket }: { bucket: BucketUnit }) {
+  const count = bucket === 'day' ? 14 : 6;
+  const heights = Array.from({ length: count }, (_, i) => 30 + ((i * 37) % 110));
   return (
     <div style={{
       background: '#141414', borderRadius: 16, padding: 16,
       border: '1px solid rgba(255,255,255,0.06)', marginBottom: 16,
     }}>
-      <div style={{ display: 'flex', alignItems: 'end', gap: 6, height: 180 }}>
-        {[40, 70, 55, 90, 110, 130].map((h, i) => (
+      <div style={{ display: 'flex', alignItems: 'end', gap: count > 6 ? 3 : 6, height: 180 }}>
+        {heights.map((h, i) => (
           <div
             key={i}
             style={{
               flex: 1, height: h, borderRadius: 6,
               background: 'rgba(0,230,118,0.08)',
-              animation: `dds-pulse 1.4s ease-in-out ${i * 0.08}s infinite`,
+              animation: `dds-pulse 1.4s ease-in-out ${i * 0.06}s infinite`,
             }}
           />
         ))}
@@ -496,12 +519,13 @@ function StoryPill({ label, value, accent }: { label: string; value: string; acc
 interface TooltipPayload {
   active?: boolean;
   payload?: Array<{ payload: Bucket }>;
-  bucket: 'week' | 'month';
+  bucket: BucketUnit;
 }
 
 function ChartTooltip({ active, payload, bucket }: TooltipPayload) {
   if (!active || !payload || !payload.length) return null;
   const d = payload[0].payload;
+  const avgUnit = UNIT_NAME[bucket].short;
   return (
     <div style={{
       background: '#080808', border: '1px solid rgba(0,230,118,0.3)',
@@ -513,7 +537,7 @@ function ChartTooltip({ active, payload, bucket }: TooltipPayload) {
         <span style={{ fontFamily: "'Space Mono', monospace", fontWeight: 700 }}>${d.amount.toFixed(2)}</span>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-        <span style={{ color: COLOR_TREND }}>3-{bucket === 'week' ? 'wk' : 'mo'} avg</span>
+        <span style={{ color: COLOR_TREND }}>3-{avgUnit} avg</span>
         <span style={{ fontFamily: "'Space Mono', monospace" }}>${d.avg.toFixed(2)}</span>
       </div>
       <div style={{ color: '#666', fontSize: 10, marginTop: 4 }}>
