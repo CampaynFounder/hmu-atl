@@ -30,7 +30,12 @@ export async function GET(
       return NextResponse.json({ error: 'Only the rider can view the menu' }, { status: 403 });
     }
 
-    const allowedStatuses = ['matched', 'otw', 'here', 'confirming', 'active', 'in_progress'];
+    // Mirror the allowed-status list on the POST add-ons handler. Riders
+    // can browse + queue extras from the moment they're matched (or even
+    // pending/accepted, before authorizing the deposit) — the per-extra
+    // Stripe capture doesn't fire until the driver confirms during the
+    // ride, by which point the rider's saved PM is on file from Pull Up.
+    const allowedStatuses = ['pending', 'accepted', 'matched', 'otw', 'here', 'confirming', 'active', 'in_progress'];
     if (!allowedStatuses.includes(ride.status as string)) {
       return NextResponse.json({ error: 'Menu not available for this ride status' }, { status: 400 });
     }
