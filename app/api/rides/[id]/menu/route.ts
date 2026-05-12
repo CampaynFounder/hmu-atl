@@ -20,7 +20,7 @@ export async function GET(
 
     // Get ride + verify user is the rider
     const rideRows = await sql`
-      SELECT rider_id, driver_id, status, add_on_reserve, add_on_total, is_cash
+      SELECT rider_id, driver_id, status, add_on_reserve, add_on_total, is_cash, pricing_mode_key
       FROM rides WHERE id = ${rideId} LIMIT 1
     `;
     if (!rideRows.length) return NextResponse.json({ error: 'Ride not found' }, { status: 404 });
@@ -44,6 +44,13 @@ export async function GET(
     const reserve = Number(ride.add_on_reserve ?? 0);
     const currentTotal = Number(ride.add_on_total ?? 0);
     const remaining = Math.max(0, reserve - currentTotal);
+    const pricingModeKey = (ride.pricing_mode_key as string) || null;
+    // Reserve gating only applies to modes that pre-authorize an add-on
+    // reserve at hold time (legacy_full_fare). deposit_only charges each
+    // extra as its own destination charge at driver-confirm time, so the
+    // rider can queue items even when reserve === 0. Cash rides bypass
+    // Stripe entirely.
+    const requiresReserve = pricingModeKey === 'legacy_full_fare' && !ride.is_cash;
 
     return NextResponse.json({
       menu,
@@ -51,6 +58,8 @@ export async function GET(
       currentTotal,
       remaining,
       isCash: !!(ride.is_cash),
+      pricingModeKey,
+      requiresReserve,
     });
   } catch (error) {
     console.error('Ride menu error:', error);
