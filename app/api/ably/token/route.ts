@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
-    const { rideId } = body as { rideId?: string };
+    const { rideId, blastId } = body as { rideId?: string; blastId?: string };
 
     const userRows = await sql`SELECT id, profile_type FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -51,6 +51,18 @@ export async function POST(req: NextRequest) {
       `;
       if (rideRows.length) {
         capability[`ride:${rideId}`] = ['subscribe', 'publish', 'presence'];
+      }
+    }
+
+    // Blast offer-board channel — only the rider who owns the blast can subscribe.
+    if (blastId) {
+      const blastRows = await sql`
+        SELECT 1 FROM hmu_posts
+         WHERE id = ${blastId} AND post_type = 'blast' AND user_id = ${userId}
+         LIMIT 1
+      `;
+      if (blastRows.length) {
+        capability[`blast:${blastId}`] = ['subscribe'];
       }
     }
 
