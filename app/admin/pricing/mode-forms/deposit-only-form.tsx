@@ -9,6 +9,7 @@ export interface DepositOnlyConfig {
   depositIncrement: number;
   depositMaxPctOfFare: number;
   noShowDriverPct: number;
+  extrasFeePercent: number;
   depositRule: 'rider_select' | 'distance_band' | 'percent_of_fare';
 }
 
@@ -44,6 +45,7 @@ function validate(form: {
   depositIncrement: string;
   depositMaxPctDisplay: string;
   noShowDriverPctDisplay: string;
+  extrasFeePercentDisplay: string;
   depositRule: string;
 }): { errors: FieldErrors; parsed?: DepositOnlyConfig } {
   const errors: FieldErrors = {};
@@ -78,6 +80,11 @@ function validate(form: {
   else if (!Number.isFinite(noShowDriverPct) || noShowDriverPct < 0 || noShowDriverPct > 1)
     errors.noShowDriverPct = 'Must be between 0 and 100%';
 
+  const extrasFeePercent = Number(form.extrasFeePercentDisplay) / 100;
+  if (!form.extrasFeePercentDisplay.trim()) errors.extrasFeePercent = 'Required';
+  else if (!Number.isFinite(extrasFeePercent) || extrasFeePercent < 0 || extrasFeePercent > 1)
+    errors.extrasFeePercent = 'Must be between 0 and 100%';
+
   if (!DEPOSIT_RULES.includes(form.depositRule as DepositOnlyConfig['depositRule']))
     errors.depositRule = 'Invalid rule';
 
@@ -92,6 +99,7 @@ function validate(form: {
       depositIncrement,
       depositMaxPctOfFare,
       noShowDriverPct,
+      extrasFeePercent,
       depositRule: form.depositRule as DepositOnlyConfig['depositRule'],
     },
   };
@@ -104,6 +112,7 @@ export default function DepositOnlyForm({ initial, saving, onSave }: Props) {
   const [depositIncrement, setDepositIncrement] = useState('');
   const [depositMaxPctDisplay, setDepositMaxPctDisplay] = useState('');
   const [noShowDriverPctDisplay, setNoShowDriverPctDisplay] = useState('');
+  const [extrasFeePercentDisplay, setExtrasFeePercentDisplay] = useState('');
   const [depositRule, setDepositRule] = useState<DepositOnlyConfig['depositRule']>('rider_select');
   const [errors, setErrors] = useState<FieldErrors>({});
 
@@ -115,6 +124,7 @@ export default function DepositOnlyForm({ initial, saving, onSave }: Props) {
     setDepositIncrement(coerceNumber(initial.depositIncrement, 1).toString());
     setDepositMaxPctDisplay((coerceNumber(initial.depositMaxPctOfFare, 0.5) * 100).toString());
     setNoShowDriverPctDisplay((coerceNumber(initial.noShowDriverPct, 1.0) * 100).toString());
+    setExtrasFeePercentDisplay((coerceNumber(initial.extrasFeePercent, 0.2) * 100).toString());
     setDepositRule(coerceRule(initial.depositRule));
   }, [initial]);
 
@@ -126,6 +136,7 @@ export default function DepositOnlyForm({ initial, saving, onSave }: Props) {
       depositIncrement,
       depositMaxPctDisplay,
       noShowDriverPctDisplay,
+      extrasFeePercentDisplay,
       depositRule,
     });
     setErrors(result.errors);
@@ -195,6 +206,15 @@ export default function DepositOnlyForm({ initial, saving, onSave }: Props) {
           step="1"
           help="Share of deposit driver keeps on no-show (minus platform fee)."
           error={errors.noShowDriverPct}
+        />
+        <Field
+          label="Platform fee on extras"
+          unit="%"
+          value={extrasFeePercentDisplay}
+          onChange={setExtrasFeePercentDisplay}
+          step="0.1"
+          help="HMU's cut of each confirmed add-on. Charged at driver-confirm time via Stripe destination charge."
+          error={errors.extrasFeePercent}
         />
         <div className="space-y-1 sm:col-span-2">
           <label className="block text-xs text-neutral-300">Deposit rule</label>

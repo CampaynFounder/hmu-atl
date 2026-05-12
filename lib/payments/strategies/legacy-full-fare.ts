@@ -15,6 +15,8 @@ import type {
   NoShowDecision,
   CancelInput,
   CancelDecision,
+  BreakdownInput,
+  BreakdownResult,
 } from './types';
 
 export class LegacyFullFareStrategy implements PricingStrategy {
@@ -92,6 +94,51 @@ export class LegacyFullFareStrategy implements PricingStrategy {
       platformAmount,
       riderRefunded,
       addOnRefunded: input.addOnReserve,
+    };
+  }
+
+  buildBreakdownRows(input: BreakdownInput): BreakdownResult {
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    if (input.isCash) {
+      const cashTotal = round2(input.agreedPrice + input.addOnTotal);
+      return {
+        modeKey: this.modeKey,
+        isCash: true,
+        youEarned: cashTotal,
+        total: cashTotal,
+        rows: [
+          { label: 'Cash Received', value: cashTotal, role: 'total', audience: 'public' },
+        ],
+        extras: input.extras,
+      };
+    }
+
+    // Legacy mode captures the full fare + confirmed add-ons in a single
+    // Start-Ride transaction. There is no separate per-extra capture and no
+    // cash remainder — driver_payout_amount + platform_fee_amount +
+    // stripe_fee_amount already cover everything.
+    const fareCaptured = round2(input.agreedPrice);
+    const addOnsCaptured = round2(input.addOnTotal);
+    const driverNet = round2(input.driverPayoutAmount);
+    const hmuSplit = round2(input.platformFeeAmount);
+    const stripeFee = round2(input.stripeFeeAmount);
+    const total = round2(fareCaptured + addOnsCaptured);
+
+    return {
+      modeKey: this.modeKey,
+      isCash: false,
+      youEarned: driverNet,
+      total,
+      rows: [
+        { label: 'Fare', value: fareCaptured, role: 'amount', audience: 'public' },
+        { label: 'Add-ons', value: addOnsCaptured, role: 'amount', audience: 'public' },
+        { label: 'You Kept', value: driverNet, role: 'amount', audience: 'driver_only' },
+        { label: 'HMU Split', value: hmuSplit, role: 'muted', audience: 'driver_only' },
+        { label: 'Stripe Fee', value: stripeFee, role: 'muted', audience: 'driver_only' },
+        { label: 'Total', value: total, role: 'total', audience: 'public' },
+      ],
+      extras: input.extras,
     };
   }
 

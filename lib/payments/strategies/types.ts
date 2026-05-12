@@ -30,6 +30,70 @@ export interface PricingStrategy {
 
   /** Decide capture + application_fee on voluntary post-OTW cancel. */
   calculateCancel(input: CancelInput): Promise<CancelDecision>;
+
+  /**
+   * Build the post-ride breakdown shown on the ride-end page. Each strategy
+   * owns its own row set + labels — the UI just renders whatever it gets.
+   * Pure function over the values already on the row + per-extra rows;
+   * no DB or Stripe calls.
+   */
+  buildBreakdownRows(input: BreakdownInput): BreakdownResult;
+}
+
+// ── Ride-end breakdown ──
+
+export interface BreakdownExtra {
+  id: string;
+  name: string;
+  subtotal: number;
+  driverAmount: number;
+  platformFee: number;
+  status: string;
+  chargeStatus: string | null;
+}
+
+export interface BreakdownInput {
+  isCash: boolean;
+  agreedPrice: number;
+  visibleDeposit: number;
+  addOnTotal: number;
+  /** Driver's net from the deposit/main capture (rides.driver_payout_amount). */
+  driverPayoutAmount: number;
+  /** Platform's fee from the deposit/main capture (rides.platform_fee_amount). */
+  platformFeeAmount: number;
+  /** Stripe processing fee on the deposit/main capture (rides.stripe_fee_amount). */
+  stripeFeeAmount: number;
+  /** Sum of driver_amount across succeeded extras. */
+  extrasDriverAmount: number;
+  /** Sum of platform_fee across succeeded extras. */
+  extrasPlatformFee: number;
+  /** Sum of stripe_fee across succeeded extras. */
+  extrasStripeFee: number;
+  /** Per-extra detail (succeeded + failed both included). */
+  extras: BreakdownExtra[];
+}
+
+export interface BreakdownRow {
+  label: string;
+  value: number; // dollars
+  /** Visual treatment. 'total' = grand total at the bottom. */
+  role: 'amount' | 'muted' | 'total';
+  /**
+   * Audience: 'public' rows show to riders too; 'driver_only' rows are hidden
+   * on the rider side (HMU Split, Stripe Fee, etc).
+   */
+  audience: 'public' | 'driver_only';
+}
+
+export interface BreakdownResult {
+  modeKey: ModeKey;
+  isCash: boolean;
+  /** Driver's total income (headline number above the rows). */
+  youEarned: number;
+  /** Grand total — must equal the sum of every row except `youEarned`. */
+  total: number;
+  rows: BreakdownRow[];
+  extras: BreakdownExtra[];
 }
 
 // ── Hold (Pull Up) ──

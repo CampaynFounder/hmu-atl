@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { computeRideBreakdown } from '@/lib/payments/breakdown';
 import ActiveRideClient from './active-ride-client';
 
 export default async function RidePage({ params }: { params: Promise<{ id: string }> }) {
@@ -47,7 +48,8 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
   let addOnTotal = 0;
   try {
     addOnRows = await sql`
-      SELECT id, name, unit_price, quantity, subtotal, status, added_by
+      SELECT id, name, unit_price, quantity, subtotal, status, added_by,
+             stripe_charge_status, error_message
       FROM ride_add_ons
       WHERE ride_id = ${rideId} AND status NOT IN ('removed')
       ORDER BY added_at
@@ -56,6 +58,13 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
       .filter(a => a.status !== 'disputed')
       .reduce((sum, a) => sum + Number(a.subtotal ?? 0), 0);
   } catch { /* non-critical */ }
+
+  // Ride breakdown — only fetched once the ride has ended so we don't
+  // pay for the extra query on every in-flight render.
+  const endedStatuses = ['ended', 'completed', 'disputed'];
+  const breakdown = endedStatuses.includes(ride.status as string)
+    ? await computeRideBreakdown(rideId).catch(() => null)
+    : null;
 
   return (
     <>
@@ -113,8 +122,11 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
           subtotal: Number(a.subtotal ?? 0),
           status: a.status as string,
           addedBy: (a.added_by as string) || 'rider',
+          chargeStatus: (a.stripe_charge_status as string) || null,
+          errorMessage: (a.error_message as string) || null,
         })),
         addOnTotal,
+        breakdown,
         cancelRequestedAt: ride.cancel_requested_at
           ? new Date(ride.cancel_requested_at as string).toISOString()
           : null,
