@@ -88,7 +88,8 @@ interface RideData {
     isCash: boolean;
     youEarned: number;
     total: number;
-    rows: { label: string; value: number; role: 'amount' | 'muted' | 'total'; audience: 'public' | 'driver_only' }[];
+    driverRows: { label: string; value: number; role: 'amount' | 'muted' | 'total' }[];
+    riderRows: { label: string; value: number; role: 'amount' | 'muted' | 'total' }[];
     extras: { id: string; name: string; subtotal: number; driverAmount: number; platformFee: number; status: string; chargeStatus: string | null }[];
   } | null;
   // ── Cancel-request flow (rider-cancel-after-OTW) ──
@@ -770,6 +771,34 @@ export default function ActiveRideClient({
       setDriverLocation({ lat: geo.lat, lng: geo.lng });
     }
   }, [isDriver, geo.lat, geo.lng]);
+
+  // ── Defensive ride-state reconciliation ──
+  // The PWA service worker can hand back a stale bundle that never received
+  // an Ably status transition, leaving the page stuck on a pre-end view
+  // (rider showing "Confirm & Pay", driver showing $0). Hit the breakdown
+  // endpoint on mount + each time the tab regains visibility to pull the
+  // canonical server status + computed breakdown.
+  useEffect(() => {
+    let cancelled = false;
+    const reconcile = async () => {
+      try {
+        const r = await fetch(`/api/rides/${rideId}/breakdown`);
+        if (!r.ok || cancelled) return;
+        const d = await r.json() as { status?: string; breakdown?: RideData['breakdown'] };
+        if (cancelled) return;
+        setRide(prev => {
+          const next = { ...prev };
+          if (d.status && d.status !== prev.status) next.status = d.status;
+          if (d.breakdown) next.breakdown = d.breakdown;
+          return next;
+        });
+      } catch { /* offline; the next focus or Ably event retries */ }
+    };
+    reconcile();
+    const onVis = () => { if (document.visibilityState === 'visible') reconcile(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { cancelled = true; document.removeEventListener('visibilitychange', onVis); };
+  }, [rideId]);
 
   // Auto-detect stop proximity during active ride (driver only)
   const reachedStopsRef = useRef<Set<number>>(new Set());
@@ -4021,12 +4050,10 @@ export default function ActiveRideClient({
           )}
         </div>
 
-        {/* Full breakdown — rendered from strategy-supplied rows. Driver sees
-            everything; audience filtering only kicks in on the rider side. */}
+        {/* Driver's breakdown — driverRows from the ride's PricingStrategy. */}
         {b && (
           <BreakdownCard
-            rows={b.rows}
-            audience="driver"
+            rows={b.driverRows}
             extrasFailed={b.extras.filter(e => e.chargeStatus === 'failed').length}
           />
         )}
@@ -4318,10 +4345,11 @@ export default function ActiveRideClient({
       return renderBackHome('Thanks! Ride complete.');
     }
 
-    // Show add-on review if there are add-ons and not yet reviewed
-    if (ride.addOns.length > 0 && !reviewSubmitted) {
-      return renderAddOnReview();
-    }
+    // Per-add-on review used to gate the post-ride card. With per-extra
+    // Stripe captures at driver-confirm time, the rider already authorized
+    // each item live — a second post-ride confirmation is friction. Any
+    // post-ride dispute still goes through the existing "Nah fam, that's
+    // not right" button, which covers the same ground.
 
     const b = ride.breakdown;
 
@@ -4339,10 +4367,9 @@ export default function ActiveRideClient({
           </div>
         )}
 
-        {/* What you paid — same strategy rows the driver sees, filtered to
-            the public-audience subset so HMU Split / Stripe Fee stay hidden. */}
+        {/* What you paid — riderRows from the ride's PricingStrategy. */}
         {b && (
-          <BreakdownCard rows={b.rows} audience="rider" extrasFailed={0} />
+          <BreakdownCard rows={b.riderRows} audience="rider" extrasFailed={0} />
         )}
 
         {renderRatingCards()}
@@ -4460,17 +4487,14 @@ export default function ActiveRideClient({
 
 function BreakdownCard({
   rows,
-  audience,
+  audience = 'driver',
   extrasFailed,
 }: {
-  rows: { label: string; value: number; role: 'amount' | 'muted' | 'total'; audience: 'public' | 'driver_only' }[];
-  audience: 'driver' | 'rider';
+  rows: { label: string; value: number; role: 'amount' | 'muted' | 'total' }[];
+  audience?: 'driver' | 'rider';
   extrasFailed: number;
 }) {
-  // Rider sees public-audience rows only. Driver sees everything.
-  const visible = audience === 'driver'
-    ? rows
-    : rows.filter(r => r.audience === 'public');
+  const visible = rows;
   const heading = audience === 'driver' ? 'BREAKDOWN' : 'WHAT YOU PAID';
 
   return (

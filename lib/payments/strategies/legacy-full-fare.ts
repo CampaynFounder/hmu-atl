@@ -107,8 +107,11 @@ export class LegacyFullFareStrategy implements PricingStrategy {
         isCash: true,
         youEarned: cashTotal,
         total: cashTotal,
-        rows: [
-          { label: 'Cash Received', value: cashTotal, role: 'total', audience: 'public' },
+        driverRows: [
+          { label: 'Cash Received', value: cashTotal, role: 'total' },
+        ],
+        riderRows: [
+          { label: 'Cash Paid', value: cashTotal, role: 'total' },
         ],
         extras: input.extras,
       };
@@ -116,13 +119,15 @@ export class LegacyFullFareStrategy implements PricingStrategy {
 
     // Legacy mode captures the full fare + confirmed add-ons in a single
     // Start-Ride transaction. There is no separate per-extra capture and no
-    // cash remainder — driver_payout_amount + platform_fee_amount +
-    // stripe_fee_amount already cover everything.
+    // cash remainder — driver_payout_amount + platform_fee_amount + stripe
+    // fee cover everything. Same identity as deposit_only:
+    //   driverNet + hmuSplit_NET + stripeFee = total
     const fareCaptured = round2(input.agreedPrice);
     const addOnsCaptured = round2(input.addOnTotal);
     const driverNet = round2(input.driverPayoutAmount);
-    const hmuSplit = round2(input.platformFeeAmount);
+    const hmuSplitGross = round2(input.platformFeeAmount);
     const stripeFee = round2(input.stripeFeeAmount);
+    const hmuSplitNet = round2(Math.max(0, hmuSplitGross - stripeFee));
     const total = round2(fareCaptured + addOnsCaptured);
 
     return {
@@ -130,13 +135,16 @@ export class LegacyFullFareStrategy implements PricingStrategy {
       isCash: false,
       youEarned: driverNet,
       total,
-      rows: [
-        { label: 'Fare', value: fareCaptured, role: 'amount', audience: 'public' },
-        { label: 'Add-ons', value: addOnsCaptured, role: 'amount', audience: 'public' },
-        { label: 'You Kept', value: driverNet, role: 'amount', audience: 'driver_only' },
-        { label: 'HMU Split', value: hmuSplit, role: 'muted', audience: 'driver_only' },
-        { label: 'Stripe Fee', value: stripeFee, role: 'muted', audience: 'driver_only' },
-        { label: 'Total', value: total, role: 'total', audience: 'public' },
+      driverRows: [
+        { label: 'You Kept', value: driverNet, role: 'amount' },
+        { label: 'HMU Split', value: hmuSplitNet, role: 'muted' },
+        { label: 'Stripe Fee', value: stripeFee, role: 'muted' },
+        { label: 'Total', value: total, role: 'total' },
+      ],
+      riderRows: [
+        { label: 'Fare Paid', value: fareCaptured, role: 'amount' },
+        { label: 'Add-ons', value: addOnsCaptured, role: 'amount' },
+        { label: 'Total', value: total, role: 'total' },
       ],
       extras: input.extras,
     };

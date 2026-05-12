@@ -78,11 +78,6 @@ export interface BreakdownRow {
   value: number; // dollars
   /** Visual treatment. 'total' = grand total at the bottom. */
   role: 'amount' | 'muted' | 'total';
-  /**
-   * Audience: 'public' rows show to riders too; 'driver_only' rows are hidden
-   * on the rider side (HMU Split, Stripe Fee, etc).
-   */
-  audience: 'public' | 'driver_only';
 }
 
 export interface BreakdownResult {
@@ -90,9 +85,20 @@ export interface BreakdownResult {
   isCash: boolean;
   /** Driver's total income (headline number above the rows). */
   youEarned: number;
-  /** Grand total — must equal the sum of every row except `youEarned`. */
+  /** Total money the rider paid (sum of riderRows non-total entries). */
   total: number;
-  rows: BreakdownRow[];
+  /**
+   * What the driver sees: deposit/extras received, HMU's net cut, Stripe fee,
+   * cash, total. Money-conservation identity for digital rides:
+   *   sum(non-total rows) === total === sum of rider's non-total rows.
+   */
+  driverRows: BreakdownRow[];
+  /**
+   * What the rider sees: deposit/extras/cash they paid + total. No platform
+   * or Stripe internals — riders don't care how the money is sliced after
+   * leaving their card.
+   */
+  riderRows: BreakdownRow[];
   extras: BreakdownExtra[];
 }
 
