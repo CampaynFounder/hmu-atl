@@ -132,7 +132,7 @@ async function fetchCandidates(
       AND CASE WHEN ${signinHours} = 0 THEN TRUE
                ELSE u.last_active > NOW() - (${signinHours} || ' hours')::interval END
       -- Rider's preferred driver gender (when set as a hard filter)
-      AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference})
+      AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
       -- Driver's preferred rider gender (always honored: drivers who chose
       -- women_only / men_only never see riders of the other gender). Drivers
       -- with no_preference / NULL pref see everyone.
@@ -372,7 +372,7 @@ export async function fetchFallbackDrivers(
       AND CASE WHEN ${signinHours} = 0 THEN TRUE
                ELSE u.last_active > NOW() - (${signinHours} || ' hours')::interval END
       -- Gender preference filter
-      AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference})
+      AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
       -- Driver's preferred rider gender
       AND CASE
         WHEN up.rider_gender_pref IS NULL OR up.rider_gender_pref IN ('no_preference','prefer_women','prefer_men') THEN TRUE
