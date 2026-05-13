@@ -1,6 +1,23 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* ── Global Header Height Variables ── */
+/* These ensure content never hides behind fixed/sticky headers.
+ * Usage: Apply padding-top using these vars on any page-level container
+ * that sits below a sticky/fixed header.
+ *
+ * Example (global fixed header):
+ *   <main style={{ paddingTop: 'var(--header-height)' }}>
+ *
+ * Example (page-specific sticky header):
+ *   <header className="sticky top-0" style={{ height: 'var(--header-height-page)' }}>
+ *   <main style={{ paddingTop: 'var(--header-height-page)' }}>
+ */
+:root {
+  --header-height: 3.5rem; /* 56px - matches global Header h-14 */
+  --header-height-page: auto; /* Override per-page for custom sticky headers */
+}
+
 /* ── Admin Theme Variables ── */
 /* Dark theme (default) */
 .admin-theme[data-theme="dark"] {
