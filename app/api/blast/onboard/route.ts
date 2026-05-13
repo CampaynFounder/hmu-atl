@@ -28,8 +28,23 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json().catch(() => ({}))) as Body;
     const displayName = (body.display_name ?? '').trim().slice(0, 60);
-    const phone = (body.phone ?? '').trim();
+    let phone = (body.phone ?? '').trim();
     const avatarUrl = (body.avatar_url ?? '').trim() || null;
+
+    // Phone collection moved to Clerk's hosted form. If body didn't include
+    // one (form skipped the field), pull it from the Clerk user object.
+    if (!phone) {
+      try {
+        const cc = await clerkClient();
+        const u = await cc.users.getUser(clerkId);
+        const primary = u.phoneNumbers?.find((p) => p.id === u.primaryPhoneNumberId);
+        if (primary?.phoneNumber) {
+          phone = primary.phoneNumber;
+        }
+      } catch (e) {
+        console.error('[blast/onboard] could not fetch Clerk user:', e);
+      }
+    }
 
     // Ensure user row exists (Clerk webhook usually creates it; if not, we
     // do it here so the blast send doesn't 404).
