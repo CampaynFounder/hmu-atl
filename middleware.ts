@@ -138,9 +138,7 @@ const isPublicRoute = createRouteMatcher([
   '/r/(.*)',  // rider ad-funnel landing (paid Meta/TikTok ads link target)
   '/rider',
   '/rider/home',
-  '/rider/browse(.*)',     // includes /rider/browse/blast (unauth-friendly blast landing)
-  '/rider/blast/new',      // the form itself; auth gate is on submit, not page load
-  '/api/blast/estimate',   // pre-auth pricing estimate for the blast form
+  '/rider/browse',
   '/api/public/(.*)',
   '/api/rider/browse/(.*)',
   '/privacy',
