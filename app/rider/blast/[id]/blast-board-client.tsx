@@ -197,13 +197,15 @@ export default function BlastOfferBoardClient({ blastId }: { blastId: string }) 
 
   return (
     <div className="min-h-screen bg-black text-white pb-20">
-      {/* Countdown bar */}
-      <div className="h-1 w-full bg-neutral-900 sticky top-0 z-30">
-        <div
-          className={`h-full ${countdownColor} transition-[width] duration-1000 ease-linear`}
-          style={{ width: `${pctLeft * 100}%` }}
-        />
-      </div>
+      {/* Countdown bar - only show after first driver HMU */}
+      {interestedTargets.length > 0 && (
+        <div className="h-1 w-full bg-neutral-900 sticky top-0 z-30">
+          <div
+            className={`h-full ${countdownColor} transition-[width] duration-1000 ease-linear`}
+            style={{ width: `${pctLeft * 100}%` }}
+          />
+        </div>
+      )}
 
       <header className="px-4 pt-6 pb-4">
         <div className="flex justify-between items-start">
@@ -217,20 +219,23 @@ export default function BlastOfferBoardClient({ blastId }: { blastId: string }) 
             Cancel
           </button>
         </div>
-        <div className="mt-3 flex items-center gap-2">
-          <div
-            className="text-3xl font-bold tabular-nums transition-colors duration-300"
-            style={{
-              fontFamily: 'var(--font-display)',
-              color: pctLeft > 0.33 ? '#ffffff' : pctLeft > 0.07 ? '#fbbf24' : '#ef4444',
-            }}
-          >
-            {msLeft && msLeft > 0
-              ? `${minutesLeft}:${String(secondsLeft).padStart(2, '0')}`
-              : '0:00'}
+        {/* Countdown timer - only show after first driver HMU */}
+        {interestedTargets.length > 0 && (
+          <div className="mt-3 flex items-center gap-2">
+            <div
+              className="text-3xl font-bold tabular-nums transition-colors duration-300"
+              style={{
+                fontFamily: 'var(--font-display)',
+                color: pctLeft > 0.33 ? '#ffffff' : pctLeft > 0.07 ? '#fbbf24' : '#ef4444',
+              }}
+            >
+              {msLeft && msLeft > 0
+                ? `${minutesLeft}:${String(secondsLeft).padStart(2, '0')}`
+                : '0:00'}
+            </div>
+            <div className="text-xs text-neutral-500">left</div>
           </div>
-          <div className="text-xs text-neutral-500">left</div>
-        </div>
+        )}
       </header>
 
       <main className="px-3 mt-2">
