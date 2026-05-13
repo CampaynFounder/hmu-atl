@@ -2,25 +2,29 @@
 //
 // Spec: docs/BLAST-BOOKING-SPEC.md §5.1
 //
+// LAX CREATION MODEL (founder direction 2026-05-13):
+//   Creating a blast is permissive — no card required, no minimum match count.
+//   Matching still runs and filters who gets the SMS / push, but a 0-match
+//   result does not block creation. The deposit hold + card collection are
+//   deferred to the match-acceptance step (/api/blast/[id]/select). Goal: get
+//   riders into the funnel and convert them to paying customers when they
+//   actually pick a driver.
+//
 // Orchestration:
 //   1. Auth (Clerk) + photo gate (rider_profiles.avatar_url required)
 //   2. Validate body (pickup/dropoff coords, scheduled_for ≥ now+5m, etc.)
 //   3. Feature flag check (blast_booking)
 //   4. Rate limit (per-rider, per-IP) via existing checkRateLimit + persist hit
 //   5. Resolve market; bail if blast not enabled in market
-//   6. Run matching algorithm
-//   7. Authorize deposit PaymentIntent on the platform account (no destination
-//      yet — the destination gets attached at match-select time when the rider
-//      picks a driver). Deposit-only is forced for ALL blasts.
-//   8. Insert hmu_posts row + blast_driver_targets rows in a single transaction
-//   9. Fanout (Ably push + voip.ms SMS) — fire-and-forget via waitUntil
-//   10. Publish blast_created on blast:{id} channel
-//   11. Return { blastId, expiresAt, targetedCount, shortcode }
+//   6. Run matching algorithm (0 results is OK — blast still creates)
+//   7. Insert hmu_posts row + blast_driver_targets rows (deposit columns null)
+//   8. Fanout (Ably push + voip.ms SMS) — fire-and-forget; no-op if 0 targets
+//   9. Publish blast_created on blast:{id} channel
+//   10. Return { blastId, expiresAt, targetedCount, shortcode }
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-import { stripe } from '@/lib/stripe/connect';
 import { isFeatureEnabled } from '@/lib/feature-flags';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { checkRateLimit } from '@/lib/rate-limit/check';
@@ -228,93 +232,16 @@ export async function POST(req: NextRequest) {
       config,
     );
 
-    if (scoredTargets.length === 0) {
-      return NextResponse.json(
-        {
-          error: 'NO_DRIVERS_AVAILABLE',
-          message: 'No matching drivers nearby right now — try a different time, or bump your price.',
-        },
-        { status: 503 },
-      );
-    }
+    // Lax creation: 0 matches is fine. The offer board will say "still hunting"
+    // and the bump button can widen the radius. Drivers coming online after
+    // creation can also be added on bump. See lax-creation note at top.
 
-    // ── 7. Deposit PaymentIntent (deposit_only forced) ──
-    // We hold the deposit on the PLATFORM account with no transfer_data; the
-    // destination is unknown until a driver is matched. At match-select time,
-    // this hold is released (cancelled) and the normal Pull Up flow re-runs
-    // its own holdRiderPayment with the actual driver. The deposit here is a
-    // "show me you're real" commitment, not the final ride payment.
-    const depositCents = Math.min(
-      Math.max(
-        Math.round(priceDollars * 100 * config.deposit.percent_of_fare),
-        config.deposit.default_amount_cents,
-      ),
-      config.deposit.max_deposit_cents,
-    );
-
-    const stripeCustomerId = user.stripe_customer_id as string | null;
-    if (!stripeCustomerId) {
-      return NextResponse.json(
-        { error: 'PAYMENT_METHOD_REQUIRED', message: 'Add a payment method first' },
-        { status: 412 },
-      );
-    }
-
-    const pmRows = await sql`
-      SELECT stripe_payment_method_id FROM rider_payment_methods
-      WHERE rider_id = ${riderId} AND is_default = true LIMIT 1
-    `;
-    const paymentMethodId = (pmRows[0] as { stripe_payment_method_id: string } | undefined)?.stripe_payment_method_id;
-    if (!paymentMethodId) {
-      return NextResponse.json(
-        { error: 'PAYMENT_METHOD_REQUIRED', message: 'Add a payment method first' },
-        { status: 412 },
-      );
-    }
-
-    // Use a UUID for the blast id up front so the idempotency key is stable
-    // across retries from the client.
+    // Use a UUID for the blast id up front so any client retry hits the same
+    // INSERT. (No deposit PI here — that moves to /api/blast/[id]/select.)
     const blastIdRows = await sql`SELECT gen_random_uuid() AS id`;
     const blastId = (blastIdRows[0] as { id: string }).id;
 
-    let paymentIntentId: string | null = null;
-    let depositError: string | null = null;
-    try {
-      const pi = await stripe.paymentIntents.create({
-        amount: depositCents,
-        currency: 'usd',
-        customer: stripeCustomerId,
-        payment_method: paymentMethodId,
-        capture_method: 'manual',
-        confirm: true,
-        off_session: true,
-        statement_descriptor_suffix: 'HMU BLAST',
-        metadata: {
-          blastId,
-          riderId,
-          kind: 'blast_deposit',
-        },
-      }, {
-        idempotencyKey: `blast_deposit_${blastId}`,
-      });
-      if (pi.status !== 'requires_capture') {
-        depositError = `unexpected_status:${pi.status}`;
-      } else {
-        paymentIntentId = pi.id;
-      }
-    } catch (e) {
-      const err = e as { code?: string; decline_code?: string; message?: string };
-      depositError = err.decline_code ?? err.code ?? err.message ?? 'unknown';
-    }
-
-    if (depositError || !paymentIntentId) {
-      return NextResponse.json(
-        { error: 'DEPOSIT_FAILED', message: depositError || 'Could not authorize deposit' },
-        { status: 402 },
-      );
-    }
-
-    // ── 8. Persist blast + targets ──
+    // ── 7. Persist blast + targets ──
     const expiresAt = new Date(Date.now() + config.expiry.default_blast_minutes * 60_000);
     const distanceMi = calculateDistance(
       { latitude: pickupLat, longitude: pickupLng },
@@ -333,14 +260,16 @@ export async function POST(req: NextRequest) {
 
     // Insert blast row. We piggy-back the shortcode in areas[0] for now (cheap
     // index-free lookup); the spec calls for a dedicated column in Phase 2.
+    // deposit_payment_intent_id + deposit_amount are NULL here. They get
+    // populated at /api/blast/[id]/select when the rider picks a driver and
+    // the deposit hold actually fires.
     await sql`
       INSERT INTO hmu_posts (
         id, user_id, post_type, status, areas, price, time_window,
         pickup_lat, pickup_lng, pickup_address,
         dropoff_lat, dropoff_lng, dropoff_address,
         trip_type, scheduled_for, storage_requested, driver_preference,
-        deposit_payment_intent_id, deposit_amount, market_id,
-        expires_at
+        market_id, expires_at
       ) VALUES (
         ${blastId}, ${riderId}, 'blast', 'active',
         ARRAY[${`shortcode:${shortcode}`}, ${market.slug}],
@@ -354,8 +283,7 @@ export async function POST(req: NextRequest) {
         ${pickupLat}, ${pickupLng}, ${body.pickup?.address ?? null},
         ${dropoffLat}, ${dropoffLng}, ${body.dropoff?.address ?? null},
         ${tripType}, ${scheduledFor}, ${storageRequested}, ${driverPreference},
-        ${paymentIntentId}, ${depositCents / 100}, ${market.market_id},
-        ${expiresAt}
+        ${market.market_id}, ${expiresAt}
       )
     `;
 
@@ -381,7 +309,7 @@ export async function POST(req: NextRequest) {
       targetIds.push({ id: row.id, driverId: t.driverId, matchScore: t.matchScore, distanceMi: t.distanceMi });
     }
 
-    // ── 9. Fanout (fire-and-forget; do not await) ──
+    // ── 8. Fanout (fire-and-forget; do not await) ──
     const fanoutTargets: BlastTarget[] = targetIds.map((t) => ({
       targetId: t.id,
       driverId: t.driverId,
@@ -403,7 +331,7 @@ export async function POST(req: NextRequest) {
     // event loop. For longer fanouts we'd switch to a Queue.
     void fanoutBlast(fanoutTargets, ctx);
 
-    // ── 10. Publish to blast channel for the rider's live offer board ──
+    // ── 9. Publish to blast channel for the rider's live offer board ──
     publishToChannel(`blast:${blastId}`, 'blast_created', {
       blastId,
       expiresAt: expiresAt.toISOString(),
@@ -419,7 +347,6 @@ export async function POST(req: NextRequest) {
       targetedCount: targetIds.length,
       finalRadiusMi,
       expansionsUsed,
-      depositCents,
     });
   } catch (e) {
     console.error('[blast] POST failed:', e);
