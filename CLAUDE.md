@@ -65,17 +65,83 @@ HMU ATL is a **mobile-first PWA** peer-to-peer ride platform for Metro Atlanta.
 > The custom domains `atl.hmucashride.com` and `nola.hmucashride.com` route to this worker (plus `hmucashride.com/*`).
 > Deploying to the wrong target causes **Clerk handshake errors** because Clerk is configured for `atl.hmucashride.com` only.
 
-### Deploys are MANUAL — `git push` does nothing on its own
-There is no CI/CD auto-deploy. Pushing to `origin/main` does not ship code to prod. You must run the deploy command yourself after pushing (or before — the worker build is independent of the remote).
+### 🚨 MANDATORY GIT WORKFLOW — NEVER DEPLOY WITHOUT PR
 
-### How to deploy to production
+**RULE: Every production deploy MUST go through a GitHub PR. No exceptions.**
+
+Deploying directly with `wrangler deploy` bypasses code review and breaks git history sync. Always follow this workflow:
+
+### Step-by-Step Deployment Process
+
+**1. Create feature branch**
+```bash
+git checkout -b feat/your-feature-name
+```
+
+**2. Make your changes and commit**
+```bash
+git add -A
+git commit -m "feat: your feature description
+
+Detailed explanation of changes...
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+**3. Push branch to GitHub**
+```bash
+git push -u origin feat/your-feature-name
+```
+
+**4. Create Pull Request**
+```bash
+gh pr create --title "feat: your feature" --body "## Summary\n\nYour PR description" --base main
+```
+
+**5. Review & Approve PR**
+- Review changes on GitHub
+- Run tests if applicable
+- Approve and merge to `main`
+
+**6. Pull latest main**
+```bash
+git checkout main
+git pull origin main
+```
+
+**7. Deploy to production**
 ```bash
 npm run build && npx opennextjs-cloudflare build && npx wrangler deploy --config wrangler.worker.jsonc
 ```
-Or the npm shortcut (skips the bare `next build` since OpenNext does it):
+Or use the npm shortcut:
 ```bash
 npm run deploy:worker
 ```
+
+**8. Verify deployment shipped**
+```bash
+npx wrangler deployments list --name hmu-atl | head -5
+```
+Check that the timestamp matches your deploy time.
+
+### Rollback Procedure
+
+If a deploy breaks production:
+
+```bash
+# List recent deployments
+npx wrangler deployments list --name hmu-atl | head -20
+
+# Rollback to previous version
+npx wrangler rollback --name hmu-atl --message "Rollback reason"
+```
+
+Wrangler will prompt you to select the version to roll back to.
+
+### Deploys are MANUAL — `git push` does nothing on its own
+There is no CI/CD auto-deploy. Pushing to `origin/main` does not ship code to prod. You must run the deploy command yourself after merging the PR.
 
 ### What each piece does
 | Step | Command | Purpose |
@@ -84,13 +150,8 @@ npm run deploy:worker
 | 2 | `npx opennextjs-cloudflare build` | Converts Next.js output to Cloudflare Worker format (`.open-next/worker.js`) |
 | 3 | `npx wrangler deploy --config wrangler.worker.jsonc` | Deploys to `hmu-atl` worker → `atl.hmucashride.com` |
 
-### How to verify a deploy shipped
-```bash
-npx wrangler deployments list --name hmu-atl | head -20
-```
-Compare the top timestamp to your deploy time. If it's older than your last run, your deploy didn't land.
-
 ### DO NOT
+- **DO NOT** deploy directly with `wrangler deploy` without a merged PR — this breaks git history
 - **DO NOT** use `wrangler pages deploy` — that deploys to Pages, not the Worker
 - **DO NOT** deploy without `--config wrangler.worker.jsonc` — the default `wrangler.jsonc` is for Pages
 - **DO NOT** omit the custom domain route from `wrangler.worker.jsonc`
