@@ -129,7 +129,7 @@ async function fetchCandidates(
       AND dp.current_lat BETWEEN ${minLat} AND ${maxLat}
       AND dp.current_lng BETWEEN ${minLng} AND ${maxLng}
       AND COALESCE(u.chill_score, 0) >= ${minChillScore}
-      AND CASE WHEN ${signinHours} = 0 THEN TRUE
+      AND CASE WHEN ${signinHours}::int = 0 THEN TRUE
                ELSE u.last_active > NOW() - (${signinHours}::text || ' hours')::interval END
       -- Rider's preferred driver gender (when set as a hard filter)
       AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
@@ -142,13 +142,13 @@ async function fetchCandidates(
         WHEN up.rider_gender_pref = 'men_only' THEN ${riderGenderNormalized}::text = 'man'
         ELSE TRUE
       END
-      AND CASE WHEN ${passCapToday} = 0 THEN TRUE
+      AND CASE WHEN ${passCapToday}::int = 0 THEN TRUE
                ELSE COALESCE(passes.cnt, 0) < ${passCapToday} END
       AND NOT EXISTS (
         SELECT 1 FROM rides r
         WHERE r.driver_id = u.id AND r.status IN ('matched','otw','here','active')
       )
-      AND CASE WHEN ${dedupeMinutes} = 0 THEN TRUE
+      AND CASE WHEN ${dedupeMinutes}::int = 0 THEN TRUE
                ELSE NOT EXISTS (
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
@@ -369,7 +369,7 @@ export async function fetchFallbackDrivers(
     WHERE u.profile_type = 'driver'
       AND u.account_status = 'active'
       AND COALESCE(u.chill_score, 0) >= ${minChillScore}
-      AND CASE WHEN ${signinHours} = 0 THEN TRUE
+      AND CASE WHEN ${signinHours}::int = 0 THEN TRUE
                ELSE u.last_active > NOW() - (${signinHours}::text || ' hours')::interval END
       -- Gender preference filter
       AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
@@ -389,7 +389,7 @@ export async function fetchFallbackDrivers(
         WHERE r.driver_id = u.id AND r.status IN ('matched','otw','here','active')
       )
       -- Not recently notified
-      AND CASE WHEN ${dedupeMinutes} = 0 THEN TRUE
+      AND CASE WHEN ${dedupeMinutes}::int = 0 THEN TRUE
                ELSE NOT EXISTS (
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
