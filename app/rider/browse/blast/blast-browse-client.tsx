@@ -49,7 +49,7 @@ export default function BlastBrowseClient({ initialDrivers }: Props) {
         </div>
       </header>
 
-      <main className="px-3 pt-6">
+      <main className="px-3 pt-3">
         <div className="grid grid-cols-2 gap-2">
           {drivers.map((d) => (
             <article

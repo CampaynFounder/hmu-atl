@@ -158,7 +158,6 @@ export default function BlastFormClient() {
   const [authLaunched, setAuthLaunched] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
-  const [suggestedName, setSuggestedName] = useState(''); // Placeholder hint
   const [avatarUrl, setAvatarUrl] = useState('');
   const [confetti, setConfetti] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -225,9 +224,9 @@ export default function BlastFormClient() {
       });
       const body = (await r.json().catch(() => ({}))) as { hasDisplayName?: boolean; hasPhoto?: boolean };
       if (!body.hasDisplayName) {
-        // Set suggested name as placeholder hint (don't pre-fill value)
-        const suggestion = getRandomName(draft.rider_gender);
-        setSuggestedName(suggestion);
+        // Pre-fill with random name based on gender for delight
+        const suggestedName = getRandomName(draft.rider_gender);
+        setDisplayName(suggestedName);
         setStep('name');
       }
       else if (!body.hasPhoto) setStep('photo');
@@ -420,7 +419,6 @@ export default function BlastFormClient() {
                 value={displayName}
                 onChange={setDisplayName}
                 onContinue={handleSaveName}
-                placeholder={suggestedName || "e.g. Marcus"}
               />
             </motion.div>
           )}
@@ -833,16 +831,14 @@ function NameStep({
   value,
   onChange,
   onContinue,
-  placeholder,
 }: {
   value: string;
   onChange: (v: string) => void;
   onContinue: () => void;
-  placeholder?: string;
 }) {
   const valid = value.trim().length >= 2;
   return (
-    <div className="px-1 pt-28 pb-32">
+    <div className="px-1 pt-20 pb-32">
       <motion.p
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -862,7 +858,7 @@ function NameStep({
         onKeyDown={(e) => {
           if (e.key === 'Enter' && valid) onContinue();
         }}
-        placeholder={placeholder || "e.g. Marcus"}
+        placeholder="e.g. Marcus"
         maxLength={60}
         className="w-full text-center rounded-2xl px-4 py-5 text-2xl bg-[#141414] border focus:outline-none focus:border-[#00E676] transition-colors"
         style={{ borderColor: BRAND.border, fontFamily: 'var(--font-display)' }}
@@ -929,7 +925,7 @@ function PhotoStep({
   const showImage = photoUrl || previewUrl;
 
   return (
-    <div className="px-1 pt-24 pb-32">
+    <div className="px-1 pt-6 pb-32">
       <motion.h2
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -1107,7 +1103,7 @@ function ReadyStep({
             <motion.span
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"
+              className="inline-block w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin mr-2"
             />
           )}
           {submitting ? 'Blasting…' : 'Get My Ride'}

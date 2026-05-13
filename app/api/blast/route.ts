@@ -30,7 +30,7 @@ import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 import { calculateDistance } from '@/lib/geo/distance';
 import { getMatchingConfig, getKnob } from '@/lib/blast/config';
-import { matchBlast, fetchFallbackDrivers } from '@/lib/blast/matching';
+import { matchBlast } from '@/lib/blast/matching';
 import { fanoutBlast, type BlastTarget, type BlastNotificationContext } from '@/lib/blast/notify';
 import { publishToChannel } from '@/lib/ably/server';
 
@@ -236,24 +236,6 @@ export async function POST(req: NextRequest) {
     // and the bump button can widen the radius. Drivers coming online after
     // creation can also be added on bump. See lax-creation note at top.
 
-    // Fetch fallback drivers if we ran 2 iterations and still have < 3 matches
-    let fallbackDrivers: Awaited<ReturnType<typeof fetchFallbackDrivers>> = [];
-    if (expansionsUsed >= 2 && scoredTargets.length < 3) {
-      fallbackDrivers = await fetchFallbackDrivers(
-        {
-          riderId,
-          pickupLat,
-          pickupLng,
-          marketId: market.market_id,
-          driverPreference,
-          riderGender,
-          scheduledFor,
-        },
-        config,
-        priceDollars,
-      );
-    }
-
     // Use a UUID for the blast id up front so any client retry hits the same
     // INSERT. (No deposit PI here — that moves to /api/blast/[id]/select.)
     const blastIdRows = await sql`SELECT gen_random_uuid() AS id`;
@@ -325,23 +307,6 @@ export async function POST(req: NextRequest) {
       `;
       const row = inserted[0] as { id: string };
       targetIds.push({ id: row.id, driverId: t.driverId, matchScore: t.matchScore, distanceMi: t.distanceMi });
-    }
-
-    // Insert fallback drivers with notified_at = NULL (not auto-notified)
-    // Rider manually triggers HMU for these via separate API endpoint
-    for (const f of fallbackDrivers) {
-      await sql`
-        INSERT INTO blast_driver_targets (
-          blast_id, driver_id, match_score, score_breakdown,
-          notification_channels, notified_at
-        ) VALUES (
-          ${blastId}, ${f.driverId}, ${f.matchScore},
-          ${JSON.stringify(f.scoreBreakdown)}::jsonb,
-          ARRAY[]::text[],
-          NULL
-        )
-        ON CONFLICT (blast_id, driver_id) DO NOTHING
-      `;
     }
 
     // ── 8. Fanout (fire-and-forget; do not await) ──

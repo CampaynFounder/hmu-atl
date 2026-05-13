@@ -53,7 +53,6 @@ export async function GET(
       bdt.passed_at,
       bdt.selected_at,
       bdt.rejected_at,
-      bdt.notified_at,
       dp.handle,
       dp.display_name,
       dp.video_url,
@@ -69,17 +68,6 @@ export async function GET(
       bdt.hmu_at DESC NULLS LAST,
       bdt.match_score DESC
   `;
-
-  // Separate fallback drivers (notified_at = NULL) from regular targets
-  const regularTargets = targetRows.filter((r: unknown) => {
-    const row = r as Record<string, unknown>;
-    return row.notified_at !== null;
-  });
-
-  const fallbackTargets = targetRows.filter((r: unknown) => {
-    const row = r as Record<string, unknown>;
-    return row.notified_at === null;
-  });
 
   return NextResponse.json({
     blast: {
@@ -104,7 +92,7 @@ export async function GET(
       depositAmount: Number(post.deposit_amount ?? 0),
       bumpCount: Number(post.bump_count ?? 0),
     },
-    targets: regularTargets.map((r: unknown) => {
+    targets: targetRows.map((r: unknown) => {
       const row = r as Record<string, unknown>;
       return {
         targetId: row.target_id,
@@ -115,22 +103,6 @@ export async function GET(
         passedAt: row.passed_at,
         selectedAt: row.selected_at,
         rejectedAt: row.rejected_at,
-        driver: {
-          handle: row.handle,
-          displayName: row.display_name,
-          videoUrl: row.video_url,
-          vehicle: row.vehicle_info,
-          chillScore: Number(row.chill_score ?? 0),
-          tier: row.tier,
-        },
-      };
-    }),
-    fallbackDrivers: fallbackTargets.map((r: unknown) => {
-      const row = r as Record<string, unknown>;
-      return {
-        targetId: row.target_id,
-        driverId: row.driver_id,
-        matchScore: Number(row.match_score),
         driver: {
           handle: row.handle,
           displayName: row.display_name,
