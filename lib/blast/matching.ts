@@ -275,9 +275,11 @@ export async function matchBlast(
   let candidates: DriverCandidate[] = await fetchCandidates(blast, config, radius);
   let expansions = 0;
 
+  // Cap at 2 iterations max (initial + 1 expansion) per user requirements
   while (
     candidates.length < config.limits.min_drivers_to_notify &&
-    radius < config.limits.expand_radius_max_mi
+    radius < config.limits.expand_radius_max_mi &&
+    expansions < 2
   ) {
     radius = Math.min(radius + config.limits.expand_radius_step_mi, config.limits.expand_radius_max_mi);
     expansions += 1;
@@ -310,4 +312,155 @@ export async function matchBlast(
   }
 
   return { targets: selected, finalRadiusMi: radius, expansionsUsed: expansions };
+}
+
+/**
+ * Fetch fallback drivers when no matches are found after 2 iterations.
+ * Returns up to 3 drivers who match gender preference + are within price range,
+ * ignoring location constraints (ANY location or no location set).
+ */
+export async function fetchFallbackDrivers(
+  blast: BlastInput,
+  config: BlastMatchingConfig,
+  ridePrice: number,
+): Promise<ScoredTarget[]> {
+  const requireSexMatch = config.filters.must_match_sex_preference && blast.driverPreference !== 'any';
+  const minChillScore = config.filters.min_chill_score;
+  const signinHours = config.filters.must_be_signed_in_within_hours;
+  const dedupeMinutes = config.limits.same_driver_dedupe_minutes;
+
+  // Normalize rider gender
+  const riderGenderNormalized =
+    blast.riderGender === 'male' || blast.riderGender === 'man' ? 'man' :
+    blast.riderGender === 'female' || blast.riderGender === 'woman' ? 'woman' :
+    null;
+
+  // Query drivers matching gender preference + price range, ignoring location
+  const rows = await sql`
+    SELECT
+      u.id AS user_id,
+      dp.current_lat,
+      dp.current_lng,
+      u.gender,
+      COALESCE(u.chill_score, 0) AS chill_score,
+      COALESCE(u.tier, 'free') AS tier,
+      COALESCE(u.completed_rides, 0) AS completed_rides,
+      u.last_active,
+      EXTRACT(EPOCH FROM (NOW() - u.last_active)) / 3600 AS hours_since_signin,
+      COALESCE(pv.view_count, 0) AS profile_view_count,
+      COALESCE(passes.cnt, 0) AS passes_today,
+      dp.advance_notice_hours,
+      dp.min_ride_amount
+    FROM users u
+    JOIN driver_profiles dp ON dp.user_id = u.id
+    LEFT JOIN user_preferences up ON up.user_id = u.id
+    LEFT JOIN (
+      SELECT driver_id, SUM(view_count) AS view_count
+      FROM profile_views
+      WHERE last_viewed_at > NOW() - INTERVAL '30 days'
+      GROUP BY driver_id
+    ) pv ON pv.driver_id = u.id
+    LEFT JOIN (
+      SELECT driver_id, COUNT(*) AS cnt
+      FROM ride_interests
+      WHERE status = 'passed' AND created_at > NOW() - INTERVAL '24 hours'
+      GROUP BY driver_id
+    ) passes ON passes.driver_id = u.id
+    WHERE u.profile_type = 'driver'
+      AND u.account_status = 'active'
+      AND COALESCE(u.chill_score, 0) >= ${minChillScore}
+      AND CASE WHEN ${signinHours} = 0 THEN TRUE
+               ELSE u.last_active > NOW() - (${signinHours} || ' hours')::interval END
+      -- Gender preference filter
+      AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference})
+      -- Driver's preferred rider gender
+      AND CASE
+        WHEN up.rider_gender_pref IS NULL OR up.rider_gender_pref IN ('no_preference','prefer_women','prefer_men') THEN TRUE
+        WHEN up.rider_gender_pref = 'women_only' THEN ${riderGenderNormalized} = 'woman'
+        WHEN up.rider_gender_pref = 'men_only' THEN ${riderGenderNormalized} = 'man'
+        ELSE TRUE
+      END
+      -- Price filter: driver's min_ride_amount <= rider's offered price (or driver has no minimum)
+      AND (dp.min_ride_amount IS NULL OR dp.min_ride_amount <= ${ridePrice})
+      -- Not in active ride
+      AND NOT EXISTS (
+        SELECT 1 FROM rides r
+        WHERE r.driver_id = u.id AND r.status IN ('matched','otw','here','active')
+      )
+      -- Not recently notified
+      AND CASE WHEN ${dedupeMinutes} = 0 THEN TRUE
+               ELSE NOT EXISTS (
+        SELECT 1 FROM blast_driver_targets bdt
+        JOIN hmu_posts hp ON hp.id = bdt.blast_id
+        WHERE bdt.driver_id = u.id
+          AND hp.user_id = ${blast.riderId}
+          AND bdt.notified_at > NOW() - (${dedupeMinutes} || ' minutes')::interval
+      ) END
+    ORDER BY
+      -- Prioritize HMU First tier
+      CASE WHEN COALESCE(u.tier, 'free') = 'hmu_first' THEN 0 ELSE 1 END,
+      -- Then by chill score
+      COALESCE(u.chill_score, 0) DESC,
+      -- Then by completed rides
+      COALESCE(u.completed_rides, 0) DESC
+    LIMIT 3
+  `;
+
+  const candidates = rows.map((r: unknown) => {
+    const row = r as Record<string, unknown>;
+    return {
+      user_id: row.user_id as string,
+      current_lat: row.current_lat ? Number(row.current_lat) : 0,
+      current_lng: row.current_lng ? Number(row.current_lng) : 0,
+      gender: (row.gender as string) ?? null,
+      chill_score: Number(row.chill_score),
+      tier: (row.tier as 'free' | 'hmu_first') ?? 'free',
+      completed_rides: Number(row.completed_rides),
+      last_active: row.last_active ? new Date(row.last_active as string) : null,
+      hours_since_signin: Number(row.hours_since_signin) || 0,
+      profile_view_count: Number(row.profile_view_count),
+      passes_today: Number(row.passes_today),
+      advance_notice_hours: row.advance_notice_hours ? Number(row.advance_notice_hours) : null,
+    };
+  });
+
+  // Score each candidate (but distance will be 0 or very large since we're ignoring location)
+  const scored = candidates
+    .map((c: DriverCandidate) => {
+      // For fallback drivers, we create a simplified score based on non-location factors
+      const w = config.weights;
+      const chill = clamp01(c.chill_score / 100);
+      const completed = clamp01(c.completed_rides / 50);
+      const lowPass = clamp01(1 - c.passes_today / 10);
+      const views = clamp01(c.profile_view_count / 100);
+
+      let sexMatch = 1;
+      if (blast.driverPreference !== 'any') {
+        sexMatch = c.gender === blast.driverPreference ? 1 : 0;
+      }
+
+      const breakdown = {
+        proximity_to_pickup: 0, // Not considered for fallback
+        recency_signin: 0, // Not heavily weighted for fallback
+        sex_match: sexMatch * w.sex_match,
+        chill_score: chill * w.chill_score,
+        advance_notice_fit: 0,
+        profile_view_count: views * w.profile_view_count,
+        completed_rides: completed * w.completed_rides,
+        low_recent_pass_rate: lowPass * w.low_recent_pass_rate,
+      };
+
+      const matchScore = Object.values(breakdown).reduce((a: number, b: number) => a + b, 0);
+
+      return {
+        driverId: c.user_id,
+        matchScore: Math.round(matchScore * 1000) / 1000,
+        scoreBreakdown: roundBreakdown(breakdown),
+        distanceMi: 0, // Unknown - location not considered
+        tier: c.tier,
+      };
+    })
+    .sort((a: ScoredTarget, b: ScoredTarget) => b.matchScore - a.matchScore);
+
+  return scored;
 }
