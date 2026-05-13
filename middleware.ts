@@ -141,6 +141,7 @@ const isPublicRoute = createRouteMatcher([
   '/rider/browse(.*)',     // includes /rider/browse/blast (unauth-friendly blast landing)
   '/rider/blast/new',      // the form itself; auth gate is on submit, not page load
   '/api/blast/estimate',   // pre-auth pricing estimate for the blast form
+  '/api/blast',            // blast booking endpoint — auth checked in handler, returns 401 JSON if unauthorized
   '/api/public/(.*)',
   '/api/rider/browse/(.*)',
   '/privacy',
