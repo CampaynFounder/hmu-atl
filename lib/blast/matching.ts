@@ -90,7 +90,7 @@ async function fetchCandidates(
   const riderGenderNormalized =
     blast.riderGender === 'male' || blast.riderGender === 'man' ? 'man' :
     blast.riderGender === 'female' || blast.riderGender === 'woman' ? 'woman' :
-    null;
+    ''  // empty string instead of null to avoid parameter type inference issues;
 
   const rows = await sql`
     SELECT
@@ -333,7 +333,7 @@ export async function fetchFallbackDrivers(
   const riderGenderNormalized =
     blast.riderGender === 'male' || blast.riderGender === 'man' ? 'man' :
     blast.riderGender === 'female' || blast.riderGender === 'woman' ? 'woman' :
-    null;
+    ''  // empty string instead of null to avoid parameter type inference issues;
 
   // Query drivers matching gender preference + price range, ignoring location
   const rows = await sql`
