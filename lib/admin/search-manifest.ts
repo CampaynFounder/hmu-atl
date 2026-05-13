@@ -322,6 +322,15 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     keywords: ['driver to rider', 'cap', 'hmu link cap'],
   },
   {
+    id: 'blast-config',
+    label: 'Blast Config',
+    description: 'Tune blast booking matching algorithm and limits',
+    href: '/admin/blast-config',
+    section: 'System',
+    icon: '💥',
+    keywords: ['blast', 'booking', 'matching', 'fanout', 'sms cap', 'blast booking'],
+  },
+  {
     id: 'onboarding-config',
     label: 'Onboarding Config',
     description: 'Set required driver signup fields',

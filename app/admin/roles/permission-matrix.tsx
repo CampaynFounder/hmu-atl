@@ -45,6 +45,7 @@ const PERMISSION_SECTIONS = [
     { key: 'admin.markets', label: 'Markets' },
     { key: 'admin.flags', label: 'Feature Flags' },
     { key: 'admin.hmuconfig', label: 'HMU Config' },
+    { key: 'admin.blastconfig', label: 'Blast Config' },
     { key: 'admin.onboarding', label: 'Onboarding Config' },
     { key: 'admin.banners', label: 'Realtime Banners' },
     { key: 'admin.browsebanner', label: 'Browse Banner' },

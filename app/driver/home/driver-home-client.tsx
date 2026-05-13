@@ -222,15 +222,19 @@ export default function DriverHomeClient({
       const res = await fetch(`/api/bookings/${postId}/accept`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
-        // Accept = throw card right. Direction set before removal so AnimatePresence
-        // picks up the directional exit variant.
+        // Accept = throw card right. Two-tick dance: set direction first, then
+        // defer removal so React flushes the new exit variant into
+        // AnimatePresence's cache BEFORE the card unmounts. Without the defer,
+        // both state updates batch into one render and AP captures the prior
+        // (undefined) exit prop — card disappears with no throw.
         setExitDirs((d) => ({ ...d, [postId]: 'right' }));
-        if (data.rideId) {
+        setTimeout(() => {
           setRequests((prev) => prev.filter((r) => r.id !== postId));
-          window.location.replace(`/ride/${data.rideId}`);
-        } else {
-          setRequests((prev) => prev.filter((r) => r.id !== postId));
-        }
+          if (data.rideId) {
+            // Let the throw animate before navigating off the page.
+            setTimeout(() => window.location.replace(`/ride/${data.rideId}`), 560);
+          }
+        }, 0);
       } else if (data.error === 'PAYOUT_REQUIRED') {
         if (confirm('Set up your payout account to accept rides. Go to payout setup?')) {
           window.location.href = '/driver/payout-setup';
@@ -255,9 +259,12 @@ export default function DriverHomeClient({
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        // Pass = throw card left.
+        // Pass = throw card left. Defer removal one tick so AnimatePresence
+        // captures the new exit variant — see handleAction for the rationale.
         setExitDirs((d) => ({ ...d, [postId]: 'left' }));
-        setRequests((prev) => prev.filter((r) => r.id !== postId));
+        setTimeout(() => {
+          setRequests((prev) => prev.filter((r) => r.id !== postId));
+        }, 0);
         setActionToast(data.status === 'declined_awaiting_rider' ? 'Passed — rider notified' : 'Passed');
         setTimeout(() => setActionToast(null), 2000);
       } else {
