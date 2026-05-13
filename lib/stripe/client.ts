@@ -82,11 +82,8 @@ export async function createConnectAccount(params: {
 }
 
 /**
- * @deprecated VIOLATES IN-APP-ONLY POLICY (CLAUDE.md § STRIPE INTEGRATION).
- * Returns a Stripe-hosted onboarding URL (connect.stripe.com). Per CLAUDE.md:
- * "Live leaks (do NOT add new callers — Phase B will rip these out):
- *  - lib/stripe/client.ts:createAccountLink — helper that returns a hosted URL. Audit callers + delete."
- * Use /driver/payout-setup page (renders embedded ConnectAccountOnboarding) instead.
+ * Create Account Link for Connect onboarding
+ * Returns real onboarding URL or mock URL based on STRIPE_MOCK flag
  */
 export async function createAccountLink(params: {
   accountId: string;

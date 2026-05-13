@@ -4,7 +4,7 @@
 
 import { Webhook } from 'svix';
 import { headers } from 'next/headers';
-import { WebhookEvent, clerkClient } from '@clerk/nextjs/server';
+import { WebhookEvent } from '@clerk/nextjs/server';
 import { createUser, updateUser, deleteUser, getUserByClerkId, resolveDriverHandleToUserId } from '@/lib/db/users';
 import { sql } from '@/lib/db/client';
 import { notifyAdminSms } from '@/lib/admin/notify';
@@ -183,22 +183,6 @@ export async function POST(req: Request) {
       if (isAdminSignup) {
         console.log('[WEBHOOK] admin signup - skipping Stripe/notifications:', { clerkId: id });
         return new Response('Admin user created', { status: 201 });
-      }
-
-      // Sync profileType to Clerk publicMetadata immediately after user creation.
-      // This ensures the header component (components/layout/header.tsx) can read
-      // the correct profile type and show the appropriate menu before onboarding
-      // completes. Without this, drivers see the rider menu during the race window
-      // between signup and onboarding completion.
-      try {
-        const clerk = await clerkClient();
-        await clerk.users.updateUserMetadata(id, {
-          publicMetadata: { profileType },
-        });
-        console.log('[WEBHOOK] Synced profileType to Clerk metadata:', { clerkId: id, profileType });
-      } catch (metaErr) {
-        console.error('[WEBHOOK] Failed to sync profileType to Clerk metadata:', metaErr);
-        // Non-fatal - the DB profile exists, onboarding will retry this sync
       }
 
       // Provision Stripe Customer + Connect account now that the user is real.
