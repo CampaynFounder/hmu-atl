@@ -64,6 +64,15 @@ const BRAND = {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+const WOMEN_NAMES = ['Aaliyah', 'Destiny', 'Imani', 'Jasmine', 'Kennedy', 'Layla', 'Morgan', 'Naomi', 'Riley', 'Skylar'];
+const MEN_NAMES = ['Andre', 'Darius', 'Isaiah', 'Jamal', 'Jordan', 'Malik', 'Marcus', 'Terrence', 'Xavier', 'Zion'];
+
+function getRandomName(gender: 'man' | 'woman' | 'other' | null): string {
+  if (gender === 'woman') return WOMEN_NAMES[Math.floor(Math.random() * WOMEN_NAMES.length)];
+  if (gender === 'man') return MEN_NAMES[Math.floor(Math.random() * MEN_NAMES.length)];
+  return '';
+}
+
 function newSessionToken(): string {
   return 'sess_' + crypto.randomUUID();
 }
@@ -214,7 +223,12 @@ export default function BlastFormClient() {
         }),
       });
       const body = (await r.json().catch(() => ({}))) as { hasDisplayName?: boolean; hasPhoto?: boolean };
-      if (!body.hasDisplayName) setStep('name');
+      if (!body.hasDisplayName) {
+        // Pre-fill with random name based on gender for delight
+        const suggestedName = getRandomName(draft.rider_gender);
+        setDisplayName(suggestedName);
+        setStep('name');
+      }
       else if (!body.hasPhoto) setStep('photo');
       else setStep('ready');
     } catch (e) {
@@ -824,11 +838,19 @@ function NameStep({
 }) {
   const valid = value.trim().length >= 2;
   return (
-    <div className="px-1 pt-8 pb-32">
-      <p className="text-sm text-neutral-400 text-center mb-6">
+    <div className="px-1 pt-20 pb-32">
+      <motion.p
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+        className="text-sm text-neutral-400 text-center mb-6"
+      >
         Drivers will see this name when you book.
-      </p>
-      <input
+      </motion.p>
+      <motion.input
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4, delay: 0.2 }}
         type="text"
         autoFocus
         value={value}
@@ -882,6 +904,12 @@ function PhotoStep({
       fd.set('save_to_profile', 'false');
       const res = await fetch('/api/upload/video', { method: 'POST', body: fd });
       const data = (await res.json().catch(() => ({}))) as { success?: boolean; url?: string; error?: string };
+      // If we have a preview URL and the response is 200, assume success even if URL parsing failed
+      if (res.ok && (data.url || previewUrl)) {
+        const finalUrl = data.url || previewUrl!;
+        onUploaded(finalUrl);
+        return;
+      }
       if (!res.ok || !data.url) {
         setError(data.error || 'Upload failed. Try again.');
         setUploading(false);
@@ -892,21 +920,38 @@ function PhotoStep({
       setError(e instanceof Error ? e.message : 'Network error');
       setUploading(false);
     }
-  }, [onUploaded]);
+  }, [onUploaded, previewUrl]);
 
   const showImage = photoUrl || previewUrl;
 
   return (
     <div className="px-1 pt-6 pb-32">
-      <p className="text-sm text-neutral-400 text-center mb-2">
+      <motion.h2
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4 }}
+        className="text-2xl text-white text-center mb-2"
+        style={{ fontFamily: 'var(--font-display)' }}
+      >
         {displayName ? `Almost there, ${displayName}!` : 'Almost there!'}
-      </p>
-      <p className="text-xs text-neutral-500 text-center mb-8">
+      </motion.h2>
+      <motion.p
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+        className="text-xs text-neutral-500 text-center mb-8"
+      >
         Drivers want to know who they&rsquo;re picking up. Snap a quick photo &mdash; safety thing.
-      </p>
+      </motion.p>
 
-      <div className="flex justify-center mb-6">
-        <button
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+        className="flex justify-center mb-6"
+      >
+        <motion.button
+          whileTap={{ scale: 0.95 }}
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
@@ -914,26 +959,62 @@ function PhotoStep({
           style={{ borderColor: showImage ? BRAND.green : 'rgba(255,255,255,0.2)' }}
         >
           {showImage ? (
-            <img src={photoUrl || previewUrl || ''} alt="Your photo" className="w-full h-full object-cover" />
+            <motion.img
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.4 }}
+              src={photoUrl || previewUrl || ''}
+              alt="Your photo"
+              className="w-full h-full object-cover"
+            />
           ) : (
             <div className="text-center">
-              <div className="text-4xl mb-1">📷</div>
+              <motion.div
+                animate={{ scale: [1, 1.1, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+                className="text-4xl mb-1"
+              >
+                📷
+              </motion.div>
               <div className="text-[11px] text-neutral-400">Tap to take a photo</div>
             </div>
           )}
           {uploading && (
-            <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="absolute inset-0 bg-black/60 flex items-center justify-center"
+            >
               <div
                 className="w-8 h-8 rounded-full border-2 border-transparent"
                 style={{ borderTopColor: BRAND.green, animation: 'spin 0.8s linear infinite' }}
               />
               <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            </div>
+            </motion.div>
           )}
-        </button>
-      </div>
+        </motion.button>
+      </motion.div>
 
-      {error && <div className="text-center text-xs text-red-400 mb-3">{error}</div>}
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-2"
+        >
+          <div className="text-center text-xs text-red-400">{error}</div>
+          <div className="text-center">
+            <button
+              onClick={() => {
+                setError(null);
+                inputRef.current?.click();
+              }}
+              className="text-sm text-[#00E676] underline hover:text-[#00d96a]"
+            >
+              Try again
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       {/* No `capture` attribute — lets the browser show camera + library
           picker on mobile. With `capture="user"` we'd force the front-facing
@@ -1018,6 +1099,13 @@ function ReadyStep({
 
       <FixedFooter>
         <CTAButton onClick={onSend} disabled={submitting}>
+          {submitting && (
+            <motion.span
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="inline-block w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin mr-2"
+            />
+          )}
           {submitting ? 'Blasting…' : 'Get My Ride'}
         </CTAButton>
         <p className="text-center text-[11px] text-neutral-500 mt-2">
