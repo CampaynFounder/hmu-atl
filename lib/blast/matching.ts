@@ -426,7 +426,7 @@ export async function fetchFallbackDrivers(
 
   // Score each candidate (but distance will be 0 or very large since we're ignoring location)
   const scored = candidates
-    .map((c) => {
+    .map((c: DriverCandidate) => {
       // For fallback drivers, we create a simplified score based on non-location factors
       const w = config.weights;
       const chill = clamp01(c.chill_score / 100);
@@ -450,7 +450,7 @@ export async function fetchFallbackDrivers(
         low_recent_pass_rate: lowPass * w.low_recent_pass_rate,
       };
 
-      const matchScore = Object.values(breakdown).reduce((a, b) => a + b, 0);
+      const matchScore = Object.values(breakdown).reduce((a: number, b: number) => a + b, 0);
 
       return {
         driverId: c.user_id,
@@ -460,7 +460,7 @@ export async function fetchFallbackDrivers(
         tier: c.tier,
       };
     })
-    .sort((a, b) => b.matchScore - a.matchScore);
+    .sort((a: ScoredTarget, b: ScoredTarget) => b.matchScore - a.matchScore);
 
   return scored;
 }

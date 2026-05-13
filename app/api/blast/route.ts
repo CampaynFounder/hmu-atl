@@ -250,7 +250,7 @@ export async function POST(req: NextRequest) {
           scheduledFor,
         },
         config,
-        price,
+        priceDollars,
       );
     }
 
