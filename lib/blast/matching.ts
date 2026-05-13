@@ -125,12 +125,12 @@ async function fetchCandidates(
       AND u.account_status = 'active'
       AND dp.current_lat IS NOT NULL
       AND dp.current_lng IS NOT NULL
-      AND dp.location_updated_at > NOW() - (${maxStaleMinutes} || ' minutes')::interval
+      AND dp.location_updated_at > NOW() - (${maxStaleMinutes}::text || ' minutes')::interval
       AND dp.current_lat BETWEEN ${minLat} AND ${maxLat}
       AND dp.current_lng BETWEEN ${minLng} AND ${maxLng}
       AND COALESCE(u.chill_score, 0) >= ${minChillScore}
       AND CASE WHEN ${signinHours} = 0 THEN TRUE
-               ELSE u.last_active > NOW() - (${signinHours} || ' hours')::interval END
+               ELSE u.last_active > NOW() - (${signinHours}::text || ' hours')::interval END
       -- Rider's preferred driver gender (when set as a hard filter)
       AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
       -- Driver's preferred rider gender (always honored: drivers who chose
@@ -154,7 +154,7 @@ async function fetchCandidates(
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
           AND hp.user_id = ${blast.riderId}
-          AND bdt.notified_at > NOW() - (${dedupeMinutes} || ' minutes')::interval
+          AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
       ) END
   `;
 
@@ -370,7 +370,7 @@ export async function fetchFallbackDrivers(
       AND u.account_status = 'active'
       AND COALESCE(u.chill_score, 0) >= ${minChillScore}
       AND CASE WHEN ${signinHours} = 0 THEN TRUE
-               ELSE u.last_active > NOW() - (${signinHours} || ' hours')::interval END
+               ELSE u.last_active > NOW() - (${signinHours}::text || ' hours')::interval END
       -- Gender preference filter
       AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
       -- Driver's preferred rider gender
@@ -395,7 +395,7 @@ export async function fetchFallbackDrivers(
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
           AND hp.user_id = ${blast.riderId}
-          AND bdt.notified_at > NOW() - (${dedupeMinutes} || ' minutes')::interval
+          AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
       ) END
     ORDER BY
       -- Prioritize HMU First tier
