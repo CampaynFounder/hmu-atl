@@ -349,8 +349,8 @@ export async function fetchFallbackDrivers(
       EXTRACT(EPOCH FROM (NOW() - u.last_active)) / 3600 AS hours_since_signin,
       COALESCE(pv.view_count, 0) AS profile_view_count,
       COALESCE(passes.cnt, 0) AS passes_today,
-      dp.advance_notice_hours,
-      dp.min_ride_amount
+      dp.advance_notice_hours
+      -- dp.min_ride_amount -- TODO: re-enable when staging DB has this column migrated
     FROM users u
     JOIN driver_profiles dp ON dp.user_id = u.id
     LEFT JOIN user_preferences up ON up.user_id = u.id
@@ -381,7 +381,8 @@ export async function fetchFallbackDrivers(
         ELSE TRUE
       END
       -- Price filter: driver's min_ride_amount <= rider's offered price (or driver has no minimum)
-      AND (dp.min_ride_amount IS NULL OR dp.min_ride_amount <= ${ridePrice})
+      -- TODO: re-enable when staging DB has min_ride_amount column migrated
+      -- AND (dp.min_ride_amount IS NULL OR dp.min_ride_amount <= ${ridePrice})
       -- Not in active ride
       AND NOT EXISTS (
         SELECT 1 FROM rides r
