@@ -1,7 +1,7 @@
 // POST /api/admin/switch-role — Switch own profile_type (admin only)
 // Only allows switching between 'admin', 'driver', 'rider', 'both'
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 
 export async function POST(req: NextRequest) {
@@ -29,6 +29,18 @@ export async function POST(req: NextRequest) {
     UPDATE users SET profile_type = ${role}, updated_at = NOW()
     WHERE id = ${user.id}
   `;
+
+  // Sync profileType to Clerk metadata so header component shows correct menu.
+  // Without this, admin sees wrong menu after role switch until re-login.
+  try {
+    const clerk = await clerkClient();
+    await clerk.users.updateUserMetadata(clerkId, {
+      publicMetadata: { profileType: role },
+    });
+  } catch (clerkErr) {
+    console.error('[ADMIN SWITCH-ROLE] Failed to sync profileType to Clerk:', clerkErr);
+    // Non-fatal - DB updated, but Clerk session will be stale until next login
+  }
 
   return NextResponse.json({ success: true, role });
 }
