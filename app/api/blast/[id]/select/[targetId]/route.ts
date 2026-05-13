@@ -1,18 +1,15 @@
 // POST /api/blast/[id]/select/[targetId] — rider locks the match.
 //
-// LAX CREATION MODEL (founder direction 2026-05-13):
-//   The blast was created without a deposit hold. This endpoint is where the
-//   rider commits financially — we check for a saved card, return 412 with a
-//   returnUrl if missing (frontend redirects to card-add), and only then run
-//   the atomic match claim + deposit PaymentIntent.
-//
 // Race-safe: an atomic UPDATE … WHERE status='active' RETURNING id ensures only
 // the first call wins. Subsequent calls (or races) get 409.
 //
 // On success:
-//   - hmu_posts.status → 'matched'; deposit PI id + amount persisted
+//   - hmu_posts.status → 'matched'
 //   - blast_driver_targets: this row gets selected_at; other rows get rejected_at
 //   - rides row created (status='matched')
+//   - blast deposit PaymentIntent is RELEASED here — the normal Pull Up flow
+//     takes over and runs its own holdRiderPayment with the actual driver as
+//     transfer_data.destination. The blast deposit was just a commitment hold.
 //   - Ably: blast:{id} gets `match_locked`; each loser gets blast_taken on
 //     user:{driver_id}:notify
 //
@@ -24,7 +21,6 @@ import { sql } from '@/lib/db/client';
 import { stripe } from '@/lib/stripe/connect';
 import { publishToChannel, notifyUser } from '@/lib/ably/server';
 import { generateRefCode } from '@/lib/rides/ref-code';
-import { getMatchingConfig } from '@/lib/blast/config';
 
 export const runtime = 'nodejs';
 
@@ -37,39 +33,9 @@ export async function POST(
 
   const { id: blastId, targetId } = await params;
 
-  // Pull rider + payment-method state up front. Card check happens BEFORE the
-  // atomic claim so a missing card doesn't wedge the blast into 'matched'.
-  const userRows = await sql`
-    SELECT u.id, rp.stripe_customer_id
-    FROM users u
-    LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-    WHERE u.clerk_id = ${clerkId} LIMIT 1
-  `;
+  const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
   if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
-  const userRow = userRows[0] as { id: string; stripe_customer_id: string | null };
-  const riderId = userRow.id;
-  const stripeCustomerId = userRow.stripe_customer_id;
-
-  const pmRows = stripeCustomerId
-    ? await sql`
-        SELECT stripe_payment_method_id FROM rider_payment_methods
-        WHERE rider_id = ${riderId} AND is_default = true LIMIT 1
-      `
-    : [];
-  const paymentMethodId = (pmRows[0] as { stripe_payment_method_id: string } | undefined)?.stripe_payment_method_id;
-
-  if (!stripeCustomerId || !paymentMethodId) {
-    // returnUrl puts the rider back on the offer board after they add a card,
-    // so the second Match tap proceeds with the deposit hold.
-    return NextResponse.json(
-      {
-        error: 'PAYMENT_METHOD_REQUIRED',
-        message: 'Add a payment method to lock in this driver',
-        returnUrl: `/rider/blast/${blastId}`,
-      },
-      { status: 412 },
-    );
-  }
+  const riderId = (userRows[0] as { id: string }).id;
 
   // Atomic claim: status must be 'active' to flip. The RETURNING tells us if
   // we won the race.
@@ -81,7 +47,7 @@ export async function POST(
        AND post_type = 'blast'
        AND status = 'active'
        AND expires_at > NOW()
-     RETURNING id, price, pickup_address, dropoff_address,
+     RETURNING id, price, deposit_payment_intent_id, pickup_address, dropoff_address,
                pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
                scheduled_for, trip_type, areas, time_window
   `;
@@ -121,60 +87,6 @@ export async function POST(
     ? Number(target.hmu_counter_price)
     : Number(post.price);
 
-  // Authorize the deposit hold against the rider's saved card. Manual capture
-  // so the platform can release on completed ride or capture on rider no-show.
-  // No transfer_data — the destination is decided when the ride lifecycle
-  // ends and we know whether it's release-or-capture.
-  const config = await getMatchingConfig();
-  const depositCents = Math.min(
-    Math.max(
-      Math.round(finalPrice * 100 * config.deposit.percent_of_fare),
-      config.deposit.default_amount_cents,
-    ),
-    config.deposit.max_deposit_cents,
-  );
-
-  let depositPiId: string | null = null;
-  let depositErr: string | null = null;
-  try {
-    const pi = await stripe.paymentIntents.create({
-      amount: depositCents,
-      currency: 'usd',
-      customer: stripeCustomerId,
-      payment_method: paymentMethodId,
-      capture_method: 'manual',
-      confirm: true,
-      off_session: true,
-      statement_descriptor_suffix: 'HMU BLAST',
-      metadata: { blastId, riderId, driverId, kind: 'blast_deposit' },
-    }, { idempotencyKey: `blast_deposit_${blastId}` });
-    if (pi.status !== 'requires_capture') {
-      depositErr = `unexpected_status:${pi.status}`;
-    } else {
-      depositPiId = pi.id;
-    }
-  } catch (e) {
-    const err = e as { code?: string; decline_code?: string; message?: string };
-    depositErr = err.decline_code ?? err.code ?? err.message ?? 'unknown';
-  }
-
-  if (depositErr || !depositPiId) {
-    // Roll the claim back so the rider can try a different card / driver.
-    await sql`UPDATE hmu_posts SET status = 'active' WHERE id = ${blastId}`;
-    return NextResponse.json(
-      { error: 'DEPOSIT_FAILED', message: depositErr || 'Could not authorize deposit' },
-      { status: 402 },
-    );
-  }
-
-  // Persist the deposit hold on the blast row for downstream release/capture.
-  await sql`
-    UPDATE hmu_posts
-       SET deposit_payment_intent_id = ${depositPiId},
-           deposit_amount = ${depositCents / 100}
-     WHERE id = ${blastId}
-  `;
-
   // Stamp selected/rejected on targets.
   await sql`
     UPDATE blast_driver_targets
@@ -189,6 +101,23 @@ export async function POST(
        AND selected_at IS NULL
        AND rejected_at IS NULL
   `;
+
+  // Release the blast deposit hold — it served its purpose. The normal Pull Up
+  // flow will create its own PaymentIntent against the matched driver's
+  // Connect account when the rider hits Pull Up at HERE.
+  const blastPi = post.deposit_payment_intent_id as string | null;
+  if (blastPi) {
+    try {
+      await stripe.paymentIntents.cancel(
+        blastPi,
+        {},
+        { idempotencyKey: `blast_release_${blastId}` },
+      );
+    } catch (e) {
+      // Non-fatal: the PI may already be cancelled or in an end state.
+      console.error('[blast] release deposit failed:', e);
+    }
+  }
 
   // Create the ride row. Mirror the shape used by /api/bookings/[postId]/accept.
   const refCode = generateRefCode();

@@ -155,18 +155,6 @@ function PaymentTab() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // returnUrl is set by callers that bounce the rider here mid-flow (e.g.
-  // /rider/blast/[id] when the rider taps Match without a saved card). On
-  // successful card-add we redirect there instead of reloading settings.
-  // Auto-open the add form if from=blast so they don't have to tap "Add card".
-  const [returnUrl, setReturnUrl] = useState<string | null>(null);
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const ret = params.get('returnUrl');
-    if (ret && ret.startsWith('/')) setReturnUrl(ret);
-    if (params.get('from') === 'blast') setShowAddForm(true);
-  }, []);
-
   // Fetch saved payment methods on mount
   useState(() => {
     fetch('/api/rider/payment-methods')
@@ -269,14 +257,7 @@ function PaymentTab() {
 
       {showAddForm ? (
         <InlinePaymentForm
-          onSuccess={() => {
-            setShowAddForm(false);
-            if (returnUrl) {
-              window.location.assign(returnUrl);
-            } else {
-              window.location.reload();
-            }
-          }}
+          onSuccess={() => { setShowAddForm(false); window.location.reload(); }}
           onCancel={() => setShowAddForm(false)}
         />
       ) : (

@@ -121,26 +121,12 @@ export default function BlastOfferBoardClient({ blastId }: { blastId: string }) 
       setMatching(target.targetId);
       try {
         const res = await fetch(`/api/blast/${blastId}/select/${target.targetId}`, { method: 'POST' });
-        const body = (await res.json().catch(() => ({}))) as {
-          rideId?: string;
-          error?: string;
-          message?: string;
-          returnUrl?: string;
-        };
+        const body = (await res.json().catch(() => ({}))) as { rideId?: string; error?: string };
         if (res.ok && body.rideId) {
           router.push(`/ride/${body.rideId}`);
           return;
         }
-        // Lax-creation model: card collection happens at match-acceptance.
-        // First match tap from a brand-new funnel rider lands here — bounce
-        // them to settings to add a card, then back to this offer board to
-        // re-tap Match.
-        if (res.status === 412 && body.error === 'PAYMENT_METHOD_REQUIRED') {
-          const returnUrl = body.returnUrl ?? `/rider/blast/${blastId}`;
-          router.push(`/rider/settings?tab=payment&from=blast&returnUrl=${encodeURIComponent(returnUrl)}`);
-          return;
-        }
-        alert(body.message || body.error || 'Could not match. Try another driver.');
+        alert(body.error || 'Could not match. Try another driver.');
       } finally {
         setMatching(null);
       }
@@ -216,9 +202,7 @@ export default function BlastOfferBoardClient({ blastId }: { blastId: string }) 
           <div className="rounded-2xl bg-neutral-900 border border-neutral-800 px-4 py-12 text-center">
             <div className="text-3xl animate-pulse">·····</div>
             <div className="text-sm text-neutral-400 mt-3">
-              {targets.length === 0
-                ? 'Hunting for drivers near you…'
-                : `Pinged ${targets.length} driver${targets.length === 1 ? '' : 's'} — waiting for a HMU back…`}
+              Notifying {targets.length} driver{targets.length === 1 ? '' : 's'} in your area…
             </div>
           </div>
         ) : (
