@@ -24,6 +24,20 @@ interface Target {
   };
 }
 
+interface FallbackDriver {
+  targetId: string;
+  driverId: string;
+  matchScore: number;
+  driver: {
+    handle: string | null;
+    displayName: string | null;
+    videoUrl: string | null;
+    vehicle: Record<string, unknown> | null;
+    chillScore: number;
+    tier: 'free' | 'hmu_first';
+  };
+}
+
 interface Blast {
   id: string;
   status: 'active' | 'matched' | 'cancelled' | 'expired';
@@ -43,20 +57,23 @@ export default function BlastOfferBoardClient({ blastId }: { blastId: string }) 
   const router = useRouter();
   const [blast, setBlast] = useState<Blast | null>(null);
   const [targets, setTargets] = useState<Target[]>([]);
+  const [fallbackDrivers, setFallbackDrivers] = useState<FallbackDriver[]>([]);
   const [loading, setLoading] = useState(true);
   const [matching, setMatching] = useState<string | null>(null);
   const [bumping, setBumping] = useState(false);
   const [showFallback, setShowFallback] = useState(false);
   const [searchStage, setSearchStage] = useState(0);
+  const [hmuingFallback, setHmuingFallback] = useState<Set<string>>(new Set());
 
   // Initial fetch + soft poll fallback (Ably is the primary live channel).
   const refresh = useCallback(async () => {
     try {
       const res = await fetch(`/api/blast/${blastId}`);
       if (!res.ok) return;
-      const data = (await res.json()) as { blast: Blast; targets: Target[] };
+      const data = (await res.json()) as { blast: Blast; targets: Target[]; fallbackDrivers: FallbackDriver[] };
       setBlast(data.blast);
       setTargets(data.targets);
+      setFallbackDrivers(data.fallbackDrivers || []);
     } finally {
       setLoading(false);
     }
@@ -187,6 +204,26 @@ export default function BlastOfferBoardClient({ blastId }: { blastId: string }) 
     router.push('/rider/browse/blast');
   }, [blastId, router]);
 
+  const handleFallbackHMU = useCallback(async (targetId: string) => {
+    if (hmuingFallback.has(targetId)) return;
+    setHmuingFallback((prev) => new Set([...prev, targetId]));
+    try {
+      const res = await fetch(`/api/blast/${blastId}/hmu-fallback/${targetId}`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        // Refresh to get updated target list (fallback driver is now notified)
+        await refresh();
+      }
+    } finally {
+      setHmuingFallback((prev) => {
+        const next = new Set(prev);
+        next.delete(targetId);
+        return next;
+      });
+    }
+  }, [hmuingFallback, blastId, refresh]);
+
   if (loading || !blast) {
     return <div className="min-h-screen bg-black text-white flex items-center justify-center">Loading…</div>;
   }
@@ -289,6 +326,74 @@ export default function BlastOfferBoardClient({ blastId }: { blastId: string }) 
               );
             })}
           </ul>
+        )}
+
+        {/* Fallback drivers - show when no matches + we have fallback options */}
+        {interestedTargets.length === 0 && fallbackDrivers.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.2 }}
+            className="mt-6"
+          >
+            <h3 className="text-xs uppercase tracking-wider text-neutral-500 px-1 mb-3">
+              Drivers nearby
+            </h3>
+            <p className="text-xs text-neutral-400 px-1 mb-3">
+              These drivers match your criteria. Tap HMU to send them a ride request.
+            </p>
+            <ul className="space-y-2">
+              {fallbackDrivers.map((f, i) => (
+                <motion.li
+                  key={f.targetId}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.3, delay: i * 0.1 }}
+                  className="bg-neutral-900 border border-neutral-800 rounded-2xl p-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <motion.div
+                      whileHover={{ scale: 1.05 }}
+                      className="w-12 h-12 rounded-full bg-gradient-to-br from-neutral-700 to-neutral-800 flex items-center justify-center text-base font-bold flex-shrink-0"
+                    >
+                      {(f.driver.displayName ?? f.driver.handle ?? '?')[0].toUpperCase()}
+                    </motion.div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold truncate flex items-center gap-1.5">
+                        {f.driver.displayName ?? f.driver.handle}
+                        {f.driver.tier === 'hmu_first' && (
+                          <span className="text-[9px] uppercase bg-amber-500/90 text-black px-1.5 rounded">
+                            First
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-neutral-500 mt-0.5">
+                        {Number.isFinite(f.driver.chillScore) && f.driver.chillScore > 0 && (
+                          <span>✅ {Math.round(f.driver.chillScore)}%</span>
+                        )}
+                      </div>
+                    </div>
+                    <motion.button
+                      onClick={() => handleFallbackHMU(f.targetId)}
+                      disabled={hmuingFallback.has(f.targetId)}
+                      whileTap={{ scale: 0.95 }}
+                      whileHover={{ scale: 1.02 }}
+                      className="bg-[#00E676] text-black text-sm font-bold px-4 py-2 rounded-xl disabled:bg-neutral-800 disabled:text-neutral-500 transition-all flex items-center gap-2"
+                    >
+                      {hmuingFallback.has(f.targetId) && (
+                        <motion.span
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="inline-block w-3.5 h-3.5 border-2 border-black/30 border-t-black rounded-full animate-spin"
+                        />
+                      )}
+                      {hmuingFallback.has(f.targetId) ? 'Sending…' : 'HMU'}
+                    </motion.button>
+                  </div>
+                </motion.li>
+              ))}
+            </ul>
+          </motion.div>
         )}
 
         {/* Subtle bump prompt at 5min in */}
