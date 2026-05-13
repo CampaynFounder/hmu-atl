@@ -223,53 +223,15 @@ export default function BlastFormClient() {
     }
     setAuthLaunched(true);
     setAuthError(null);
-    // Open Clerk's hosted sign-up modal.
-    //
-    // forceRedirectUrl: keep the user on /rider/blast/new after auth.
-    //   Without this, Clerk uses the dashboard's afterSignUpUrl (currently
-    //   /auth-callback → /onboarding) which dumps blast riders out of the
-    //   funnel.
-    //
-    // signInForceRedirectUrl: same override for the "Sign in instead" toggle
-    //   inside the modal.
-    //
-    // appearance: hand-rolled dark theme so the modal matches the app's
-    //   #080808 / #00E676 brand. The other staging routes use the same
-    //   token set; without this the modal renders Clerk's default light theme.
+    // Open Clerk's hosted sign-up modal. The Clerk dashboard config decides
+    // whether the modal does username/password (staging) or phone OTP (prod) —
+    // either way the post-auth user lands signed in and the useEffect below
+    // advances them to the next step.
     clerk.openSignUp({
-      forceRedirectUrl: '/rider/blast/new',
-      signInForceRedirectUrl: '/rider/blast/new',
-      unsafeMetadata: { source: 'blast_funnel', profileType: 'rider' },
-      appearance: {
-        variables: {
-          colorPrimary: '#00E676',
-          colorBackground: '#141414',
-          colorInputBackground: '#0a0a0a',
-          colorInputText: '#ffffff',
-          colorText: '#ffffff',
-          colorTextSecondary: '#a3a3a3',
-          colorDanger: '#f87171',
-          borderRadius: '0.75rem',
-          fontFamily: 'var(--font-body)',
-        },
-        elements: {
-          rootBox: 'mx-auto',
-          card: 'bg-[#141414] border border-white/10 shadow-2xl',
-          headerTitle: 'text-white',
-          headerSubtitle: 'text-neutral-400',
-          socialButtonsBlockButton: 'bg-white/5 border-white/10 text-white hover:bg-white/10',
-          formButtonPrimary:
-            'bg-[#00E676] text-black hover:bg-[#00d96a] normal-case font-bold',
-          formFieldInput: 'bg-[#0a0a0a] border-white/10 text-white',
-          formFieldLabel: 'text-neutral-300',
-          footerActionText: 'text-neutral-400',
-          footerActionLink: 'text-[#00E676] hover:text-[#00d96a]',
-          identityPreviewText: 'text-white',
-          identityPreviewEditButton: 'text-[#00E676]',
-          dividerLine: 'bg-white/10',
-          dividerText: 'text-neutral-500',
-        },
-      },
+      redirectUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+      // unsafeMetadata is preserved across the Clerk flow, useful for
+      // analytics later.
+      unsafeMetadata: { source: 'blast_funnel' },
     });
   }, [isSignedIn, continueAfterAuth, clerk]);
 
