@@ -63,8 +63,6 @@ async function fetchCandidates(
   const requireSexMatch = config.filters.must_match_sex_preference && blast.driverPreference !== 'any';
   const minChillScore = config.filters.min_chill_score;
   const maxStaleMinutes = STALE_LOCATION_MINUTES;
-  // 0 = disable the check entirely (so admins can knob-out a filter without
-  // hitting the API). The CASE WHEN guards below honor that semantic.
   const signinHours = config.filters.must_be_signed_in_within_hours;
   const passCapToday = config.filters.exclude_if_today_passed_count_gte;
   const dedupeMinutes = config.limits.same_driver_dedupe_minutes;
@@ -116,23 +114,20 @@ async function fetchCandidates(
       AND dp.current_lat BETWEEN ${minLat} AND ${maxLat}
       AND dp.current_lng BETWEEN ${minLng} AND ${maxLng}
       AND COALESCE(u.chill_score, 0) >= ${minChillScore}
-      AND CASE WHEN ${signinHours} = 0 THEN TRUE
-               ELSE u.last_active > NOW() - (${signinHours} || ' hours')::interval END
+      AND u.last_active > NOW() - (${signinHours} || ' hours')::interval
       AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference})
-      AND CASE WHEN ${passCapToday} = 0 THEN TRUE
-               ELSE COALESCE(passes.cnt, 0) < ${passCapToday} END
+      AND COALESCE(passes.cnt, 0) < ${passCapToday}
       AND NOT EXISTS (
         SELECT 1 FROM rides r
         WHERE r.driver_id = u.id AND r.status IN ('matched','otw','here','active')
       )
-      AND CASE WHEN ${dedupeMinutes} = 0 THEN TRUE
-               ELSE NOT EXISTS (
+      AND NOT EXISTS (
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
           AND hp.user_id = ${blast.riderId}
           AND bdt.notified_at > NOW() - (${dedupeMinutes} || ' minutes')::interval
-      ) END
+      )
   `;
 
   return rows.map((r: unknown) => {
@@ -171,12 +166,8 @@ function scoreCandidate(
   const w = config.weights;
   const f = config.filters;
 
-  // Defensive divides — if the filter is disabled (set to 0), the factor
-  // collapses to 1 so it doesn't tank everyone's score with NaN / -Inf.
-  const proximity = f.max_distance_mi > 0 ? clamp01(1 - distanceMi / f.max_distance_mi) : 1;
-  const recency = f.must_be_signed_in_within_hours > 0
-    ? clamp01(1 - c.hours_since_signin / f.must_be_signed_in_within_hours)
-    : 1;
+  const proximity = clamp01(1 - distanceMi / f.max_distance_mi);
+  const recency = clamp01(1 - c.hours_since_signin / f.must_be_signed_in_within_hours);
 
   let sexMatch = 1;
   if (blast.driverPreference !== 'any') {

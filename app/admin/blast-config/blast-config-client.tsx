@@ -57,22 +57,13 @@ const SIMPLE_DESCRIPTIONS: Record<string, string> = {
   'blast.sms_kill_switch':
     'Master OFF for blast SMS notifications. ON = push only, no SMS sent. Flip when SMS cost spikes or voip.ms has issues.',
   'blast.max_sms_per_blast':
-    'Hard ceiling on SMS sends per blast, regardless of matching output. At ~$0.01-0.02/SMS this is your per-blast cost cap. Set to 0 to disable SMS entirely (push still fires).',
+    'Hard ceiling on SMS sends per blast, regardless of matching output. At ~$0.01-0.02/SMS this is your per-blast cost cap.',
   'blast.rate_limit_per_phone_hour':
-    'Max blasts a single rider can send per rolling hour. If exceeded, blasts get rejected with 429. Tighten to fight abuse; loosen for power riders. Set to 0 to disable hourly rate limiting.',
+    'Per-rider hourly cap. If exceeded, blasts get rejected with 429. Tighten to fight abuse; loosen for power riders.',
   'blast.rate_limit_per_phone_day':
-    'Max blasts a single rider can send per rolling day. Pairs with the hourly limit — both must pass. Set to 0 to disable daily rate limiting.',
+    'Per-rider daily cap. Pairs with the hourly limit.',
   'blast.draft_ttl_minutes':
-    'How long the in-progress form persists in localStorage before clearing. Shorter = stale forms cleared sooner; longer = resume after a long pause. Pure UX knob — no rate-limit semantics.',
-};
-
-// Per-knob UI overrides for the simple-knob editor — lets us widen the input
-// range beyond what the migration seeded (e.g. allow 0 for "disable" sentinel).
-const SIMPLE_INPUT_OVERRIDES: Record<string, { min?: number; max?: number; step?: number }> = {
-  'blast.max_sms_per_blast': { min: 0, max: 25, step: 1 },
-  'blast.rate_limit_per_phone_hour': { min: 0, max: 50, step: 1 },
-  'blast.rate_limit_per_phone_day': { min: 0, max: 200, step: 1 },
-  'blast.draft_ttl_minutes': { min: 5, max: 1440, step: 5 },
+    'How long the in-progress form persists in localStorage. Shorter = stale forms cleared sooner; longer = resume after a long pause.',
 };
 
 const WEIGHT_LABELS: Record<keyof MatchingConfig['weights'], { label: string; help: string }> = {
@@ -350,10 +341,10 @@ function MatchingEditor({
               <NumberRow
                 label="Must be signed in within"
                 unit="hrs"
-                help="Drivers who haven't opened the app in this window are excluded. Tighten for higher response rate; loosen during off-peak. Set to 0 to disable this check entirely."
+                help="Drivers who haven't opened the app in this window are excluded. Tighten for higher response rate; loosen during off-peak when active drivers are scarce."
                 value={draft.filters.must_be_signed_in_within_hours}
                 step={1}
-                min={0}
+                min={1}
                 max={720}
                 onChange={(v) =>
                   setDraft((d) => ({ ...d, filters: { ...d.filters, must_be_signed_in_within_hours: v } }))
@@ -362,10 +353,10 @@ function MatchingEditor({
               <NumberRow
                 label="Exclude after pass count today"
                 unit="passes"
-                help="Drivers who've passed this many rides today are excluded — they're tired or filtering. Tighten if too many no-responders. Set to 0 to disable this check entirely."
+                help="Drivers who've passed this many rides today are excluded — they're tired or filtering. Tighten if too many no-responders; loosen to give selective drivers another shot."
                 value={draft.filters.exclude_if_today_passed_count_gte}
                 step={1}
-                min={0}
+                min={1}
                 max={50}
                 onChange={(v) =>
                   setDraft((d) => ({ ...d, filters: { ...d.filters, exclude_if_today_passed_count_gte: v } }))
@@ -407,20 +398,20 @@ function MatchingEditor({
               />
               <NumberRow
                 label="Min drivers to notify"
-                help="If fewer drivers match in the initial radius, we expand and retry. Higher = aggressive expansion. Set to 0 to disable expansion (ship whatever matches the initial radius, even if zero)."
+                help="If fewer drivers match in the initial radius, we expand and retry. Higher = aggressive expansion (broader notifications); lower = ship fewer notifications and accept lower match rates."
                 value={draft.limits.min_drivers_to_notify}
                 step={1}
-                min={0}
+                min={1}
                 max={20}
                 onChange={(v) => setDraft((d) => ({ ...d, limits: { ...d.limits, min_drivers_to_notify: v } }))}
               />
               <NumberRow
                 label="Radius expansion step"
                 unit="mi"
-                help="How much the search radius widens each retry until min-drivers is met. Bigger steps = fewer retries but coarser ranking. Set to 0 to disable expansion."
+                help="How much the search radius widens each retry until min-drivers is met. Bigger steps = fewer retries but coarser ranking."
                 value={draft.limits.expand_radius_step_mi}
                 step={0.5}
-                min={0}
+                min={0.5}
                 max={10}
                 onChange={(v) => setDraft((d) => ({ ...d, limits: { ...d.limits, expand_radius_step_mi: v } }))}
               />
@@ -437,7 +428,7 @@ function MatchingEditor({
               <NumberRow
                 label="Same-driver dedupe window"
                 unit="min"
-                help="If the same rider re-blasts within this window, drivers already notified for the first blast are skipped. Higher = drivers won't get spammed but re-blasts find no fresh drivers. Set to 0 to disable dedupe."
+                help="If the same rider re-blasts within this window, drivers already notified for the first blast are skipped. Lower = drivers might get spammed; higher = re-blasts find no fresh drivers."
                 value={draft.limits.same_driver_dedupe_minutes}
                 step={5}
                 min={0}
@@ -618,9 +609,8 @@ function SimpleKnobRow({
   const [value, setValue] = useState<unknown>(initial.value);
   const [saving, setSaving] = useState(false);
   const dirty = value !== initial.value;
-  const overrides = SIMPLE_INPUT_OVERRIDES[configKey] ?? {};
-  const min = overrides.min ?? (typeof initial.min === 'number' ? initial.min : undefined);
-  const max = overrides.max ?? (typeof initial.max === 'number' ? initial.max : undefined);
+  const min = typeof initial.min === 'number' ? initial.min : undefined;
+  const max = typeof initial.max === 'number' ? initial.max : undefined;
   const isBool = typeof initial.value === 'boolean';
   const isNum = typeof initial.value === 'number';
   const desc = SIMPLE_DESCRIPTIONS[configKey];
