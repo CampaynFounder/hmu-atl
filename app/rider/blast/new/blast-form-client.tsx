@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser, useClerk } from '@clerk/nextjs';
+import { useSignUp, useSignIn, useUser } from '@clerk/nextjs';
 import { motion, AnimatePresence } from 'framer-motion';
 import CelebrationConfetti from '@/components/shared/celebration-confetti';
 
@@ -21,7 +21,7 @@ interface PointPick {
 }
 
 type Block = 'pickup' | 'dropoff' | 'trip_type' | 'when' | 'storage' | 'price' | 'driver_pref' | 'phone';
-type Step = 'form' | 'name' | 'photo' | 'ready';
+type Step = 'form' | 'otp' | 'name' | 'photo' | 'ready';
 
 interface FormDraft {
   pickup: PointPick | null;
@@ -116,6 +116,26 @@ function whenToISO(d: FormDraft): string | null {
   return null;
 }
 
+// Phone formatting — accepts (404) 555-1234, 4045551234, +14045551234, etc.
+function normalizePhone(input: string): string {
+  const digits = input.replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('1')) return digits.slice(1);
+  return digits;
+}
+
+function toE164(input: string): string | null {
+  const ten = normalizePhone(input);
+  return ten.length === 10 ? `+1${ten}` : null;
+}
+
+function formatPhone(input: string): string {
+  const d = normalizePhone(input);
+  if (d.length === 0) return '';
+  if (d.length <= 3) return `(${d}`;
+  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6, 10)}`;
+}
+
 // Framer-motion shared transitions
 const stepVariants = {
   enter: { opacity: 0, y: 24 },
@@ -128,8 +148,9 @@ const stepTransition = { duration: 0.32, ease: [0.25, 0.1, 0.25, 1] as [number, 
 
 export default function BlastFormClient() {
   const router = useRouter();
-  const { isSignedIn, isLoaded: userLoaded } = useUser();
-  const clerk = useClerk();
+  const { signUp, setActive: setSignUpActive, isLoaded: signUpLoaded } = useSignUp();
+  const { signIn, setActive: setSignInActive, isLoaded: signInLoaded } = useSignIn();
+  const { isSignedIn } = useUser();
 
   const [step, setStep] = useState<Step>('form');
   const [draft, setDraft] = useState<FormDraft>(EMPTY_DRAFT);
@@ -141,11 +162,9 @@ export default function BlastFormClient() {
     suggested_price_dollars: number;
     deposit_cents: number;
   } | null>(null);
-  // Tracks whether we've launched Clerk for THIS form session — used so the
-  // useEffect-watcher only advances after an explicit Get Cash Ride tap, not
-  // on initial render when an already-signed-in user is in form step.
-  const [authLaunched, setAuthLaunched] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [authMode, setAuthMode] = useState<'signup' | 'signin' | null>(null);
+  const [otpSendingState, setOtpSendingState] = useState<'idle' | 'sending' | 'sent' | 'verifying'>('idle');
+  const [otpError, setOtpError] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [confetti, setConfetti] = useState(false);
@@ -191,56 +210,134 @@ export default function BlastFormClient() {
   }, [draft.pickup, draft.dropoff]);
 
   const finalPrice = draft.price ?? estimate?.suggested_price_dollars ?? 25;
+  const phoneE164 = toE164(draft.phone);
   const tripValid = !!(draft.pickup && draft.dropoff && finalPrice > 0);
-  // Phone collection moved into Clerk's hosted form — staging Clerk does
-  // username/password, prod Clerk does phone OTP. The form just validates
-  // trip details; auth is Clerk's job.
-  const formValid = tripValid;
+  // Signed-in users don't need to re-enter a phone — they already verified one
+  // when they signed up. Phone is only required for the OTP path.
+  const formValid = tripValid && (isSignedIn || !!phoneE164);
 
-  // ── Continue post-auth: bootstrap our DB row and advance to next missing step ──
-  const continueAfterAuth = useCallback(async () => {
-    setAuthError(null);
-    try {
-      const r = await fetch('/api/blast/onboard', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: draft.phone }),
-      });
-      const body = (await r.json().catch(() => ({}))) as { hasDisplayName?: boolean; hasPhoto?: boolean };
-      if (!body.hasDisplayName) setStep('name');
-      else if (!body.hasPhoto) setStep('photo');
-      else setStep('ready');
-    } catch (e) {
-      setAuthError(e instanceof Error ? e.message : 'Could not continue');
-    }
-  }, [draft.phone]);
-
-  // ── Get Cash Ride: open Clerk hosted form (or skip if already signed in) ──
-  const handleGetCashRide = useCallback(() => {
+  // ── Get Cash Ride: kick off OTP (or skip if already signed in) ──
+  const handleGetCashRide = useCallback(async () => {
+    // Already signed in — skip OTP and the phone field; bootstrap our DB row
+    // and advance to whichever onboarding step is still missing.
     if (isSignedIn) {
-      void continueAfterAuth();
+      setOtpError(null);
+      try {
+        const r = await fetch('/api/blast/onboard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: draft.phone }),
+        });
+        const body = (await r.json().catch(() => ({}))) as { hasDisplayName?: boolean; hasPhoto?: boolean };
+        if (!body.hasDisplayName) setStep('name');
+        else if (!body.hasPhoto) setStep('photo');
+        else setStep('ready');
+      } catch (e) {
+        setOtpError(e instanceof Error ? e.message : 'Could not continue');
+      }
       return;
     }
-    setAuthLaunched(true);
-    setAuthError(null);
-    // Open Clerk's hosted sign-up modal. The Clerk dashboard config decides
-    // whether the modal does username/password (staging) or phone OTP (prod) —
-    // either way the post-auth user lands signed in and the useEffect below
-    // advances them to the next step.
-    clerk.openSignUp({
-      redirectUrl: typeof window !== 'undefined' ? window.location.href : undefined,
-      // unsafeMetadata is preserved across the Clerk flow, useful for
-      // analytics later.
-      unsafeMetadata: { source: 'blast_funnel' },
-    });
-  }, [isSignedIn, continueAfterAuth, clerk]);
 
-  // Watch for Clerk modal closing with a fresh sign-in. Once isSignedIn flips
-  // true after we've launched, run the same continuation as the signed-in path.
-  useEffect(() => {
-    if (!userLoaded || !authLaunched || !isSignedIn) return;
-    void continueAfterAuth();
-  }, [userLoaded, authLaunched, isSignedIn, continueAfterAuth]);
+    if (!formValid || !signUpLoaded || !signInLoaded || !signUp || !signIn) return;
+    setOtpError(null);
+    setOtpSendingState('sending');
+    try {
+      // Try signup first; fall back to signin if phone already registered.
+      try {
+        await signUp.create({ phoneNumber: phoneE164! });
+        await signUp.preparePhoneNumberVerification({ strategy: 'phone_code' });
+        setAuthMode('signup');
+      } catch (err: unknown) {
+        const errs = (err as { errors?: Array<{ code?: string; message?: string }> }).errors ?? [];
+        const code = errs[0]?.code;
+        if (code === 'form_identifier_exists' || code === 'form_phone_number_taken') {
+          // Existing user — do sign-in instead.
+          const created = await signIn.create({
+            identifier: phoneE164!,
+          });
+          const phoneFactor = created.supportedFirstFactors?.find(
+            (f: { strategy?: string }) => f.strategy === 'phone_code',
+          ) as { phoneNumberId?: string } | undefined;
+          if (!phoneFactor?.phoneNumberId) throw new Error('Phone factor unavailable');
+          await signIn.prepareFirstFactor({
+            strategy: 'phone_code',
+            phoneNumberId: phoneFactor.phoneNumberId,
+          });
+          setAuthMode('signin');
+        } else {
+          throw err;
+        }
+      }
+      setOtpSendingState('sent');
+      setStep('otp');
+    } catch (err: unknown) {
+      const msg =
+        (err as { errors?: Array<{ message?: string }> }).errors?.[0]?.message ??
+        (err instanceof Error ? err.message : 'Could not send code');
+      setOtpError(msg);
+      setOtpSendingState('idle');
+    }
+  }, [formValid, signUpLoaded, signInLoaded, signUp, signIn, phoneE164]);
+
+  // ── Verify OTP code ──
+  const handleVerifyOtp = useCallback(
+    async (code: string) => {
+      if (!authMode) return;
+      setOtpError(null);
+      setOtpSendingState('verifying');
+      try {
+        if (authMode === 'signup' && signUp) {
+          const result = await signUp.attemptPhoneNumberVerification({ code });
+          if (result.status !== 'complete') throw new Error('Verification incomplete');
+          await setSignUpActive({ session: result.createdSessionId });
+        } else if (authMode === 'signin' && signIn) {
+          const result = await signIn.attemptFirstFactor({ strategy: 'phone_code', code });
+          if (result.status !== 'complete') throw new Error('Verification incomplete');
+          await setSignInActive({ session: result.createdSessionId });
+        }
+        // Bootstrap our DB row immediately so the blast send doesn't 404.
+        await fetch('/api/blast/onboard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: draft.phone }),
+        }).catch(() => {});
+        setStep('name');
+        setOtpSendingState('idle');
+      } catch (err: unknown) {
+        const msg =
+          (err as { errors?: Array<{ message?: string }> }).errors?.[0]?.message ??
+          (err instanceof Error ? err.message : 'Wrong code — try again');
+        setOtpError(msg);
+        setOtpSendingState('sent');
+      }
+    },
+    [authMode, signUp, signIn, setSignUpActive, setSignInActive, draft.phone],
+  );
+
+  const handleResendOtp = useCallback(async () => {
+    if (!authMode) return;
+    setOtpError(null);
+    setOtpSendingState('sending');
+    try {
+      if (authMode === 'signup' && signUp) {
+        await signUp.preparePhoneNumberVerification({ strategy: 'phone_code' });
+      } else if (authMode === 'signin' && signIn) {
+        const phoneFactor = signIn.supportedFirstFactors?.find(
+          (f: { strategy?: string }) => f.strategy === 'phone_code',
+        ) as { phoneNumberId?: string } | undefined;
+        if (phoneFactor?.phoneNumberId) {
+          await signIn.prepareFirstFactor({
+            strategy: 'phone_code',
+            phoneNumberId: phoneFactor.phoneNumberId,
+          });
+        }
+      }
+      setOtpSendingState('sent');
+    } catch {
+      setOtpError('Could not resend');
+      setOtpSendingState('sent');
+    }
+  }, [authMode, signUp, signIn]);
 
   // ── Save name ──
   const handleSaveName = useCallback(async () => {
@@ -312,14 +409,14 @@ export default function BlastFormClient() {
 
   return (
     <div
-      className="min-h-screen text-white pt-14 pb-32"
+      className="min-h-screen text-white pb-32"
       style={{ background: BRAND.bg, fontFamily: 'var(--font-body)' }}
     >
       <CelebrationConfetti active={confetti} variant="cannon" />
 
       <Header step={step} onBack={() => step !== 'form' && setStep('form')} />
 
-      <main className="px-3 pt-4">
+      <main className="px-3 pt-3">
         <AnimatePresence mode="wait">
           {step === 'form' && (
             <motion.div
@@ -342,9 +439,29 @@ export default function BlastFormClient() {
                 formValid={formValid}
                 isSignedIn={!!isSignedIn}
                 onGetCashRide={handleGetCashRide}
-                authError={authError}
-                authLaunched={authLaunched}
+                otpSendingState={otpSendingState}
+                otpError={otpError}
                 sessionToken={sessionToken.current}
+              />
+            </motion.div>
+          )}
+
+          {step === 'otp' && (
+            <motion.div
+              key="otp"
+              variants={stepVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={stepTransition}
+            >
+              <OtpStep
+                phone={draft.phone}
+                onVerify={handleVerifyOtp}
+                onResend={handleResendOtp}
+                onBack={() => setStep('form')}
+                state={otpSendingState}
+                error={otpError}
               />
             </motion.div>
           )}
@@ -413,6 +530,7 @@ export default function BlastFormClient() {
 function Header({ step, onBack }: { step: Step; onBack: () => void }) {
   const STEP_TITLES: Record<Step, string> = {
     form: 'Find a Ride',
+    otp: 'Verify your number',
     name: 'What should we call you?',
     photo: 'Snap a photo',
     ready: 'Ready to roll',
@@ -420,9 +538,7 @@ function Header({ step, onBack }: { step: Step; onBack: () => void }) {
   const showBack = step !== 'form' && step !== 'ready';
   return (
     <header
-      // top-14 sits the sticky header below the global app header
-      // (components/layout/header.tsx is fixed top-0 h-14 z-50).
-      className="sticky top-14 z-30 backdrop-blur-xl border-b"
+      className="sticky top-0 z-30 backdrop-blur-xl border-b"
       style={{
         background: 'rgba(8,8,8,0.85)',
         borderColor: BRAND.border,
@@ -458,7 +574,7 @@ function Header({ step, onBack }: { step: Step; onBack: () => void }) {
 }
 
 function StepBadge({ step }: { step: Step }) {
-  const order: Step[] = ['form', 'name', 'photo', 'ready'];
+  const order: Step[] = ['form', 'otp', 'name', 'photo', 'ready'];
   const idx = order.indexOf(step);
   return (
     <div className="flex gap-1">
@@ -488,8 +604,8 @@ interface FormStepProps {
   tripValid: boolean;
   formValid: boolean;
   isSignedIn: boolean;
-  authLaunched: boolean;
-  authError: string | null;
+  otpSendingState: 'idle' | 'sending' | 'sent' | 'verifying';
+  otpError: string | null;
   sessionToken: string;
   onGetCashRide: () => void;
 }
@@ -505,8 +621,8 @@ function FormStep({
   tripValid,
   formValid,
   isSignedIn,
-  authLaunched,
-  authError,
+  otpSendingState,
+  otpError,
   sessionToken,
   onGetCashRide,
 }: FormStepProps) {
@@ -702,25 +818,173 @@ function FormStep({
           </div>
         </Card>
 
+        {/* Phone field appears after trip details start to fill — hidden for signed-in users */}
+        <AnimatePresence>
+          {tripValid && !isSignedIn && (
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.32, ease: [0.25, 0.1, 0.25, 1] }}
+            >
+              <Card
+                label="Your phone"
+                value={draft.phone || 'For driver matches'}
+                filled={!!toE164(draft.phone)}
+                open={openBlock === 'phone'}
+                onToggle={() => setOpenBlock(openBlock === 'phone' ? null : 'phone')}
+              >
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="(404) 555-1234"
+                  value={formatPhone(draft.phone)}
+                  onChange={(e) => setDraft((d) => ({ ...d, phone: normalizePhone(e.target.value) }))}
+                  className="w-full rounded-xl px-3 py-3 text-base text-white bg-transparent border focus:outline-none focus:border-[#00E676] transition-colors"
+                  style={{ borderColor: BRAND.border, fontFamily: 'var(--font-body)' }}
+                />
+                <p className="text-[11px] text-neutral-500 mt-2">
+                  We&rsquo;ll text you a code to confirm. No spam, ever.
+                </p>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </StaggerContainer>
 
-      {authError && (
+      {otpError && (
         <div className="mt-3 px-3 py-2 rounded-lg text-xs text-red-300 bg-red-500/10 border border-red-500/30">
-          {authError}
+          {otpError}
         </div>
       )}
 
       <FixedFooter>
         <CTAButton
-          disabled={!formValid || estimating || authLaunched}
+          disabled={!formValid || estimating || otpSendingState === 'sending'}
           onClick={onGetCashRide}
         >
-          {authLaunched ? 'Waiting for sign-in…' : 'Get Cash Ride'}
+          {otpSendingState === 'sending' ? 'Sending code…' : 'Get Cash Ride'}
         </CTAButton>
         <p className="text-center text-[11px] text-neutral-500 mt-2">
-          {isSignedIn ? 'Almost there — just a couple more details.' : 'Free to send. Sign in or sign up to continue.'}
+          Free to send. Pay only when a driver matches.
         </p>
       </FixedFooter>
+    </div>
+  );
+}
+
+// ── OTP Step ───────────────────────────────────────────────────────────────
+
+function OtpStep({
+  phone,
+  onVerify,
+  onResend,
+  onBack,
+  state,
+  error,
+}: {
+  phone: string;
+  onVerify: (code: string) => void;
+  onResend: () => void;
+  onBack: () => void;
+  state: 'idle' | 'sending' | 'sent' | 'verifying';
+  error: string | null;
+}) {
+  const [code, setCode] = useState('');
+  const inputs = useRef<(HTMLInputElement | null)[]>([]);
+  const lastSubmitted = useRef('');
+
+  // Auto-fire when 6 digits typed
+  useEffect(() => {
+    if (code.length === 6 && state !== 'verifying' && code !== lastSubmitted.current) {
+      lastSubmitted.current = code;
+      onVerify(code);
+    }
+  }, [code, state, onVerify]);
+
+  // Reset on error so user can retry
+  useEffect(() => {
+    if (error) {
+      lastSubmitted.current = '';
+    }
+  }, [error]);
+
+  const setDigit = (idx: number, v: string) => {
+    const digit = v.replace(/\D/g, '').slice(-1);
+    const next = code.split('');
+    next[idx] = digit;
+    const joined = next.join('').slice(0, 6);
+    setCode(joined);
+    if (digit && idx < 5) inputs.current[idx + 1]?.focus();
+  };
+
+  const handleKeyDown = (idx: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !code[idx] && idx > 0) {
+      inputs.current[idx - 1]?.focus();
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (pasted) {
+      e.preventDefault();
+      setCode(pasted);
+      inputs.current[Math.min(pasted.length, 5)]?.focus();
+    }
+  };
+
+  return (
+    <div className="px-1 pt-8">
+      <div className="text-center space-y-2 mb-8">
+        <p className="text-sm text-neutral-400">We sent a 6-digit code to</p>
+        <p className="text-base font-semibold text-white tabular-nums">{formatPhone(phone)}</p>
+      </div>
+
+      <div className="flex justify-center gap-2 mb-6">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <input
+            key={i}
+            ref={(el) => { inputs.current[i] = el; }}
+            type="text"
+            inputMode="numeric"
+            maxLength={1}
+            value={code[i] ?? ''}
+            onChange={(e) => setDigit(i, e.target.value)}
+            onKeyDown={(e) => handleKeyDown(i, e)}
+            onPaste={handlePaste}
+            disabled={state === 'verifying'}
+            autoFocus={i === 0}
+            className="w-12 h-14 text-center text-2xl tabular-nums rounded-xl bg-[#141414] border focus:outline-none focus:border-[#00E676] transition-colors disabled:opacity-50"
+            style={{ borderColor: BRAND.border, fontFamily: 'var(--font-display)' }}
+          />
+        ))}
+      </div>
+
+      {error && (
+        <div className="text-center text-xs text-red-400 mb-4">{error}</div>
+      )}
+      {state === 'verifying' && (
+        <div className="text-center text-xs text-neutral-400 mb-4">Verifying…</div>
+      )}
+
+      <div className="text-center space-y-3">
+        <button
+          onClick={onResend}
+          disabled={state === 'sending'}
+          className="text-xs text-neutral-400 hover:text-white underline disabled:text-neutral-700"
+        >
+          {state === 'sending' ? 'Sending…' : 'Resend code'}
+        </button>
+        <div>
+          <button
+            onClick={onBack}
+            className="text-xs text-neutral-500 hover:text-white"
+          >
+            Wrong number? Go back
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -849,13 +1113,11 @@ function PhotoStep({
 
       {error && <div className="text-center text-xs text-red-400 mb-3">{error}</div>}
 
-      {/* No `capture` attribute — lets the browser show camera + library
-          picker on mobile. With `capture="user"` we'd force the front-facing
-          camera and lock out the photo library, which the founder flagged. */}
       <input
         ref={inputRef}
         type="file"
         accept="image/*"
+        capture="user"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -870,7 +1132,7 @@ function PhotoStep({
           disabled={uploading}
           className="text-sm text-[#00E676] underline"
         >
-          {uploading ? 'Uploading…' : showImage ? 'Choose different photo' : 'Take photo or choose from library'}
+          {uploading ? 'Uploading…' : showImage ? 'Choose different photo' : 'Choose from library'}
         </button>
       </div>
     </div>
