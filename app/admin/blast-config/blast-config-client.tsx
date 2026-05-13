@@ -55,50 +55,26 @@ interface ConfigRow {
 
 const SIMPLE_DESCRIPTIONS: Record<string, string> = {
   'blast.sms_kill_switch':
-    'Master OFF for blast SMS notifications. ON = push only, no SMS sent. Flip when SMS cost spikes or voip.ms has issues.',
+    'Master OFF for blast SMS notifications. ON = push only.',
   'blast.max_sms_per_blast':
-    'Hard ceiling on SMS sends per blast, regardless of matching output. At ~$0.01-0.02/SMS this is your per-blast cost cap.',
+    'Hard ceiling on SMS sends per single blast.',
   'blast.rate_limit_per_phone_hour':
-    'Per-rider hourly cap. If exceeded, blasts get rejected with 429. Tighten to fight abuse; loosen for power riders.',
+    'Max blasts a single phone can send per rolling hour.',
   'blast.rate_limit_per_phone_day':
-    'Per-rider daily cap. Pairs with the hourly limit.',
+    'Max blasts a single phone can send per rolling day.',
   'blast.draft_ttl_minutes':
-    'How long the in-progress form persists in localStorage. Shorter = stale forms cleared sooner; longer = resume after a long pause.',
+    'How long the in-progress blast form lives in localStorage before clearing.',
 };
 
 const WEIGHT_LABELS: Record<keyof MatchingConfig['weights'], { label: string; help: string }> = {
-  proximity_to_pickup: {
-    label: 'Proximity to pickup',
-    help: 'Higher = closer drivers always win. Lower = chill score / activity get to overcome distance.',
-  },
-  recency_signin: {
-    label: 'Recent activity',
-    help: 'Higher = recently active drivers rank well above stale ones. Lower = treat day-old logins same as fresh.',
-  },
-  sex_match: {
-    label: 'Gender match',
-    help: 'Higher = matching rider preference is a major boost. Lower = preference barely affects ranking (unless filter is on).',
-  },
-  chill_score: {
-    label: 'Chill score',
-    help: 'Higher = high-rated drivers float to the top. Lower = ratings barely move ranking.',
-  },
-  advance_notice_fit: {
-    label: 'Advance notice fit',
-    help: 'Higher = pick drivers whose schedule fits the requested time. Lower = ignore advance-notice fit.',
-  },
-  profile_view_count: {
-    label: 'Profile views (social proof)',
-    help: 'Higher = popular profiles rank higher. Lower = remove popularity from the equation.',
-  },
-  completed_rides: {
-    label: 'Completed rides',
-    help: 'Higher = veterans float up, brand-new drivers sink. Lower = level playing field for new drivers.',
-  },
-  low_recent_pass_rate: {
-    label: 'Low pass rate today',
-    help: 'Higher = penalize drivers who\'ve passed a lot today. Lower = past passes don\'t affect ranking.',
-  },
+  proximity_to_pickup: { label: 'Proximity to pickup', help: 'How close the driver is right now.' },
+  recency_signin: { label: 'Recent activity', help: 'Driver active in the app recently.' },
+  sex_match: { label: 'Gender match', help: 'Matches rider preference (or pref=any).' },
+  chill_score: { label: 'Chill score', help: 'Driver\'s rolling rating.' },
+  advance_notice_fit: { label: 'Advance notice fit', help: 'Lead time vs. driver\'s required notice.' },
+  profile_view_count: { label: 'Profile views', help: 'Social proof — popular profiles rank higher.' },
+  completed_rides: { label: 'Completed rides', help: 'Veterans rank higher.' },
+  low_recent_pass_rate: { label: 'Low pass rate', help: 'Penalize drivers passing a lot today.' },
 };
 
 export default function BlastConfigClient() {
@@ -192,14 +168,7 @@ export default function BlastConfigClient() {
           )}
 
           <section>
-            <div className="mb-3">
-              <h2 className="text-sm font-semibold text-white">Cost & abuse knobs</h2>
-              <p className="text-xs text-neutral-400 mt-1 leading-relaxed max-w-2xl">
-                Independent of the matching algorithm. SMS costs scale with fanout × frequency
-                — these caps guard your monthly bill. Rate limits guard against abuse from a
-                single phone or compromised account.
-              </p>
-            </div>
+            <h2 className="text-sm font-semibold text-neutral-300 mb-2">Cost & abuse knobs</h2>
             <div className="space-y-2">
               {simpleRows.map((r) => (
                 <SimpleKnobRow
@@ -279,11 +248,8 @@ function MatchingEditor({
       ) : (
         <div className="px-4 pb-4 space-y-6">
           {/* Weights */}
-          <Subsection
-            title="Weights"
-            subtitle="What the algorithm cares about most. Each driver gets a final score = sum of (factor × weight). Should sum to ~1.0 — if it doesn't, ranking still works but absolute scores drift."
-          >
-            <div className="space-y-4">
+          <Subsection title="Weights" subtitle="What the algorithm cares about. Should sum to ~1.0.">
+            <div className="space-y-3">
               {(Object.keys(draft.weights) as Array<keyof MatchingConfig['weights']>).map((k) => (
                 <SliderRow
                   key={k}
@@ -313,15 +279,11 @@ function MatchingEditor({
           </Subsection>
 
           {/* Filters */}
-          <Subsection
-            title="Hard filters"
-            subtitle="Pass/fail. Drivers failing any are excluded before scoring runs. Use these to set safety floors — chill minimums, activity recency, etc."
-          >
-            <div className="space-y-4">
+          <Subsection title="Hard filters" subtitle="Drivers who fail any of these are excluded outright.">
+            <div className="space-y-3">
               <NumberRow
                 label="Max distance"
                 unit="mi"
-                help="Drivers farther than this never appear, regardless of score. Tighten when matches are too far; loosen when min-drivers can't be met without expansion."
                 value={draft.filters.max_distance_mi}
                 step={0.5}
                 min={0.5}
@@ -331,7 +293,6 @@ function MatchingEditor({
               <NumberRow
                 label="Min chill score"
                 unit="%"
-                help="Drivers below this rating are excluded entirely. Tighten to favor proven drivers; loosen during low-supply hours."
                 value={draft.filters.min_chill_score}
                 step={5}
                 min={0}
@@ -341,7 +302,6 @@ function MatchingEditor({
               <NumberRow
                 label="Must be signed in within"
                 unit="hrs"
-                help="Drivers who haven't opened the app in this window are excluded. Tighten for higher response rate; loosen during off-peak when active drivers are scarce."
                 value={draft.filters.must_be_signed_in_within_hours}
                 step={1}
                 min={1}
@@ -353,7 +313,6 @@ function MatchingEditor({
               <NumberRow
                 label="Exclude after pass count today"
                 unit="passes"
-                help="Drivers who've passed this many rides today are excluded — they're tired or filtering. Tighten if too many no-responders; loosen to give selective drivers another shot."
                 value={draft.filters.exclude_if_today_passed_count_gte}
                 step={1}
                 min={1}
@@ -364,7 +323,7 @@ function MatchingEditor({
               />
               <ToggleRow
                 label="Require gender match"
-                help="ON = hard-exclude drivers who don't match the rider's stated preference (and pref ≠ 'any'). OFF = preference is only a scoring factor."
+                help="Hard-exclude drivers who don't match the rider's stated preference. OFF = treat as a soft preference (still scored)."
                 value={draft.filters.must_match_sex_preference}
                 onChange={(v) =>
                   setDraft((d) => ({ ...d, filters: { ...d.filters, must_match_sex_preference: v } }))
@@ -372,7 +331,7 @@ function MatchingEditor({
               />
               <ToggleRow
                 label="Exclude drivers in active ride"
-                help="ON = hide drivers currently on OTW/HERE/active. OFF = let them be notified for after the current ride wraps (risk: stale by the time they're free)."
+                help="Hide drivers currently on an OTW/HERE/active ride."
                 value={draft.filters.exclude_if_in_active_ride}
                 onChange={(v) =>
                   setDraft((d) => ({ ...d, filters: { ...d.filters, exclude_if_in_active_ride: v } }))
@@ -382,14 +341,10 @@ function MatchingEditor({
           </Subsection>
 
           {/* Limits */}
-          <Subsection
-            title="Fanout limits"
-            subtitle="Spread vs. precision tradeoff. Wider radius reaches more drivers but ranks them against weaker proximity matches; tighter radius means fewer shots on goal."
-          >
-            <div className="space-y-4">
+          <Subsection title="Fanout limits" subtitle="How many drivers get notified, how wide we cast.">
+            <div className="space-y-3">
               <NumberRow
                 label="Max drivers to notify"
-                help="Hard cap on fanout per blast. Higher = more shots on goal, more SMS cost. Lower = focused, less noise, but lower match probability."
                 value={draft.limits.max_drivers_to_notify}
                 step={1}
                 min={1}
@@ -398,7 +353,7 @@ function MatchingEditor({
               />
               <NumberRow
                 label="Min drivers to notify"
-                help="If fewer drivers match in the initial radius, we expand and retry. Higher = aggressive expansion (broader notifications); lower = ship fewer notifications and accept lower match rates."
+                help="If fewer match, we widen the radius."
                 value={draft.limits.min_drivers_to_notify}
                 step={1}
                 min={1}
@@ -408,7 +363,6 @@ function MatchingEditor({
               <NumberRow
                 label="Radius expansion step"
                 unit="mi"
-                help="How much the search radius widens each retry until min-drivers is met. Bigger steps = fewer retries but coarser ranking."
                 value={draft.limits.expand_radius_step_mi}
                 step={0.5}
                 min={0.5}
@@ -418,7 +372,6 @@ function MatchingEditor({
               <NumberRow
                 label="Radius expansion max"
                 unit="mi"
-                help="Hard ceiling — won't widen past this. Lower = drivers stay relevant to pickup; higher = chase any pulse, even ones too far to actually arrive."
                 value={draft.limits.expand_radius_max_mi}
                 step={1}
                 min={1}
@@ -428,7 +381,7 @@ function MatchingEditor({
               <NumberRow
                 label="Same-driver dedupe window"
                 unit="min"
-                help="If the same rider re-blasts within this window, drivers already notified for the first blast are skipped. Lower = drivers might get spammed; higher = re-blasts find no fresh drivers."
+                help="Don't ping the same driver twice for blasts from this rider in this window."
                 value={draft.limits.same_driver_dedupe_minutes}
                 step={5}
                 min={0}
@@ -439,14 +392,13 @@ function MatchingEditor({
               />
               <ToggleRow
                 label="Prioritize HMU First drivers"
-                help="ON = reserve some fanout slots specifically for HMU First subscribers. Use this once organic blast volume gives the perk real value."
+                help="Reserve a chunk of fanout slots for HMU First subscribers."
                 value={draft.limits.prioritize_hmu_first}
                 onChange={(v) => setDraft((d) => ({ ...d, limits: { ...d.limits, prioritize_hmu_first: v } }))}
               />
               {draft.limits.prioritize_hmu_first && (
                 <NumberRow
                   label="HMU First reserved slots"
-                  help="Of max-drivers-to-notify, this many go to HMU First subscribers first. Remaining slots fill from the global ranking."
                   value={draft.limits.hmu_first_reserved_slots}
                   step={1}
                   min={0}
@@ -460,15 +412,11 @@ function MatchingEditor({
           </Subsection>
 
           {/* Expiry */}
-          <Subsection
-            title="Expiry"
-            subtitle="How long a blast stays open before auto-expiring. Shorter = decisive feel, but no time to gather offers; longer = more bites but rider may walk away."
-          >
-            <div className="space-y-4">
+          <Subsection title="Expiry" subtitle="How long blasts stay open.">
+            <div className="space-y-3">
               <NumberRow
                 label="Default blast window"
                 unit="min"
-                help="Live offer-board countdown duration. The countdown bar on the rider's screen ticks down through this much time before the blast auto-expires."
                 value={draft.expiry.default_blast_minutes}
                 step={1}
                 min={1}
@@ -478,7 +426,7 @@ function MatchingEditor({
               <NumberRow
                 label="Scheduled blast lead time"
                 unit="min"
-                help="For scheduled blasts (not 'now'), how far before the scheduled pickup we open the offer board. Shorter = drivers commit closer to the ride; longer = more lead but more cancellation risk."
+                help="For scheduled blasts, how long before the time we open the offer board."
                 value={draft.expiry.scheduled_blast_lead_minutes}
                 step={5}
                 min={5}
@@ -491,14 +439,10 @@ function MatchingEditor({
           </Subsection>
 
           {/* Deposit */}
-          <Subsection
-            title="Deposit"
-            subtitle="Refundable hold placed at blast send. Higher deposit weeds out tire-kickers but raises the conversion wall. ALWAYS forced for blasts regardless of cohort."
-          >
-            <div className="space-y-4">
+          <Subsection title="Deposit" subtitle="Hold amount placed at blast send.">
+            <div className="space-y-3">
               <DollarRow
                 label="Min deposit"
-                help="Floor — never authorize less than this regardless of fare. Higher = stronger commitment signal but more friction at the auth wall."
                 cents={draft.deposit.default_amount_cents}
                 step={1}
                 min={1}
@@ -507,7 +451,6 @@ function MatchingEditor({
               />
               <SliderRow
                 label="% of fare held"
-                help="Hold this fraction of the rider's offered fare. Higher = stronger commitment, higher friction. Lower = lighter touch."
                 value={draft.deposit.percent_of_fare}
                 min={0}
                 max={1}
@@ -517,7 +460,6 @@ function MatchingEditor({
               />
               <DollarRow
                 label="Max deposit"
-                help="Ceiling — never authorize more than this. Caps the friction on big-fare blasts so a $100 ride doesn't trigger a $50 hold."
                 cents={draft.deposit.max_deposit_cents}
                 step={5}
                 min={1}
@@ -528,15 +470,11 @@ function MatchingEditor({
           </Subsection>
 
           {/* Pricing */}
-          <Subsection
-            title="Pricing defaults"
-            subtitle="What the form suggests + caps. Riders can override within these bounds via the +/- stepper."
-          >
-            <div className="space-y-4">
+          <Subsection title="Pricing defaults" subtitle="Suggested + capped prices on the form.">
+            <div className="space-y-3">
               <NumberRow
                 label="Default price"
                 unit="$"
-                help="Form's default price chip. Also the floor for the suggested price — short trips never quote less than this."
                 value={draft.default_price_dollars}
                 step={1}
                 min={1}
@@ -546,7 +484,6 @@ function MatchingEditor({
               <NumberRow
                 label="Per-mile rate"
                 unit="$"
-                help="Suggested price = miles × this rate, then floored at default and capped at max. Tune to market expectations."
                 value={draft.price_per_mile_dollars}
                 step={0.25}
                 min={0.25}
@@ -556,7 +493,6 @@ function MatchingEditor({
               <NumberRow
                 label="Max price allowed"
                 unit="$"
-                help="Hard cap on what a rider can offer. Tighten if you see riders overpaying out of impatience; loosen for premium markets."
                 value={draft.max_price_dollars}
                 step={10}
                 min={10}
@@ -627,10 +563,10 @@ function SimpleKnobRow({
   const shortName = configKey.replace('blast.', '');
 
   return (
-    <div className="bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-3 flex items-start gap-4">
+    <div className="bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-3 flex items-center gap-4">
       <div className="flex-1 min-w-0">
         <code className="text-xs font-semibold text-white">{shortName}</code>
-        {desc && <p className="text-[11px] text-neutral-400 mt-1 leading-snug max-w-md">{desc}</p>}
+        {desc && <p className="text-[11px] text-neutral-500 mt-0.5 leading-snug">{desc}</p>}
       </div>
       <div className="flex items-center gap-2">
         {isBool && (
@@ -674,9 +610,9 @@ function Subsection({
 }) {
   return (
     <div>
-      <div className="mb-4 pb-3 border-b border-neutral-800">
-        <h3 className="text-xs uppercase tracking-wider text-white font-semibold">{title}</h3>
-        {subtitle && <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed max-w-2xl">{subtitle}</p>}
+      <div className="mb-3">
+        <h3 className="text-xs uppercase tracking-wider text-neutral-400 font-semibold">{title}</h3>
+        {subtitle && <p className="text-[11px] text-neutral-600 mt-0.5">{subtitle}</p>}
       </div>
       {children}
     </div>
@@ -717,7 +653,7 @@ function SliderRow({
         onChange={(e) => onChange(Number(e.target.value))}
         className="col-span-2 w-full accent-white"
       />
-      {help && <div className="col-span-2 text-[11px] text-neutral-500 leading-snug">{help}</div>}
+      {help && <div className="col-span-2 text-[11px] text-neutral-600 -mt-1">{help}</div>}
     </div>
   );
 }
@@ -772,14 +708,13 @@ function NumberRow({
           {unit && <div className="text-xs text-neutral-500 w-8">{unit}</div>}
         </div>
       </div>
-      {help && <div className="text-[11px] text-neutral-500 leading-snug mt-1">{help}</div>}
+      {help && <div className="text-[11px] text-neutral-600 mt-1">{help}</div>}
     </div>
   );
 }
 
 function DollarRow({
   label,
-  help,
   cents,
   step,
   min,
@@ -787,7 +722,6 @@ function DollarRow({
   onChange,
 }: {
   label: string;
-  help?: string;
   cents: number;
   step: number;
   min: number;
@@ -798,7 +732,6 @@ function DollarRow({
   return (
     <NumberRow
       label={label}
-      help={help}
       unit="$"
       value={dollars}
       min={min}
@@ -824,7 +757,7 @@ function ToggleRow({
     <div className="flex items-start gap-3">
       <div className="flex-1">
         <div className="text-sm text-neutral-200">{label}</div>
-        {help && <div className="text-[11px] text-neutral-500 leading-snug mt-1">{help}</div>}
+        {help && <div className="text-[11px] text-neutral-600 mt-0.5">{help}</div>}
       </div>
       <Switch checked={value} onChange={onChange} />
     </div>
