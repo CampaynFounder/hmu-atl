@@ -338,10 +338,8 @@ export default function BlastFormClient() {
         message?: string;
         blastId?: string;
       };
-      if (res.status === 412 && body.error === 'PAYMENT_METHOD_REQUIRED') {
-        router.push('/rider/settings?tab=payment&from=blast');
-        return;
-      }
+      // Card collection moved to the match-acceptance step (/api/blast/[id]/select),
+      // so /api/blast itself never returns PAYMENT_METHOD_REQUIRED anymore.
       if (!res.ok || !body.blastId) {
         setSubmitError(body.message || body.error || 'Could not send blast — try again.');
         setSubmitting(false);
