@@ -138,8 +138,8 @@ async function fetchCandidates(
       -- with no_preference / NULL pref see everyone.
       AND CASE
         WHEN up.rider_gender_pref IS NULL OR up.rider_gender_pref IN ('no_preference','prefer_women','prefer_men') THEN TRUE
-        WHEN up.rider_gender_pref = 'women_only' THEN ${riderGenderNormalized} = 'woman'
-        WHEN up.rider_gender_pref = 'men_only' THEN ${riderGenderNormalized} = 'man'
+        WHEN up.rider_gender_pref = 'women_only' THEN ${riderGenderNormalized}::text = 'woman'
+        WHEN up.rider_gender_pref = 'men_only' THEN ${riderGenderNormalized}::text = 'man'
         ELSE TRUE
       END
       AND CASE WHEN ${passCapToday} = 0 THEN TRUE
@@ -376,8 +376,8 @@ export async function fetchFallbackDrivers(
       -- Driver's preferred rider gender
       AND CASE
         WHEN up.rider_gender_pref IS NULL OR up.rider_gender_pref IN ('no_preference','prefer_women','prefer_men') THEN TRUE
-        WHEN up.rider_gender_pref = 'women_only' THEN ${riderGenderNormalized} = 'woman'
-        WHEN up.rider_gender_pref = 'men_only' THEN ${riderGenderNormalized} = 'man'
+        WHEN up.rider_gender_pref = 'women_only' THEN ${riderGenderNormalized}::text = 'woman'
+        WHEN up.rider_gender_pref = 'men_only' THEN ${riderGenderNormalized}::text = 'man'
         ELSE TRUE
       END
       -- Price filter: driver's min_ride_amount <= rider's offered price (or driver has no minimum)
