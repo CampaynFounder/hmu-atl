@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { BrowseDriverRow } from '@/lib/hmu/browse-drivers-query';
 
@@ -15,20 +15,6 @@ export default function BlastBrowseClient({ initialDrivers }: Props) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [offset, setOffset] = useState(initialDrivers.length);
   const [done, setDone] = useState(initialDrivers.length === 0);
-  const [headerHeight, setHeaderHeight] = useState(0);
-  const headerRef = useRef<HTMLElement>(null);
-
-  // Measure header height on mount + resize for proper content offset
-  useEffect(() => {
-    const updateHeight = () => {
-      if (headerRef.current) {
-        setHeaderHeight(headerRef.current.offsetHeight);
-      }
-    };
-    updateHeight();
-    window.addEventListener('resize', updateHeight);
-    return () => window.removeEventListener('resize', updateHeight);
-  }, []);
 
   useEffect(() => {
     if (done) return;
@@ -54,7 +40,7 @@ export default function BlastBrowseClient({ initialDrivers }: Props) {
 
   return (
     <div className="min-h-screen bg-black text-white pb-32">
-      <header ref={headerRef} className="sticky top-0 z-30 bg-black/85 backdrop-blur-xl border-b border-neutral-900">
+      <header className="sticky top-0 z-30 bg-black/85 backdrop-blur-xl border-b border-neutral-900">
         <div className="px-4 py-4">
           <h1 className="text-lg font-bold">Find a Ride</h1>
           <p className="text-xs text-neutral-400 mt-0.5">
@@ -63,7 +49,7 @@ export default function BlastBrowseClient({ initialDrivers }: Props) {
         </div>
       </header>
 
-      <main className="px-3" style={{ paddingTop: headerHeight > 0 ? `${headerHeight}px` : '24px' }}>
+      <main className="px-3 pt-6">
         <div className="grid grid-cols-2 gap-2">
           {drivers.map((d) => (
             <article
