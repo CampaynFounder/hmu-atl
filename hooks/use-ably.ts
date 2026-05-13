@@ -11,11 +11,10 @@ interface AblyMessage {
 interface UseAblyOptions {
   channelName: string | null;
   rideId?: string;
-  blastId?: string;
   onMessage?: (msg: AblyMessage) => void;
 }
 
-export function useAbly({ channelName, rideId, blastId, onMessage }: UseAblyOptions) {
+export function useAbly({ channelName, rideId, onMessage }: UseAblyOptions) {
   const [connected, setConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<AblyMessage | null>(null);
   const ablyRef = useRef<any>(null);
@@ -29,8 +28,6 @@ export function useAbly({ channelName, rideId, blastId, onMessage }: UseAblyOpti
   channelNameRef.current = channelName;
   const rideIdRef = useRef(rideId);
   rideIdRef.current = rideId;
-  const blastIdRef = useRef(blastId);
-  blastIdRef.current = blastId;
 
   useEffect(() => {
     if (!channelName) return;
@@ -49,7 +46,7 @@ export function useAbly({ channelName, rideId, blastId, onMessage }: UseAblyOpti
               const res = await fetch('/api/ably/token', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ rideId: rideIdRef.current, blastId: blastIdRef.current }),
+                body: JSON.stringify({ rideId: rideIdRef.current }),
               });
               const tokenDetails = await res.json();
               callback(null, tokenDetails);

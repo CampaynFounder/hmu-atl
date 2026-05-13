@@ -56,7 +56,7 @@ export async function POST(
   const post = postRows[0] as {
     id: string;
     user_id: string;
-    post_type: 'direct_booking' | 'rider_request' | 'driver_available' | 'blast';
+    post_type: 'direct_booking' | 'rider_request' | 'driver_available';
     target_driver_id: string | null;
     status: string;
     price: number;
@@ -107,22 +107,6 @@ export async function POST(
       postId,
       awaitingRiderDecision: true,
     });
-  }
-
-  if (post.post_type === 'blast') {
-    // Silent pass — rider isn't notified on individual driver passes (would
-    // be noisy). Stamp passed_at so the offer board can hide them and matching
-    // can dedupe future blasts from the same rider.
-    await sql`
-      UPDATE blast_driver_targets
-         SET passed_at = NOW()
-       WHERE blast_id = ${postId}
-         AND driver_id = ${driverUserId}
-         AND passed_at IS NULL
-         AND hmu_at IS NULL
-    `;
-    notifyUser(driverUserId, 'pass_committed', { postId }).catch(() => {});
-    return NextResponse.json({ status: 'passed', postId, blast: true });
   }
 
   if (post.post_type === 'rider_request') {

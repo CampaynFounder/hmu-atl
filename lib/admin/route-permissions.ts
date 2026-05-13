@@ -85,7 +85,6 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/markets',             rule: { kind: 'permission', slug: 'admin.markets' } },
   { pattern: '/admin/feature-flags',       rule: { kind: 'permission', slug: 'admin.flags' } },
   { pattern: '/admin/hmu-config',          rule: { kind: 'permission', slug: 'admin.hmuconfig' } },
-  { pattern: '/admin/blast-config',        rule: { kind: 'permission', slug: 'admin.blastconfig' } },
   { pattern: '/admin/onboarding-config',   rule: { kind: 'permission', slug: 'admin.onboarding' } },
   { pattern: '/admin/realtime-notifications', rule: { kind: 'permission', slug: 'admin.banners' } },
   { pattern: '/admin/rider-browse-banner',  rule: { kind: 'permission', slug: 'admin.browsebanner' } },
