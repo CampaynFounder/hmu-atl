@@ -70,11 +70,6 @@ export async function POST(
     },
   };
 
-  // Pull rider's stored gender so the matching SQL can honor drivers'
-  // rider_gender_pref filter on the bump just like the initial blast did.
-  const genderRows = await sql`SELECT gender FROM users WHERE id = ${riderId} LIMIT 1`;
-  const riderGender = (genderRows[0] as { gender: string | null } | undefined)?.gender ?? null;
-
   const { targets: scored } = await matchBlast(
     {
       riderId,
@@ -82,7 +77,6 @@ export async function POST(
       pickupLng: Number(post.pickup_lng),
       marketId: market.market_id,
       driverPreference: (post.driver_preference as 'male' | 'female' | 'any') ?? 'any',
-      riderGender,
       scheduledFor: post.scheduled_for ? new Date(post.scheduled_for as string) : null,
     },
     expandedConfig,

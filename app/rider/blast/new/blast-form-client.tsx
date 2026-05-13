@@ -20,7 +20,7 @@ interface PointPick {
   address: string;
 }
 
-type Block = 'pickup' | 'dropoff' | 'trip_type' | 'when' | 'storage' | 'price' | 'driver_pref' | 'rider_gender' | 'phone';
+type Block = 'pickup' | 'dropoff' | 'trip_type' | 'when' | 'storage' | 'price' | 'driver_pref' | 'phone';
 type Step = 'form' | 'name' | 'photo' | 'ready';
 
 interface FormDraft {
@@ -32,7 +32,6 @@ interface FormDraft {
   storage: boolean;
   price: number | null;
   driver_pref: 'male' | 'female' | 'any';
-  rider_gender: 'man' | 'woman' | 'other' | null;
   phone: string;
 }
 
@@ -48,7 +47,6 @@ const EMPTY_DRAFT: FormDraft = {
   storage: false,
   price: null,
   driver_pref: 'any',
-  rider_gender: null,
   phone: '',
 };
 
@@ -194,12 +192,10 @@ export default function BlastFormClient() {
 
   const finalPrice = draft.price ?? estimate?.suggested_price_dollars ?? 25;
   const tripValid = !!(draft.pickup && draft.dropoff && finalPrice > 0);
-  const genderValid = !!draft.rider_gender;
   // Phone collection moved into Clerk's hosted form — staging Clerk does
   // username/password, prod Clerk does phone OTP. The form just validates
-  // trip details + the rider's own gender (so the matching algorithm can
-  // honor drivers' rider_gender_pref filter).
-  const formValid = tripValid && genderValid;
+  // trip details; auth is Clerk's job.
+  const formValid = tripValid;
 
   // ── Continue post-auth: bootstrap our DB row and advance to next missing step ──
   const continueAfterAuth = useCallback(async () => {
@@ -208,10 +204,7 @@ export default function BlastFormClient() {
       const r = await fetch('/api/blast/onboard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: draft.phone,
-          gender: draft.rider_gender,
-        }),
+        body: JSON.stringify({ phone: draft.phone }),
       });
       const body = (await r.json().catch(() => ({}))) as { hasDisplayName?: boolean; hasPhoto?: boolean };
       if (!body.hasDisplayName) setStep('name');
@@ -220,7 +213,7 @@ export default function BlastFormClient() {
     } catch (e) {
       setAuthError(e instanceof Error ? e.message : 'Could not continue');
     }
-  }, [draft.phone, draft.rider_gender]);
+  }, [draft.phone]);
 
   // ── Get Cash Ride: open Clerk hosted form (or skip if already signed in) ──
   const handleGetCashRide = useCallback(() => {
@@ -492,7 +485,7 @@ function Header({ step, onBack }: { step: Step; onBack: () => void }) {
           </h1>
           {step === 'form' && (
             <p className="text-xs text-neutral-400 mt-1">
-              Tell Drivers What you need. They&rsquo;ll Say HMU.
+              Tell drivers what you need. They&rsquo;ll HMU back.
             </p>
           )}
         </div>
@@ -738,49 +731,6 @@ function FormStep({
                 active={draft.driver_pref === key}
                 onClick={() => {
                   setDraft((d) => ({ ...d, driver_pref: key }));
-                  setOpenBlock(null);
-                }}
-              >
-                {lab}
-              </Pill>
-            ))}
-          </div>
-        </Card>
-
-        {/* Rider's own gender — required so the matching algorithm can honor
-            drivers who set rider_gender_pref = women_only or men_only. Without
-            this we silently exclude the rider from those drivers' inboxes. */}
-        <Card
-          label="You"
-          value={
-            draft.rider_gender === 'woman'
-              ? 'Woman'
-              : draft.rider_gender === 'man'
-                ? 'Man'
-                : draft.rider_gender === 'other'
-                  ? 'Other'
-                  : 'Pick one'
-          }
-          filled={!!draft.rider_gender}
-          open={openBlock === 'rider_gender'}
-          onToggle={() => setOpenBlock(openBlock === 'rider_gender' ? null : 'rider_gender')}
-        >
-          <p className="text-xs text-neutral-400 mb-3">
-            Some drivers only pick up women or men — this makes sure they see your blast.
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {(
-              [
-                ['woman', 'Woman'],
-                ['man', 'Man'],
-                ['other', 'Other'],
-              ] as const
-            ).map(([key, lab]) => (
-              <Pill
-                key={key}
-                active={draft.rider_gender === key}
-                onClick={() => {
-                  setDraft((d) => ({ ...d, rider_gender: key }));
                   setOpenBlock(null);
                 }}
               >

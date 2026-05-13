@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
     }
 
     const userRows = await sql`
-      SELECT u.id, u.gender, rp.avatar_url, rp.stripe_customer_id, rp.display_name
+      SELECT u.id, rp.avatar_url, rp.stripe_customer_id, rp.display_name
       FROM users u
       LEFT JOIN rider_profiles rp ON rp.user_id = u.id
       WHERE u.clerk_id = ${clerkId} LIMIT 1
@@ -105,7 +105,6 @@ export async function POST(req: NextRequest) {
     }
     const user = userRows[0] as Record<string, unknown>;
     const riderId = user.id as string;
-    const riderGender = (user.gender as string | null) ?? null;
 
     // ── 1a. Feature flag ──
     if (!(await isFeatureEnabled('blast_booking', { userId: riderId }))) {
@@ -222,7 +221,6 @@ export async function POST(req: NextRequest) {
         pickupLng,
         marketId: market.market_id,
         driverPreference,
-        riderGender,
         scheduledFor,
       },
       config,
@@ -232,7 +230,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: 'NO_DRIVERS_AVAILABLE',
-          message: 'No matching drivers nearby right now — try a different time, or bump your price.',
+          message: 'No drivers available in your area right now. Try again in a few minutes.',
         },
         { status: 503 },
       );

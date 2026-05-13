@@ -17,7 +17,6 @@ interface Body {
   display_name?: string;
   phone?: string;
   avatar_url?: string;
-  gender?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -31,12 +30,6 @@ export async function POST(req: NextRequest) {
     const displayName = (body.display_name ?? '').trim().slice(0, 60);
     let phone = (body.phone ?? '').trim();
     const avatarUrl = (body.avatar_url ?? '').trim() || null;
-    // Accept man / woman / other; normalize to lowercase. Empty → leave existing.
-    const rawGender = (body.gender ?? '').trim().toLowerCase();
-    const gender =
-      rawGender === 'man' || rawGender === 'woman' || rawGender === 'other'
-        ? rawGender
-        : null;
 
     // Phone collection moved to Clerk's hosted form. If body didn't include
     // one (form skipped the field), pull it from the Clerk user object.
@@ -65,12 +58,6 @@ export async function POST(req: NextRequest) {
       userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     }
     const userId = (userRows[0] as { id: string }).id;
-
-    // Persist gender if supplied (used by matching to honor drivers'
-    // rider_gender_pref). COALESCE preserves existing value when not provided.
-    if (gender) {
-      await sql`UPDATE users SET gender = ${gender} WHERE id = ${userId}`;
-    }
 
     // Lazy Stripe customer creation — needed for the blast deposit hold.
     let stripeCustomerId: string | null = null;
@@ -121,31 +108,12 @@ export async function POST(req: NextRequest) {
       console.error('[blast/onboard] clerk metadata update failed:', e);
     }
 
-    // Read back what's actually persisted so the client knows what's still
-    // missing (covers the case where this call only supplied a subset).
-    const stateRows = await sql`
-      SELECT u.gender,
-             rp.display_name,
-             rp.avatar_url,
-             rp.stripe_customer_id,
-             EXISTS (
-               SELECT 1 FROM rider_payment_methods rpm
-                WHERE rpm.rider_id = ${userId} AND rpm.is_default = TRUE
-             ) AS has_payment_method
-      FROM users u
-      LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-      WHERE u.id = ${userId} LIMIT 1
-    `;
-    const state = (stateRows[0] ?? {}) as Record<string, unknown>;
-
     return NextResponse.json({
       ok: true,
       userId,
-      hasDisplayName: !!state.display_name,
-      hasPhoto: !!state.avatar_url,
-      hasGender: !!state.gender,
-      hasStripeCustomer: !!state.stripe_customer_id,
-      hasPaymentMethod: !!state.has_payment_method,
+      hasDisplayName: !!displayName,
+      hasPhoto: !!avatarUrl,
+      hasStripeCustomer: !!stripeCustomerId,
     });
   } catch (e) {
     console.error('[blast/onboard] failed:', e);

@@ -26,10 +26,6 @@ export interface BlastInput {
   pickupLng: number;
   marketId: string | null;
   driverPreference: 'male' | 'female' | 'any';
-  // Rider's own gender (man/woman/other/female/male — accepts both old + new
-  // vocab per the gender_normalization backlog). Used to honor drivers whose
-  // user_preferences.rider_gender_pref restricts who they accept.
-  riderGender: string | null;
   scheduledFor: Date | null;
 }
 
@@ -84,14 +80,6 @@ async function fetchCandidates(
   const minLng = blast.pickupLng - lngDelta;
   const maxLng = blast.pickupLng + lngDelta;
 
-  // Normalize rider gender to handle both legacy (male/female) and current
-  // (man/woman) vocabularies per the gender_normalization backlog. The driver
-  // filter below accepts whichever flavor the driver has stored their pref in.
-  const riderGenderNormalized =
-    blast.riderGender === 'male' || blast.riderGender === 'man' ? 'man' :
-    blast.riderGender === 'female' || blast.riderGender === 'woman' ? 'woman' :
-    null;
-
   const rows = await sql`
     SELECT
       u.id AS user_id,
@@ -108,7 +96,6 @@ async function fetchCandidates(
       dp.advance_notice_hours
     FROM users u
     JOIN driver_profiles dp ON dp.user_id = u.id
-    LEFT JOIN user_preferences up ON up.user_id = u.id
     LEFT JOIN (
       SELECT driver_id, SUM(view_count) AS view_count
       FROM profile_views
@@ -131,17 +118,7 @@ async function fetchCandidates(
       AND COALESCE(u.chill_score, 0) >= ${minChillScore}
       AND CASE WHEN ${signinHours} = 0 THEN TRUE
                ELSE u.last_active > NOW() - (${signinHours} || ' hours')::interval END
-      -- Rider's preferred driver gender (when set as a hard filter)
       AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference})
-      -- Driver's preferred rider gender (always honored: drivers who chose
-      -- women_only / men_only never see riders of the other gender). Drivers
-      -- with no_preference / NULL pref see everyone.
-      AND CASE
-        WHEN up.rider_gender_pref IS NULL OR up.rider_gender_pref IN ('no_preference','prefer_women','prefer_men') THEN TRUE
-        WHEN up.rider_gender_pref = 'women_only' THEN ${riderGenderNormalized} = 'woman'
-        WHEN up.rider_gender_pref = 'men_only' THEN ${riderGenderNormalized} = 'man'
-        ELSE TRUE
-      END
       AND CASE WHEN ${passCapToday} = 0 THEN TRUE
                ELSE COALESCE(passes.cnt, 0) < ${passCapToday} END
       AND NOT EXISTS (
