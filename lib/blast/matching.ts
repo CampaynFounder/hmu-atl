@@ -68,18 +68,25 @@ async function fetchCandidates(
   const minChillScore = config.filters.min_chill_score;
   const maxStaleMinutes = STALE_LOCATION_MINUTES;
   // 0 = disable the check entirely (so admins can knob-out a filter without
-  // hitting the API). We compute the disable booleans in JS and use them in
-  // a `${disabled}::boolean OR <check>` pattern. This avoids the previous
-  // `CASE WHEN ${num}::int = 0 THEN TRUE ELSE ... END` shape, which kept
-  // throwing 42P18 indeterminate_datatype on parameter $8 even with the cast
-  // in place. The OR pattern is the same one `${!requireSexMatch}::boolean
-  // OR ...` uses successfully elsewhere in this same query.
+  // hitting the API). Both prior approaches (CASE WHEN ${num}::int = 0 and
+  // ${disabled}::boolean OR ...) tripped Postgres' parameter type resolver
+  // and threw 42P18 at $8 inside fetchFallbackDrivers. Switch to JS-side
+  // sentinels: when a knob is "disabled," substitute a value that makes the
+  // direct comparison pass for everyone. Same semantics, no extra parameter,
+  // no wrapper expression for the type resolver to choke on.
   const signinHours = config.filters.must_be_signed_in_within_hours;
   const passCapToday = config.filters.exclude_if_today_passed_count_gte;
   const dedupeMinutes = config.limits.same_driver_dedupe_minutes;
-  const signinDisabled = signinHours === 0;
-  const passCapDisabled = passCapToday === 0;
-  const dedupeDisabled = dedupeMinutes === 0;
+  // signinHours = 0 means "no recency requirement." 999999 hours ≈ 114 years,
+  // so `last_active > NOW() - 999999 hours` matches every conceivable row.
+  const effSigninHours = signinHours === 0 ? 999999 : signinHours;
+  // passCapToday = 0 means "no daily-passes cap." 999999 lets every driver
+  // through `passes.cnt < N`.
+  const effPassCapToday = passCapToday === 0 ? 999999 : passCapToday;
+  // dedupeMinutes = 0 means "no dedupe window." Leaving as 0 works directly:
+  // `notified_at > NOW() - INTERVAL '0 minutes'` is `notified_at > NOW()`,
+  // which is false for every past notification, so NOT EXISTS is true and
+  // every driver passes the filter.
 
   // Bounding box pre-filter — Postgres can't use indexes on Haversine, so we
   // crop to a rough lat/lng box first and let the in-loop distance compute
@@ -139,8 +146,10 @@ async function fetchCandidates(
       AND dp.current_lat BETWEEN ${minLat} AND ${maxLat}
       AND dp.current_lng BETWEEN ${minLng} AND ${maxLng}
       AND COALESCE(u.chill_score, 0) >= ${minChillScore}
-      AND (${signinDisabled}::boolean OR u.last_active > NOW() - (${signinHours}::text || ' hours')::interval)
-      -- Rider's preferred driver gender (when set as a hard filter)
+      AND u.last_active > NOW() - (${effSigninHours}::text || ' hours')::interval
+      -- Rider's preferred driver gender (when set as a hard filter). The OR-
+      -- bool pattern is tolerated here because the parameter is in a position
+      -- the type resolver can fix from the other side of the OR.
       AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
       -- Driver's preferred rider gender (always honored: drivers who chose
       -- women_only / men_only never see riders of the other gender). Drivers
@@ -151,18 +160,18 @@ async function fetchCandidates(
         WHEN up.rider_gender_pref = 'men_only' THEN ${riderGenderNormalized}::text = 'man'
         ELSE TRUE
       END
-      AND (${passCapDisabled}::boolean OR COALESCE(passes.cnt, 0) < ${passCapToday})
+      AND COALESCE(passes.cnt, 0) < ${effPassCapToday}
       AND NOT EXISTS (
         SELECT 1 FROM rides r
         WHERE r.driver_id = u.id AND r.status IN ('matched','otw','here','active')
       )
-      AND (${dedupeDisabled}::boolean OR NOT EXISTS (
+      AND NOT EXISTS (
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
           AND hp.user_id = ${blast.riderId}
           AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
-      ))
+      )
   `;
   } catch (e) {
     const orig = e instanceof Error ? e.message : String(e);
@@ -346,9 +355,8 @@ export async function fetchFallbackDrivers(
   const minChillScore = config.filters.min_chill_score;
   const signinHours = config.filters.must_be_signed_in_within_hours;
   const dedupeMinutes = config.limits.same_driver_dedupe_minutes;
-  // See fetchCandidates for why we use the OR-bool pattern instead of CASE WHEN.
-  const signinDisabled = signinHours === 0;
-  const dedupeDisabled = dedupeMinutes === 0;
+  // See fetchCandidates for the sentinel-value rationale.
+  const effSigninHours = signinHours === 0 ? 999999 : signinHours;
 
   // Normalize rider gender
   const riderGenderNormalized =
@@ -392,7 +400,7 @@ export async function fetchFallbackDrivers(
     WHERE u.profile_type = 'driver'
       AND u.account_status = 'active'
       AND COALESCE(u.chill_score, 0) >= ${minChillScore}
-      AND (${signinDisabled}::boolean OR u.last_active > NOW() - (${signinHours}::text || ' hours')::interval)
+      AND u.last_active > NOW() - (${effSigninHours}::text || ' hours')::interval
       -- Gender preference filter
       AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
       -- Driver's preferred rider gender
@@ -410,14 +418,14 @@ export async function fetchFallbackDrivers(
         SELECT 1 FROM rides r
         WHERE r.driver_id = u.id AND r.status IN ('matched','otw','here','active')
       )
-      -- Not recently notified
-      AND (${dedupeDisabled}::boolean OR NOT EXISTS (
+      -- Not recently notified (dedupeMinutes=0 naturally disables — see fetchCandidates header)
+      AND NOT EXISTS (
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
           AND hp.user_id = ${blast.riderId}
           AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
-      ))
+      )
     ORDER BY
       -- Prioritize HMU First tier
       CASE WHEN COALESCE(u.tier, 'free') = 'hmu_first' THEN 0 ELSE 1 END,
