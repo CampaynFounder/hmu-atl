@@ -92,7 +92,9 @@ async function fetchCandidates(
     blast.riderGender === 'female' || blast.riderGender === 'woman' ? 'woman' :
     ''  // empty string instead of null to avoid parameter type inference issues;
 
-  const rows = await sql`
+  let rows: unknown[];
+  try {
+    rows = await sql`
     SELECT
       u.id AS user_id,
       dp.current_lat,
@@ -157,6 +159,17 @@ async function fetchCandidates(
           AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
       ) END
   `;
+  } catch (e) {
+    const orig = e instanceof Error ? e.message : String(e);
+    const enhanced: Error & { queryName?: string; pgCode?: unknown; pgPosition?: unknown } = new Error(`[query:fetchCandidates] ${orig}`);
+    enhanced.queryName = 'fetchCandidates';
+    if (e && typeof e === 'object') {
+      const obj = e as Record<string, unknown>;
+      enhanced.pgCode = obj.code;
+      enhanced.pgPosition = obj.position;
+    }
+    throw enhanced;
+  }
 
   return rows.map((r: unknown) => {
     const row = r as Record<string, unknown>;
@@ -336,7 +349,9 @@ export async function fetchFallbackDrivers(
     ''  // empty string instead of null to avoid parameter type inference issues;
 
   // Query drivers matching gender preference + price range, ignoring location
-  const rows = await sql`
+  let rows: unknown[];
+  try {
+    rows = await sql`
     SELECT
       u.id AS user_id,
       dp.current_lat,
@@ -406,6 +421,17 @@ export async function fetchFallbackDrivers(
       COALESCE(u.completed_rides, 0) DESC
     LIMIT 3
   `;
+  } catch (e) {
+    const orig = e instanceof Error ? e.message : String(e);
+    const enhanced: Error & { queryName?: string; pgCode?: unknown; pgPosition?: unknown } = new Error(`[query:fetchFallbackDrivers] ${orig}`);
+    enhanced.queryName = 'fetchFallbackDrivers';
+    if (e && typeof e === 'object') {
+      const obj = e as Record<string, unknown>;
+      enhanced.pgCode = obj.code;
+      enhanced.pgPosition = obj.position;
+    }
+    throw enhanced;
+  }
 
   const candidates = rows.map((r: unknown) => {
     const row = r as Record<string, unknown>;
