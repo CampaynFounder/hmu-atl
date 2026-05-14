@@ -52,7 +52,16 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
 
   const handleSignOut = async () => {
     close();
-    const redirectUrl = profileType === 'rider' ? '/rider/home' : profileType === 'driver' ? '/driver' : '/';
+    // Sign-out from any blast page (the /rider/blast/* funnel or the
+    // /rider/browse/blast landing) lands on /rider/browse/blast — keeps the
+    // signed-out user inside the blast acquisition surface instead of
+    // bouncing them to the generic /rider/home.
+    const onBlastPage = pathname.startsWith('/rider/blast') || pathname === '/rider/browse/blast';
+    const redirectUrl = onBlastPage
+      ? '/rider/browse/blast'
+      : profileType === 'rider' ? '/rider/home'
+      : profileType === 'driver' ? '/driver'
+      : '/';
     // Clerk v6 SignOutOptions only has `sessionId` — passing `redirectUrl` is
     // a no-op, so the previous one-arg form cleared the session but never
     // navigated. Hard-navigate after the promise resolves to force a fresh
