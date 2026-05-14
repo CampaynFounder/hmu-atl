@@ -20,28 +20,28 @@ import { sql } from '@/lib/db/client';
 import { calculateDistance } from '@/lib/geo/distance';
 import type { BlastMatchingConfig } from './config';
 
-// Strict uuid format check — used before passing the riderId through
-// sql.unsafe() (raw SQL interpolation) so we cannot inject. Matches the
+// Strict uuid format check — used before passing the riderId through the
+// parameterized sql template tag. Belt-and-suspenders: the parameter binding
+// already prevents injection, but this catches malformed callers loudly
+// rather than letting Postgres throw a type error mid-query. Matches the
 // canonical 8-4-4-4-12 hex layout, case-insensitive.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function uuidLiteralOrThrow(label: string, value: string): string {
+function assertUuid(label: string, value: string): string {
   if (!UUID_RE.test(value)) {
     throw new Error(`${label}: expected uuid, got ${JSON.stringify(value)}`);
   }
-  return `'${value}'::uuid`;
+  return value;
 }
 
-// Build a Postgres INTERVAL literal from a non-negative integer minute count.
-// Used to embed dedupe / interval values as raw SQL inside correlated
-// subqueries where the Neon driver's parameter type resolver fails with
-// 42P18 regardless of cast. Floors + clamps to be defensive — the input
-// comes from platform_config and could theoretically be malformed.
-function intervalMinutesLiteral(label: string, value: number): string {
+// Validate a non-negative integer minute count for use in INTERVAL math.
+// Floors + clamps to be defensive — the input comes from platform_config
+// and could theoretically be malformed.
+function assertNonNegativeMinutes(label: string, value: number): number {
   const n = Math.floor(Number(value));
   if (!Number.isFinite(n) || n < 0 || n > 525600 /* 1 year */) {
     throw new Error(`${label}: expected non-negative integer minutes (≤ 1y), got ${JSON.stringify(value)}`);
   }
-  return `INTERVAL '${n} minutes'`;
+  return n;
 }
 
 export interface BlastInput {
@@ -101,13 +101,15 @@ async function fetchCandidates(
   const signinHours = config.filters.must_be_signed_in_within_hours;
   const passCapToday = config.filters.exclude_if_today_passed_count_gte;
   const dedupeMinutes = config.limits.same_driver_dedupe_minutes;
-  // Embed riderId AND dedupe interval as literals via sql.unsafe to bypass
-  // the parameter type resolver entirely. Every parameter inside the
-  // correlated NOT EXISTS subquery throws 42P18 regardless of cast (proven
-  // exhaustively in PRs #82, #84, #86, #88, #89). Eliminating both gets the
-  // failing subquery down to zero parameters.
-  const riderIdLiteral = sql.unsafe(uuidLiteralOrThrow('fetchCandidates riderId', blast.riderId));
-  const dedupeIntervalLiteral = sql.unsafe(intervalMinutesLiteral('fetchCandidates dedupeMinutes', dedupeMinutes));
+  // Validate inputs up front so a bad value surfaces at the call site rather
+  // than as a Postgres type error. Bindings happen below via the sql template
+  // tag — sql.unsafe is BANNED in lib/blast/** per
+  // docs/BLAST-V3-AGENT-CONTRACT.md §3 D-16. Pass the validated values
+  // through standard parameter casts; the (text || ' minutes')::interval
+  // pattern (used elsewhere in this query) sidesteps the 42P18 type-resolver
+  // bug that motivated the original sql.unsafe workaround.
+  const riderIdSafe = assertUuid('fetchCandidates riderId', blast.riderId);
+  const dedupeMinutesSafe = assertNonNegativeMinutes('fetchCandidates dedupeMinutes', dedupeMinutes);
   // signinHours = 0 means "no recency requirement." 999999 hours ≈ 114 years,
   // so `last_active > NOW() - 999999 hours` matches every conceivable row.
   const effSigninHours = signinHours === 0 ? 999999 : signinHours;
@@ -200,8 +202,8 @@ async function fetchCandidates(
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
-          AND hp.user_id = ${riderIdLiteral}
-          AND bdt.notified_at > NOW() - ${dedupeIntervalLiteral}
+          AND hp.user_id = ${riderIdSafe}::uuid
+          AND bdt.notified_at > NOW() - (${dedupeMinutesSafe}::text || ' minutes')::interval
       )
   `;
   } catch (e) {
