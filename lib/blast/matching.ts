@@ -445,8 +445,12 @@ export async function fetchFallbackDrivers(
         ELSE TRUE
       END
       -- Price filter: driver's min_ride_amount <= rider's offered price (or driver has no minimum)
-      -- TODO: re-enable when staging DB has min_ride_amount column migrated
-      -- AND (dp.min_ride_amount IS NULL OR dp.min_ride_amount <= ${ridePrice})
+      -- TODO: re-enable when staging DB has min_ride_amount column migrated. Do
+      -- NOT use $\{...\} inside SQL comments — JS template literals still evaluate
+      -- the substitution and push it to the param list, but Postgres strips the
+      -- placeholder during parsing, causing 08P01 protocol_violation (bind/parse
+      -- count mismatch). Reference original: AND (dp.min_ride_amount IS NULL OR
+      -- dp.min_ride_amount <= ridePrice)
       -- Not in active ride
       AND NOT EXISTS (
         SELECT 1 FROM rides r
