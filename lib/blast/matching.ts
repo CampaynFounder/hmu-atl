@@ -20,6 +20,17 @@ import { sql } from '@/lib/db/client';
 import { calculateDistance } from '@/lib/geo/distance';
 import type { BlastMatchingConfig } from './config';
 
+// Strict uuid format check — used before passing the riderId through
+// sql.unsafe() (raw SQL interpolation) so we cannot inject. Matches the
+// canonical 8-4-4-4-12 hex layout, case-insensitive.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function uuidLiteralOrThrow(label: string, value: string): string {
+  if (!UUID_RE.test(value)) {
+    throw new Error(`${label}: expected uuid, got ${JSON.stringify(value)}`);
+  }
+  return `'${value}'::uuid`;
+}
+
 export interface BlastInput {
   riderId: string;
   pickupLat: number;
@@ -67,6 +78,12 @@ async function fetchCandidates(
   const requireSexMatch = config.filters.must_match_sex_preference && blast.driverPreference !== 'any';
   const minChillScore = config.filters.min_chill_score;
   const maxStaleMinutes = STALE_LOCATION_MINUTES;
+  // Embed riderId as a literal via sql.unsafe to bypass the parameter type
+  // resolver entirely. Casts (::uuid, ::text on the param, ::text on the
+  // column) all failed with 42P18 inside the correlated NOT EXISTS subquery.
+  // The riderId comes from our own users table (validated as uuid below) so
+  // literal interpolation is safe.
+  const riderIdLiteral = sql.unsafe(uuidLiteralOrThrow('fetchCandidates riderId', blast.riderId));
   // 0 = disable the check entirely (so admins can knob-out a filter without
   // hitting the API). Both prior approaches (CASE WHEN ${num}::int = 0 and
   // ${disabled}::boolean OR ...) tripped Postgres' parameter type resolver
@@ -169,7 +186,7 @@ async function fetchCandidates(
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
-          AND hp.user_id::text = ${blast.riderId}::text
+          AND hp.user_id = ${riderIdLiteral}
           AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
       )
   `;
@@ -357,6 +374,8 @@ export async function fetchFallbackDrivers(
   const dedupeMinutes = config.limits.same_driver_dedupe_minutes;
   // See fetchCandidates for the sentinel-value rationale.
   const effSigninHours = signinHours === 0 ? 999999 : signinHours;
+  // See fetchCandidates for why riderId is a literal, not a parameter.
+  const riderIdLiteral = sql.unsafe(uuidLiteralOrThrow('fetchFallbackDrivers riderId', blast.riderId));
 
   // Normalize rider gender
   const riderGenderNormalized =
@@ -423,7 +442,7 @@ export async function fetchFallbackDrivers(
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
-          AND hp.user_id::text = ${blast.riderId}::text
+          AND hp.user_id = ${riderIdLiteral}
           AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
       )
     ORDER BY
