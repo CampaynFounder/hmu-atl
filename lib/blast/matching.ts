@@ -20,6 +20,30 @@ import { sql } from '@/lib/db/client';
 import { calculateDistance } from '@/lib/geo/distance';
 import type { BlastMatchingConfig } from './config';
 
+// Strict uuid format check — used before passing the riderId through
+// sql.unsafe() (raw SQL interpolation) so we cannot inject. Matches the
+// canonical 8-4-4-4-12 hex layout, case-insensitive.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function uuidLiteralOrThrow(label: string, value: string): string {
+  if (!UUID_RE.test(value)) {
+    throw new Error(`${label}: expected uuid, got ${JSON.stringify(value)}`);
+  }
+  return `'${value}'::uuid`;
+}
+
+// Build a Postgres INTERVAL literal from a non-negative integer minute count.
+// Used to embed dedupe / interval values as raw SQL inside correlated
+// subqueries where the Neon driver's parameter type resolver fails with
+// 42P18 regardless of cast. Floors + clamps to be defensive — the input
+// comes from platform_config and could theoretically be malformed.
+function intervalMinutesLiteral(label: string, value: number): string {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n) || n < 0 || n > 525600 /* 1 year */) {
+    throw new Error(`${label}: expected non-negative integer minutes (≤ 1y), got ${JSON.stringify(value)}`);
+  }
+  return `INTERVAL '${n} minutes'`;
+}
+
 export interface BlastInput {
   riderId: string;
   pickupLat: number;
@@ -77,6 +101,13 @@ async function fetchCandidates(
   const signinHours = config.filters.must_be_signed_in_within_hours;
   const passCapToday = config.filters.exclude_if_today_passed_count_gte;
   const dedupeMinutes = config.limits.same_driver_dedupe_minutes;
+  // Embed riderId AND dedupe interval as literals via sql.unsafe to bypass
+  // the parameter type resolver entirely. Every parameter inside the
+  // correlated NOT EXISTS subquery throws 42P18 regardless of cast (proven
+  // exhaustively in PRs #82, #84, #86, #88, #89). Eliminating both gets the
+  // failing subquery down to zero parameters.
+  const riderIdLiteral = sql.unsafe(uuidLiteralOrThrow('fetchCandidates riderId', blast.riderId));
+  const dedupeIntervalLiteral = sql.unsafe(intervalMinutesLiteral('fetchCandidates dedupeMinutes', dedupeMinutes));
   // signinHours = 0 means "no recency requirement." 999999 hours ≈ 114 years,
   // so `last_active > NOW() - 999999 hours` matches every conceivable row.
   const effSigninHours = signinHours === 0 ? 999999 : signinHours;
@@ -169,8 +200,8 @@ async function fetchCandidates(
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
-          AND hp.user_id::text = ${blast.riderId}::text
-          AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
+          AND hp.user_id = ${riderIdLiteral}
+          AND bdt.notified_at > NOW() - ${dedupeIntervalLiteral}
       )
   `;
   } catch (e) {
@@ -349,14 +380,12 @@ export async function matchBlast(
 export async function fetchFallbackDrivers(
   blast: BlastInput,
   config: BlastMatchingConfig,
-  ridePrice: number,
+  // ridePrice is reserved for the future min_ride_amount filter (see commented
+  // block in the SQL below). Underscore-prefixed so an "unused" lint doesn't
+  // bite, but kept in the signature so callers don't have to change.
+  _ridePrice: number,
 ): Promise<ScoredTarget[]> {
   const requireSexMatch = config.filters.must_match_sex_preference && blast.driverPreference !== 'any';
-  const minChillScore = config.filters.min_chill_score;
-  const signinHours = config.filters.must_be_signed_in_within_hours;
-  const dedupeMinutes = config.limits.same_driver_dedupe_minutes;
-  // See fetchCandidates for the sentinel-value rationale.
-  const effSigninHours = signinHours === 0 ? 999999 : signinHours;
 
   // Normalize rider gender
   const riderGenderNormalized =
@@ -397,34 +426,32 @@ export async function fetchFallbackDrivers(
       WHERE status = 'passed' AND created_at > NOW() - INTERVAL '24 hours'
       GROUP BY driver_id
     ) passes ON passes.driver_id = u.id
+    -- FALLBACK PATH — intentionally permissive. Triggered only when the main
+    -- matching path (fetchCandidates) exhausts both radius expansions with
+    -- < min_drivers_to_notify hits. Goal: surface ANY usable driver in the
+    -- system, not just ones who would have qualified for the main match
+    -- minus location. We deliberately drop chill_score floor and signin
+    -- recency here. The remaining filters are non-negotiable safety/honoring:
+    -- account active, gender prefs honored both directions, not currently
+    -- mid-ride. Dedup is also dropped — fallback is a manual HMU action,
+    -- so re-surfacing a recently-notified driver is fine.
     WHERE u.profile_type = 'driver'
       AND u.account_status = 'active'
-      AND COALESCE(u.chill_score, 0) >= ${minChillScore}::int
-      AND u.last_active > NOW() - (${effSigninHours}::text || ' hours')::interval
-      -- Gender preference filter
+      -- Honor rider's hard gender preference (filter is no-op when admin's
+      -- must_match_sex_preference knob is off).
       AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
-      -- Driver's preferred rider gender
+      -- Always honor driver's preferred rider gender — drivers who said
+      -- women_only / men_only never see riders of the other gender.
       AND CASE
         WHEN up.rider_gender_pref IS NULL OR up.rider_gender_pref IN ('no_preference','prefer_women','prefer_men') THEN TRUE
         WHEN up.rider_gender_pref = 'women_only' THEN ${riderGenderNormalized}::text = 'woman'
         WHEN up.rider_gender_pref = 'men_only' THEN ${riderGenderNormalized}::text = 'man'
         ELSE TRUE
       END
-      -- Price filter: driver's min_ride_amount <= rider's offered price (or driver has no minimum)
-      -- TODO: re-enable when staging DB has min_ride_amount column migrated
-      -- AND (dp.min_ride_amount IS NULL OR dp.min_ride_amount <= ${ridePrice})
-      -- Not in active ride
+      -- Don't surface drivers currently mid-ride.
       AND NOT EXISTS (
         SELECT 1 FROM rides r
         WHERE r.driver_id = u.id AND r.status IN ('matched','otw','here','active')
-      )
-      -- Not recently notified (dedupeMinutes=0 naturally disables — see fetchCandidates header)
-      AND NOT EXISTS (
-        SELECT 1 FROM blast_driver_targets bdt
-        JOIN hmu_posts hp ON hp.id = bdt.blast_id
-        WHERE bdt.driver_id = u.id
-          AND hp.user_id::text = ${blast.riderId}::text
-          AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
       )
     ORDER BY
       -- Prioritize HMU First tier
