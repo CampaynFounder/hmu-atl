@@ -182,14 +182,17 @@ export default function BlastOfferBoardClient({ blastId }: { blastId: string }) 
     [matching, blastId, router],
   );
 
-  const handleBump = useCallback(async (additional: number) => {
+  const handleBump = useCallback(async (additional: number, opts?: { removeGenderPref?: boolean }) => {
     if (bumping) return;
     setBumping(true);
     try {
       await fetch(`/api/blast/${blastId}/bump`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ additional_dollars: additional }),
+        body: JSON.stringify({
+          additional_dollars: additional,
+          remove_gender_pref: opts?.removeGenderPref ?? false,
+        }),
       });
       await refresh();
       setShowFallback(false);
@@ -463,10 +466,7 @@ export default function BlastOfferBoardClient({ blastId }: { blastId: string }) 
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.3 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => {
-                    // TODO: implement expand preference API call
-                    handleBump(0); // Placeholder - re-run matching with 'any' preference
-                  }}
+                  onClick={() => handleBump(0, { removeGenderPref: true })}
                   disabled={bumping}
                   className="w-full bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 py-3 rounded-xl text-sm font-medium transition-colors"
                 >
