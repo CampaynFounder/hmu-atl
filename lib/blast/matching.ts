@@ -68,10 +68,18 @@ async function fetchCandidates(
   const minChillScore = config.filters.min_chill_score;
   const maxStaleMinutes = STALE_LOCATION_MINUTES;
   // 0 = disable the check entirely (so admins can knob-out a filter without
-  // hitting the API). The CASE WHEN guards below honor that semantic.
+  // hitting the API). We compute the disable booleans in JS and use them in
+  // a `${disabled}::boolean OR <check>` pattern. This avoids the previous
+  // `CASE WHEN ${num}::int = 0 THEN TRUE ELSE ... END` shape, which kept
+  // throwing 42P18 indeterminate_datatype on parameter $8 even with the cast
+  // in place. The OR pattern is the same one `${!requireSexMatch}::boolean
+  // OR ...` uses successfully elsewhere in this same query.
   const signinHours = config.filters.must_be_signed_in_within_hours;
   const passCapToday = config.filters.exclude_if_today_passed_count_gte;
   const dedupeMinutes = config.limits.same_driver_dedupe_minutes;
+  const signinDisabled = signinHours === 0;
+  const passCapDisabled = passCapToday === 0;
+  const dedupeDisabled = dedupeMinutes === 0;
 
   // Bounding box pre-filter — Postgres can't use indexes on Haversine, so we
   // crop to a rough lat/lng box first and let the in-loop distance compute
@@ -131,8 +139,7 @@ async function fetchCandidates(
       AND dp.current_lat BETWEEN ${minLat} AND ${maxLat}
       AND dp.current_lng BETWEEN ${minLng} AND ${maxLng}
       AND COALESCE(u.chill_score, 0) >= ${minChillScore}
-      AND CASE WHEN ${signinHours}::int = 0 THEN TRUE
-               ELSE u.last_active > NOW() - (${signinHours}::text || ' hours')::interval END
+      AND (${signinDisabled}::boolean OR u.last_active > NOW() - (${signinHours}::text || ' hours')::interval)
       -- Rider's preferred driver gender (when set as a hard filter)
       AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
       -- Driver's preferred rider gender (always honored: drivers who chose
@@ -144,20 +151,18 @@ async function fetchCandidates(
         WHEN up.rider_gender_pref = 'men_only' THEN ${riderGenderNormalized}::text = 'man'
         ELSE TRUE
       END
-      AND CASE WHEN ${passCapToday}::int = 0 THEN TRUE
-               ELSE COALESCE(passes.cnt, 0) < ${passCapToday} END
+      AND (${passCapDisabled}::boolean OR COALESCE(passes.cnt, 0) < ${passCapToday})
       AND NOT EXISTS (
         SELECT 1 FROM rides r
         WHERE r.driver_id = u.id AND r.status IN ('matched','otw','here','active')
       )
-      AND CASE WHEN ${dedupeMinutes}::int = 0 THEN TRUE
-               ELSE NOT EXISTS (
+      AND (${dedupeDisabled}::boolean OR NOT EXISTS (
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
           AND hp.user_id = ${blast.riderId}
           AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
-      ) END
+      ))
   `;
   } catch (e) {
     const orig = e instanceof Error ? e.message : String(e);
@@ -341,6 +346,9 @@ export async function fetchFallbackDrivers(
   const minChillScore = config.filters.min_chill_score;
   const signinHours = config.filters.must_be_signed_in_within_hours;
   const dedupeMinutes = config.limits.same_driver_dedupe_minutes;
+  // See fetchCandidates for why we use the OR-bool pattern instead of CASE WHEN.
+  const signinDisabled = signinHours === 0;
+  const dedupeDisabled = dedupeMinutes === 0;
 
   // Normalize rider gender
   const riderGenderNormalized =
@@ -384,8 +392,7 @@ export async function fetchFallbackDrivers(
     WHERE u.profile_type = 'driver'
       AND u.account_status = 'active'
       AND COALESCE(u.chill_score, 0) >= ${minChillScore}
-      AND CASE WHEN ${signinHours}::int = 0 THEN TRUE
-               ELSE u.last_active > NOW() - (${signinHours}::text || ' hours')::interval END
+      AND (${signinDisabled}::boolean OR u.last_active > NOW() - (${signinHours}::text || ' hours')::interval)
       -- Gender preference filter
       AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
       -- Driver's preferred rider gender
@@ -404,14 +411,13 @@ export async function fetchFallbackDrivers(
         WHERE r.driver_id = u.id AND r.status IN ('matched','otw','here','active')
       )
       -- Not recently notified
-      AND CASE WHEN ${dedupeMinutes}::int = 0 THEN TRUE
-               ELSE NOT EXISTS (
+      AND (${dedupeDisabled}::boolean OR NOT EXISTS (
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
           AND hp.user_id = ${blast.riderId}
           AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
-      ) END
+      ))
     ORDER BY
       -- Prioritize HMU First tier
       CASE WHEN COALESCE(u.tier, 'free') = 'hmu_first' THEN 0 ELSE 1 END,
