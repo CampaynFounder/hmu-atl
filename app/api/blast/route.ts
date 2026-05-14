@@ -39,7 +39,7 @@ export const runtime = 'nodejs';
 // Bump on every deploy so the response confirms which build is live.
 // If the response detail says BUILD_TAG !== '2026-05-13-instr-1', the worker
 // is serving stale code (cache, queued deploy, wrong branch).
-const BUILD_TAG = '2026-05-14-comment-templ-fix';
+const BUILD_TAG = '2026-05-14-fallback-permissive';
 
 // Wrap every awaited sql call with this so the error message tells us which
 // query threw. We've been chasing "$8" without knowing whether it's
