@@ -23,11 +23,20 @@ export async function POST(
   if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { id: blastId } = await params;
-  const body = (await req.json().catch(() => ({}))) as { additional_dollars?: number };
+  const body = (await req.json().catch(() => ({}))) as {
+    additional_dollars?: number;
+    // When true, also drops the rider's hard gender filter (driver_preference)
+    // to 'any' before re-matching. Used by the offer board's "Include all
+    // drivers" button when the original blast specified male/female only.
+    remove_gender_pref?: boolean;
+  };
   const additional = Number(body.additional_dollars ?? 5);
-  if (!Number.isFinite(additional) || additional < 1 || additional > 50) {
-    return NextResponse.json({ error: 'additional_dollars must be 1–50' }, { status: 400 });
+  // 0 is allowed: lets the client re-run matching without bumping the price
+  // (e.g. when only the gender preference was loosened).
+  if (!Number.isFinite(additional) || additional < 0 || additional > 50) {
+    return NextResponse.json({ error: 'additional_dollars must be 0–50' }, { status: 400 });
   }
+  const removeGenderPref = body.remove_gender_pref === true;
 
   const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
   if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -75,13 +84,20 @@ export async function POST(
   const genderRows = await sql`SELECT gender FROM users WHERE id = ${riderId} LIMIT 1`;
   const riderGender = (genderRows[0] as { gender: string | null } | undefined)?.gender ?? null;
 
+  // If the client asked to remove the gender filter, force 'any' for this
+  // re-match. We persist the change to hmu_posts at the same time as the
+  // price update so subsequent bumps + the offer-board GET reflect it.
+  const effectiveDriverPref: 'male' | 'female' | 'any' = removeGenderPref
+    ? 'any'
+    : ((post.driver_preference as 'male' | 'female' | 'any') ?? 'any');
+
   const { targets: scored } = await matchBlast(
     {
       riderId,
       pickupLat: Number(post.pickup_lat),
       pickupLng: Number(post.pickup_lng),
       marketId: market.market_id,
-      driverPreference: (post.driver_preference as 'male' | 'female' | 'any') ?? 'any',
+      driverPreference: effectiveDriverPref,
       riderGender,
       scheduledFor: post.scheduled_for ? new Date(post.scheduled_for as string) : null,
     },
@@ -89,10 +105,19 @@ export async function POST(
   );
 
   if (scored.length === 0) {
-    return NextResponse.json(
-      { error: 'NO_NEW_DRIVERS', message: 'Already notified everyone we can find. Try a different time.' },
-      { status: 503 },
-    );
+    // Persist the price + (possibly relaxed) preference even if matching
+    // didn't surface anyone new — the rider's manual fallback HMU options
+    // (rendered on the offer board from notified_at IS NULL targets) are
+    // still actionable and we don't want to block them by 503'ing here.
+    await sql`
+      UPDATE hmu_posts
+         SET price = ${newPrice},
+             bump_count = COALESCE(bump_count, 0) + 1,
+             driver_preference = ${effectiveDriverPref}
+       WHERE id = ${blastId}
+    `;
+    publishToChannel(`blast:${blastId}`, 'bumped', { blastId, newPrice, newCandidates: 0 }).catch(() => {});
+    return NextResponse.json({ bumped: true, newPrice, newCandidates: 0, driverPreference: effectiveDriverPref });
   }
 
   // Skip drivers already in the target list — bump only notifies fresh blood.
@@ -106,10 +131,11 @@ export async function POST(
     await sql`
       UPDATE hmu_posts
          SET price = ${newPrice},
-             bump_count = COALESCE(bump_count, 0) + 1
+             bump_count = COALESCE(bump_count, 0) + 1,
+             driver_preference = ${effectiveDriverPref}
        WHERE id = ${blastId}
     `;
-    return NextResponse.json({ bumped: true, newPrice, newCandidates: 0 });
+    return NextResponse.json({ bumped: true, newPrice, newCandidates: 0, driverPreference: effectiveDriverPref });
   }
 
   const targetIds: { id: string; driverId: string; matchScore: number; distanceMi: number }[] = [];
@@ -128,7 +154,8 @@ export async function POST(
   await sql`
     UPDATE hmu_posts
        SET price = ${newPrice},
-           bump_count = COALESCE(bump_count, 0) + 1
+           bump_count = COALESCE(bump_count, 0) + 1,
+           driver_preference = ${effectiveDriverPref}
      WHERE id = ${blastId}
   `;
 
