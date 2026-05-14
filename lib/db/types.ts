@@ -24,6 +24,9 @@ export interface User {
   chill_score: number;
   completed_rides: number;
   is_admin: boolean;
+  // Blast v3: rider/driver gender preference for matching ({ preferred: GenderOption[], strict: boolean }).
+  // Strongly typed in lib/blast/types.ts as `GenderPreference`.
+  gender_preference?: { preferred: string[]; strict: boolean } | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -124,6 +127,9 @@ export interface HmuPost {
   target_driver_id: string | null;
   booking_expires_at: Date | null;
   is_cash: boolean;
+  // Blast v3: links a re-sent blast to its originator + nlp date-parse confidence.
+  duplicated_from_id?: string | null;
+  nlp_parse_confidence?: number | null;
   created_at: Date;
 }
 
