@@ -165,6 +165,20 @@ There is no CI/CD auto-deploy. Pushing to `origin/main` does not ship code to pr
 
 ---
 
+## STAGING DEPLOYMENT
+
+Staging is auto-deployed from `main` so every merged PR is verifiable before a production cutover.
+
+- **Worker:** `hmu-atl-staging` (config: `wrangler.staging.jsonc`)
+- **Domain:** `staging.hmucashride.com` (route added once Clerk staging app + DNS are wired; until then the Worker serves on `hmu-atl-staging.<account>.workers.dev`)
+- **Trigger:** `.github/workflows/deploy-staging.yml` runs on `workflow_run` after CI succeeds on `main`, and supports `workflow_dispatch` for manual redeploys
+- **Manual deploy (rare):** `npm run deploy:staging` (builds OpenNext + `wrangler deploy --config wrangler.staging.jsonc`)
+- **Health check:** workflow polls `https://staging.hmucashride.com/api/health` 5x with 10s backoff before marking the deploy green
+- **Setup runbook:** `docs/STAGING-SETUP-RUNBOOK.md`
+- **Rule:** verify a feature on staging before requesting a production deploy. Production discipline (no `wrangler deploy` without merged PR) still applies — see DEPLOYMENT above.
+
+---
+
 ## CLOUDFLARE IMAGES (in-Worker pattern)
 
 Image Transformations are enabled on the `hmucashride.com` zone with the R2 pub origin (`pub-649c30e78a62433eb6ed9cb1209d112a.r2.dev`) on the Sources allowlist. Billed at $5/mo per 100k transforms; results cached at the edge.
