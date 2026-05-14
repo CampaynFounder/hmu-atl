@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useClerk, useUser } from '@clerk/nextjs';
@@ -44,9 +44,31 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
   // /admin-signup which are pre-auth pages and want the global chrome.
   if (pathname === '/admin' || pathname.startsWith('/admin/')) return null;
 
-  const profileType = user?.publicMetadata?.profileType as string | undefined;
+  const rawProfileType = user?.publicMetadata?.profileType as string | undefined;
   const tier = user?.publicMetadata?.tier as string | undefined;
   const isHmuFirst = tier === 'hmu_first';
+
+  // Path-based fallback for the missing profileType case. On the blast funnel
+  // (and other newly-signed-up rider flows on staging), Clerk publicMetadata
+  // can lag behind the Neon row — the metadata is written server-side by
+  // /api/blast/onboard, but the client's `user` object isn't refreshed until
+  // the next Clerk sync. Without this fallback, isSignedIn=true but
+  // profileType=undefined → no menu items render → user sees only Sign Out.
+  // We trust the URL: anything under /rider is a rider, /driver is a driver.
+  const profileType: string | undefined = rawProfileType
+    || (pathname.startsWith('/rider') ? 'rider'
+      : pathname.startsWith('/driver') ? 'driver'
+      : undefined);
+
+  // Self-heal: when we had to fall back to the path, ask Clerk to reload the
+  // user so the next render gets the real metadata. user.reload() is a no-op
+  // if the metadata hasn't changed server-side, so this is safe to call.
+  useEffect(() => {
+    if (isSignedIn && !rawProfileType && user) {
+      void user.reload();
+    }
+  }, [isSignedIn, rawProfileType, user]);
+
   const logoHref = getLogoHref(pathname, profileType);
   const close = () => setIsMenuOpen(false);
 
