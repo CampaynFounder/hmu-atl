@@ -31,6 +31,19 @@ function uuidLiteralOrThrow(label: string, value: string): string {
   return `'${value}'::uuid`;
 }
 
+// Build a Postgres INTERVAL literal from a non-negative integer minute count.
+// Used to embed dedupe / interval values as raw SQL inside correlated
+// subqueries where the Neon driver's parameter type resolver fails with
+// 42P18 regardless of cast. Floors + clamps to be defensive — the input
+// comes from platform_config and could theoretically be malformed.
+function intervalMinutesLiteral(label: string, value: number): string {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n) || n < 0 || n > 525600 /* 1 year */) {
+    throw new Error(`${label}: expected non-negative integer minutes (≤ 1y), got ${JSON.stringify(value)}`);
+  }
+  return `INTERVAL '${n} minutes'`;
+}
+
 export interface BlastInput {
   riderId: string;
   pickupLat: number;
@@ -78,12 +91,6 @@ async function fetchCandidates(
   const requireSexMatch = config.filters.must_match_sex_preference && blast.driverPreference !== 'any';
   const minChillScore = config.filters.min_chill_score;
   const maxStaleMinutes = STALE_LOCATION_MINUTES;
-  // Embed riderId as a literal via sql.unsafe to bypass the parameter type
-  // resolver entirely. Casts (::uuid, ::text on the param, ::text on the
-  // column) all failed with 42P18 inside the correlated NOT EXISTS subquery.
-  // The riderId comes from our own users table (validated as uuid below) so
-  // literal interpolation is safe.
-  const riderIdLiteral = sql.unsafe(uuidLiteralOrThrow('fetchCandidates riderId', blast.riderId));
   // 0 = disable the check entirely (so admins can knob-out a filter without
   // hitting the API). Both prior approaches (CASE WHEN ${num}::int = 0 and
   // ${disabled}::boolean OR ...) tripped Postgres' parameter type resolver
@@ -94,6 +101,13 @@ async function fetchCandidates(
   const signinHours = config.filters.must_be_signed_in_within_hours;
   const passCapToday = config.filters.exclude_if_today_passed_count_gte;
   const dedupeMinutes = config.limits.same_driver_dedupe_minutes;
+  // Embed riderId AND dedupe interval as literals via sql.unsafe to bypass
+  // the parameter type resolver entirely. Every parameter inside the
+  // correlated NOT EXISTS subquery throws 42P18 regardless of cast (proven
+  // exhaustively in PRs #82, #84, #86, #88, #89). Eliminating both gets the
+  // failing subquery down to zero parameters.
+  const riderIdLiteral = sql.unsafe(uuidLiteralOrThrow('fetchCandidates riderId', blast.riderId));
+  const dedupeIntervalLiteral = sql.unsafe(intervalMinutesLiteral('fetchCandidates dedupeMinutes', dedupeMinutes));
   // signinHours = 0 means "no recency requirement." 999999 hours ≈ 114 years,
   // so `last_active > NOW() - 999999 hours` matches every conceivable row.
   const effSigninHours = signinHours === 0 ? 999999 : signinHours;
@@ -187,7 +201,7 @@ async function fetchCandidates(
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
           AND hp.user_id = ${riderIdLiteral}
-          AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
+          AND bdt.notified_at > NOW() - ${dedupeIntervalLiteral}
       )
   `;
   } catch (e) {
@@ -374,8 +388,9 @@ export async function fetchFallbackDrivers(
   const dedupeMinutes = config.limits.same_driver_dedupe_minutes;
   // See fetchCandidates for the sentinel-value rationale.
   const effSigninHours = signinHours === 0 ? 999999 : signinHours;
-  // See fetchCandidates for why riderId is a literal, not a parameter.
+  // See fetchCandidates for why riderId + dedupe interval are literals.
   const riderIdLiteral = sql.unsafe(uuidLiteralOrThrow('fetchFallbackDrivers riderId', blast.riderId));
+  const dedupeIntervalLiteral = sql.unsafe(intervalMinutesLiteral('fetchFallbackDrivers dedupeMinutes', dedupeMinutes));
 
   // Normalize rider gender
   const riderGenderNormalized =
@@ -443,7 +458,7 @@ export async function fetchFallbackDrivers(
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
           AND hp.user_id = ${riderIdLiteral}
-          AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
+          AND bdt.notified_at > NOW() - ${dedupeIntervalLiteral}
       )
     ORDER BY
       -- Prioritize HMU First tier
