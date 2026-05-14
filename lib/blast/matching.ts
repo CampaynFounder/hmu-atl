@@ -169,7 +169,7 @@ async function fetchCandidates(
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
-          AND hp.user_id = ${blast.riderId}::uuid
+          AND hp.user_id::text = ${blast.riderId}::text
           AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
       )
   `;
@@ -423,7 +423,7 @@ export async function fetchFallbackDrivers(
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
-          AND hp.user_id = ${blast.riderId}::uuid
+          AND hp.user_id::text = ${blast.riderId}::text
           AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
       )
     ORDER BY
