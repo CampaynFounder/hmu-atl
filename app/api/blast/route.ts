@@ -36,6 +36,36 @@ import { publishToChannel } from '@/lib/ably/server';
 
 export const runtime = 'nodejs';
 
+// Bump on every deploy so the response confirms which build is live.
+// If the response detail says BUILD_TAG !== '2026-05-13-instr-1', the worker
+// is serving stale code (cache, queued deploy, wrong branch).
+const BUILD_TAG = '2026-05-13-instr-1';
+
+// Wrap every awaited sql call with this so the error message tells us which
+// query threw. We've been chasing "$8" without knowing whether it's
+// fetchCandidates, fetchFallbackDrivers, the INSERT, or something else.
+// Default T to any[] to match the original `await sql\`...\`` behavior;
+// callsites cast individual rows after .length / [0] checks.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function runQuery<T = any[]>(name: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    const orig = e instanceof Error ? e.message : String(e);
+    const enhanced: Error & { queryName?: string; pgCode?: unknown; pgPosition?: unknown; pgWhere?: unknown; pgInternalQuery?: unknown; original?: unknown } = new Error(`[query:${name}] ${orig}`);
+    enhanced.queryName = name;
+    if (e && typeof e === 'object') {
+      const obj = e as Record<string, unknown>;
+      enhanced.pgCode = obj.code;
+      enhanced.pgPosition = obj.position;
+      enhanced.pgWhere = obj.where;
+      enhanced.pgInternalQuery = obj.internalQuery;
+      enhanced.original = e;
+    }
+    throw enhanced;
+  }
+}
+
 interface BlastBody {
   pickup?: { lat?: number; lng?: number; address?: string };
   dropoff?: { lat?: number; lng?: number; address?: string };
@@ -98,12 +128,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userRows = await sql`
+    const userRows = await runQuery('lookup_user_by_clerk_id', () => sql`
       SELECT u.id, u.gender, rp.avatar_url, rp.stripe_customer_id, rp.display_name
       FROM users u
       LEFT JOIN rider_profiles rp ON rp.user_id = u.id
       WHERE u.clerk_id = ${clerkId} LIMIT 1
-    `;
+    `);
     if (!userRows.length) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
@@ -208,9 +238,9 @@ export async function POST(req: NextRequest) {
 
     // ── 5. Market resolution + per-market enable ──
     const market = await resolveMarketForUser(riderId);
-    const marketEnabledRows = await sql`
+    const marketEnabledRows = await runQuery('lookup_market_blast_enabled', () => sql`
       SELECT blast_enabled FROM markets WHERE id = ${market.market_id} LIMIT 1
-    `;
+    `);
     if (!marketEnabledRows.length || !(marketEnabledRows[0] as { blast_enabled: boolean }).blast_enabled) {
       return NextResponse.json(
         { error: 'Blast booking not available in your market yet' },
@@ -256,7 +286,7 @@ export async function POST(req: NextRequest) {
 
     // Use a UUID for the blast id up front so any client retry hits the same
     // INSERT. (No deposit PI here — that moves to /api/blast/[id]/select.)
-    const blastIdRows = await sql`SELECT gen_random_uuid() AS id`;
+    const blastIdRows = await runQuery('gen_blast_id', () => sql`SELECT gen_random_uuid() AS id`);
     const blastId = (blastIdRows[0] as { id: string }).id;
 
     // ── 7. Persist blast + targets ──
@@ -269,9 +299,9 @@ export async function POST(req: NextRequest) {
     // Generate a shortcode for the SMS deep link. Collisions retry up to 3x.
     let shortcode = generateShortcode();
     for (let i = 0; i < 3; i += 1) {
-      const exists = await sql`
+      const exists = await runQuery('shortcode_collision_check', () => sql`
         SELECT 1 FROM hmu_posts WHERE areas[1] = ${`shortcode:${shortcode}`} LIMIT 1
-      `;
+      `);
       if (!exists.length) break;
       shortcode = generateShortcode();
     }
@@ -281,7 +311,7 @@ export async function POST(req: NextRequest) {
     // deposit_payment_intent_id + deposit_amount are NULL here. They get
     // populated at /api/blast/[id]/select when the rider picks a driver and
     // the deposit hold actually fires.
-    await sql`
+    await runQuery('insert_hmu_posts', () => sql`
       INSERT INTO hmu_posts (
         id, user_id, post_type, status, areas, price, time_window,
         pickup_lat, pickup_lng, pickup_address,
@@ -303,13 +333,13 @@ export async function POST(req: NextRequest) {
         ${tripType}, ${scheduledFor}, ${storageRequested}, ${driverPreference},
         ${market.market_id}, ${expiresAt}
       )
-    `;
+    `);
 
     // Insert per-target audit rows. UNIQUE(blast_id, driver_id) guards
     // accidental dupes if matching ever returns the same driver twice.
     const targetIds: { id: string; driverId: string; matchScore: number; distanceMi: number }[] = [];
     for (const t of scoredTargets) {
-      const inserted = await sql`
+      const inserted = await runQuery('insert_blast_driver_target', () => sql`
         INSERT INTO blast_driver_targets (
           blast_id, driver_id, match_score, score_breakdown,
           notification_channels
@@ -322,7 +352,7 @@ export async function POST(req: NextRequest) {
           SET match_score = EXCLUDED.match_score,
               score_breakdown = EXCLUDED.score_breakdown
         RETURNING id
-      `;
+      `);
       const row = inserted[0] as { id: string };
       targetIds.push({ id: row.id, driverId: t.driverId, matchScore: t.matchScore, distanceMi: t.distanceMi });
     }
@@ -330,7 +360,7 @@ export async function POST(req: NextRequest) {
     // Insert fallback drivers with notified_at = NULL (not auto-notified)
     // Rider manually triggers HMU for these via separate API endpoint
     for (const f of fallbackDrivers) {
-      await sql`
+      await runQuery('insert_blast_driver_target_fallback', () => sql`
         INSERT INTO blast_driver_targets (
           blast_id, driver_id, match_score, score_breakdown,
           notification_channels, notified_at
@@ -341,7 +371,7 @@ export async function POST(req: NextRequest) {
           NULL
         )
         ON CONFLICT (blast_id, driver_id) DO NOTHING
-      `;
+      `);
     }
 
     // ── 8. Fanout (fire-and-forget; do not await) ──
@@ -382,11 +412,27 @@ export async function POST(req: NextRequest) {
       targetedCount: targetIds.length,
       finalRadiusMi,
       expansionsUsed,
+      buildTag: BUILD_TAG,
     });
   } catch (e) {
     console.error('[blast] POST failed:', e);
+    // Surface every diagnostic we have. buildTag confirms the deployed version;
+    // queryName tells us WHICH sql call threw; pgCode/pgPosition/pgWhere/
+    // pgInternalQuery come from the Postgres error object when present.
+    // This is verbose on purpose — once $8 is solved we can dial it back.
+    const err = e as Record<string, unknown>;
     return NextResponse.json(
-      { error: 'Internal error', detail: e instanceof Error ? e.message : String(e) },
+      {
+        error: 'Internal error',
+        detail: e instanceof Error ? e.message : String(e),
+        buildTag: BUILD_TAG,
+        queryName: err.queryName ?? null,
+        pgCode: err.pgCode ?? null,
+        pgPosition: err.pgPosition ?? null,
+        pgWhere: err.pgWhere ?? null,
+        pgInternalQuery: err.pgInternalQuery ?? null,
+        stack: e instanceof Error ? e.stack?.split('\n').slice(0, 8).join('\n') : null,
+      },
       { status: 500 },
     );
   }
