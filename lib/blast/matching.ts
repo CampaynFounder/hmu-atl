@@ -380,17 +380,12 @@ export async function matchBlast(
 export async function fetchFallbackDrivers(
   blast: BlastInput,
   config: BlastMatchingConfig,
-  ridePrice: number,
+  // ridePrice is reserved for the future min_ride_amount filter (see commented
+  // block in the SQL below). Underscore-prefixed so an "unused" lint doesn't
+  // bite, but kept in the signature so callers don't have to change.
+  _ridePrice: number,
 ): Promise<ScoredTarget[]> {
   const requireSexMatch = config.filters.must_match_sex_preference && blast.driverPreference !== 'any';
-  const minChillScore = config.filters.min_chill_score;
-  const signinHours = config.filters.must_be_signed_in_within_hours;
-  const dedupeMinutes = config.limits.same_driver_dedupe_minutes;
-  // See fetchCandidates for the sentinel-value rationale.
-  const effSigninHours = signinHours === 0 ? 999999 : signinHours;
-  // See fetchCandidates for why riderId + dedupe interval are literals.
-  const riderIdLiteral = sql.unsafe(uuidLiteralOrThrow('fetchFallbackDrivers riderId', blast.riderId));
-  const dedupeIntervalLiteral = sql.unsafe(intervalMinutesLiteral('fetchFallbackDrivers dedupeMinutes', dedupeMinutes));
 
   // Normalize rider gender
   const riderGenderNormalized =
@@ -431,38 +426,32 @@ export async function fetchFallbackDrivers(
       WHERE status = 'passed' AND created_at > NOW() - INTERVAL '24 hours'
       GROUP BY driver_id
     ) passes ON passes.driver_id = u.id
+    -- FALLBACK PATH — intentionally permissive. Triggered only when the main
+    -- matching path (fetchCandidates) exhausts both radius expansions with
+    -- < min_drivers_to_notify hits. Goal: surface ANY usable driver in the
+    -- system, not just ones who would have qualified for the main match
+    -- minus location. We deliberately drop chill_score floor and signin
+    -- recency here. The remaining filters are non-negotiable safety/honoring:
+    -- account active, gender prefs honored both directions, not currently
+    -- mid-ride. Dedup is also dropped — fallback is a manual HMU action,
+    -- so re-surfacing a recently-notified driver is fine.
     WHERE u.profile_type = 'driver'
       AND u.account_status = 'active'
-      AND COALESCE(u.chill_score, 0) >= ${minChillScore}::int
-      AND u.last_active > NOW() - (${effSigninHours}::text || ' hours')::interval
-      -- Gender preference filter
+      -- Honor rider's hard gender preference (filter is no-op when admin's
+      -- must_match_sex_preference knob is off).
       AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
-      -- Driver's preferred rider gender
+      -- Always honor driver's preferred rider gender — drivers who said
+      -- women_only / men_only never see riders of the other gender.
       AND CASE
         WHEN up.rider_gender_pref IS NULL OR up.rider_gender_pref IN ('no_preference','prefer_women','prefer_men') THEN TRUE
         WHEN up.rider_gender_pref = 'women_only' THEN ${riderGenderNormalized}::text = 'woman'
         WHEN up.rider_gender_pref = 'men_only' THEN ${riderGenderNormalized}::text = 'man'
         ELSE TRUE
       END
-      -- Price filter: driver's min_ride_amount <= rider's offered price (or driver has no minimum)
-      -- TODO: re-enable when staging DB has min_ride_amount column migrated. Do
-      -- NOT use $\{...\} inside SQL comments — JS template literals still evaluate
-      -- the substitution and push it to the param list, but Postgres strips the
-      -- placeholder during parsing, causing 08P01 protocol_violation (bind/parse
-      -- count mismatch). Reference original: AND (dp.min_ride_amount IS NULL OR
-      -- dp.min_ride_amount <= ridePrice)
-      -- Not in active ride
+      -- Don't surface drivers currently mid-ride.
       AND NOT EXISTS (
         SELECT 1 FROM rides r
         WHERE r.driver_id = u.id AND r.status IN ('matched','otw','here','active')
-      )
-      -- Not recently notified (dedupeMinutes=0 naturally disables — see fetchCandidates header)
-      AND NOT EXISTS (
-        SELECT 1 FROM blast_driver_targets bdt
-        JOIN hmu_posts hp ON hp.id = bdt.blast_id
-        WHERE bdt.driver_id = u.id
-          AND hp.user_id = ${riderIdLiteral}
-          AND bdt.notified_at > NOW() - ${dedupeIntervalLiteral}
       )
     ORDER BY
       -- Prioritize HMU First tier
