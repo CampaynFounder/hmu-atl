@@ -72,3 +72,20 @@ export async function PATCH(req: NextRequest) {
   await logAdminAction(admin.id, 'blast_config_update', 'platform_config', key, { newValue: value });
   return NextResponse.json({ row: updated[0] });
 }
+
+// POST — v3 no-code config writes (Stream E will implement).
+// Per contract §8: body = Partial<BlastConfig> & { marketSlug?, reason? }
+// Returns { configVersion, auditId }. Writes to the new `blast_config` table
+// (Gate 2.1 schema) — NOT to platform_config like the legacy PATCH above.
+// Both endpoints coexist during the v2→v3 migration window per non-regression
+// rule §11.4 (UI replacements feature-flagged or shadow-deployed).
+export async function POST(req: NextRequest) {
+  const admin = await requireAdmin();
+  if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'admin.blastconfig.edit')) return unauthorizedResponse();
+  void req;
+  return NextResponse.json(
+    { error: 'not_implemented_pending_stream_e' },
+    { status: 501 },
+  );
+}
