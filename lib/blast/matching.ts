@@ -145,7 +145,7 @@ async function fetchCandidates(
       AND dp.location_updated_at > NOW() - (${maxStaleMinutes}::text || ' minutes')::interval
       AND dp.current_lat BETWEEN ${minLat} AND ${maxLat}
       AND dp.current_lng BETWEEN ${minLng} AND ${maxLng}
-      AND COALESCE(u.chill_score, 0) >= ${minChillScore}
+      AND COALESCE(u.chill_score, 0) >= ${minChillScore}::int
       AND u.last_active > NOW() - (${effSigninHours}::text || ' hours')::interval
       -- Rider's preferred driver gender (when set as a hard filter). The OR-
       -- bool pattern is tolerated here because the parameter is in a position
@@ -160,7 +160,7 @@ async function fetchCandidates(
         WHEN up.rider_gender_pref = 'men_only' THEN ${riderGenderNormalized}::text = 'man'
         ELSE TRUE
       END
-      AND COALESCE(passes.cnt, 0) < ${effPassCapToday}
+      AND COALESCE(passes.cnt, 0) < ${effPassCapToday}::int
       AND NOT EXISTS (
         SELECT 1 FROM rides r
         WHERE r.driver_id = u.id AND r.status IN ('matched','otw','here','active')
@@ -169,7 +169,7 @@ async function fetchCandidates(
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
-          AND hp.user_id = ${blast.riderId}
+          AND hp.user_id = ${blast.riderId}::uuid
           AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
       )
   `;
@@ -399,7 +399,7 @@ export async function fetchFallbackDrivers(
     ) passes ON passes.driver_id = u.id
     WHERE u.profile_type = 'driver'
       AND u.account_status = 'active'
-      AND COALESCE(u.chill_score, 0) >= ${minChillScore}
+      AND COALESCE(u.chill_score, 0) >= ${minChillScore}::int
       AND u.last_active > NOW() - (${effSigninHours}::text || ' hours')::interval
       -- Gender preference filter
       AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
@@ -423,7 +423,7 @@ export async function fetchFallbackDrivers(
         SELECT 1 FROM blast_driver_targets bdt
         JOIN hmu_posts hp ON hp.id = bdt.blast_id
         WHERE bdt.driver_id = u.id
-          AND hp.user_id = ${blast.riderId}
+          AND hp.user_id = ${blast.riderId}::uuid
           AND bdt.notified_at > NOW() - (${dedupeMinutes}::text || ' minutes')::interval
       )
     ORDER BY
