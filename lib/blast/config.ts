@@ -1,6 +1,11 @@
 // Typed reader for platform_config.blast_matching_v1 + the blast.* knobs.
 // Defaults mirror the SQL seed in 2026-05-12-blast-booking.sql so missing
 // config rows fail safe instead of producing weird behavior.
+//
+// Per-market overrides live under `blast_matching_v1:market:{slug}` rows and
+// are deep-merged over the global row when getMatchingConfig(marketSlug) is
+// called. Pricing fields are the primary use case today; other subsections
+// (weights/filters/limits) deep-merge too if a market row sets them.
 
 import { getPlatformConfig } from '@/lib/platform-config/get';
 
@@ -41,9 +46,16 @@ export type BlastMatchingConfig = {
     percent_of_fare: number;
     max_deposit_cents: number;
   };
+  // Pricing knobs used by /api/blast/estimate.
+  // default_price_dollars is the UI's initial price suggestion (shown before
+  // distance is known). The formula floor is minimum_fare_dollars.
   default_price_dollars: number;
   price_per_mile_dollars: number;
   max_price_dollars: number;
+  base_fare_dollars: number;
+  per_minute_cents: number;
+  assumed_mph: number;
+  minimum_fare_dollars: number;
 } & Record<string, unknown>;
 
 export const MATCHING_DEFAULTS: BlastMatchingConfig = {
@@ -86,10 +98,57 @@ export const MATCHING_DEFAULTS: BlastMatchingConfig = {
   default_price_dollars: 25,
   price_per_mile_dollars: 2.0,
   max_price_dollars: 200,
+  base_fare_dollars: 3.0,
+  per_minute_cents: 10,
+  assumed_mph: 60,
+  minimum_fare_dollars: 5.0,
 };
 
-export async function getMatchingConfig(): Promise<BlastMatchingConfig> {
-  return getPlatformConfig<BlastMatchingConfig>('blast_matching_v1', MATCHING_DEFAULTS);
+// Deep-merge for the two-level nested config shape. Market overrides may set
+// `pricing` subsection or any individual top-level field; we want a market
+// that overrides only `per_minute_cents` to still inherit base, mile rate, etc.
+function deepMergeConfig(
+  base: BlastMatchingConfig,
+  override: Partial<BlastMatchingConfig>,
+): BlastMatchingConfig {
+  const result = { ...base } as BlastMatchingConfig & Record<string, unknown>;
+  for (const [key, value] of Object.entries(override)) {
+    const baseVal = (base as Record<string, unknown>)[key];
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      baseVal &&
+      typeof baseVal === 'object' &&
+      !Array.isArray(baseVal)
+    ) {
+      result[key] = {
+        ...(baseVal as Record<string, unknown>),
+        ...(value as Record<string, unknown>),
+      };
+    } else if (value !== undefined) {
+      result[key] = value as unknown;
+    }
+  }
+  return result;
+}
+
+export async function getMatchingConfig(
+  marketSlug?: string | null,
+): Promise<BlastMatchingConfig> {
+  const global = await getPlatformConfig<BlastMatchingConfig>(
+    'blast_matching_v1',
+    MATCHING_DEFAULTS,
+  );
+  if (!marketSlug) return global;
+  const marketKey = `blast_matching_v1:market:${marketSlug}`;
+  // Missing market rows return defaults shape, so we cast the marketRow back
+  // to a Partial — only its diff vs MATCHING_DEFAULTS is meaningful.
+  const marketRow = await getPlatformConfig<BlastMatchingConfig>(
+    marketKey,
+    {} as BlastMatchingConfig,
+  );
+  return deepMergeConfig(global, marketRow);
 }
 
 // blast.* simple value knobs

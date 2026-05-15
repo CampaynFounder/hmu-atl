@@ -45,8 +45,29 @@ interface MatchingConfig {
   default_price_dollars: number;
   price_per_mile_dollars: number;
   max_price_dollars: number;
+  base_fare_dollars: number;
+  per_minute_cents: number;
+  assumed_mph: number;
+  minimum_fare_dollars: number;
   label?: string;
 }
+
+interface PricingFields {
+  base_fare_dollars: number;
+  price_per_mile_dollars: number;
+  per_minute_cents: number;
+  assumed_mph: number;
+  minimum_fare_dollars: number;
+  max_price_dollars: number;
+}
+
+// Markets surfaced in the per-market pricing override editor. Source of truth
+// is the `markets` table; this list is hand-curated since we only operate two
+// markets and a dropdown is fine. Add a new entry when a market launches.
+const PRICING_MARKETS: { slug: string; label: string }[] = [
+  { slug: 'atl', label: 'Atlanta' },
+  { slug: 'nola', label: 'New Orleans' },
+];
 
 interface ConfigRow {
   config_key: string;
@@ -167,6 +188,7 @@ export default function BlastConfigClient() {
 
   const matchingRow = rows.find((r) => r.config_key === 'blast_matching_v1');
   const simpleRows = rows.filter((r) => r.config_key.startsWith('blast.'));
+  const marketRows = rows.filter((r) => r.config_key.startsWith('blast_matching_v1:market:'));
 
   return (
     <div className="space-y-6">
@@ -206,6 +228,14 @@ export default function BlastConfigClient() {
               initial={matchingRow.config_value as unknown as MatchingConfig}
               updatedAt={matchingRow.updated_at}
               onSave={(v) => saveRow('blast_matching_v1', v)}
+            />
+          )}
+
+          {matchingRow && (
+            <PerMarketPricingEditor
+              globalPricing={pricingFromDraft(matchingRow.config_value as unknown as MatchingConfig)}
+              marketRows={marketRows}
+              onSave={(slug, value) => saveRow(`blast_matching_v1:market:${slug}`, value)}
             />
           )}
 
@@ -547,29 +577,59 @@ function MatchingEditor({
 
           {/* Pricing */}
           <Subsection
-            title="Pricing defaults"
-            subtitle="What the form suggests + caps. Riders can override within these bounds via the +/- stepper."
+            title="Pricing formula (global default)"
+            subtitle="fare = base + per-mile × distance + per-minute × estimated minutes, clamped between minimum and max. Set any rate to 0 to disable that term. Per-market overrides are managed below."
           >
             <div className="space-y-4">
               <NumberRow
-                label="Default price"
+                label="Base fare"
                 unit="$"
-                help="Form's default price chip. Also the floor for the suggested price — short trips never quote less than this."
-                value={draft.default_price_dollars}
-                step={1}
-                min={1}
-                max={500}
-                onChange={(v) => setDraft((d) => ({ ...d, default_price_dollars: v }))}
+                help="Fixed amount added to every fare before per-mile and per-minute charges. Higher = stronger floor on short trips; lower = pure variable pricing."
+                value={draft.base_fare_dollars}
+                step={0.25}
+                min={0}
+                max={50}
+                onChange={(v) => setDraft((d) => ({ ...d, base_fare_dollars: v }))}
               />
               <NumberRow
                 label="Per-mile rate"
                 unit="$"
-                help="Suggested price = miles × this rate, then floored at default and capped at max. Tune to market expectations."
+                help="Dollars added per mile of trip distance. Set to 0 to disable distance-based pricing entirely."
                 value={draft.price_per_mile_dollars}
                 step={0.25}
-                min={0.25}
+                min={0}
                 max={20}
                 onChange={(v) => setDraft((d) => ({ ...d, price_per_mile_dollars: v }))}
+              />
+              <NumberRow
+                label="Per-minute rate"
+                unit="¢"
+                help="Cents per estimated minute of trip duration. Estimated minutes = distance ÷ assumed mph × 60. Set to 0 to disable time-based pricing."
+                value={draft.per_minute_cents}
+                step={1}
+                min={0}
+                max={500}
+                onChange={(v) => setDraft((d) => ({ ...d, per_minute_cents: v }))}
+              />
+              <NumberRow
+                label="Assumed avg speed"
+                unit="mph"
+                help="Average speed used to convert distance to minutes for the per-minute term. Lower (e.g. 25 mph for downtown) inflates time charges; higher (e.g. 60 mph highway) deflates them."
+                value={draft.assumed_mph}
+                step={1}
+                min={5}
+                max={100}
+                onChange={(v) => setDraft((d) => ({ ...d, assumed_mph: v }))}
+              />
+              <NumberRow
+                label="Minimum fare"
+                unit="$"
+                help="Hard floor — quoted fare never drops below this regardless of distance. The 'fare for a 0.2 mi trip' guardrail."
+                value={draft.minimum_fare_dollars}
+                step={0.5}
+                min={0}
+                max={50}
+                onChange={(v) => setDraft((d) => ({ ...d, minimum_fare_dollars: v }))}
               />
               <NumberRow
                 label="Max price allowed"
@@ -581,6 +641,18 @@ function MatchingEditor({
                 max={5000}
                 onChange={(v) => setDraft((d) => ({ ...d, max_price_dollars: v }))}
               />
+              <NumberRow
+                label="Default price (UI initial)"
+                unit="$"
+                help="What the form's price field shows before the rider picks a destination (distance unknown). Cosmetic only — the live estimate replaces it as soon as both addresses are set."
+                value={draft.default_price_dollars}
+                step={1}
+                min={1}
+                max={500}
+                onChange={(v) => setDraft((d) => ({ ...d, default_price_dollars: v }))}
+              />
+
+              <PricingPreview pricing={pricingFromDraft(draft)} />
             </div>
           </Subsection>
         </div>
@@ -869,6 +941,259 @@ function Switch({ checked, onChange }: { checked: boolean; onChange: (v: boolean
         }`}
       />
     </button>
+  );
+}
+
+// ── Pricing helpers + per-market override editor ───────────────────────────
+
+function pricingFromDraft(d: MatchingConfig | Record<string, unknown>): PricingFields {
+  // Tolerates a partial MatchingConfig — falls back to seed defaults so the
+  // editor never renders NaN if a market row is missing fields. Mirrors
+  // MATCHING_DEFAULTS in lib/blast/config.ts.
+  const cfg = d as Partial<MatchingConfig>;
+  return {
+    base_fare_dollars: Number(cfg.base_fare_dollars ?? 3.0),
+    price_per_mile_dollars: Number(cfg.price_per_mile_dollars ?? 2.0),
+    per_minute_cents: Number(cfg.per_minute_cents ?? 10),
+    assumed_mph: Number(cfg.assumed_mph ?? 60),
+    minimum_fare_dollars: Number(cfg.minimum_fare_dollars ?? 5.0),
+    max_price_dollars: Number(cfg.max_price_dollars ?? 200),
+  };
+}
+
+function pricingsEqual(a: PricingFields, b: PricingFields): boolean {
+  return (
+    a.base_fare_dollars === b.base_fare_dollars &&
+    a.price_per_mile_dollars === b.price_per_mile_dollars &&
+    a.per_minute_cents === b.per_minute_cents &&
+    a.assumed_mph === b.assumed_mph &&
+    a.minimum_fare_dollars === b.minimum_fare_dollars &&
+    a.max_price_dollars === b.max_price_dollars
+  );
+}
+
+// Pure JS mirror of lib/blast/pricing.computeBlastFare — keeps the admin
+// preview deterministic without importing server code into the client bundle.
+function previewFare(pricing: PricingFields, distanceMi: number): { dollars: number; minutes: number; floored: boolean; capped: boolean } {
+  const mph = pricing.assumed_mph > 0 ? pricing.assumed_mph : 60;
+  const minutes = (distanceMi / mph) * 60;
+  const raw =
+    pricing.base_fare_dollars +
+    pricing.price_per_mile_dollars * distanceMi +
+    (pricing.per_minute_cents / 100) * minutes;
+  let priced = raw;
+  let floored = false;
+  let capped = false;
+  if (priced < pricing.minimum_fare_dollars) {
+    priced = pricing.minimum_fare_dollars;
+    floored = true;
+  }
+  if (priced > pricing.max_price_dollars) {
+    priced = pricing.max_price_dollars;
+    capped = true;
+  }
+  return {
+    dollars: Math.round(priced),
+    minutes: Math.max(1, Math.round(minutes)),
+    floored,
+    capped,
+  };
+}
+
+function PricingPreview({ pricing }: { pricing: PricingFields }) {
+  const distances = [1, 5, 15];
+  return (
+    <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-3 mt-2">
+      <div className="text-[11px] uppercase tracking-wider text-neutral-500 mb-2">
+        Live preview
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {distances.map((mi) => {
+          const r = previewFare(pricing, mi);
+          return (
+            <div key={mi} className="bg-neutral-900 rounded-lg px-3 py-2 text-center">
+              <div className="text-[10px] text-neutral-500">{mi} mi · ~{r.minutes} min</div>
+              <div className="text-lg font-semibold text-white tabular-nums">
+                ${r.dollars}
+              </div>
+              {(r.floored || r.capped) && (
+                <div className={`text-[10px] mt-0.5 ${r.floored ? 'text-amber-400' : 'text-blue-400'}`}>
+                  {r.floored ? 'at minimum' : 'at max'}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PerMarketPricingEditor({
+  globalPricing,
+  marketRows,
+  onSave,
+}: {
+  globalPricing: PricingFields;
+  marketRows: ConfigRow[];
+  onSave: (slug: string, value: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [marketSlug, setMarketSlug] = useState<string>(PRICING_MARKETS[0].slug);
+  const [draft, setDraft] = useState<PricingFields>(globalPricing);
+  const [saving, setSaving] = useState(false);
+
+  // When market or marketRows change, reset draft to that market's saved
+  // override (if any) — otherwise fall back to the global pricing so the
+  // sliders show the values that would actually apply today.
+  const currentRow = marketRows.find(
+    (r) => r.config_key === `blast_matching_v1:market:${marketSlug}`,
+  );
+  const initial = useMemo<PricingFields>(() => {
+    return currentRow
+      ? pricingFromDraft(currentRow.config_value as Record<string, unknown>)
+      : globalPricing;
+  }, [currentRow, globalPricing]);
+
+  useEffect(() => {
+    setDraft(initial);
+  }, [initial]);
+
+  const dirty = !pricingsEqual(draft, initial);
+  const hasOverride = !!currentRow;
+
+  const handleSave = async () => {
+    setSaving(true);
+    // Persist the existing row's other keys (if any) merged with the new pricing.
+    const merged = {
+      ...((currentRow?.config_value as Record<string, unknown> | undefined) ?? {}),
+      base_fare_dollars: draft.base_fare_dollars,
+      price_per_mile_dollars: draft.price_per_mile_dollars,
+      per_minute_cents: draft.per_minute_cents,
+      assumed_mph: draft.assumed_mph,
+      minimum_fare_dollars: draft.minimum_fare_dollars,
+      max_price_dollars: draft.max_price_dollars,
+    };
+    await onSave(marketSlug, merged);
+    setSaving(false);
+  };
+
+  const resetToGlobal = () => setDraft(globalPricing);
+
+  return (
+    <section className="bg-neutral-900 border border-neutral-800 rounded-2xl">
+      <header className="flex items-baseline justify-between px-4 pt-4 pb-2 gap-3 flex-wrap">
+        <div>
+          <h2 className="text-sm font-semibold">Per-market pricing override</h2>
+          <p className="text-[11px] text-neutral-500 mt-1 max-w-2xl">
+            Markets inherit the global formula above. Saving here writes a market-scoped row
+            that deep-merges over the global default — only the fields you change are stored.
+          </p>
+        </div>
+        <select
+          value={marketSlug}
+          onChange={(e) => setMarketSlug(e.target.value)}
+          className="bg-neutral-950 border border-neutral-800 rounded-md px-3 py-1.5 text-sm text-white"
+        >
+          {PRICING_MARKETS.map((m) => (
+            <option key={m.slug} value={m.slug}>
+              {m.label} ({m.slug})
+            </option>
+          ))}
+        </select>
+      </header>
+
+      <div className="px-4 pb-4 space-y-4">
+        <div
+          className={`text-[11px] px-3 py-2 rounded-lg ${
+            hasOverride
+              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+              : 'bg-neutral-800/50 text-neutral-400 border border-neutral-800'
+          }`}
+        >
+          {hasOverride
+            ? `${marketSlug.toUpperCase()} has a pricing override. Riders in this market see these values instead of the global formula.`
+            : `${marketSlug.toUpperCase()} inherits the global pricing formula. Adjust sliders below and save to create an override.`}
+        </div>
+
+        <NumberRow
+          label="Base fare"
+          unit="$"
+          value={draft.base_fare_dollars}
+          step={0.25}
+          min={0}
+          max={50}
+          onChange={(v) => setDraft((d) => ({ ...d, base_fare_dollars: v }))}
+        />
+        <NumberRow
+          label="Per-mile rate"
+          unit="$"
+          value={draft.price_per_mile_dollars}
+          step={0.25}
+          min={0}
+          max={20}
+          onChange={(v) => setDraft((d) => ({ ...d, price_per_mile_dollars: v }))}
+        />
+        <NumberRow
+          label="Per-minute rate"
+          unit="¢"
+          value={draft.per_minute_cents}
+          step={1}
+          min={0}
+          max={500}
+          onChange={(v) => setDraft((d) => ({ ...d, per_minute_cents: v }))}
+        />
+        <NumberRow
+          label="Assumed avg speed"
+          unit="mph"
+          value={draft.assumed_mph}
+          step={1}
+          min={5}
+          max={100}
+          onChange={(v) => setDraft((d) => ({ ...d, assumed_mph: v }))}
+        />
+        <NumberRow
+          label="Minimum fare"
+          unit="$"
+          value={draft.minimum_fare_dollars}
+          step={0.5}
+          min={0}
+          max={50}
+          onChange={(v) => setDraft((d) => ({ ...d, minimum_fare_dollars: v }))}
+        />
+        <NumberRow
+          label="Max price allowed"
+          unit="$"
+          value={draft.max_price_dollars}
+          step={10}
+          min={10}
+          max={5000}
+          onChange={(v) => setDraft((d) => ({ ...d, max_price_dollars: v }))}
+        />
+
+        <PricingPreview pricing={draft} />
+      </div>
+
+      <footer className="px-4 pb-4 pt-2 border-t border-neutral-800 flex items-center justify-between gap-2">
+        <div className="text-[11px] text-neutral-500">
+          {dirty ? 'Unsaved changes' : hasOverride ? 'Override in sync' : 'No override saved'}
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={resetToGlobal}
+            className="text-xs text-neutral-500 hover:text-white px-3 py-1.5"
+          >
+            Reset to global
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!dirty || saving}
+            className="bg-white text-black hover:bg-neutral-200 disabled:bg-neutral-800 disabled:text-neutral-600 text-xs font-medium px-4 py-1.5 rounded-lg transition-colors"
+          >
+            {saving ? 'Saving…' : hasOverride ? 'Update override' : 'Create override'}
+          </button>
+        </div>
+      </footer>
+    </section>
   );
 }
 

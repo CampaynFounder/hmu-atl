@@ -14,9 +14,17 @@ export const runtime = 'nodejs';
 
 const ALLOWED_KEYS_PREFIX = 'blast.';
 const ALLOWED_EXACT_KEYS = new Set(['blast_matching_v1']);
+// Per-market override keys: `blast_matching_v1:market:{slug}` where slug is
+// lowercase alphanumeric/dash, 2-32 chars. Reader deep-merges over the global
+// row when getMatchingConfig(slug) is called.
+const MARKET_OVERRIDE_PATTERN = /^blast_matching_v1:market:[a-z0-9-]{2,32}$/;
 
 function isAllowedKey(key: string): boolean {
-  return key.startsWith(ALLOWED_KEYS_PREFIX) || ALLOWED_EXACT_KEYS.has(key);
+  return (
+    key.startsWith(ALLOWED_KEYS_PREFIX) ||
+    ALLOWED_EXACT_KEYS.has(key) ||
+    MARKET_OVERRIDE_PATTERN.test(key)
+  );
 }
 
 export async function GET() {
@@ -27,9 +35,15 @@ export async function GET() {
   const rows = await sql`
     SELECT config_key, config_value, updated_at
     FROM platform_config
-    WHERE config_key = 'blast_matching_v1' OR config_key LIKE 'blast.%'
+    WHERE config_key = 'blast_matching_v1'
+       OR config_key LIKE 'blast_matching_v1:market:%'
+       OR config_key LIKE 'blast.%'
     ORDER BY
-      CASE WHEN config_key = 'blast_matching_v1' THEN 0 ELSE 1 END,
+      CASE
+        WHEN config_key = 'blast_matching_v1' THEN 0
+        WHEN config_key LIKE 'blast_matching_v1:market:%' THEN 1
+        ELSE 2
+      END,
       config_key
   `;
   return NextResponse.json({ rows });
