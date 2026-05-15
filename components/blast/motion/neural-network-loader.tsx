@@ -3,24 +3,33 @@
 // Neural Network Loader — used during the matching/searching state on the
 // rider offer board. Per docs/BLAST-V3-AGENT-CONTRACT.md §6.3 + §6.6.
 //
-// 5x5 grid of 4px nodes (25 total), thin 1px edges to nearest neighbors
-// (~40 edges). At any moment 3-5 random nodes pulse opacity 0.3↔1.0 over
-// 1.2s easeInOut; edges adjacent to pulsing nodes fade 0.1→0.5; new
-// random seed every 600ms. Color: HMU green #00E676 nodes,
-// rgba(0,230,118,0.15) edges.
+// Render decision tree:
+//   1. prefers-reduced-motion → static 5×5 grid (legacy, accessibility-safe)
+//   2. recognized market (atl/nola via subdomain or prop) → MetroNeuralNet
+//      with the local metro silhouette + 3D perspective + shimmering edges
+//   3. otherwise → animated 5×5 grid (legacy)
 //
-// Reduced-motion fallback: static grid + text-only "Searching…" with
-// CSS animate-pulse (opacity-only).
+// The wrapper preserves the legacy NeuralNetworkLoader API so existing
+// call sites (offer board, dev gallery) get the metro shape automatically
+// when they're served on atl.* or nola.* subdomains. Pass `marketSlug`
+// explicitly to force a specific shape (dev gallery, server-side render).
 
 import { useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
+import { METROS, resolveMetroSlug } from './metros';
+import { MetroNeuralNet } from './metro-neural-net';
 
 export interface NeuralNetworkLoaderProps {
   /** Optional label rendered below the grid, e.g. "Notifying 7 drivers…". */
   label?: string;
-  /** Px size of one side of the SVG (default 160). Grid is always 5x5. */
+  /** Px size of one side of the SVG (default 160 for grid, 240 for metro). */
   size?: number;
   className?: string;
+  /**
+   * Force a specific market shape. Omit to let the wrapper detect from the
+   * subdomain (atl.hmucashride.com / nola.hmucashride.com).
+   */
+  marketSlug?: string | null;
 }
 
 const GRID_SIZE = 5;
@@ -82,8 +91,66 @@ function pickRandomKeys(allKeys: string[], count: number, seed: number): Set<str
   return out;
 }
 
-export function NeuralNetworkLoader({ label, size = 160, className }: NeuralNetworkLoaderProps) {
+export function NeuralNetworkLoader({
+  label,
+  size,
+  className,
+  marketSlug,
+}: NeuralNetworkLoaderProps) {
   const prefersReduced = useReducedMotion();
+
+  // Resolve the metro on the client only — server can't read window.location.
+  // First render is the legacy grid (matches SSR); once mounted we swap to
+  // MetroNeuralNet if the subdomain or explicit prop names a known market.
+  // The setState-in-effect is intentional — we *need* the post-hydration
+  // swap because computing the slug at render time would produce different
+  // markup on server vs client.
+  const [resolvedSlug, setResolvedSlug] = useState<string | null>(
+    marketSlug ?? null,
+  );
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setResolvedSlug(marketSlug ?? resolveMetroSlug());
+  }, [marketSlug]);
+
+  const metro = resolvedSlug ? METROS[resolvedSlug] : null;
+
+  // Recognized market + motion allowed → metro network.
+  if (metro && !prefersReduced) {
+    return (
+      <MetroNeuralNet
+        metro={metro}
+        label={label}
+        size={size ?? 240}
+        className={className}
+      />
+    );
+  }
+
+  // Fall through to legacy grid loader below.
+  return (
+    <LegacyGridLoader
+      label={label}
+      size={size ?? 160}
+      className={className}
+      prefersReduced={!!prefersReduced}
+    />
+  );
+}
+
+// ─── Legacy grid loader (reduced-motion + unknown-market fallback) ─────────
+
+function LegacyGridLoader({
+  label,
+  size,
+  className,
+  prefersReduced,
+}: {
+  label?: string;
+  size: number;
+  className?: string;
+  prefersReduced: boolean;
+}) {
   const { nodes, edges } = useMemo(() => buildGraph(size), [size]);
   const nodeKeys = useMemo(() => nodes.map((n) => n.key), [nodes]);
 
