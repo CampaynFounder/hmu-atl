@@ -29,7 +29,7 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
            p.expires_at, p.created_at, p.scheduled_for,
            p.pickup_address, p.dropoff_address, p.trip_type,
            p.deposit_amount, p.bump_count,
-           m.slug AS market_slug, m.name AS market_name,
+           m.slug AS market_slug, m.display_name AS market_name,
            m.reward_function, m.counter_offer_max_pct
     FROM hmu_posts p
     LEFT JOIN markets m ON m.id = p.market_id
