@@ -150,6 +150,10 @@ export async function POST(
     }, { idempotencyKey: `blast_deposit_${blastId}` });
     if (pi.status !== 'requires_capture') {
       depositErr = `unexpected_status:${pi.status}`;
+      // PI exists on Stripe but isn't in a usable state (e.g. requires_action
+      // for 3DS, requires_payment_method on decline). Cancel best-effort so
+      // the rider isn't left with an orphan authorization.
+      try { await stripe.paymentIntents.cancel(pi.id); } catch { /* best-effort */ }
     } else {
       depositPiId = pi.id;
     }
