@@ -64,6 +64,14 @@ export interface DriverProfile {
   accept_direct_bookings: boolean;
   min_rider_chill_score: number;
   require_og_status: boolean;
+  // Driver-curated home base — distinct from current_lat/lng (passive GPS).
+  // Surfaced on rider discovery cards so they see where a driver is based
+  // even when the driver is offline. Nullable; cleared via DELETE.
+  home_lat?: number | null;
+  home_lng?: number | null;
+  home_label?: string | null;
+  home_mapbox_id?: string | null;
+  home_updated_at?: Date | null;
   created_at: Date;
   updated_at: Date;
 }
