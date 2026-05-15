@@ -34,6 +34,7 @@ on:
           - safety-scheduler
           - cancel-timeouts
           - blast-target-expiry
+          - posts-expire
 
 jobs:
   conversation-agent:
@@ -118,6 +119,29 @@ jobs:
             --max-time 60 \
             -H "X-Cron-Secret: $CRON_SECRET" \
             https://atl.hmucashride.com/api/cron/cancel-timeouts)
+          echo "$response"
+
+  posts-expire:
+    name: Post-level expiry sweep (blasts + rider_requests + direct_bookings + driver_available)
+    # Catches hmu_posts rows that the lazy in-route UPDATE never ran on
+    # because no client opened the relevant page. Same UPDATE statement
+    # the lazy paths use — just runs unconditionally every 5 minutes.
+    if: github.event.schedule == '*/5 * * * *' || github.event.inputs.job == 'posts-expire'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Expire stale hmu_posts rows
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is not set"
+            exit 1
+          fi
+          response=$(curl --fail-with-body --silent --show-error \
+            --max-time 60 \
+            -H "X-Cron-Secret: $CRON_SECRET" \
+            https://atl.hmucashride.com/api/cron/posts-expire)
           echo "$response"
 
   blast-target-expiry:
