@@ -16,8 +16,9 @@
 
 import { sql } from '@/lib/db/client';
 import { sendSms } from '@/lib/sms/textbee';
-import { notifyUser } from '@/lib/ably/server';
+import { notifyUser, publishToChannel } from '@/lib/ably/server';
 import { getKnob } from './config';
+import { writeBlastEvent } from './lifecycle';
 
 export interface BlastTarget {
   targetId: string; // blast_driver_targets.id
@@ -178,8 +179,25 @@ export async function fanoutBlast(
       result.pushSkipped += 1;
       result.smsSkipped += 1;
       bump('blasts_disabled');
+      // Funnel observability — record why this candidate dropped out.
+      void writeBlastEvent({
+        blastId: ctx.blastId,
+        driverId: target.driverId,
+        eventType: 'notify_skipped',
+        source: 'notifier',
+        data: { reason: 'blasts_disabled' },
+      });
       continue;
     }
+
+    // Eligibility passed gates — ready to send.
+    void writeBlastEvent({
+      blastId: ctx.blastId,
+      driverId: target.driverId,
+      eventType: 'notify_eligible',
+      source: 'notifier',
+      data: { matchScore: target.matchScore },
+    });
 
     // ── Push leg ──
     if (pref.push_enabled) {
@@ -187,6 +205,12 @@ export async function fanoutBlast(
         await notifyUser(target.driverId, 'blast_invite', pushPayload(target, ctx));
         channels.push('push');
         result.pushSent += 1;
+        void writeBlastEvent({
+          blastId: ctx.blastId,
+          driverId: target.driverId,
+          eventType: 'push_sent',
+          source: 'notifier',
+        });
       } catch {
         result.pushSkipped += 1;
         bump('push_publish_failed');
@@ -215,6 +239,13 @@ export async function fanoutBlast(
     if (!canSms[1]) {
       result.smsSkipped += 1;
       bump(canSms[0]);
+      void writeBlastEvent({
+        blastId: ctx.blastId,
+        driverId: target.driverId,
+        eventType: 'notify_skipped',
+        source: 'notifier',
+        data: { reason: canSms[0], channel: 'sms' },
+      });
     } else {
       const send = await sendSms(pref.phone!, buildSmsBody(ctx), {
         userId: target.driverId,
@@ -224,9 +255,22 @@ export async function fanoutBlast(
       if (send.success) {
         channels.push('sms');
         result.smsSent += 1;
+        void writeBlastEvent({
+          blastId: ctx.blastId,
+          driverId: target.driverId,
+          eventType: 'sms_sent',
+          source: 'notifier',
+        });
       } else {
         result.smsSkipped += 1;
         bump('sms_send_failed');
+        void writeBlastEvent({
+          blastId: ctx.blastId,
+          driverId: target.driverId,
+          eventType: 'sms_failed',
+          source: 'notifier',
+          data: { error: send.error ?? 'unknown' },
+        });
       }
     }
 
@@ -241,4 +285,36 @@ export async function fanoutBlast(
   }
 
   return result;
+}
+
+// ============================================================================
+// Live offer-board broadcast helpers (Stream B)
+// ============================================================================
+
+/**
+ * Push a target-level event onto the rider's blast:{id} channel so the offer
+ * board reacts in real time. The board's Ably listener cases on `name`.
+ *
+ * Centralized here so all rider-facing realtime events (target_hmu, target_counter,
+ * target_pass, target_expired, target_selected, target_rejected, match_locked,
+ * blast_cancelled, blast_bumped) share a single call site.
+ */
+export async function broadcastBlastEvent(
+  blastId: string,
+  name:
+    | 'target_hmu'
+    | 'target_counter'
+    | 'target_pass'
+    | 'target_expired'
+    | 'target_selected'
+    | 'target_rejected'
+    | 'match_locked'
+    | 'blast_cancelled'
+    | 'blast_bumped'
+    | 'pull_up_started',
+  data: Record<string, unknown>,
+): Promise<void> {
+  await publishToChannel(`blast:${blastId}`, name, data).catch((e) => {
+    console.error(`[blast/notify] broadcast ${name} failed:`, e);
+  });
 }
