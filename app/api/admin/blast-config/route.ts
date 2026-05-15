@@ -79,13 +79,84 @@ export async function PATCH(req: NextRequest) {
 // (Gate 2.1 schema) — NOT to platform_config like the legacy PATCH above.
 // Both endpoints coexist during the v2→v3 migration window per non-regression
 // rule §11.4 (UI replacements feature-flagged or shadow-deployed).
+// Stream E — POST /api/admin/blast-config writes to the v3 `blast_config`
+// table (per-market overrides) AND appends an audit row. Distinct from the
+// PATCH above which still writes to the v2 `platform_config` table.
+//
+// Body shape: { market_slug?: string|null, weights, hard_filters, limits,
+//   reward_function, counter_offer_max_pct, feed_min_score_percentile,
+//   nlp_chip_only, reason? }
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
   if (!hasPermission(admin, 'admin.blastconfig.edit')) return unauthorizedResponse();
-  void req;
-  return NextResponse.json(
-    { error: 'not_implemented_pending_stream_e' },
-    { status: 501 },
-  );
+
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'invalid_json' }, { status: 400 });
+  }
+
+  const marketSlug = (body.market_slug as string | null | undefined) ?? null;
+  const weights = (body.weights as Record<string, number>) ?? {};
+  const hardFilters = (body.hard_filters as Record<string, unknown>) ?? {};
+  const limits = (body.limits as Record<string, number | boolean>) ?? {};
+  const rewardFunction = (body.reward_function as string) ?? 'revenue_per_blast';
+  const counterOfferMaxPct = Number(body.counter_offer_max_pct ?? 0.25);
+  const feedMinScorePercentile = Math.round(Number(body.feed_min_score_percentile ?? 0));
+  const nlpChipOnly = !!body.nlp_chip_only;
+  const reason = (body.reason as string | null) ?? null;
+
+  // UPSERT — increment config_version on every save.
+  const upserted = await sql`
+    INSERT INTO blast_config (
+      market_slug, weights, hard_filters, limits,
+      reward_function, counter_offer_max_pct, feed_min_score_percentile,
+      nlp_chip_only, config_version, updated_by, updated_at
+    ) VALUES (
+      ${marketSlug},
+      ${JSON.stringify(weights)}::jsonb,
+      ${JSON.stringify(hardFilters)}::jsonb,
+      ${JSON.stringify(limits)}::jsonb,
+      ${rewardFunction},
+      ${counterOfferMaxPct},
+      ${feedMinScorePercentile},
+      ${nlpChipOnly},
+      1,
+      ${admin.id},
+      NOW()
+    )
+    ON CONFLICT (market_slug) DO UPDATE SET
+      weights = EXCLUDED.weights,
+      hard_filters = EXCLUDED.hard_filters,
+      limits = EXCLUDED.limits,
+      reward_function = EXCLUDED.reward_function,
+      counter_offer_max_pct = EXCLUDED.counter_offer_max_pct,
+      feed_min_score_percentile = EXCLUDED.feed_min_score_percentile,
+      nlp_chip_only = EXCLUDED.nlp_chip_only,
+      config_version = blast_config.config_version + 1,
+      updated_by = EXCLUDED.updated_by,
+      updated_at = NOW()
+    RETURNING id, config_version
+  `;
+  const newRow = upserted[0] as { id: string; config_version: number };
+
+  // Append audit row.
+  const snapshot = {
+    weights, hard_filters: hardFilters, limits,
+    reward_function: rewardFunction, counter_offer_max_pct: counterOfferMaxPct,
+    feed_min_score_percentile: feedMinScorePercentile, nlp_chip_only: nlpChipOnly,
+    config_version: newRow.config_version,
+  };
+  const audit = await sql`
+    INSERT INTO blast_config_audit (market_slug, config_snapshot, changed_by, reason)
+    VALUES (${marketSlug}, ${JSON.stringify(snapshot)}::jsonb, ${admin.id}, ${reason})
+    RETURNING id
+  `;
+
+  return NextResponse.json({
+    configVersion: newRow.config_version,
+    auditId: (audit[0] as { id: string }).id,
+  });
 }
