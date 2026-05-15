@@ -125,6 +125,15 @@ export default function BlastFormClient() {
   const [draft, setDraft] = useState<FormDraft>(EMPTY_DRAFT);
   const [submitting, setSubmitting] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
+  // Pricing estimate fetched once both addresses are set. distanceMi feeds the
+  // price-step sublabel ("~3.2 mi · ~3 min"); suggestedPriceDollars replaces
+  // the static $25 default if the rider hasn't manually adjusted yet.
+  const [estimate, setEstimate] = useState<{
+    distanceMi: number;
+    estimatedMinutes: number;
+    suggestedPriceDollars: number;
+  } | null>(null);
+  const priceTouchedRef = useRef(false);
   const startedAt = useRef<number>(Date.now());
   const startedRef = useRef(false);
 
@@ -154,6 +163,54 @@ export default function BlastFormClient() {
     return () => window.removeEventListener('pagehide', handler);
     // intentionally re-bind on stepIdx so the latest step is reported
   }, [stepIdx, submitting]);
+
+  // Fetch the pricing estimate once both addresses are set. Re-fires whenever
+  // either coordinate changes so a rider who edits an address gets a fresh
+  // quote. If the rider hasn't moved the +/- stepper yet, we adopt the
+  // suggested fare as the new default — otherwise we leave their choice alone
+  // and only refresh the distance/duration sublabel.
+  useEffect(() => {
+    const p = draft.pickup;
+    const d = draft.dropoff;
+    if (!p || !d) {
+      setEstimate(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/blast/estimate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pickup: { lat: p.latitude, lng: p.longitude },
+            dropoff: { lat: d.latitude, lng: d.longitude },
+          }),
+        });
+        if (!res.ok || cancelled) return;
+        const body = (await res.json()) as {
+          distance_mi: number;
+          estimated_minutes: number;
+          suggested_price_dollars: number;
+        };
+        if (cancelled) return;
+        setEstimate({
+          distanceMi: body.distance_mi,
+          estimatedMinutes: body.estimated_minutes,
+          suggestedPriceDollars: body.suggested_price_dollars,
+        });
+        if (!priceTouchedRef.current) {
+          setDraft((cur) => ({ ...cur, priceDollars: body.suggested_price_dollars }));
+        }
+      } catch {
+        // Estimate is best-effort — failure leaves the default $25 in place
+        // and the sublabel hidden. Rider can still complete the form.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.pickup, draft.dropoff]);
 
   // Closing the sheet returns the user to /blast — there's no half-state we
   // want to keep them on.
@@ -323,7 +380,12 @@ export default function BlastFormClient() {
         return (
           <PriceStep
             value={draft.priceDollars}
-            onChange={(next) => setDraft((d) => ({ ...d, priceDollars: next }))}
+            distanceMi={estimate?.distanceMi ?? null}
+            estimatedMinutes={estimate?.estimatedMinutes ?? null}
+            onChange={(next) => {
+              priceTouchedRef.current = true;
+              setDraft((d) => ({ ...d, priceDollars: next }));
+            }}
           />
         );
       case 'driver_pref':
@@ -661,7 +723,21 @@ function DatetimeStep({
 
 // ─── Price step ─────────────────────────────────────────────────────────────
 
-function PriceStep({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+function PriceStep({
+  value,
+  distanceMi,
+  estimatedMinutes,
+  onChange,
+}: {
+  value: number;
+  distanceMi: number | null;
+  estimatedMinutes: number | null;
+  onChange: (v: number) => void;
+}) {
+  const milesLabel =
+    distanceMi != null && estimatedMinutes != null
+      ? `${distanceMi.toFixed(1)} mi · ~${estimatedMinutes} min`
+      : null;
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
       <PriceStepperButton direction="-" onClick={() => onChange(Math.max(1, value - 5))} />
@@ -676,6 +752,18 @@ function PriceStep({ value, onChange }: { value: number; onChange: (v: number) =
         >
           $<CountUpNumber value={value} />
         </div>
+        {milesLabel && (
+          <div
+            style={{
+              fontSize: 13,
+              color: 'rgba(255,255,255,0.6)',
+              marginTop: 6,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {milesLabel}
+          </div>
+        )}
         <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
           Drivers see this. They can counter.
         </div>
