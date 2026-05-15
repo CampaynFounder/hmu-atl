@@ -30,9 +30,10 @@ import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 import { calculateDistance } from '@/lib/geo/distance';
 import { getMatchingConfig, getKnob } from '@/lib/blast/config';
-import { matchBlast, fetchFallbackDrivers } from '@/lib/blast/matching';
 import { fanoutBlast, type BlastTarget, type BlastNotificationContext } from '@/lib/blast/notify';
 import { publishToChannel } from '@/lib/ably/server';
+import { getMatchingProvider, InternalMatcher } from '@/lib/blast/provider';
+import type { BlastConfig as V3BlastConfig, BlastCreateInput } from '@/lib/blast/types';
 
 export const runtime = 'nodejs';
 
@@ -249,40 +250,63 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 6. Matching ──
-    const { targets: scoredTargets, finalRadiusMi, expansionsUsed } = await matchBlast(
+    // Routed through MatchingProvider per contract §3 D-7 so the matcher impl
+    // can be swapped per-market via env var without touching this route. The
+    // InternalMatcher is the only impl wired today; behavior is byte-for-byte
+    // identical to the prior direct matchBlast() call (it delegates internally).
+    const provider = getMatchingProvider(market.slug);
+    // Build a v3-shaped config overlay from the v2 config we already loaded.
+    // Stream E will replace this with a read of the new blast_config table.
+    const v3Config: V3BlastConfig = {
+      weights: config.weights as unknown as Record<string, number>,
+      hardFilters: config.filters as unknown as Record<string, unknown>,
+      limits: config.limits as unknown as Record<string, number | boolean>,
+      rewardFunction: 'revenue_per_blast',
+      counterOfferMaxPct: 0.25,
+      feedMinScorePercentile: 0,
+      nlpChipOnly: false,
+      configVersion: 1,
+    };
+    const v3Input: BlastCreateInput = {
+      pickup: { lat: pickupLat, lng: pickupLng, address: body.pickup?.address ?? '' },
+      dropoff: { lat: dropoffLat, lng: dropoffLng, address: body.dropoff?.address ?? '' },
+      tripType,
+      scheduledFor: scheduledFor ? scheduledFor.toISOString() : null,
+      storage: storageRequested,
+      priceDollars,
+      riderGender: null,
+      driverPreference: { preferred: [], strict: false },
+      draftCreatedAt: Date.now(),
+      marketSlug: market.slug,
+    };
+    // The InternalMatcher is the in-process impl and exposes a richer
+    // matchInternal() that includes finalRadiusMi/expansionsUsed/fallback —
+    // values this route still needs for the response payload and persistence.
+    // External providers must build the same enrichment server-side.
+    // Only the InternalMatcher path is wired today (per provider.ts fallback
+    // semantics, an unknown env var still resolves to InternalMatcher).
+    // The cast lets us read the lossless extras (rawTargets/rawFallback)
+    // that preserve distanceMi + tier for downstream persistence + push
+    // payload byte-parity with the pre-Gate-2.2 direct matchBlast() call.
+    const matchResult = await (provider as InternalMatcher).matchInternal(
+      v3Input,
+      v3Config,
       {
         riderId,
-        pickupLat,
-        pickupLng,
         marketId: market.market_id,
         driverPreference,
         riderGender,
-        scheduledFor,
       },
-      config,
     );
+
+    const scoredTargets = matchResult.extras.rawTargets;
+    const fallbackDrivers = matchResult.extras.rawFallback;
+    const finalRadiusMi = matchResult.extras.finalRadiusMi;
+    const expansionsUsed = matchResult.extras.expansionsUsed;
 
     // Lax creation: 0 matches is fine. The offer board will say "still hunting"
     // and the bump button can widen the radius. Drivers coming online after
     // creation can also be added on bump. See lax-creation note at top.
-
-    // Fetch fallback drivers if we ran 2 iterations and still have < 3 matches
-    let fallbackDrivers: Awaited<ReturnType<typeof fetchFallbackDrivers>> = [];
-    if (expansionsUsed >= 2 && scoredTargets.length < 3) {
-      fallbackDrivers = await fetchFallbackDrivers(
-        {
-          riderId,
-          pickupLat,
-          pickupLng,
-          marketId: market.market_id,
-          driverPreference,
-          riderGender,
-          scheduledFor,
-        },
-        config,
-        priceDollars,
-      );
-    }
 
     // Use a UUID for the blast id up front so any client retry hits the same
     // INSERT. (No deposit PI here — that moves to /api/blast/[id]/select.)
