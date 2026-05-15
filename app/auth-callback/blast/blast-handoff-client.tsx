@@ -310,9 +310,9 @@ export default function BlastHandoffClient() {
             exit={reduceMotion ? undefined : { opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
           >
-            <h1 style={H1_STYLE}>Ready to blast?</h1>
+            <h1 style={H1_STYLE}>Ready to slide?</h1>
             <ReviewSummary draft={draft} />
-            <PrimaryButton onClick={sendBlast} label="Send Blast" />
+            <PrimaryButton onClick={sendBlast} label="Notify Drivers" />
           </motion.div>
         )}
 
