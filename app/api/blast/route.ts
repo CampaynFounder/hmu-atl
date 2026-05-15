@@ -34,6 +34,7 @@ import { fanoutBlast, type BlastTarget, type BlastNotificationContext } from '@/
 import { publishToChannel } from '@/lib/ably/server';
 import { getMatchingProvider, InternalMatcher } from '@/lib/blast/provider';
 import type { BlastConfig as V3BlastConfig, BlastCreateInput } from '@/lib/blast/types';
+import { writeBlastEvent, writeMatchLog } from '@/lib/blast/lifecycle';
 
 export const runtime = 'nodejs';
 
@@ -396,6 +397,38 @@ export async function POST(req: NextRequest) {
         )
         ON CONFLICT (blast_id, driver_id) DO NOTHING
       `);
+    }
+
+    // ── 7b. Funnel observability (fire-and-forget) ──
+    // Per contract §9: every (blast, driver) pair gets logged. blast_match_log
+    // is the long-term training source; blast_driver_events is the funnel
+    // timeline. Stream D's /admin/blast/[id] page reads both. Failures here
+    // never block the rider's response (NFR-19).
+    const allCandidates = matchResult.candidates;
+    const notifiedSet = new Set(matchResult.notifiedDriverIds);
+    void writeMatchLog({
+      blastId,
+      candidates: allCandidates,
+      notifiedDriverIds: matchResult.notifiedDriverIds,
+      configVersion: matchResult.configVersion,
+      providerName: matchResult.providerName,
+      experimentArmId: matchResult.experimentArmId,
+    });
+    for (const c of allCandidates) {
+      void writeBlastEvent({
+        blastId,
+        driverId: c.driverId,
+        eventType: 'candidate_considered',
+        source: 'matcher',
+        data: { score: c.score },
+      });
+      void writeBlastEvent({
+        blastId,
+        driverId: c.driverId,
+        eventType: 'scored',
+        source: 'matcher',
+        data: { score: c.score, scoreBreakdown: c.scoreBreakdown, notified: notifiedSet.has(c.driverId) },
+      });
     }
 
     // ── 8. Fanout (fire-and-forget; do not await) ──

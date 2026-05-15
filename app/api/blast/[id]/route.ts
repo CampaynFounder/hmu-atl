@@ -42,7 +42,10 @@ export async function GET(
   }
 
   // Targets that responded — surfaces driver info inline so the offer board
-  // can render without secondary lookups.
+  // can render without secondary lookups. counter_price (v3) takes precedence
+  // over hmu_counter_price (v2) when both are populated; backward-compat fall-
+  // through keeps the existing /rider/blast/[id] board rendering correctly
+  // until the v2 column is dropped (additive migration per contract §3 D-11).
   const targetRows = await sql`
     SELECT
       bdt.id AS target_id,
@@ -50,8 +53,10 @@ export async function GET(
       bdt.match_score,
       bdt.hmu_at,
       bdt.hmu_counter_price,
+      bdt.counter_price,
       bdt.passed_at,
       bdt.selected_at,
+      bdt.pull_up_at,
       bdt.rejected_at,
       bdt.notified_at,
       dp.handle,
@@ -65,6 +70,7 @@ export async function GET(
     JOIN users u ON u.id = bdt.driver_id
     WHERE bdt.blast_id = ${id}
     ORDER BY
+      bdt.pull_up_at DESC NULLS LAST,
       bdt.selected_at DESC NULLS LAST,
       bdt.hmu_at DESC NULLS LAST,
       bdt.match_score DESC
@@ -106,15 +112,24 @@ export async function GET(
     },
     targets: regularTargets.map((r: unknown) => {
       const row = r as Record<string, unknown>;
+      // v3: counter_price wins; v2 hmu_counter_price is the backward-compat
+      // fallback so this GET serves both the [id] and [shortcode] boards.
+      const counter = row.counter_price !== null && row.counter_price !== undefined
+        ? Number(row.counter_price)
+        : row.hmu_counter_price !== null && row.hmu_counter_price !== undefined
+          ? Number(row.hmu_counter_price)
+          : null;
       return {
         targetId: row.target_id,
         driverId: row.driver_id,
         matchScore: Number(row.match_score),
         hmuAt: row.hmu_at,
-        counterPrice: row.hmu_counter_price !== null ? Number(row.hmu_counter_price) : null,
+        counterPrice: counter,
         passedAt: row.passed_at,
         selectedAt: row.selected_at,
+        pullUpAt: row.pull_up_at ?? null,
         rejectedAt: row.rejected_at,
+        notifiedAt: row.notified_at,
         driver: {
           handle: row.handle,
           displayName: row.display_name,

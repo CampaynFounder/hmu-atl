@@ -40,4 +40,17 @@
     { "pattern": "nola.hmucashride.com", "custom_domain": true },
     { "pattern": "hmucashride.com/*", "zone_name": "hmucashride.com" }
   ]
+  // Cron triggers — TODO(stream-b/post-merge): the blast per-target 15-min
+  // expiry sweep needs a scheduled hit on /api/blast/cron/expire (handler
+  // already implemented). OpenNext-Cloudflare's generated worker.js only
+  // exports fetch, not scheduled, so dropping `"triggers": { "crons": [...] }`
+  // in here would deploy-fail the wrangler validate step. The path forward
+  // is one of:
+  //   (a) ship a tiny sidecar Worker (no Next.js) that owns the cron and
+  //       fetches the route via WORKER_SELF_REFERENCE, OR
+  //   (b) wait for a future @opennextjs/cloudflare release that exposes a
+  //       customWorkerEntrypoint hook for adding scheduled handlers, OR
+  //   (c) hit the route from an external uptime/cron service (e.g. Upstash QStash).
+  // For Stream B's scope, the route + lifecycle.expireStaleTargets() + Ably
+  // broadcast are all done; the trigger wiring is a separate small PR.
 }
