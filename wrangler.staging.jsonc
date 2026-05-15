@@ -36,6 +36,7 @@
   "observability": {
     "enabled": true
   }
+  // Cron triggers — see wrangler.worker.jsonc for the post-merge plan.
   // Routes deliberately omitted on first deploy — wrangler will publish to
   // hmu-atl-staging.<account-subdomain>.workers.dev. Once Clerk staging app
   // and DNS are configured for staging.hmucashride.com, add:

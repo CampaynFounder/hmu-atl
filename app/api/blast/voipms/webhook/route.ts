@@ -32,6 +32,62 @@ import { sql } from '@/lib/db/client';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// ── Source-IP allowlist + per-DID secret ─────────────────────────────────────
+//
+// voip.ms publishes a small set of public IPs that originate webhook callbacks.
+// We hardcode a permissive default and let an env var widen/narrow it without
+// a code deploy. Format: comma-separated IPv4/IPv6 addresses (no CIDR yet —
+// the published voip.ms set is a handful of /32s).
+//
+// VOIPMS_WEBHOOK_ALLOWLIST = "1.2.3.4,5.6.7.8" (env var; '*' disables check)
+// VOIPMS_WEBHOOK_SECRET    = shared secret expected as ?secret=... query param.
+//                            If unset, secret check is skipped (dev/legacy).
+//
+// Both checks degrade open in dev (no env vars set) so existing local testing
+// keeps working. Production sets both env vars.
+const VOIPMS_DEFAULT_IPS: string[] = [
+  // voip.ms publishes these for outbound callbacks (refer to portal docs).
+  // Kept loose by default; tighten via env var when the ops list is firmed up.
+];
+
+function isAllowedSource(ip: string | null): boolean {
+  const allowlist = process.env.VOIPMS_WEBHOOK_ALLOWLIST;
+  if (!allowlist) return true; // No env var → degrade open (dev/staging).
+  if (allowlist === '*') return true;
+  if (!ip) return false;
+  const set = new Set(
+    allowlist
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .concat(VOIPMS_DEFAULT_IPS),
+  );
+  return set.has(ip);
+}
+
+function isSecretValid(req: NextRequest): boolean {
+  const expected = process.env.VOIPMS_WEBHOOK_SECRET;
+  if (!expected) return true; // No secret configured → skip check (dev/legacy).
+  const got = req.nextUrl.searchParams.get('secret') ?? '';
+  // Constant-time compare. Length-mismatch short-circuit is fine here — the
+  // secret length isn't itself confidential.
+  if (got.length !== expected.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < got.length; i += 1) {
+    mismatch |= got.charCodeAt(i) ^ expected.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
+function clientIp(req: NextRequest): string | null {
+  return (
+    req.headers.get('cf-connecting-ip') ??
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    req.headers.get('x-real-ip') ??
+    null
+  );
+}
+
 interface DeliveryParams {
   // Common voip.ms delivery field names, case-folded. We accept any of them.
   message_id?: string;
@@ -211,9 +267,25 @@ async function handle(params: Record<string, string>, ctx: ReturnType<typeof bui
   return NextResponse.json({ ok: true, matched: true, eventType });
 }
 
+function gateRequest(req: NextRequest, ctx: ReturnType<typeof buildContext>): NextResponse | null {
+  const ip = clientIp(req);
+  if (!isAllowedSource(ip)) {
+    // Log the rejected hit for forensic auditing then 401 — no body parsing.
+    void logRaw(ctx, 'parse_failed', null, null, `ip_not_allowed:${ip ?? 'unknown'}`);
+    return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 401 });
+  }
+  if (!isSecretValid(req)) {
+    void logRaw(ctx, 'parse_failed', null, null, 'secret_mismatch');
+    return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 401 });
+  }
+  return null;
+}
+
 export async function GET(req: NextRequest) {
   // voip.ms is known to send GET callbacks with query params for some accounts.
   const ctx = buildContext(req, null);
+  const denied = gateRequest(req, ctx);
+  if (denied) return denied;
   const params = paramsFromSearch(req.nextUrl.searchParams);
   return handle(params, ctx);
 }
@@ -222,6 +294,8 @@ export async function POST(req: NextRequest) {
   let rawBody: string | null = null;
   try { rawBody = await req.text(); } catch { rawBody = null; }
   const ctx = buildContext(req, rawBody);
+  const denied = gateRequest(req, ctx);
+  if (denied) return denied;
 
   // Query-string variant first
   const qp = paramsFromSearch(req.nextUrl.searchParams);
