@@ -33,6 +33,7 @@ on:
           - driver-nudges
           - safety-scheduler
           - cancel-timeouts
+          - blast-target-expiry
 
 jobs:
   conversation-agent:
@@ -117,4 +118,28 @@ jobs:
             --max-time 60 \
             -H "X-Cron-Secret: $CRON_SECRET" \
             https://atl.hmucashride.com/api/cron/cancel-timeouts)
+          echo "$response"
+
+  blast-target-expiry:
+    name: Blast per-target 15-min expiry sweep
+    # Sweeps blast_driver_targets where the driver was notified > 15 min ago
+    # and never HMU'd / passed / was selected. Marks them expired in the
+    # event log and broadcasts target_expired so the rider's offer board dims
+    # the stale row. Endpoint = /api/blast/cron/expire (lib/blast/lifecycle).
+    if: github.event.schedule == '*/5 * * * *' || github.event.inputs.job == 'blast-target-expiry'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Expire stale blast targets
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is not set"
+            exit 1
+          fi
+          response=$(curl --fail-with-body --silent --show-error \
+            --max-time 60 \
+            -H "X-Cron-Secret: $CRON_SECRET" \
+            https://atl.hmucashride.com/api/blast/cron/expire)
           echo "$response"
