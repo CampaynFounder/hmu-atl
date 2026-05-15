@@ -1,532 +1,459 @@
 'use client';
 
+// /rider/blast/new — v3 bottom-sheet form for the Blast booking flow.
+// Stream A (per docs/BLAST-V3-AGENT-CONTRACT.md §3 D-3, D-4, D-12, D-13;
+// §4 Stream A row; §5.1 above-the-fold rule; §5.5 frontend feel bar; §6.6
+// micro-animation moments; §10 PostHog events).
+//
+// 8 internal steps (no URL param — internal state machine):
+//   1. Pickup       (AddressAutocomplete, REUSE)
+//   2. Dropoff      (AddressAutocomplete, REUSE)
+//   3. Trip type    (one_way / round_trip chip selector)
+//   4. Datetime     (NLP free-text → chip fallback per D-4)
+//   5. Storage      (Y/N toggle)
+//   6. Price        (+/- $5 stepper, default $25, CountUpNumber animation)
+//   7. Driver pref  (multi-select chips + strict toggle, per D-3)
+//   8. Rider gender (chips, optional — Woman / Man / Non-binary)
+//
+// On submit:
+//   - saveBlastDraft() to localStorage (30min TTL per D-12)
+//   - Unauth → /sign-up?type=rider&draft=blast&returnTo=/auth-callback/blast
+//   - Auth   → /auth-callback/blast?mode=signin (skips username + photo)
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser, useClerk } from '@clerk/nextjs';
-import { motion, AnimatePresence } from 'framer-motion';
-import CelebrationConfetti from '@/components/shared/celebration-confetti';
+import { useUser } from '@clerk/nextjs';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { posthog } from '@/components/analytics/posthog-provider';
+import { AddressAutocomplete } from '@/components/ride/address-autocomplete';
+import { BottomSheet } from '@/components/blast/motion';
+import { CountUpNumber } from '@/components/blast/motion';
+import { SuccessCheckmark } from '@/components/blast/motion';
+import {
+  Chip,
+  ChipGroup,
+  PriceStepperButton,
+  Toggle,
+  PrimaryCta,
+  ShakeWrap,
+} from '@/components/blast/form/form-controls';
+import { saveBlastDraft } from '@/lib/storage/blast-draft';
+import { getDateParser, NLP_CONFIDENCE_CUTOFF } from '@/lib/blast/date-parser';
+import type { ValidatedAddress } from '@/lib/db/types';
+import type { BlastDraft, GenderOption, GenderPreference } from '@/lib/blast/types';
 
-// ── Types ──────────────────────────────────────────────────────────────────
+// ─── Step types ─────────────────────────────────────────────────────────────
 
-interface MapboxSuggestion {
-  name: string;
-  full_address: string;
-  mapbox_id: string;
-}
+type StepId =
+  | 'pickup'
+  | 'dropoff'
+  | 'trip_type'
+  | 'datetime'
+  | 'storage'
+  | 'price'
+  | 'driver_pref'
+  | 'rider_gender';
 
-interface PointPick {
-  lat: number;
-  lng: number;
-  address: string;
-}
+const STEPS: ReadonlyArray<StepId> = [
+  'pickup',
+  'dropoff',
+  'trip_type',
+  'datetime',
+  'storage',
+  'price',
+  'driver_pref',
+  'rider_gender',
+];
 
-type Block = 'pickup' | 'dropoff' | 'trip_type' | 'when' | 'storage' | 'price' | 'driver_pref' | 'rider_gender' | 'phone';
-type Step = 'form' | 'name' | 'photo' | 'ready';
+const STEP_TITLES: Record<StepId, string> = {
+  pickup: 'Where you at?',
+  dropoff: 'Where to?',
+  trip_type: 'One way or round trip?',
+  datetime: 'When you trying to roll?',
+  storage: 'Bringing bags?',
+  price: 'What you paying?',
+  driver_pref: 'Who you want?',
+  rider_gender: 'About you',
+};
 
+const DEFAULT_PRICE_DOLLARS = 25;
+
+// Internal form draft mirrors BlastDraft (lib/blast/types.ts) but lets pickup/
+// dropoff start as null. saveBlastDraft validates the canonical shape.
 interface FormDraft {
-  pickup: PointPick | null;
-  dropoff: PointPick | null;
-  trip_type: 'one_way' | 'round_trip';
-  when: 'now' | 'in_1h' | 'tonight' | 'tomorrow_am' | 'custom';
-  customWhen: string | null;
+  pickup: ValidatedAddress | null;
+  dropoff: ValidatedAddress | null;
+  tripType: 'one_way' | 'round_trip';
+  scheduledFor: string | null;
+  scheduledFreeText: string;       // free text the user typed for the LLM parser
+  nlpConfidence: number | null;
   storage: boolean;
-  price: number | null;
-  driver_pref: 'male' | 'female' | 'any';
-  rider_gender: 'man' | 'woman' | 'other' | null;
-  phone: string;
+  priceDollars: number;
+  riderGender: GenderOption | null;
+  driverPreference: GenderPreference;
 }
-
-const DRAFT_KEY = 'blast_draft_v2';
-const DRAFT_TTL_MS = 60 * 60 * 1000;
 
 const EMPTY_DRAFT: FormDraft = {
   pickup: null,
   dropoff: null,
-  trip_type: 'one_way',
-  when: 'now',
-  customWhen: null,
+  tripType: 'one_way',
+  scheduledFor: null,
+  scheduledFreeText: '',
+  nlpConfidence: null,
   storage: false,
-  price: null,
-  driver_pref: 'any',
-  rider_gender: null,
-  phone: '',
+  priceDollars: DEFAULT_PRICE_DOLLARS,
+  riderGender: null,
+  driverPreference: { preferred: [], strict: false },
 };
 
-// Brand tokens — keep in sync with /app/layout.tsx + /components/shared/celebration-confetti
-const BRAND = {
-  green: '#00E676',
-  bg: '#080808',
-  card: '#141414',
-  cardElev: '#1c1c1c',
-  border: 'rgba(255,255,255,0.08)',
-  borderActive: 'rgba(0,230,118,0.5)',
-} as const;
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-const WOMEN_NAMES = ['Aaliyah', 'Destiny', 'Imani', 'Jasmine', 'Kennedy', 'Layla', 'Morgan', 'Naomi', 'Riley', 'Skylar'];
-const MEN_NAMES = ['Andre', 'Darius', 'Isaiah', 'Jamal', 'Jordan', 'Malik', 'Marcus', 'Terrence', 'Xavier', 'Zion'];
-
-function getRandomName(gender: 'man' | 'woman' | 'other' | null): string {
-  if (gender === 'woman') return WOMEN_NAMES[Math.floor(Math.random() * WOMEN_NAMES.length)];
-  if (gender === 'man') return MEN_NAMES[Math.floor(Math.random() * MEN_NAMES.length)];
-  return '';
-}
-
-function newSessionToken(): string {
-  return 'sess_' + crypto.randomUUID();
-}
-
-function loadDraft(): FormDraft {
-  if (typeof window === 'undefined') return EMPTY_DRAFT;
-  try {
-    const raw = window.localStorage.getItem(DRAFT_KEY);
-    if (!raw) return EMPTY_DRAFT;
-    const parsed = JSON.parse(raw) as { draft: FormDraft; savedAt: number };
-    if (Date.now() - parsed.savedAt > DRAFT_TTL_MS) return EMPTY_DRAFT;
-    return { ...EMPTY_DRAFT, ...parsed.draft };
-  } catch {
-    return EMPTY_DRAFT;
-  }
-}
-
-function saveDraft(d: FormDraft) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(DRAFT_KEY, JSON.stringify({ draft: d, savedAt: Date.now() }));
-  } catch { /* */ }
-}
-
-function clearDraft() {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.removeItem(DRAFT_KEY);
-  } catch { /* */ }
-}
-
-function whenToISO(d: FormDraft): string | null {
-  const now = new Date();
-  if (d.when === 'now') return null;
-  if (d.when === 'in_1h') return new Date(now.getTime() + 60 * 60_000).toISOString();
-  if (d.when === 'tonight') {
-    const t = new Date(now);
-    t.setHours(20, 0, 0, 0);
-    if (t.getTime() < now.getTime() + 60 * 60_000) t.setDate(t.getDate() + 1);
-    return t.toISOString();
-  }
-  if (d.when === 'tomorrow_am') {
-    const t = new Date(now);
-    t.setDate(t.getDate() + 1);
-    t.setHours(9, 0, 0, 0);
-    return t.toISOString();
-  }
-  if (d.when === 'custom' && d.customWhen) {
-    const t = new Date(d.customWhen);
-    return Number.isFinite(t.getTime()) ? t.toISOString() : null;
-  }
-  return null;
-}
-
-// Framer-motion shared transitions
-const stepVariants = {
-  enter: { opacity: 0, y: 24 },
-  center: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -24 },
+const stepSlideVariants = {
+  enter: { x: 60, opacity: 0 },
+  center: { x: 0, opacity: 1 },
+  exit: { x: -60, opacity: 0 },
 };
-const stepTransition = { duration: 0.32, ease: [0.25, 0.1, 0.25, 1] as [number, number, number, number] };
+const stepSlideTransition = { duration: 0.28, ease: [0.32, 0.72, 0, 1] as [number, number, number, number] };
 
-// ── Main component ─────────────────────────────────────────────────────────
+// ─── Component ──────────────────────────────────────────────────────────────
 
 export default function BlastFormClient() {
   const router = useRouter();
-  const { isSignedIn, isLoaded: userLoaded } = useUser();
-  const clerk = useClerk();
+  const { isSignedIn, isLoaded } = useUser();
+  const prefersReduced = useReducedMotion();
 
-  const [step, setStep] = useState<Step>('form');
+  const [open, setOpen] = useState(true);
+  const [stepIdx, setStepIdx] = useState(0);
   const [draft, setDraft] = useState<FormDraft>(EMPTY_DRAFT);
-  const [hydrated, setHydrated] = useState(false);
-  const [openBlock, setOpenBlock] = useState<Block | null>(null);
-  const [estimating, setEstimating] = useState(false);
-  const [estimate, setEstimate] = useState<{
-    distance_mi: number;
-    suggested_price_dollars: number;
-    deposit_cents: number;
-  } | null>(null);
-  // Tracks whether we've launched Clerk for THIS form session — used so the
-  // useEffect-watcher only advances after an explicit Get Cash Ride tap, not
-  // on initial render when an already-signed-in user is in form step.
-  const [authLaunched, setAuthLaunched] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [displayName, setDisplayName] = useState('');
-  const [suggestedName, setSuggestedName] = useState(''); // Placeholder hint
-  const [avatarUrl, setAvatarUrl] = useState('');
-  const [confetti, setConfetti] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const sessionToken = useRef<string>(newSessionToken());
+  const [shakeKey, setShakeKey] = useState(0);
+  const startedAt = useRef<number>(Date.now());
+  const startedRef = useRef(false);
 
-  // ── Hydration + autosave ──
+  const step: StepId = STEPS[stepIdx];
+
+  // Fire blast_form_started exactly once on mount.
   useEffect(() => {
-    setDraft(loadDraft());
-    setHydrated(true);
+    if (startedRef.current) return;
+    startedRef.current = true;
+    try {
+      posthog.capture('blast_form_started', { source: 'direct' });
+    } catch { /* ignore */ }
   }, []);
-  useEffect(() => {
-    if (hydrated) saveDraft(draft);
-  }, [draft, hydrated]);
 
-  // ── Live estimate ──
+  // Abandonment beacon if the user navigates away without completing.
   useEffect(() => {
-    if (!draft.pickup || !draft.dropoff) {
-      setEstimate(null);
-      return;
-    }
-    let cancelled = false;
-    setEstimating(true);
-    fetch('/api/blast/estimate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        pickup: { lat: draft.pickup.lat, lng: draft.pickup.lng },
-        dropoff: { lat: draft.dropoff.lat, lng: draft.dropoff.lng },
-      }),
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (cancelled || !data) return;
-        setEstimate(data);
-        setDraft((d) => (d.price == null ? { ...d, price: data.suggested_price_dollars } : d));
-      })
-      .finally(() => !cancelled && setEstimating(false));
-    return () => {
-      cancelled = true;
+    const handler = () => {
+      if (submitting) return; // they did finish
+      try {
+        posthog.capture('blast_form_abandoned', {
+          lastStep: STEPS[stepIdx],
+          durationMs: Date.now() - startedAt.current,
+        });
+      } catch { /* ignore */ }
     };
-  }, [draft.pickup, draft.dropoff]);
+    window.addEventListener('pagehide', handler);
+    return () => window.removeEventListener('pagehide', handler);
+    // intentionally re-bind on stepIdx so the latest step is reported
+  }, [stepIdx, submitting]);
 
-  const finalPrice = draft.price ?? estimate?.suggested_price_dollars ?? 25;
-  const tripValid = !!(draft.pickup && draft.dropoff && finalPrice > 0);
-  const genderValid = !!draft.rider_gender;
-  // Phone collection moved into Clerk's hosted form — staging Clerk does
-  // username/password, prod Clerk does phone OTP. The form just validates
-  // trip details + the rider's own gender (so the matching algorithm can
-  // honor drivers' rider_gender_pref filter).
-  const formValid = tripValid && genderValid;
+  // Closing the sheet returns the user to /blast — there's no half-state we
+  // want to keep them on.
+  const handleClose = useCallback(() => {
+    setOpen(false);
+    // Allow the close animation to play before navigating away.
+    window.setTimeout(() => router.push('/blast'), 320);
+  }, [router]);
 
-  // ── Continue post-auth: bootstrap our DB row and advance to next missing step ──
-  const continueAfterAuth = useCallback(async () => {
-    setAuthError(null);
-    try {
-      const r = await fetch('/api/blast/onboard', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: draft.phone,
-          gender: draft.rider_gender,
-        }),
-      });
-      const body = (await r.json().catch(() => ({}))) as { hasDisplayName?: boolean; hasPhoto?: boolean };
-      if (!body.hasDisplayName) {
-        // Set suggested name as placeholder hint (don't pre-fill value)
-        const suggestion = getRandomName(draft.rider_gender);
-        setSuggestedName(suggestion);
-        setStep('name');
-      }
-      else if (!body.hasPhoto) setStep('photo');
-      else setStep('ready');
-    } catch (e) {
-      setAuthError(e instanceof Error ? e.message : 'Could not continue');
+  // ─── Per-step validation ──────────────────────────────────────────────────
+
+  const isStepValid = useCallback((id: StepId, d: FormDraft): boolean => {
+    switch (id) {
+      case 'pickup': return !!d.pickup;
+      case 'dropoff': return !!d.dropoff;
+      case 'trip_type': return d.tripType === 'one_way' || d.tripType === 'round_trip';
+      case 'datetime': return true; // null means "ASAP" — always valid
+      case 'storage': return true;  // boolean is always valid
+      case 'price': return d.priceDollars >= 1 && d.priceDollars <= 500;
+      case 'driver_pref': return true; // empty preferred is "no preference" — valid
+      case 'rider_gender': return true; // optional
     }
-  }, [draft.phone, draft.rider_gender]);
+  }, []);
 
-  // ── Get Cash Ride: open Clerk hosted form (or skip if already signed in) ──
-  const handleGetCashRide = useCallback(() => {
-    if (isSignedIn) {
-      void continueAfterAuth();
+  const advance = useCallback(() => {
+    const valid = isStepValid(step, draft);
+    if (!valid) {
+      setShakeKey((k) => k + 1);
       return;
     }
-    setAuthLaunched(true);
-    setAuthError(null);
-    // Open Clerk's hosted sign-up modal.
-    //
-    // forceRedirectUrl: keep the user on /rider/blast/new after auth.
-    //   Without this, Clerk uses the dashboard's afterSignUpUrl (currently
-    //   /auth-callback → /onboarding) which dumps blast riders out of the
-    //   funnel.
-    //
-    // signInForceRedirectUrl: same override for the "Sign in instead" toggle
-    //   inside the modal.
-    //
-    // appearance: hand-rolled dark theme so the modal matches the app's
-    //   #080808 / #00E676 brand. The other staging routes use the same
-    //   token set; without this the modal renders Clerk's default light theme.
-    clerk.openSignUp({
-      forceRedirectUrl: '/rider/blast/new',
-      signInForceRedirectUrl: '/rider/blast/new',
-      unsafeMetadata: { source: 'blast_funnel', profileType: 'rider' },
-      appearance: {
-        variables: {
-          colorPrimary: '#00E676',
-          colorBackground: '#141414',
-          colorInputBackground: '#0a0a0a',
-          colorInputText: '#ffffff',
-          colorText: '#ffffff',
-          colorTextSecondary: '#a3a3a3',
-          colorDanger: '#f87171',
-          borderRadius: '0.75rem',
-          fontFamily: 'var(--font-body)',
-        },
-        elements: {
-          rootBox: 'mx-auto',
-          card: 'bg-[#141414] border border-white/10 shadow-2xl',
-          headerTitle: 'text-white',
-          headerSubtitle: 'text-neutral-400',
-          socialButtonsBlockButton: 'bg-white/5 border-white/10 text-white hover:bg-white/10',
-          formButtonPrimary:
-            'bg-[#00E676] text-black hover:bg-[#00d96a] normal-case font-bold',
-          formFieldInput: 'bg-[#0a0a0a] border-white/10 text-white',
-          formFieldLabel: 'text-neutral-300',
-          footerActionText: 'text-neutral-400',
-          footerActionLink: 'text-[#00E676] hover:text-[#00d96a]',
-          identityPreviewText: 'text-white',
-          identityPreviewEditButton: 'text-[#00E676]',
-          dividerLine: 'bg-white/10',
-          dividerText: 'text-neutral-500',
-        },
-      },
-    });
-  }, [isSignedIn, continueAfterAuth, clerk]);
-
-  // Watch for Clerk modal closing with a fresh sign-in. Once isSignedIn flips
-  // true after we've launched, run the same continuation as the signed-in path.
-  useEffect(() => {
-    if (!userLoaded || !authLaunched || !isSignedIn) return;
-    void continueAfterAuth();
-  }, [userLoaded, authLaunched, isSignedIn, continueAfterAuth]);
-
-  // ── Save name ──
-  const handleSaveName = useCallback(async () => {
-    if (!displayName.trim()) return;
-    await fetch('/api/blast/onboard', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_name: displayName.trim(), phone: draft.phone }),
-    }).catch(() => {});
-    setConfetti(true);
-    window.setTimeout(() => setConfetti(false), 3500);
-    setStep('photo');
-  }, [displayName, draft.phone]);
-
-  // ── Photo upload callback ──
-  const handlePhotoUploaded = useCallback(
-    async (url: string) => {
-      setAvatarUrl(url);
-      await fetch('/api/blast/onboard', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ avatar_url: url }),
-      }).catch(() => {});
-      setStep('ready');
-    },
-    [],
-  );
-
-  // ── Get My Ride: fire the blast ──
-  const handleGetMyRide = useCallback(async () => {
-    if (submitting) return;
-    setSubmitting(true);
-    setSubmitError(null);
     try {
-      const res = await fetch('/api/blast', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pickup: { lat: draft.pickup!.lat, lng: draft.pickup!.lng, address: draft.pickup!.address },
-          dropoff: { lat: draft.dropoff!.lat, lng: draft.dropoff!.lng, address: draft.dropoff!.address },
-          trip_type: draft.trip_type,
-          scheduled_for: whenToISO(draft),
-          storage: draft.storage,
-          driver_preference: draft.driver_pref,
-          price_dollars: finalPrice,
-        }),
+      posthog.capture('blast_form_step_completed', {
+        step,
+        stepIndex: stepIdx,
       });
-      const body = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        message?: string;
-        blastId?: string;
-      };
-      // Card collection moved to the match-acceptance step (/api/blast/[id]/select),
-      // so /api/blast itself never returns PAYMENT_METHOD_REQUIRED anymore.
-      if (!res.ok || !body.blastId) {
-        setSubmitError(body.message || body.error || 'Could not send blast — try again.');
-        setSubmitting(false);
-        return;
-      }
-      clearDraft();
-      router.push(`/rider/blast/${body.blastId}`);
-    } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : 'Network error');
-      setSubmitting(false);
+    } catch { /* ignore */ }
+    if (stepIdx < STEPS.length - 1) {
+      setStepIdx(stepIdx + 1);
+    } else {
+      void submit();
     }
-  }, [submitting, draft, finalPrice, router]);
+    // submit is defined below — eslint is fine with it bc of the closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, stepIdx, draft, isStepValid]);
 
-  return (
-    <div
-      className="min-h-screen text-white pt-14 pb-32"
-      style={{ background: BRAND.bg, fontFamily: 'var(--font-body)' }}
-    >
-      <CelebrationConfetti active={confetti} variant="cannon" />
+  const back = useCallback(() => {
+    if (stepIdx > 0) setStepIdx(stepIdx - 1);
+    else handleClose();
+  }, [stepIdx, handleClose]);
 
-      <Header step={step} onBack={() => step !== 'form' && setStep('form')} />
+  // ─── Submit: park draft, route to handoff ─────────────────────────────────
 
-      <main className="px-3 pt-4">
-        <AnimatePresence mode="wait">
-          {step === 'form' && (
-            <motion.div
-              key="form"
-              variants={stepVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={stepTransition}
-            >
-              <FormStep
-                draft={draft}
-                setDraft={setDraft}
-                openBlock={openBlock}
-                setOpenBlock={setOpenBlock}
-                estimate={estimate}
-                estimating={estimating}
-                finalPrice={finalPrice}
-                tripValid={tripValid}
-                formValid={formValid}
-                isSignedIn={!!isSignedIn}
-                onGetCashRide={handleGetCashRide}
-                authError={authError}
-                authLaunched={authLaunched}
-                sessionToken={sessionToken.current}
-              />
-            </motion.div>
-          )}
+  const submit = useCallback(async () => {
+    if (submitting) return;
+    if (!draft.pickup || !draft.dropoff) {
+      setStepIdx(draft.pickup ? 1 : 0);
+      setShakeKey((k) => k + 1);
+      return;
+    }
+    setSubmitting(true);
+    const blastDraft: BlastDraft = {
+      pickup: {
+        lat: draft.pickup.latitude,
+        lng: draft.pickup.longitude,
+        address: draft.pickup.address || draft.pickup.name,
+        mapboxId: draft.pickup.mapbox_id,
+      },
+      dropoff: {
+        lat: draft.dropoff.latitude,
+        lng: draft.dropoff.longitude,
+        address: draft.dropoff.address || draft.dropoff.name,
+        mapboxId: draft.dropoff.mapbox_id,
+      },
+      tripType: draft.tripType,
+      scheduledFor: draft.scheduledFor,
+      storage: draft.storage,
+      priceDollars: draft.priceDollars,
+      riderGender: draft.riderGender,
+      driverPreference: draft.driverPreference,
+      parsedFromText: draft.scheduledFreeText || undefined,
+      nlpConfidence: draft.nlpConfidence ?? undefined,
+      draftCreatedAt: Date.now(),
+    };
+    saveBlastDraft(blastDraft);
 
-          {step === 'name' && (
-            <motion.div
-              key="name"
-              variants={stepVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={stepTransition}
-            >
-              <NameStep
-                value={displayName}
-                onChange={setDisplayName}
-                onContinue={handleSaveName}
-                placeholder={suggestedName || "e.g. Marcus"}
-              />
-            </motion.div>
-          )}
+    // Auth-aware routing per spec:
+    // - Unauth: send through Clerk's sign-up; afterwards Clerk hands back
+    //   to /auth-callback/blast (?mode=signup default).
+    // - Auth: skip Clerk entirely; go directly to handoff in signin mode
+    //   so the username + photo steps are bypassed.
+    if (isLoaded && isSignedIn) {
+      router.push('/auth-callback/blast?mode=signin');
+    } else {
+      const returnTo = encodeURIComponent('/auth-callback/blast');
+      router.push(`/sign-up?type=rider&draft=blast&returnTo=${returnTo}`);
+    }
+  }, [draft, isLoaded, isSignedIn, router, submitting]);
 
-          {step === 'photo' && (
-            <motion.div
-              key="photo"
-              variants={stepVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={stepTransition}
-            >
-              <PhotoStep
-                displayName={displayName}
-                photoUrl={avatarUrl}
-                onUploaded={handlePhotoUploaded}
-              />
-            </motion.div>
-          )}
+  // ─── Render step body ─────────────────────────────────────────────────────
 
-          {step === 'ready' && (
-            <motion.div
-              key="ready"
-              variants={stepVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={stepTransition}
-            >
-              <ReadyStep
-                draft={draft}
-                finalPrice={finalPrice}
-                photoUrl={avatarUrl}
-                onSend={handleGetMyRide}
-                submitting={submitting}
-                error={submitError}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </main>
-    </div>
-  );
-}
-
-// ── Header ─────────────────────────────────────────────────────────────────
-
-function Header({ step, onBack }: { step: Step; onBack: () => void }) {
-  const STEP_TITLES: Record<Step, string> = {
-    form: 'Find a Ride',
-    name: 'What should we call you?',
-    photo: 'Snap a photo',
-    ready: 'Ready to roll',
+  const renderStepBody = () => {
+    switch (step) {
+      case 'pickup':
+        return (
+          <PickupOrDropoffStep
+            label="Pickup address"
+            value={draft.pickup}
+            onSelect={(addr) => {
+              setDraft((d) => ({ ...d, pickup: addr }));
+              // Auto-advance after a brief pause so the checkmark is seen.
+              window.setTimeout(() => setStepIdx((i) => Math.max(i, 1)), 350);
+            }}
+          />
+        );
+      case 'dropoff':
+        return (
+          <PickupOrDropoffStep
+            label="Dropoff address"
+            value={draft.dropoff}
+            onSelect={(addr) => {
+              setDraft((d) => ({ ...d, dropoff: addr }));
+              window.setTimeout(() => setStepIdx((i) => Math.max(i, 2)), 350);
+            }}
+          />
+        );
+      case 'trip_type':
+        return (
+          <ChipGroup
+            ariaLabel="Trip type"
+            options={[
+              { value: 'one_way', label: 'One way' },
+              { value: 'round_trip', label: 'Round trip' },
+            ]}
+            value={draft.tripType}
+            onChange={(v) => setDraft((d) => ({ ...d, tripType: v as 'one_way' | 'round_trip' }))}
+          />
+        );
+      case 'datetime':
+        return (
+          <DatetimeStep
+            freeText={draft.scheduledFreeText}
+            scheduledFor={draft.scheduledFor}
+            onChange={(scheduledFor, freeText, confidence) =>
+              setDraft((d) => ({ ...d, scheduledFor, scheduledFreeText: freeText, nlpConfidence: confidence ?? null }))
+            }
+          />
+        );
+      case 'storage':
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 4px' }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: '#fff', marginBottom: 4 }}>Bringing bags?</div>
+              <div style={{ fontSize: 12, color: '#888' }}>
+                Groceries, luggage, anything bigger than a backpack. Drivers see this.
+              </div>
+            </div>
+            <Toggle
+              ariaLabel="Bringing storage"
+              value={draft.storage}
+              onChange={(next) => setDraft((d) => ({ ...d, storage: next }))}
+            />
+          </div>
+        );
+      case 'price':
+        return (
+          <PriceStep
+            value={draft.priceDollars}
+            onChange={(next) => setDraft((d) => ({ ...d, priceDollars: next }))}
+          />
+        );
+      case 'driver_pref':
+        return (
+          <DriverPrefStep
+            value={draft.driverPreference}
+            onChange={(next) => setDraft((d) => ({ ...d, driverPreference: next }))}
+          />
+        );
+      case 'rider_gender':
+        return (
+          <ChipGroup
+            ariaLabel="Your gender"
+            options={[
+              { value: 'woman', label: 'Woman' },
+              { value: 'man', label: 'Man' },
+              { value: 'nonbinary', label: 'Non-binary' },
+            ]}
+            value={draft.riderGender ?? ('' as GenderOption)}
+            onChange={(v) => setDraft((d) => ({ ...d, riderGender: v as GenderOption }))}
+          />
+        );
+    }
   };
-  const showBack = step !== 'form' && step !== 'ready';
+
+  const ctaLabel = step === 'rider_gender' ? (submitting ? 'Sending…' : 'Send Blast') : 'Continue';
+  const stepValid = isStepValid(step, draft);
+
+  // Reduced motion: skip the slide variant.
+  const slideVariants = prefersReduced
+    ? { enter: { opacity: 0 }, center: { opacity: 1 }, exit: { opacity: 0 } }
+    : stepSlideVariants;
+
   return (
-    <header
-      // top-14 sits the sticky header below the global app header
-      // (components/layout/header.tsx is fixed top-0 h-14 z-50).
-      className="sticky top-14 z-30 backdrop-blur-xl border-b"
-      style={{
-        background: 'rgba(8,8,8,0.85)',
-        borderColor: BRAND.border,
-      }}
-    >
-      <div className="px-4 py-4 flex items-center gap-3">
-        {showBack && (
-          <button
-            onClick={onBack}
-            className="text-neutral-400 hover:text-white text-base -ml-1 px-1"
-            aria-label="Back"
-          >
-            ←
-          </button>
-        )}
-        <div className="flex-1">
-          <h1
-            className="text-2xl tracking-tight leading-none"
-            style={{ fontFamily: 'var(--font-display)' }}
+    <BottomSheet open={open} onClose={handleClose} ariaLabel="Send a blast">
+      <div
+        style={{
+          padding: '4px 20px 24px',
+          minHeight: '60vh',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {/* Step header */}
+        <header style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <button
+              type="button"
+              onClick={back}
+              aria-label={stepIdx === 0 ? 'Close' : 'Back'}
+              style={{
+                width: 32, height: 32, borderRadius: 8, border: 'none',
+                background: 'transparent', color: '#fff', fontSize: 18, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              {stepIdx === 0 ? '×' : '←'}
+            </button>
+            <ProgressDots count={STEPS.length} active={stepIdx} />
+          </div>
+          <h2
+            style={{
+              margin: 0,
+              fontSize: 24,
+              fontWeight: 800,
+              color: '#fff',
+              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+              letterSpacing: 0.2,
+            }}
           >
             {STEP_TITLES[step]}
-          </h1>
-          {step === 'form' && (
-            <p className="text-xs text-neutral-400 mt-1">
-              Tell Drivers What you need. They&rsquo;ll Say HMU.
-            </p>
-          )}
+          </h2>
+        </header>
+
+        {/* Step body — primary input above-the-fold per §5.1 */}
+        <div style={{ flex: 1, minHeight: 240 }}>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={step}
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={stepSlideTransition}
+            >
+              <ShakeWrap shake={shakeKey > 0 && false /* triggered below per render */}>
+                {renderStepBody()}
+              </ShakeWrap>
+              {/* Re-render shake on key bumps */}
+              {shakeKey > 0 && (
+                <motion.div
+                  key={`shake-${shakeKey}`}
+                  initial={{ x: 0 }}
+                  animate={{ x: prefersReduced ? 0 : [0, -4, 4, -4, 4, 0] }}
+                  transition={{ duration: 0.25 }}
+                  aria-hidden
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
         </div>
-        <StepBadge step={step} />
+
+        {/* Footer CTA */}
+        <div style={{ paddingTop: 16 }}>
+          <PrimaryCta
+            onClick={advance}
+            disabled={!stepValid}
+            loading={submitting}
+            pulse={step === 'rider_gender' && stepValid}
+          >
+            {ctaLabel}
+          </PrimaryCta>
+        </div>
       </div>
-    </header>
+    </BottomSheet>
   );
 }
 
-function StepBadge({ step }: { step: Step }) {
-  const order: Step[] = ['form', 'name', 'photo', 'ready'];
-  const idx = order.indexOf(step);
+// ─── ProgressDots ───────────────────────────────────────────────────────────
+
+function ProgressDots({ count, active }: { count: number; active: number }) {
   return (
-    <div className="flex gap-1">
-      {order.map((s, i) => (
-        <div
-          key={s}
-          className="w-6 h-1 rounded-full transition-colors duration-300"
+    <div style={{ display: 'flex', gap: 4, flex: 1 }} aria-label={`Step ${active + 1} of ${count}`}>
+      {Array.from({ length: count }).map((_, i) => (
+        <span
+          key={i}
           style={{
-            background: i <= idx ? BRAND.green : 'rgba(255,255,255,0.1)',
+            flex: 1,
+            height: 3,
+            borderRadius: 2,
+            background: i <= active ? '#00E676' : 'rgba(255,255,255,0.12)',
+            transition: 'background-color 200ms ease',
           }}
         />
       ))}
@@ -534,883 +461,262 @@ function StepBadge({ step }: { step: Step }) {
   );
 }
 
-// ── Form Step ──────────────────────────────────────────────────────────────
+// ─── Pickup / Dropoff ───────────────────────────────────────────────────────
 
-interface FormStepProps {
-  draft: FormDraft;
-  setDraft: React.Dispatch<React.SetStateAction<FormDraft>>;
-  openBlock: Block | null;
-  setOpenBlock: React.Dispatch<React.SetStateAction<Block | null>>;
-  estimate: { distance_mi: number; suggested_price_dollars: number; deposit_cents: number } | null;
-  estimating: boolean;
-  finalPrice: number;
-  tripValid: boolean;
-  formValid: boolean;
-  isSignedIn: boolean;
-  authLaunched: boolean;
-  authError: string | null;
-  sessionToken: string;
-  onGetCashRide: () => void;
-}
-
-function FormStep({
-  draft,
-  setDraft,
-  openBlock,
-  setOpenBlock,
-  estimate,
-  estimating,
-  finalPrice,
-  tripValid,
-  formValid,
-  isSignedIn,
-  authLaunched,
-  authError,
-  sessionToken,
-  onGetCashRide,
-}: FormStepProps) {
-  const tripTypeLabel = draft.trip_type === 'round_trip' ? 'Round trip' : 'One way';
-  const whenLabel = useMemo(() => {
-    if (draft.when === 'now') return 'Now';
-    if (draft.when === 'in_1h') return 'In 1 hour';
-    if (draft.when === 'tonight') return 'Tonight 8pm';
-    if (draft.when === 'tomorrow_am') return 'Tomorrow morning';
-    if (draft.when === 'custom' && draft.customWhen) return new Date(draft.customWhen).toLocaleString();
-    return 'Pick a time';
-  }, [draft.when, draft.customWhen]);
-
-  return (
-    <div className="space-y-2">
-      {/* Stagger the cards in on first render for that premium feel */}
-      <StaggerContainer>
-        <Card
-          label="Pickup"
-          value={draft.pickup?.address ?? 'Where are you?'}
-          filled={!!draft.pickup}
-          open={openBlock === 'pickup'}
-          onToggle={() => setOpenBlock(openBlock === 'pickup' ? null : 'pickup')}
-        >
-          <AddressInput
-            sessionToken={sessionToken}
-            onPick={(p) => {
-              setDraft((d) => ({ ...d, pickup: p }));
-              setOpenBlock('dropoff');
-            }}
-          />
-        </Card>
-
-        <Card
-          label="Dropoff"
-          value={draft.dropoff?.address ?? 'Where to?'}
-          filled={!!draft.dropoff}
-          open={openBlock === 'dropoff'}
-          onToggle={() => setOpenBlock(openBlock === 'dropoff' ? null : 'dropoff')}
-        >
-          <AddressInput
-            sessionToken={sessionToken}
-            onPick={(p) => {
-              setDraft((d) => ({ ...d, dropoff: p }));
-              setOpenBlock('when');
-            }}
-          />
-        </Card>
-
-        <Card
-          label="Trip type"
-          value={tripTypeLabel}
-          filled
-          open={openBlock === 'trip_type'}
-          onToggle={() => setOpenBlock(openBlock === 'trip_type' ? null : 'trip_type')}
-        >
-          <PillRow
-            options={[
-              ['one_way', 'One way'],
-              ['round_trip', 'Round trip'],
-            ]}
-            value={draft.trip_type}
-            onChange={(v) => {
-              setDraft((d) => ({ ...d, trip_type: v as 'one_way' | 'round_trip' }));
-              setOpenBlock(null);
-            }}
-          />
-        </Card>
-
-        <Card
-          label="When"
-          value={whenLabel}
-          filled
-          open={openBlock === 'when'}
-          onToggle={() => setOpenBlock(openBlock === 'when' ? null : 'when')}
-        >
-          <div className="grid grid-cols-2 gap-2">
-            {(
-              [
-                ['now', 'Now'],
-                ['in_1h', 'In 1 hour'],
-                ['tonight', 'Tonight 8pm'],
-                ['tomorrow_am', 'Tomorrow 9am'],
-              ] as const
-            ).map(([key, lab]) => (
-              <Pill
-                key={key}
-                active={draft.when === key}
-                onClick={() => {
-                  setDraft((d) => ({ ...d, when: key, customWhen: null }));
-                  setOpenBlock(null);
-                }}
-              >
-                {lab}
-              </Pill>
-            ))}
-            <input
-              type="datetime-local"
-              value={draft.customWhen ?? ''}
-              min={new Date(Date.now() + 5 * 60_000).toISOString().slice(0, 16)}
-              onChange={(e) => setDraft((d) => ({ ...d, when: 'custom', customWhen: e.target.value }))}
-              className="col-span-2 rounded-xl px-3 py-3 text-sm text-white bg-transparent border focus:outline-none focus:border-[#00E676] transition-colors"
-              style={{ borderColor: BRAND.border, fontFamily: 'var(--font-body)' }}
-            />
-          </div>
-        </Card>
-
-        <Card
-          label="Storage"
-          value={draft.storage ? 'Yes — bringing bags' : 'No'}
-          filled
-          open={openBlock === 'storage'}
-          onToggle={() => setOpenBlock(openBlock === 'storage' ? null : 'storage')}
-        >
-          <p className="text-xs text-neutral-400 mb-3">
-            Bringing groceries, luggage, or anything bigger than a backpack? Toggle on so drivers know.
-          </p>
-          <PillRow
-            options={[
-              ['yes', 'Yes'],
-              ['no', 'No'],
-            ]}
-            value={draft.storage ? 'yes' : 'no'}
-            onChange={(v) => {
-              setDraft((d) => ({ ...d, storage: v === 'yes' }));
-              setOpenBlock(null);
-            }}
-          />
-        </Card>
-
-        <Card
-          label="Your price"
-          value={`$${finalPrice}`}
-          filled
-          open={openBlock === 'price'}
-          onToggle={() => setOpenBlock(openBlock === 'price' ? null : 'price')}
-        >
-          <div className="flex items-center gap-3">
-            <Stepper onClick={() => setDraft((d) => ({ ...d, price: Math.max(1, (d.price ?? finalPrice) - 5) }))}>
-              −
-            </Stepper>
-            <div className="flex-1 text-center">
-              <div
-                className="text-4xl tabular-nums"
-                style={{ fontFamily: 'var(--font-display)' }}
-              >
-                ${finalPrice}
-              </div>
-              {estimate && (
-                <div className="text-[11px] text-neutral-500 mt-1">
-                  ~{estimate.distance_mi} mi · suggested ${estimate.suggested_price_dollars}
-                </div>
-              )}
-            </div>
-            <Stepper onClick={() => setDraft((d) => ({ ...d, price: (d.price ?? finalPrice) + 5 }))}>
-              +
-            </Stepper>
-          </div>
-        </Card>
-
-        <Card
-          label="Driver"
-          value={
-            draft.driver_pref === 'any'
-              ? 'Any'
-              : draft.driver_pref === 'female'
-                ? 'Women only'
-                : 'Men only'
-          }
-          filled
-          open={openBlock === 'driver_pref'}
-          onToggle={() => setOpenBlock(openBlock === 'driver_pref' ? null : 'driver_pref')}
-        >
-          <div className="grid grid-cols-3 gap-2">
-            {(
-              [
-                ['any', 'Any'],
-                ['female', 'Women'],
-                ['male', 'Men'],
-              ] as const
-            ).map(([key, lab]) => (
-              <Pill
-                key={key}
-                active={draft.driver_pref === key}
-                onClick={() => {
-                  setDraft((d) => ({ ...d, driver_pref: key }));
-                  setOpenBlock(null);
-                }}
-              >
-                {lab}
-              </Pill>
-            ))}
-          </div>
-        </Card>
-
-        {/* Rider's own gender — required so the matching algorithm can honor
-            drivers who set rider_gender_pref = women_only or men_only. Without
-            this we silently exclude the rider from those drivers' inboxes. */}
-        <Card
-          label="You"
-          value={
-            draft.rider_gender === 'woman'
-              ? 'Woman'
-              : draft.rider_gender === 'man'
-                ? 'Man'
-                : draft.rider_gender === 'other'
-                  ? 'Other'
-                  : 'Pick one'
-          }
-          filled={!!draft.rider_gender}
-          open={openBlock === 'rider_gender'}
-          onToggle={() => setOpenBlock(openBlock === 'rider_gender' ? null : 'rider_gender')}
-        >
-          <p className="text-xs text-neutral-400 mb-3">
-            Some drivers only pick up women or men — this makes sure they see your blast.
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {(
-              [
-                ['woman', 'Woman'],
-                ['man', 'Man'],
-                ['other', 'Other'],
-              ] as const
-            ).map(([key, lab]) => (
-              <Pill
-                key={key}
-                active={draft.rider_gender === key}
-                onClick={() => {
-                  setDraft((d) => ({ ...d, rider_gender: key }));
-                  setOpenBlock(null);
-                }}
-              >
-                {lab}
-              </Pill>
-            ))}
-          </div>
-        </Card>
-
-      </StaggerContainer>
-
-      {authError && (
-        <div className="mt-3 px-3 py-2 rounded-lg text-xs text-red-300 bg-red-500/10 border border-red-500/30">
-          {authError}
-        </div>
-      )}
-
-      <FixedFooter>
-        <CTAButton
-          disabled={!formValid || estimating || authLaunched}
-          onClick={onGetCashRide}
-        >
-          {authLaunched ? 'Waiting for sign-in…' : 'Get Cash Ride'}
-        </CTAButton>
-        <p className="text-center text-[11px] text-neutral-500 mt-2">
-          {isSignedIn ? 'Almost there — just a couple more details.' : 'Free to send. Sign in or sign up to continue.'}
-        </p>
-      </FixedFooter>
-    </div>
-  );
-}
-
-// ── Name Step ──────────────────────────────────────────────────────────────
-
-function NameStep({
+function PickupOrDropoffStep({
+  label,
   value,
-  onChange,
-  onContinue,
-  placeholder,
+  onSelect,
 }: {
-  value: string;
-  onChange: (v: string) => void;
-  onContinue: () => void;
-  placeholder?: string;
+  label: string;
+  value: ValidatedAddress | null;
+  onSelect: (addr: ValidatedAddress) => void;
 }) {
-  const valid = value.trim().length >= 2;
   return (
-    <div className="px-1 pt-28 pb-32">
-      <motion.p
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.1 }}
-        className="text-sm text-neutral-400 text-center mb-6"
-      >
-        Drivers will see this name when you book.
-      </motion.p>
-      <motion.input
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.4, delay: 0.2 }}
-        type="text"
-        autoFocus
+    <div>
+      <AddressAutocomplete
+        label={label}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && valid) onContinue();
-        }}
-        placeholder={placeholder || "e.g. Marcus"}
-        maxLength={60}
-        className="w-full text-center rounded-2xl px-4 py-5 text-2xl bg-[#141414] border focus:outline-none focus:border-[#00E676] transition-colors"
-        style={{ borderColor: BRAND.border, fontFamily: 'var(--font-display)' }}
+        onSelect={onSelect}
+        required
       />
-      <FixedFooter>
-        <CTAButton disabled={!valid} onClick={onContinue}>
-          Continue
-        </CTAButton>
-      </FixedFooter>
-    </div>
-  );
-}
-
-// ── Photo Step ─────────────────────────────────────────────────────────────
-
-function PhotoStep({
-  displayName,
-  photoUrl,
-  onUploaded,
-}: {
-  displayName: string;
-  photoUrl: string;
-  onUploaded: (url: string) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
-  const handleUpload = useCallback(async (file: File) => {
-    setError(null);
-    if (!file.type.startsWith('image/')) {
-      setError('That doesn\'t look like a photo. Try JPG or PNG.');
-      return;
-    }
-    setPreviewUrl(URL.createObjectURL(file));
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.set('video', file);
-      fd.set('profile_type', 'rider');
-      fd.set('media_type', 'photo');
-      fd.set('save_to_profile', 'false');
-      const res = await fetch('/api/upload/video', { method: 'POST', body: fd });
-      const data = (await res.json().catch(() => ({}))) as { success?: boolean; url?: string; error?: string };
-      // If we have a preview URL and the response is 200, assume success even if URL parsing failed
-      if (res.ok && (data.url || previewUrl)) {
-        const finalUrl = data.url || previewUrl!;
-        onUploaded(finalUrl);
-        return;
-      }
-      if (!res.ok || !data.url) {
-        setError(data.error || 'Upload failed. Try again.');
-        setUploading(false);
-        return;
-      }
-      onUploaded(data.url);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Network error');
-      setUploading(false);
-    }
-  }, [onUploaded, previewUrl]);
-
-  const showImage = photoUrl || previewUrl;
-
-  return (
-    <div className="px-1 pt-24 pb-32">
-      <motion.h2
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.4 }}
-        className="text-2xl text-white text-center mb-2"
-        style={{ fontFamily: 'var(--font-display)' }}
-      >
-        {displayName ? `Almost there, ${displayName}!` : 'Almost there!'}
-      </motion.h2>
-      <motion.p
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.1 }}
-        className="text-xs text-neutral-500 text-center mb-8"
-      >
-        Drivers want to know who they&rsquo;re picking up. Snap a quick photo &mdash; safety thing.
-      </motion.p>
-
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.5, delay: 0.2 }}
-        className="flex justify-center mb-6"
-      >
-        <motion.button
-          whileTap={{ scale: 0.95 }}
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={uploading}
-          className="relative w-44 h-44 rounded-full bg-[#141414] border-2 border-dashed flex items-center justify-center overflow-hidden hover:border-[#00E676] transition-colors disabled:opacity-50"
-          style={{ borderColor: showImage ? BRAND.green : 'rgba(255,255,255,0.2)' }}
-        >
-          {showImage ? (
-            <motion.img
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.4 }}
-              src={photoUrl || previewUrl || ''}
-              alt="Your photo"
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="text-center">
-              <motion.div
-                animate={{ scale: [1, 1.1, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
-                className="text-4xl mb-1"
-              >
-                📷
-              </motion.div>
-              <div className="text-[11px] text-neutral-400">Tap to take a photo</div>
-            </div>
-          )}
-          {uploading && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="absolute inset-0 bg-black/60 flex items-center justify-center"
-            >
-              <div
-                className="w-8 h-8 rounded-full border-2 border-transparent"
-                style={{ borderTopColor: BRAND.green, animation: 'spin 0.8s linear infinite' }}
-              />
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            </motion.div>
-          )}
-        </motion.button>
-      </motion.div>
-
-      {error && (
+      {value && (
         <motion.div
-          initial={{ opacity: 0, y: -10 }}
+          initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
-          className="space-y-2"
+          transition={{ duration: 0.3 }}
+          style={{
+            marginTop: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            color: '#00E676',
+            fontSize: 13,
+          }}
         >
-          <div className="text-center text-xs text-red-400">{error}</div>
-          <div className="text-center">
-            <button
-              onClick={() => {
-                setError(null);
-                inputRef.current?.click();
-              }}
-              className="text-sm text-[#00E676] underline hover:text-[#00d96a]"
-            >
-              Try again
-            </button>
-          </div>
+          <SuccessCheckmark size={20} autoHide={false} />
+          Got it. Tap Continue.
         </motion.div>
       )}
-
-      {/* No `capture` attribute — lets the browser show camera + library
-          picker on mobile. With `capture="user"` we'd force the front-facing
-          camera and lock out the photo library, which the founder flagged. */}
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) handleUpload(f);
-          e.target.value = '';
-        }}
-      />
-
-      <div className="text-center">
-        <button
-          onClick={() => inputRef.current?.click()}
-          disabled={uploading}
-          className="text-sm text-[#00E676] underline"
-        >
-          {uploading ? 'Uploading…' : showImage ? 'Choose different photo' : 'Take photo or choose from library'}
-        </button>
-      </div>
     </div>
   );
 }
 
-// ── Ready Step (final recap + Get My Ride) ────────────────────────────────
+// ─── Datetime step ──────────────────────────────────────────────────────────
 
-function ReadyStep({
-  draft,
-  finalPrice,
-  photoUrl,
-  onSend,
-  submitting,
-  error,
-}: {
-  draft: FormDraft;
-  finalPrice: number;
-  photoUrl: string;
-  onSend: () => void;
-  submitting: boolean;
-  error: string | null;
-}) {
-  return (
-    <div className="px-1 pt-6">
-      <div
-        className="rounded-2xl p-5 mb-4 border"
-        style={{ background: BRAND.card, borderColor: BRAND.border }}
-      >
-        <div className="flex items-center gap-3 mb-4">
-          {photoUrl && (
-            <img src={photoUrl} alt="" className="w-12 h-12 rounded-full object-cover" />
-          )}
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-neutral-500" style={{ fontFamily: 'var(--font-mono)' }}>
-              Your trip
-            </div>
-            <div className="text-2xl tabular-nums" style={{ fontFamily: 'var(--font-display)' }}>
-              ${finalPrice}
-            </div>
-          </div>
-        </div>
-        <div className="space-y-2 text-sm">
-          <RecapRow label="From" value={draft.pickup?.address ?? ''} />
-          <RecapRow label="To" value={draft.dropoff?.address ?? ''} />
-          <RecapRow label="When" value={draft.when === 'now' ? 'Now' : draft.customWhen || draft.when.replace('_', ' ')} />
-          {draft.storage && <RecapRow label="Storage" value="Yes" />}
-          {draft.driver_pref !== 'any' && (
-            <RecapRow label="Driver" value={draft.driver_pref === 'female' ? 'Women only' : 'Men only'} />
-          )}
-        </div>
-      </div>
-
-      {error && (
-        <div className="px-3 py-2 mb-3 rounded-lg text-xs text-red-300 bg-red-500/10 border border-red-500/30">
-          {error}
-        </div>
-      )}
-
-      <FixedFooter>
-        <CTAButton onClick={onSend} disabled={submitting}>
-          {submitting && (
-            <motion.span
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"
-            />
-          )}
-          {submitting ? 'Blasting…' : 'Get My Ride'}
-        </CTAButton>
-        <p className="text-center text-[11px] text-neutral-500 mt-2">
-          We&rsquo;ll text matching drivers right now.
-        </p>
-      </FixedFooter>
-    </div>
-  );
-}
-
-function RecapRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <span className="text-[11px] uppercase tracking-wider text-neutral-500" style={{ fontFamily: 'var(--font-mono)' }}>
-        {label}
-      </span>
-      <span className="text-white text-right truncate flex-1">{value}</span>
-    </div>
-  );
-}
-
-// ── Reusable controls ──────────────────────────────────────────────────────
-
-function StaggerContainer({ children }: { children: React.ReactNode }) {
-  return (
-    <motion.div
-      initial="hidden"
-      animate="visible"
-      variants={{
-        hidden: {},
-        visible: { transition: { staggerChildren: 0.05, delayChildren: 0.05 } },
-      }}
-      className="space-y-2"
-    >
-      {Array.isArray(children)
-        ? children.map((c, i) => (
-            <motion.div
-              key={i}
-              variants={{
-                hidden: { opacity: 0, y: 12 },
-                visible: { opacity: 1, y: 0, transition: { duration: 0.32, ease: [0.25, 0.1, 0.25, 1] } },
-              }}
-            >
-              {c}
-            </motion.div>
-          ))
-        : children}
-    </motion.div>
-  );
-}
-
-interface CardProps {
-  label: string;
-  value: string;
-  filled: boolean;
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}
-
-function Card({ label, value, filled, open, onToggle, children }: CardProps) {
-  return (
-    <section
-      className="rounded-2xl overflow-hidden border transition-colors"
-      style={{
-        background: BRAND.card,
-        borderColor: open ? BRAND.borderActive : BRAND.border,
-      }}
-    >
-      <button onClick={onToggle} className="w-full flex items-center justify-between px-4 py-4 text-left">
-        <div className="min-w-0 flex-1">
-          <div
-            className="text-[10px] uppercase tracking-[0.15em] text-neutral-500"
-            style={{ fontFamily: 'var(--font-mono)' }}
-          >
-            {label}
-          </div>
-          <div
-            className="text-base mt-1 truncate"
-            style={{ color: filled ? '#fff' : 'rgba(255,255,255,0.5)' }}
-          >
-            {value}
-          </div>
-        </div>
-        <span
-          className="ml-3 text-neutral-500 text-xs transition-transform"
-          style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}
-        >
-          ▾
-        </span>
-      </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            key="content"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.24, ease: [0.25, 0.1, 0.25, 1] }}
-            className="overflow-hidden"
-          >
-            <div className="px-4 pb-4">{children}</div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </section>
-  );
-}
-
-function PillRow({
-  options,
-  value,
+function DatetimeStep({
+  freeText,
+  scheduledFor,
   onChange,
 }: {
-  options: ReadonlyArray<readonly [string, string]>;
-  value: string;
-  onChange: (v: string) => void;
+  freeText: string;
+  scheduledFor: string | null;
+  onChange: (scheduledFor: string | null, freeText: string, confidence: number | null) => void;
 }) {
-  return (
-    <div className="flex gap-2">
-      {options.map(([key, lab]) => (
-        <Pill key={key} active={value === key} onClick={() => onChange(key)}>
-          {lab}
-        </Pill>
-      ))}
-    </div>
-  );
-}
+  const [text, setText] = useState(freeText);
+  const [parsing, setParsing] = useState(false);
+  const [parserStatus, setParserStatus] = useState<'idle' | 'parsed' | 'low_conf' | 'failed'>('idle');
+  const parserRef = useRef(getDateParser());
+  const debounceRef = useRef<number | null>(null);
 
-function Pill({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-[0.97]"
-      style={{
-        background: active ? BRAND.green : 'rgba(255,255,255,0.05)',
-        color: active ? '#000' : 'rgba(255,255,255,0.8)',
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Stepper({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className="w-12 h-12 rounded-xl text-xl active:scale-95 transition-transform"
-      style={{ background: 'rgba(255,255,255,0.05)', color: '#fff' }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function FixedFooter({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="fixed bottom-0 inset-x-0 z-40 px-4 pb-5 pt-3">
-      <div
-        className="absolute inset-0 -z-10"
-        style={{
-          background: 'linear-gradient(to top, rgba(8,8,8,1) 60%, rgba(8,8,8,0))',
-        }}
-      />
-      {children}
-    </div>
-  );
-}
-
-function CTAButton({
-  disabled,
-  onClick,
-  children,
-}: {
-  disabled?: boolean;
-  onClick?: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <motion.button
-      onClick={onClick}
-      disabled={disabled}
-      whileTap={!disabled ? { scale: 0.98 } : {}}
-      whileHover={!disabled ? { scale: 1.01 } : {}}
-      transition={{ duration: 0.12 }}
-      className="block w-full text-center py-4 rounded-2xl text-base font-bold disabled:opacity-50 transition-all"
-      style={{
-        background: disabled ? 'rgba(255,255,255,0.08)' : BRAND.green,
-        color: disabled ? 'rgba(255,255,255,0.4)' : '#000',
-        boxShadow: disabled ? 'none' : '0 0 32px rgba(0,230,118,0.25)',
-        fontFamily: 'var(--font-body)',
-        letterSpacing: '0.01em',
-      }}
-    >
-      {children}
-    </motion.button>
-  );
-}
-
-// ── Mapbox autocomplete ────────────────────────────────────────────────────
-
-function AddressInput({
-  sessionToken,
-  onPick,
-}: {
-  sessionToken: string;
-  onPick: (p: PointPick) => void;
-}) {
-  const [q, setQ] = useState('');
-  const [suggestions, setSuggestions] = useState<MapboxSuggestion[]>([]);
-  const [loading, setLoading] = useState(false);
-  const debounce = useRef<number | null>(null);
-
+  // Debounced LLM parse on text change. Per D-4 the threshold is 0.9; below
+  // we keep null and surface chips. Per spec the parser self-degrades to chips
+  // on 501 / timeout / network — we just translate that to UI.
   useEffect(() => {
-    if (!q || q.length < 2) {
-      setSuggestions([]);
+    if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    if (!text || text.trim().length < 3) {
+      setParserStatus('idle');
       return;
     }
-    if (debounce.current) window.clearTimeout(debounce.current);
-    debounce.current = window.setTimeout(() => {
-      setLoading(true);
-      const url = new URL('https://api.mapbox.com/search/searchbox/v1/suggest');
-      url.searchParams.set('q', q);
-      url.searchParams.set('access_token', process.env.NEXT_PUBLIC_MAPBOX_TOKEN || '');
-      url.searchParams.set('session_token', sessionToken);
-      url.searchParams.set('country', 'us');
-      url.searchParams.set('bbox', '-84.8,33.5,-84.1,34.1');
-      url.searchParams.set('limit', '6');
-      url.searchParams.set('types', 'address,poi,place,neighborhood,locality');
-      url.searchParams.set('language', 'en');
-      fetch(url.toString())
-        .then((r) => (r.ok ? r.json() : { suggestions: [] }))
-        .then((data) => {
-          setSuggestions(
-            (data.suggestions || []).map((s: Record<string, unknown>) => ({
-              name: s.name as string,
-              full_address: (s.full_address as string) || (s.place_formatted as string) || '',
-              mapbox_id: s.mapbox_id as string,
-            })),
-          );
-        })
-        .finally(() => setLoading(false));
-    }, 250);
-  }, [q, sessionToken]);
+    debounceRef.current = window.setTimeout(async () => {
+      setParsing(true);
+      try {
+        const result = await parserRef.current.parse(text);
+        if (result.scheduledFor && result.confidence >= NLP_CONFIDENCE_CUTOFF) {
+          onChange(result.scheduledFor.toISOString(), text, result.confidence);
+          setParserStatus('parsed');
+        } else if (result.scheduledFor) {
+          // Got a parse but not confident enough — keep the value as null
+          // and let chips be the canonical source.
+          setParserStatus('low_conf');
+          onChange(null, text, result.confidence);
+        } else {
+          setParserStatus('failed');
+          onChange(null, text, null);
+        }
+        try {
+          posthog.capture('blast_nlp_parsed', {
+            confidence: result.confidence,
+            fallbackUsed: result.confidence < NLP_CONFIDENCE_CUTOFF,
+          });
+        } catch { /* ignore */ }
+      } finally {
+        setParsing(false);
+      }
+    }, 400);
+    return () => {
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    };
+  }, [text, onChange]);
 
-  const handlePick = useCallback(
-    async (s: MapboxSuggestion) => {
-      const url = new URL(`https://api.mapbox.com/search/searchbox/v1/retrieve/${s.mapbox_id}`);
-      url.searchParams.set('access_token', process.env.NEXT_PUBLIC_MAPBOX_TOKEN || '');
-      url.searchParams.set('session_token', sessionToken);
-      const res = await fetch(url.toString());
-      if (!res.ok) return;
-      const data = await res.json();
-      const feature = data.features?.[0];
-      if (!feature) return;
-      const [lng, lat] = feature.geometry.coordinates as [number, number];
-      onPick({
-        lat,
-        lng,
-        address: (feature.properties.full_address as string) || (feature.properties.place_formatted as string) || s.name,
-      });
-    },
-    [sessionToken, onPick],
-  );
+  const presetChips = useMemo<{ value: string; label: string; iso: string | null }[]>(() => {
+    const now = new Date();
+    const tonight = new Date(now);
+    tonight.setHours(20, 0, 0, 0);
+    if (tonight.getTime() < now.getTime()) tonight.setDate(tonight.getDate() + 1);
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    return [
+      { value: 'now', label: 'Now', iso: null },
+      { value: 'tonight', label: 'Tonight 8pm', iso: tonight.toISOString() },
+      { value: 'tomorrow', label: 'Tomorrow 9am', iso: tomorrow.toISOString() },
+    ];
+  }, []);
 
   return (
     <div>
       <input
-        autoFocus
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Type an address or neighborhood"
-        className="w-full rounded-xl px-3 py-3 text-base text-white bg-transparent border focus:outline-none focus:border-[#00E676] transition-colors"
-        style={{ borderColor: BRAND.border, fontFamily: 'var(--font-body)' }}
+        type="text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder='Try "tonight 8pm" or pick below'
+        style={{
+          width: '100%',
+          padding: '14px 16px',
+          borderRadius: 12,
+          border: '1.5px solid rgba(255,255,255,0.12)',
+          background: 'rgba(255,255,255,0.04)',
+          color: '#fff',
+          fontSize: 16,
+          outline: 'none',
+          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+        }}
       />
-      {loading && <div className="text-xs text-neutral-500 mt-2">Searching…</div>}
-      {suggestions.length > 0 && (
-        <ul className="mt-2 space-y-1">
-          {suggestions.map((s) => (
-            <li key={s.mapbox_id}>
-              <button
-                onClick={() => handlePick(s)}
-                className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors"
-                style={{ background: BRAND.cardElev }}
-              >
-                <div className="text-sm text-white">{s.name}</div>
-                <div className="text-[11px] text-neutral-500">{s.full_address}</div>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div style={{ minHeight: 18, marginTop: 8, fontSize: 12, color: '#888' }}>
+        {parsing && 'Reading that…'}
+        {!parsing && parserStatus === 'parsed' && scheduledFor && (
+          <span style={{ color: '#00E676' }}>
+            {new Date(scheduledFor).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}
+          </span>
+        )}
+        {!parsing && parserStatus === 'low_conf' && (
+          <span style={{ color: '#FFB300' }}>Not sure — pick a chip below to confirm.</span>
+        )}
+        {!parsing && parserStatus === 'failed' && (
+          <span>Couldn&rsquo;t read that — pick below.</span>
+        )}
+      </div>
+      <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {presetChips.map((p) => (
+          <Chip
+            key={p.value}
+            active={scheduledFor === p.iso || (p.iso === null && scheduledFor === null && parserStatus === 'idle' && !text)}
+            onClick={() => {
+              setText('');
+              setParserStatus('idle');
+              onChange(p.iso, '', null);
+            }}
+          >
+            {p.label}
+          </Chip>
+        ))}
+        <Chip
+          active={false}
+          onClick={() => {
+            const input = document.getElementById('blast-pick-date') as HTMLInputElement | null;
+            input?.showPicker?.();
+          }}
+        >
+          Pick date
+        </Chip>
+      </div>
+      <input
+        id="blast-pick-date"
+        type="datetime-local"
+        min={new Date(Date.now() + 5 * 60_000).toISOString().slice(0, 16)}
+        onChange={(e) => {
+          const t = new Date(e.target.value);
+          if (Number.isFinite(t.getTime())) onChange(t.toISOString(), '', null);
+        }}
+        style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', height: 0 }}
+        aria-hidden
+      />
+    </div>
+  );
+}
+
+// ─── Price step ─────────────────────────────────────────────────────────────
+
+function PriceStep({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+      <PriceStepperButton direction="-" onClick={() => onChange(Math.max(1, value - 5))} />
+      <div style={{ flex: 1, textAlign: 'center' }}>
+        <div
+          style={{
+            fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+            fontSize: 56,
+            color: '#fff',
+            lineHeight: 1,
+          }}
+        >
+          $<CountUpNumber value={value} />
+        </div>
+        <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+          Drivers see this. They can counter.
+        </div>
+      </div>
+      <PriceStepperButton direction="+" onClick={() => onChange(value + 5)} />
+    </div>
+  );
+}
+
+// ─── Driver pref step ───────────────────────────────────────────────────────
+
+function DriverPrefStep({
+  value,
+  onChange,
+}: {
+  value: GenderPreference;
+  onChange: (v: GenderPreference) => void;
+}) {
+  const togglePref = (g: GenderOption) => {
+    const set = new Set(value.preferred);
+    if (set.has(g)) set.delete(g); else set.add(g);
+    onChange({ ...value, preferred: Array.from(set) });
+  };
+  return (
+    <div>
+      <p style={{ fontSize: 13, color: '#888', margin: '0 0 12px' }}>
+        Pick who you&rsquo;d prefer. Or skip — we&rsquo;ll send to everyone close.
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+        <Chip active={value.preferred.includes('woman')} onClick={() => togglePref('woman')}>Women</Chip>
+        <Chip active={value.preferred.includes('man')} onClick={() => togglePref('man')}>Men</Chip>
+        <Chip active={value.preferred.includes('nonbinary')} onClick={() => togglePref('nonbinary')}>Non-binary</Chip>
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 0',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Make this strict</div>
+          <div style={{ fontSize: 12, color: '#888' }}>
+            Only show your blast to drivers matching above.
+          </div>
+        </div>
+        <Toggle
+          ariaLabel="Strict gender preference"
+          value={value.strict}
+          onChange={(strict) => onChange({ ...value, strict })}
+        />
+      </div>
     </div>
   );
 }
