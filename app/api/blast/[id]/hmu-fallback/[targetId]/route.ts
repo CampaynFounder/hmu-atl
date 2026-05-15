@@ -38,8 +38,8 @@ export async function POST(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  if (blast.status !== 'searching') {
-    return NextResponse.json({ error: 'Blast is not in searching state' }, { status: 400 });
+  if (blast.status !== 'active') {
+    return NextResponse.json({ error: 'Blast is not active' }, { status: 400 });
   }
 
   // Verify target exists and is a fallback driver (notified_at IS NULL)
