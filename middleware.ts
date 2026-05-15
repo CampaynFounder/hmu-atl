@@ -139,7 +139,9 @@ const isPublicRoute = createRouteMatcher([
   '/rider',
   '/rider/home',
   '/rider/browse(.*)',     // includes /rider/browse/blast (unauth-friendly blast landing)
+  '/blast',                // Blast v3 unauth social-proof landing page (Stream A)
   '/rider/blast/new',      // the form itself; auth gate is on submit, not page load
+  '/auth-callback/blast',  // post-Clerk handoff; renders mid-handshake for spinner state
   '/api/blast/estimate',   // pre-auth pricing estimate for the blast form
   '/api/blast',            // blast booking endpoint — auth checked in handler, returns 401 JSON if unauthorized
   '/api/public/(.*)',
