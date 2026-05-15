@@ -52,6 +52,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/support',             rule: { kind: 'permission', slug: 'act.support' } },
   { pattern: '/admin/notifications',       rule: { kind: 'permission', slug: 'act.notifications' } },
   { pattern: '/admin/disputes',            rule: { kind: 'permission', slug: 'act.disputes' } },
+  { pattern: '/admin/blast',               rule: { kind: 'permission', slug: 'monitor.blasts.view' } },
   { pattern: '/admin/safety',              rule: { kind: 'permission', slug: 'act.safety' } }, // includes /admin/safety/archive, /admin/safety/test
   { pattern: '/admin/users',               rule: { kind: 'permission', slug: 'act.users' } },
   { pattern: '/admin/ride-requests',       rule: { kind: 'permission', slug: 'act.rides' } },
