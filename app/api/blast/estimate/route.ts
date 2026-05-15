@@ -2,44 +2,22 @@
 // No auth required: returns distance + suggested price + deposit so the
 // rider can see the number before they're asked to sign in.
 //
-// Reads `blast_matching_v1` for price_per_mile, default_price, max_price,
-// and deposit policy. Cached 60s by getPlatformConfig.
-//
-// Rate-limited per IP via the existing rate_limit_counters table — generous
-// limit (30/hour/IP per spec §9) since this is just math, no money moves.
+// Reads `blast_matching_v1` (deep-merged with `blast_matching_v1:market:{slug}`
+// when market_slug is supplied) for the full pricing formula. Cached 60s by
+// getPlatformConfig. Rate-limited 30/hour/IP since this is just math.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { calculateDistance, isValidCoordinates } from '@/lib/geo/distance';
-import { getPlatformConfig } from '@/lib/platform-config/get';
+import { getMatchingConfig } from '@/lib/blast/config';
+import { computeBlastFare, computeBlastDepositCents } from '@/lib/blast/pricing';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 
 export const runtime = 'nodejs';
 
-type BlastMatchingConfig = {
-  default_price_dollars: number;
-  price_per_mile_dollars: number;
-  max_price_dollars: number;
-  deposit: {
-    default_amount_cents: number;
-    percent_of_fare: number;
-    max_deposit_cents: number;
-  };
-} & Record<string, unknown>;
-
-const DEFAULTS: BlastMatchingConfig = {
-  default_price_dollars: 25,
-  price_per_mile_dollars: 2.0,
-  max_price_dollars: 200,
-  deposit: {
-    default_amount_cents: 500,
-    percent_of_fare: 0.5,
-    max_deposit_cents: 5000,
-  },
-};
-
 interface EstimateBody {
   pickup?: { lat?: unknown; lng?: unknown };
   dropoff?: { lat?: unknown; lng?: unknown };
+  market_slug?: unknown;
 }
 
 function clientIp(req: NextRequest): string {
@@ -94,40 +72,36 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const config = await getPlatformConfig<BlastMatchingConfig>(
-    'blast_matching_v1',
-    DEFAULTS,
-  );
+  const marketSlug =
+    typeof body.market_slug === 'string' && body.market_slug.length > 0
+      ? body.market_slug.toLowerCase()
+      : null;
+  const config = await getMatchingConfig(marketSlug);
 
   const distanceMi = calculateDistance(pickupCoords, dropoffCoords);
-
-  // Suggested price: distance × per-mile, floored at the configured default
-  // (so a 0.5-mi trip doesn't quote $1) and capped at the configured max.
-  // Round to whole dollars — the form's chip stepper is +$5 / -$5.
-  const rawPrice = distanceMi * config.price_per_mile_dollars;
-  const flooredPrice = Math.max(rawPrice, config.default_price_dollars);
-  const cappedPrice = Math.min(flooredPrice, config.max_price_dollars);
-  const suggestedPriceDollars = Math.round(cappedPrice);
-
-  // Deposit: percent_of_fare with default floor and max ceiling.
-  const fareCents = suggestedPriceDollars * 100;
-  const percentDepositCents = Math.round(fareCents * config.deposit.percent_of_fare);
-  const flooredDepositCents = Math.max(
-    percentDepositCents,
-    config.deposit.default_amount_cents,
-  );
-  const depositCents = Math.min(flooredDepositCents, config.deposit.max_deposit_cents);
+  const fare = computeBlastFare({ distanceMi, config });
+  const depositCents = computeBlastDepositCents({
+    fareCents: fare.suggestedPriceCents,
+    config,
+  });
 
   return NextResponse.json({
-    distance_mi: Math.round(distanceMi * 100) / 100,
-    suggested_price_dollars: suggestedPriceDollars,
-    suggested_price_cents: fareCents,
+    distance_mi: fare.distanceMi,
+    estimated_minutes: fare.estimatedMinutes,
+    suggested_price_dollars: fare.suggestedPriceDollars,
+    suggested_price_cents: fare.suggestedPriceCents,
     deposit_cents: depositCents,
     deposit_dollars: depositCents / 100,
+    breakdown: fare.breakdown,
     pricing: {
+      base_fare_dollars: config.base_fare_dollars,
       price_per_mile_dollars: config.price_per_mile_dollars,
-      min_price_dollars: config.default_price_dollars,
+      per_minute_cents: config.per_minute_cents,
+      assumed_mph: config.assumed_mph,
+      minimum_fare_dollars: config.minimum_fare_dollars,
       max_price_dollars: config.max_price_dollars,
+      default_price_dollars: config.default_price_dollars,
+      market_slug: marketSlug,
     },
   });
 }
