@@ -1,12 +1,17 @@
 'use client';
 
-// Stream A — post-auth handoff for the Blast funnel.
-// Per docs/BLAST-V3-AGENT-CONTRACT.md §3 D-13:
-//   ?mode=signup → username → confetti → photo (HARD GATE) → review → Send Blast
-//   ?mode=signin → review → Send Blast (skip username + photo entirely)
+// Post-auth handoff for the Blast funnel.
+//   ?mode=signup → single account_setup screen (handle + photo) → confetti →
+//                  auto-send blast → redirect to offer board
+//   ?mode=signin → confetti + auto-send blast (no account_setup, no review)
 //
-// On Send Blast: POST /api/blast (Stream B's endpoint). On success → redirect
-// to /rider/blast/[shortcode] (Stream B's offer board). Draft is loaded from
+// PR 3b reshape: removed the standalone "review" step so the rider doesn't
+// have to confirm twice (they already confirmed by tapping "Notify Drivers"
+// in the form). For signup, both the handle picker and photo uploader live
+// on one screen so they're not stacked into separate friction steps.
+//
+// On send: POST /api/blast (Stream B's endpoint). On success → redirect to
+// /rider/blast/[shortcode] (Stream B's offer board). Draft loads from
 // localStorage (saved by /rider/blast/new before the auth round-trip).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -34,9 +39,7 @@ type Mode = 'signup' | 'signin';
 type Step =
   | 'restoring'        // initial state — pulling draft from localStorage
   | 'no_draft'         // expired / missing — bounce to /blast
-  | 'username'         // signup only
-  | 'photo'            // signup only
-  | 'review'           // both modes — final confirmation before send
+  | 'account_setup'    // signup only — handle + photo on a single screen
   | 'sending'          // POST /api/blast in flight
   | 'sent'             // success → redirect imminent
   | 'error';           // network/server error — retry option
@@ -74,6 +77,12 @@ export default function BlastHandoffClient() {
   // Send state
   const [sendError, setSendError] = useState<string | null>(null);
 
+  // sendBlast is declared further down with useCallback so it can close over
+  // state setters; we keep a ref to the latest version so the mount effect
+  // (which runs once Clerk loads + draft restores) can fire it for the
+  // signin path without ordering gymnastics.
+  const sendBlastRef = useRef<(() => Promise<void>) | null>(null);
+
   // ─── Mount: restore draft + decide first step ─────────────────────────────
   useEffect(() => {
     if (!clerkLoaded) return;
@@ -89,11 +98,18 @@ export default function BlastHandoffClient() {
       ageMs: Date.now() - restored.draftCreatedAt,
     });
     if (mode === 'signin') {
+      // Existing rider — they already have a handle + (probably) a photo
+      // from a prior sign-up. Skip account_setup, fire confetti, auto-send.
       posthog.capture('blast_handoff_signin_started');
-      setStep('review');
+      setConfettiArmed(true);
+      setStep('sending');
+      // sendBlastRef populates after first render; tiny defer ensures it's
+      // wired before we call it. If the ref is still null (extremely fast
+      // render), fall through — the user can retry from the error state.
+      setTimeout(() => { void sendBlastRef.current?.(); }, 0);
     } else {
       posthog.capture('blast_handoff_signup_started');
-      setStep('username');
+      setStep('account_setup');
     }
   }, [clerkLoaded, mode]);
 
@@ -109,7 +125,6 @@ export default function BlastHandoffClient() {
   const onHandleChange = useCallback((next: string) => {
     const v = next.toLowerCase().trim();
     setHandle(v);
-    setConfettiArmed(false);
     if (handleDebounceRef.current) clearTimeout(handleDebounceRef.current);
 
     if (!v) {
@@ -127,7 +142,6 @@ export default function BlastHandoffClient() {
         const data = await res.json();
         if (data.available) {
           setHandleStatus({ state: 'available' });
-          setConfettiArmed(true);
         } else {
           setHandleStatus({ state: 'taken', reason: data.reason });
         }
@@ -141,26 +155,14 @@ export default function BlastHandoffClient() {
     }, HANDLE_DEBOUNCE_MS);
   }, []);
 
-  const saveHandleAndContinue = useCallback(async () => {
-    if (handleStatus.state !== 'available') return;
-    try {
-      // Persist via existing rider profile patch endpoint.
-      await fetch('/api/rider/profile', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ handle }),
-      });
-    } catch {
-      // Non-fatal — handle uniqueness was already validated; persist failure
-      // surfaces on next profile load. Continue the funnel.
-    }
-    setStep('photo');
-  }, [handle, handleStatus]);
-
   // ─── Photo upload ─────────────────────────────────────────────────────────
+  // Uploads on selection so the CTA can fire-and-redirect once the rider
+  // commits. No step advance here — the combined account_setup screen owns
+  // the funnel forward motion.
   const onPhotoSelected = useCallback(async (file: File) => {
     setPhotoFile(file);
     setPhotoUploading(true);
+    setSendError(null);
     try {
       const fd = new FormData();
       fd.append('video', file);                    // existing endpoint param name
@@ -174,12 +176,35 @@ export default function BlastHandoffClient() {
         sizeBytes: file.size,
         mimeType: file.type,
       });
-      setTimeout(() => setStep('review'), 600);  // brief beat to show success
     } catch {
-      setPhotoUploading(false);
       setSendError('Upload failed — try a different photo.');
+    } finally {
+      setPhotoUploading(false);
     }
   }, []);
+
+  // ─── Commit account setup + send blast (signup path) ──────────────────────
+  // Persists the chosen handle, fires confetti, then auto-sends. Disabled
+  // until both handle is 'available' and photo upload finished.
+  const accountSetupReady =
+    handleStatus.state === 'available' && photoUploaded && !photoUploading;
+
+  const commitAndSend = useCallback(async () => {
+    if (!accountSetupReady) return;
+    // Persist the handle non-blocking — uniqueness was already validated by
+    // /api/riders/check-handle so a race-loss here is extremely unlikely;
+    // if it happens, the rider lands on the offer board with their previous
+    // (possibly null) handle, which the offer board surfaces gracefully.
+    fetch('/api/rider/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handle }),
+    }).catch(() => { /* non-fatal — see comment above */ });
+
+    setConfettiArmed(true);
+    posthog.capture('blast_account_setup_committed', { handle });
+    void sendBlastRef.current?.();
+  }, [accountSetupReady, handle]);
 
   // ─── Send Blast ───────────────────────────────────────────────────────────
   const sendBlast = useCallback(async () => {
@@ -220,6 +245,12 @@ export default function BlastHandoffClient() {
     }
   }, [draft, router]);
 
+  // Keep the ref in sync so the mount effect (signin auto-send) and
+  // commitAndSend (signup flow) call the latest sendBlast closure.
+  useEffect(() => {
+    sendBlastRef.current = sendBlast;
+  }, [sendBlast]);
+
   // ─── Render ───────────────────────────────────────────────────────────────
   if (!clerkLoaded || step === 'restoring') {
     return (
@@ -258,61 +289,47 @@ export default function BlastHandoffClient() {
     <FullPageShell>
       <CelebrationConfetti active={confettiArmed} variant="burst" />
       <AnimatePresence mode="wait">
-        {step === 'username' && (
+        {step === 'account_setup' && (
           <motion.div
-            key="username"
+            key="account_setup"
             initial={reduceMotion ? false : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={reduceMotion ? undefined : { opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
+            style={{ display: 'flex', flexDirection: 'column', gap: 24 }}
           >
-            <h1 style={H1_STYLE}>Pick your handle</h1>
-            <p style={SUB_STYLE}>This is how drivers will see you on the road.</p>
-            <UsernameField
-              value={handle}
-              onChange={onHandleChange}
-              status={handleStatus}
-            />
+            <div>
+              <h1 style={H1_STYLE}>One quick thing</h1>
+              <p style={SUB_STYLE}>
+                Pick a handle and snap a photo so drivers know who&rsquo;s pulling up.
+                Required &mdash; we don&rsquo;t notify drivers for ghost accounts.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={FIELD_LABEL_STYLE}>Your handle</label>
+              <UsernameField
+                value={handle}
+                onChange={onHandleChange}
+                status={handleStatus}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={FIELD_LABEL_STYLE}>Your photo</label>
+              <PhotoStep
+                file={photoFile}
+                uploading={photoUploading}
+                uploaded={photoUploaded}
+                onSelect={onPhotoSelected}
+              />
+            </div>
+
             <PrimaryButton
-              onClick={saveHandleAndContinue}
-              disabled={handleStatus.state !== 'available'}
-              label="Looks good"
+              onClick={commitAndSend}
+              disabled={!accountSetupReady}
+              label="Notify Drivers"
             />
-          </motion.div>
-        )}
-
-        {step === 'photo' && (
-          <motion.div
-            key="photo"
-            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={reduceMotion ? undefined : { opacity: 0, y: -8 }}
-            transition={{ duration: 0.18 }}
-          >
-            <h1 style={H1_STYLE}>Snap a photo</h1>
-            <p style={SUB_STYLE}>
-              Drivers want to know who they&apos;re picking up. This is required.
-            </p>
-            <PhotoStep
-              file={photoFile}
-              uploading={photoUploading}
-              uploaded={photoUploaded}
-              onSelect={onPhotoSelected}
-            />
-          </motion.div>
-        )}
-
-        {step === 'review' && draft && (
-          <motion.div
-            key="review"
-            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={reduceMotion ? undefined : { opacity: 0, y: -8 }}
-            transition={{ duration: 0.18 }}
-          >
-            <h1 style={H1_STYLE}>Ready to blast?</h1>
-            <ReviewSummary draft={draft} />
-            <PrimaryButton onClick={sendBlast} label="Send Blast" />
           </motion.div>
         )}
 
@@ -569,43 +586,6 @@ function PhotoStep({
   );
 }
 
-function ReviewSummary({ draft }: { draft: BlastDraft }) {
-  return (
-    <div
-      style={{
-        padding: '16px 18px',
-        borderRadius: 20,
-        background: '#141414',
-        border: '1px solid rgba(255,255,255,0.08)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-      }}
-    >
-      <Row label="Pickup" value={draft.pickup.address} />
-      <Row label="Dropoff" value={draft.dropoff.address} />
-      <Row label="When" value={draft.scheduledFor ? new Date(draft.scheduledFor).toLocaleString() : 'Now'} />
-      <Row label="Trip" value={draft.tripType === 'round_trip' ? 'Round trip' : 'One way'} />
-      <Row label="Price" value={`$${draft.priceDollars}`} />
-      {draft.driverPreference.preferred.length > 0 && (
-        <Row
-          label="Driver preference"
-          value={`${draft.driverPreference.preferred.join(', ')}${draft.driverPreference.strict ? ' (strict)' : ''}`}
-        />
-      )}
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-      <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13 }}>{label}</span>
-      <span style={{ color: '#fff', fontSize: 14, textAlign: 'right', fontWeight: 500 }}>{value}</span>
-    </div>
-  );
-}
-
 function PrimaryButton({
   onClick,
   label,
@@ -657,6 +637,13 @@ const SUB_STYLE: React.CSSProperties = {
   fontSize: 15,
   color: 'rgba(255,255,255,0.6)',
   margin: 0,
+};
+const FIELD_LABEL_STYLE: React.CSSProperties = {
+  fontSize: 12,
+  letterSpacing: 1.4,
+  textTransform: 'uppercase',
+  color: 'rgba(255,255,255,0.55)',
+  fontWeight: 600,
 };
 const SECONDARY_BUTTON_STYLE: React.CSSProperties = {
   width: '100%',
