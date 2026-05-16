@@ -17,6 +17,7 @@
 // fixed app header (contract §5.1).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAbly } from '@/hooks/use-ably';
@@ -30,6 +31,17 @@ import {
   SuccessCheckmark,
 } from '@/components/blast/motion';
 import { SwipeableDriverDeck } from '@/components/blast/driver/swipeable-driver-deck';
+
+// InlinePaymentForm uses @stripe/react-stripe-js — dynamic import keeps it
+// out of the initial bundle and avoids SSR issues.
+const InlinePaymentForm = dynamic(
+  () => import('@/components/payments/inline-payment-form'),
+  { ssr: false, loading: () => (
+    <div style={{ padding: 16, textAlign: 'center', color: '#888', fontSize: 13 }}>
+      Loading secure payment…
+    </div>
+  )},
+);
 
 interface DriverInfo {
   handle: string | null;
@@ -89,9 +101,9 @@ interface Blast {
   driverPreference: 'male' | 'female' | 'any';
   depositAmount: number;
   bumpCount: number;
+  /** Per-driver response window in ms — from admin config, default 15 min. */
+  targetWindowMs: number;
 }
-
-const PER_TARGET_WINDOW_MS = 15 * 60_000;
 
 // Track PostHog without taking a hard dependency in case it's not loaded.
 function track(event: string, props?: Record<string, unknown>) {
@@ -120,6 +132,14 @@ export default function BlastOfferBoardClientV3({
   const [now, setNow] = useState(() => Date.now());
   const [actionToast, setActionToast] = useState<string | null>(null);
 
+  // Payment gate — first 3 fallback drivers are free; rest require a card.
+  const [hasCard, setHasCard] = useState<boolean | null>(null); // null = loading
+  const [showCardForm, setShowCardForm] = useState(false);
+  const FREE_DRIVER_LIMIT = 3;
+
+  // Review mode — toggled after rider exhausts the swipe deck or explicitly opens it.
+  const [showReview, setShowReview] = useState(false);
+
   // Initial fetch + soft 15s poll fallback (Ably is the primary live channel).
   const refresh = useCallback(async () => {
     try {
@@ -147,6 +167,14 @@ export default function BlastOfferBoardClientV3({
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(t);
+  }, []);
+
+  // Check if rider has a saved payment method once on mount.
+  useEffect(() => {
+    fetch('/api/rider/payment-methods')
+      .then((r) => r.json())
+      .then((d: { methods?: unknown[] }) => setHasCard((d.methods?.length ?? 0) > 0))
+      .catch(() => setHasCard(false));
   }, []);
 
   // Realtime — Ably pushes new HMU/counter/pass/etc on blast:{id}.
@@ -317,11 +345,13 @@ export default function BlastOfferBoardClientV3({
     );
   }
 
-  // Per-target countdown — converts remaining ms to seconds for CountdownRing.
+  const targetWindowMs = blast?.targetWindowMs ?? 15 * 60_000;
+
+  // Per-target countdown — uses admin-configurable window from blast config.
   const perTargetSecondsLeft = (notifiedAtIso: string | null): number => {
-    if (!notifiedAtIso) return PER_TARGET_WINDOW_MS / 1000;
+    if (!notifiedAtIso) return targetWindowMs / 1000;
     const elapsed = now - new Date(notifiedAtIso).getTime();
-    const remaining = Math.max(0, PER_TARGET_WINDOW_MS - elapsed);
+    const remaining = Math.max(0, targetWindowMs - elapsed);
     return Math.floor(remaining / 1000);
   };
 
@@ -399,7 +429,7 @@ export default function BlastOfferBoardClientV3({
                           size={48}
                           strokeWidth={3}
                           secondsRemaining={secondsLeft}
-                          totalSeconds={PER_TARGET_WINDOW_MS / 1000}
+                          totalSeconds={targetWindowMs / 1000}
                         />
                         <div className="absolute inset-1 rounded-full bg-neutral-800 overflow-hidden flex items-center justify-center text-sm font-bold">
                           {t.driver.thumbnailUrl ? (
@@ -475,13 +505,10 @@ export default function BlastOfferBoardClientV3({
           </section>
         )}
 
-        {/* ── Searching empty state ─────────────────────────────────────── */}
+        {/* ── Searching state — compact panoramic map banner ───────────── */}
         {interestedTargets.length === 0 && (
           <section className="mt-4">
-            <h2 className="text-xs uppercase tracking-wider text-neutral-500 px-1 mb-3">
-              Searching
-            </h2>
-            <div className="rounded-2xl bg-neutral-900 border border-neutral-800 overflow-hidden">
+            <div className="rounded-2xl overflow-hidden" style={{ marginBottom: 12 }}>
               <NeuralNetworkLoader
                 label={
                   notifiedCount > 0
@@ -493,26 +520,96 @@ export default function BlastOfferBoardClientV3({
           </section>
         )}
 
-        {/* ── More options — swipeable driver deck ──────────────────────── */}
-        {fallback.length > 0 && (
-          <section className="mt-6">
-            <h2 className="text-xs uppercase tracking-wider text-neutral-500 px-1 mb-3">
-              Nearby Drivers
-            </h2>
-            <p className="text-xs text-neutral-500 mb-3 px-1">
-              Swipe right to HMU, left to pass. Tap an action button if you prefer.
-            </p>
+        {/* ── Nearby drivers — swipeable deck ──────────────────────────── */}
+        {fallback.length > 0 && !showReview && (
+          <section className="mt-4">
+            {/* Free tier: first 3 drivers, no card needed */}
             <SwipeableDriverDeck
               blastId={blastId}
-              cards={fallback}
+              cards={hasCard ? fallback : fallback.slice(0, FREE_DRIVER_LIMIT)}
               blastPrice={blast.price}
               depositAmount={blast.depositAmount}
               onAfterHmu={refresh}
+              onDeckEmpty={() => setShowReview(true)}
             />
+
+            {/* Payment gate — shown when rider has no card + more drivers exist */}
+            <AnimatePresence>
+              {!hasCard && fallback.length > FREE_DRIVER_LIMIT && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 8 }}
+                  transition={{ duration: 0.2 }}
+                  className="mt-4"
+                >
+                  {!showCardForm ? (
+                    <button
+                      onClick={() => setShowCardForm(true)}
+                      className="w-full rounded-2xl border border-[#00E676]/30 bg-[#00E676]/5 p-4 text-left transition-all hover:bg-[#00E676]/10"
+                    >
+                      <div className="text-sm font-bold text-white mb-0.5">
+                        {fallback.length - FREE_DRIVER_LIMIT} more drivers nearby
+                      </div>
+                      <div className="text-xs text-neutral-400">
+                        Link your card to see them — no charge until you ride.
+                      </div>
+                      <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[#00E676] px-4 py-2 text-xs font-bold text-black">
+                        Link card to unlock
+                      </div>
+                    </button>
+                  ) : (
+                    <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-semibold text-white">
+                          Link your card
+                        </span>
+                        <button
+                          onClick={() => setShowCardForm(false)}
+                          className="text-neutral-500 hover:text-white text-xs"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <p className="text-xs text-neutral-500 mb-4">
+                        No charge now — only charged when a ride completes.
+                        Unlocks {fallback.length - FREE_DRIVER_LIMIT} more drivers.
+                      </p>
+                      <InlinePaymentForm
+                        compact
+                        onSuccess={() => {
+                          setHasCard(true);
+                          setShowCardForm(false);
+                          track('blast_card_linked', { blastId, extraDrivers: fallback.length - FREE_DRIVER_LIMIT });
+                        }}
+                        onCancel={() => setShowCardForm(false)}
+                      />
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </section>
         )}
 
-        {/* ── Send another blast CTA ────────────────────────────────────── */}
+        {/* ── Matching review — post-swipe session ─────────────────────── */}
+        {(showReview || (interestedTargets.length > 0 && fallback.length === 0)) && (
+          <MatchReviewSection
+            targets={targets}
+            notifiedCount={notifiedCount}
+            now={now}
+            targetWindowMs={targetWindowMs}
+            blastPrice={blast.price}
+            selectingId={selectingId}
+            pullingUpId={pullingUpId}
+            selectedTarget={selectedTarget}
+            onSelect={handleSelect}
+            onPullUp={handlePullUp}
+            onShowAll={() => setShowReview(false)}
+          />
+        )}
+
+        {/* ── Send another blast ────────────────────────────────────────── */}
         <div className="mt-6 px-1">
           <button
             onClick={handleDuplicate}
@@ -531,6 +628,197 @@ export default function BlastOfferBoardClientV3({
       </AnimatePresence>
     </div>
   );
+}
+
+// ── Matching review section ───────────────────────────────────────────────────
+// Shows after the rider finishes swiping. Lists only drivers who responded
+// (HMU'd, countered) — never shows drivers who passed. Pending count shown
+// separately with a blast-level countdown so the rider knows when the window
+// closes.
+
+function MatchReviewSection({
+  targets,
+  notifiedCount,
+  now,
+  targetWindowMs,
+  blastPrice,
+  selectingId,
+  pullingUpId,
+  selectedTarget,
+  onSelect,
+  onPullUp,
+  onShowAll,
+}: {
+  targets: Target[];
+  notifiedCount: number;
+  now: number;
+  targetWindowMs: number;
+  blastPrice: number;
+  selectingId: string | null;
+  pullingUpId: string | null;
+  selectedTarget: Target | null;
+  onSelect: (t: Target) => void;
+  onPullUp: (t: Target) => void;
+  onShowAll: () => void;
+}) {
+  // Responded = HMU'd back or countered, not passed, not rejected
+  const responded = targets.filter(
+    (t) => t.hmuAt && !t.passedAt && !t.rejectedAt,
+  );
+  // Pending = notified but no response yet (no hmu, no pass, no reject)
+  const pending = targets.filter(
+    (t) => t.notifiedAt && !t.hmuAt && !t.passedAt && !t.rejectedAt,
+  );
+
+  const formatCountdown = (ms: number) => {
+    const m = Math.floor(ms / 60_000);
+    const s = Math.floor((ms % 60_000) / 1000);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
+  return (
+    <section className="mt-4">
+      <div className="flex items-center justify-between px-1 mb-3">
+        <h2 className="text-xs uppercase tracking-wider text-neutral-500">
+          Your matches
+        </h2>
+        {pending.length > 0 && (
+          <button onClick={onShowAll} className="text-xs text-neutral-500 hover:text-white transition-colors">
+            ← back to deck
+          </button>
+        )}
+      </div>
+
+      {responded.length === 0 && (
+        <div className="rounded-2xl bg-neutral-900 border border-neutral-800 p-6 text-center">
+          <p className="text-sm text-neutral-400">No responses yet.</p>
+          {pending.length > 0 && (
+            <p className="text-xs text-neutral-600 mt-1">
+              {pending.length} driver{pending.length === 1 ? '' : 's'} still deciding…
+            </p>
+          )}
+        </div>
+      )}
+
+      {responded.length > 0 && (
+        <StaggeredList staggerMs={60} as="ul" className="space-y-2">
+          {responded.map((t) => {
+            const counter = t.counterPrice != null && t.counterPrice !== blastPrice;
+            const isSelected = selectedTarget?.targetId === t.targetId;
+            const isDimmed = selectedTarget && !isSelected;
+            const windowRemaining = t.notifiedAt
+              ? Math.max(0, targetWindowMs - (now - new Date(t.notifiedAt).getTime()))
+              : targetWindowMs;
+            const distanceLabel = (() => {
+              const d = (t as unknown as Record<string, unknown>);
+              if (d.distanceFromPickupMi != null) return `${d.distanceFromPickupMi} mi`;
+              return null;
+            })();
+
+            return (
+              <motion.li
+                key={t.targetId}
+                initial={{ opacity: 0, x: 16 }}
+                animate={{ opacity: isDimmed ? 0.4 : 1, x: 0, scale: isSelected ? 1.01 : 1 }}
+                transition={{ duration: 0.2 }}
+                className={`rounded-2xl border p-3 list-none ${isSelected ? 'border-[#00E676] bg-[#00E676]/5' : 'border-neutral-800 bg-neutral-900'}`}
+              >
+                <div className="flex items-center gap-3">
+                  {/* Avatar with countdown ring */}
+                  <div className="relative w-12 h-12 flex-shrink-0">
+                    <CountdownRing
+                      size={48}
+                      strokeWidth={3}
+                      secondsRemaining={Math.floor(windowRemaining / 1000)}
+                      totalSeconds={targetWindowMs / 1000}
+                    />
+                    <div className="absolute inset-1 rounded-full bg-neutral-800 overflow-hidden flex items-center justify-center text-sm font-bold">
+                      {t.driver.thumbnailUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={t.driver.thumbnailUrl} alt="" className="w-full h-full object-cover object-top" />
+                      ) : (
+                        (t.driver.displayName ?? t.driver.handle ?? '?')[0]?.toUpperCase()
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Driver info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold truncate flex items-center gap-1.5">
+                      {t.driver.displayName ?? t.driver.handle ?? 'Driver'}
+                      {t.driver.tier === 'hmu_first' && (
+                        <span className="text-[9px] uppercase bg-amber-500/90 text-black px-1.5 rounded">1st</span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-neutral-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                      {t.driver.chillScore > 0 && (
+                        <span><span className="text-[#00E676] font-semibold">{Math.round(t.driver.chillScore)}%</span> chill</span>
+                      )}
+                      {t.driver.vehicleLabel && <span className="text-neutral-600">🚗 {t.driver.vehicleLabel}</span>}
+                      {distanceLabel && <span>{distanceLabel}</span>}
+                      {counter && (
+                        <span className="text-amber-400">
+                          ${t.counterPrice} counter
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-neutral-600 mt-0.5">
+                      Window closes {formatCountdown(windowRemaining)}
+                    </div>
+                  </div>
+
+                  {/* Action */}
+                  {!selectedTarget && (
+                    <motion.button
+                      whileTap={{ scale: 0.97 }}
+                      onClick={() => onSelect(t)}
+                      disabled={selectingId != null}
+                      className="bg-white text-black text-sm font-bold px-4 py-2 rounded-xl disabled:bg-neutral-800 disabled:text-neutral-500 min-w-[72px]"
+                    >
+                      {selectingId === t.targetId ? '…' : 'Select'}
+                    </motion.button>
+                  )}
+                  {isSelected && (
+                    <motion.button
+                      whileTap={{ scale: 0.97 }}
+                      onClick={() => onPullUp(t)}
+                      disabled={pullingUpId != null}
+                      className="bg-[#00E676] text-black text-sm font-bold px-4 py-2 rounded-xl disabled:opacity-60 min-w-[88px] flex items-center justify-center"
+                    >
+                      {pullingUpId === t.targetId ? <SuccessCheckmark size={20} autoHide={false} /> : 'Pull Up'}
+                    </motion.button>
+                  )}
+                </div>
+              </motion.li>
+            );
+          })}
+        </StaggeredList>
+      )}
+
+      {/* Pending count — shows how many drivers haven't responded yet */}
+      {pending.length > 0 && (
+        <div className="mt-3 rounded-xl bg-neutral-900/60 border border-neutral-800 px-4 py-3 flex items-center gap-3">
+          <div className="w-2 h-2 rounded-full bg-neutral-500 animate-pulse flex-shrink-0" />
+          <p className="text-xs text-neutral-400">
+            <span className="text-white font-semibold">{pending.length}</span> driver{pending.length === 1 ? '' : 's'} still deciding — window closes{' '}
+            {notifiedCount > 0 && pending[0]?.notifiedAt ? (
+              <span className="font-mono text-neutral-300">
+                {formatPendingCountdown(
+                  Math.max(0, targetWindowMs - (now - new Date(pending[0].notifiedAt).getTime()))
+                )}
+              </span>
+            ) : 'soon'}
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatPendingCountdown(ms: number) {
+  const m = Math.floor(ms / 60_000);
+  const s = Math.floor((ms % 60_000) / 1000);
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 // Toast shim — uses PulseOnMount for the entrance pulse and an effect to

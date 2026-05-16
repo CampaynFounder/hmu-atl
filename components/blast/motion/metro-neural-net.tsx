@@ -196,9 +196,10 @@ export function MetroNeuralNet({
       <div
         style={{
           width: '100%',
-          // Maintain square aspect ratio via padding trick so the shape
-          // is never squashed into a rectangle on wide containers.
-          paddingBottom: '100%',
+          // Panoramic 2.5:1 banner — city silhouette as a compact wide strip
+          // so the animation stays atmospheric without dominating the screen.
+          // slice fills the rectangle from the center of the polygon.
+          paddingBottom: '40%',
           position: 'relative',
           transformStyle: 'preserve-3d',
           transform: 'rotateX(18deg)',
@@ -207,12 +208,11 @@ export function MetroNeuralNet({
             : `metro-rotate-y ${ROTATION_DURATION_S}s linear infinite`,
         }}
       >
-        {/* Absolute fill so the SVG occupies the padding-trick square. */}
         <svg
           width="100%"
           height="100%"
           viewBox={`0 0 ${view} ${view}`}
-          preserveAspectRatio="xMidYMid meet"
+          preserveAspectRatio="xMidYMid slice"
           aria-hidden="true"
           style={{ position: 'absolute', inset: 0 }}
         >

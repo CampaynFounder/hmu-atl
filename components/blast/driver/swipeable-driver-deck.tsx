@@ -64,6 +64,8 @@ interface SwipeableDriverDeckProps {
   depositAmount?: number;
   onAfterHmu?: () => void;
   onAfterPass?: () => void;
+  /** Called when the rider swipes through all cards in the deck. */
+  onDeckEmpty?: () => void;
 }
 
 type PendingAction =
@@ -77,6 +79,7 @@ export function SwipeableDriverDeck({
   depositAmount,
   onAfterHmu,
   onAfterPass,
+  onDeckEmpty,
 }: SwipeableDriverDeckProps) {
   const prefersReduced = useReducedMotion();
   // We don't mirror `cards` into local state. Instead we keep:
@@ -167,6 +170,13 @@ export function SwipeableDriverDeck({
     } catch { /* ignore */ }
     setPending(null);
   }, [pending, blastId]);
+
+  // Notify parent when all cards have been swiped through.
+  useEffect(() => {
+    if (deck.length === 0 && !pending && cards.length > 0) {
+      onDeckEmpty?.();
+    }
+  }, [deck.length, pending, cards.length, onDeckEmpty]);
 
   if (deck.length === 0 && !pending) {
     return (
