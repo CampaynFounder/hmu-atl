@@ -72,7 +72,7 @@ const STEP_TITLES: Record<StepId, string> = {
   datetime: 'When you trying to roll?',
   storage: 'Bringing bags?',
   price: 'What you paying?',
-  driver_pref: 'Who you want?',
+  driver_pref: 'Driver preference',
   rider_gender: 'About you',
 };
 
@@ -231,7 +231,9 @@ export default function BlastFormClient() {
       case 'storage': return true;  // boolean is always valid
       case 'price': return d.priceDollars >= 1 && d.priceDollars <= 500;
       case 'driver_pref': return true; // empty preferred is "no preference" — valid
-      case 'rider_gender': return true; // optional
+      // About You is now mandatory — drivers honor the rider's stated
+      // gender preference, so we need this for matching to work.
+      case 'rider_gender': return d.riderGender === 'woman' || d.riderGender === 'man' || d.riderGender === 'nonbinary';
     }
   }, []);
 
@@ -395,21 +397,29 @@ export default function BlastFormClient() {
         );
       case 'rider_gender':
         return (
-          <ChipGroup
-            ariaLabel="Your gender"
-            options={[
-              { value: 'woman', label: 'Woman' },
-              { value: 'man', label: 'Man' },
-              { value: 'nonbinary', label: 'Non-binary' },
-            ]}
-            value={draft.riderGender ?? ('' as GenderOption)}
-            onChange={(v) => setDraft((d) => ({ ...d, riderGender: v as GenderOption }))}
-          />
+          <div>
+            <p style={{ fontSize: 13, color: '#888', margin: '0 0 12px' }}>
+              So your driver knows who&rsquo;s pulling up. Required — drivers honor
+              this when they pick.
+            </p>
+            <ChipGroup
+              ariaLabel="Your gender"
+              options={[
+                { value: 'woman', label: 'Woman' },
+                { value: 'man', label: 'Man' },
+                // Stored as 'nonbinary' for back-compat with the rest of the
+                // schema; surfaced to the rider as "Neither" per UX spec.
+                { value: 'nonbinary', label: 'Neither' },
+              ]}
+              value={draft.riderGender ?? ('' as GenderOption)}
+              onChange={(v) => setDraft((d) => ({ ...d, riderGender: v as GenderOption }))}
+            />
+          </div>
         );
     }
   };
 
-  const ctaLabel = step === 'rider_gender' ? (submitting ? 'Sending…' : 'Send Blast') : 'Continue';
+  const ctaLabel = step === 'rider_gender' ? (submitting ? 'Notifying…' : 'Notify Drivers') : 'Continue';
   const stepValid = isStepValid(step, draft);
 
   // Reduced motion: skip the slide variant.
@@ -621,6 +631,9 @@ function DatetimeStep({
     };
   }, [text, onChange]);
 
+  // Chip times are sensible defaults (Tonight = 8pm tonight, Tomorrow = 9am
+  // tomorrow); labels stay terse per UX spec. A rider who wants a precise
+  // time uses the free-text input above or the "Pick date" picker below.
   const presetChips = useMemo<{ value: string; label: string; iso: string | null }[]>(() => {
     const now = new Date();
     const tonight = new Date(now);
@@ -631,8 +644,8 @@ function DatetimeStep({
     tomorrow.setHours(9, 0, 0, 0);
     return [
       { value: 'now', label: 'Now', iso: null },
-      { value: 'tonight', label: 'Tonight 8pm', iso: tonight.toISOString() },
-      { value: 'tomorrow', label: 'Tomorrow 9am', iso: tomorrow.toISOString() },
+      { value: 'tonight', label: 'Tonight', iso: tonight.toISOString() },
+      { value: 'tomorrow', label: 'Tomorrow', iso: tomorrow.toISOString() },
     ];
   }, []);
 
@@ -761,6 +774,11 @@ function PriceStep({
 }
 
 // ─── Driver pref step ───────────────────────────────────────────────────────
+// Single-select: Woman / Man / No Preference. The strict toggle stays in
+// the schema (GenderPreference.strict) but is only revealed when the rider
+// picks Woman or Man — "No Preference" hides it since strict-on-anyone is
+// nonsensical. Persists into the existing `{ preferred: GenderOption[],
+// strict: boolean }` shape so downstream matching code doesn't change.
 
 function DriverPrefStep({
   value,
@@ -769,42 +787,62 @@ function DriverPrefStep({
   value: GenderPreference;
   onChange: (v: GenderPreference) => void;
 }) {
-  const togglePref = (g: GenderOption) => {
-    const set = new Set(value.preferred);
-    if (set.has(g)) set.delete(g); else set.add(g);
-    onChange({ ...value, preferred: Array.from(set) });
+  // Map the JSON-shape preferred-array to a single-select state for the UI.
+  // We treat any non-empty preferred as the first element's gender; "none"
+  // means the rider hasn't expressed a preference.
+  type Pick = 'woman' | 'man' | 'none';
+  const current: Pick =
+    value.preferred.includes('woman') ? 'woman' :
+    value.preferred.includes('man') ? 'man' :
+    'none';
+
+  const pick = (next: Pick) => {
+    if (next === 'none') {
+      onChange({ preferred: [], strict: false });
+    } else {
+      onChange({ preferred: [next as GenderOption], strict: value.strict });
+    }
   };
+
+  const showStrict = current === 'woman' || current === 'man';
+  const strictLabel =
+    current === 'woman' ? 'Only women drivers' :
+    current === 'man' ? 'Only men drivers' :
+    '';
+
   return (
     <div>
       <p style={{ fontSize: 13, color: '#888', margin: '0 0 12px' }}>
-        Pick who you&rsquo;d prefer. Or skip — we&rsquo;ll send to everyone close.
+        Pick who you&rsquo;d prefer driving you. No preference = anyone close.
       </p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-        <Chip active={value.preferred.includes('woman')} onClick={() => togglePref('woman')}>Women</Chip>
-        <Chip active={value.preferred.includes('man')} onClick={() => togglePref('man')}>Men</Chip>
-        <Chip active={value.preferred.includes('nonbinary')} onClick={() => togglePref('nonbinary')}>Non-binary</Chip>
+        <Chip active={current === 'woman'} onClick={() => pick('woman')}>Woman</Chip>
+        <Chip active={current === 'man'} onClick={() => pick('man')}>Man</Chip>
+        <Chip active={current === 'none'} onClick={() => pick('none')}>No preference</Chip>
       </div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '12px 0',
-          borderTop: '1px solid rgba(255,255,255,0.08)',
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Make this strict</div>
-          <div style={{ fontSize: 12, color: '#888' }}>
-            Only show your blast to drivers matching above.
+      {showStrict && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 0',
+            borderTop: '1px solid rgba(255,255,255,0.08)',
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{strictLabel}</div>
+            <div style={{ fontSize: 12, color: '#888' }}>
+              Hard filter — we won&rsquo;t send your blast to anyone else.
+            </div>
           </div>
+          <Toggle
+            ariaLabel="Strict gender preference"
+            value={value.strict}
+            onChange={(strict) => onChange({ ...value, strict })}
+          />
         </div>
-        <Toggle
-          ariaLabel="Strict gender preference"
-          value={value.strict}
-          onChange={(strict) => onChange({ ...value, strict })}
-        />
-      </div>
+      )}
     </div>
   );
 }
