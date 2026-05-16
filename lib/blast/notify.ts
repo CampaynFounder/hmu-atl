@@ -127,7 +127,9 @@ function pushPayload(target: BlastTarget, ctx: BlastNotificationContext) {
     targetId: target.targetId,
     title: `New ride request — $${ctx.priceDollars}`,
     body: `${ctx.pickupLabel} → ${ctx.dropoffLabel} ${ctx.scheduledForLabel}`,
-    url: `/driver/home?blast=${ctx.blastId}`,
+    // ?focus= is the param driver-home-client reads to scroll-to and highlight
+    // the specific blast card once the driver lands on /driver/home.
+    url: `/driver/home?focus=${ctx.blastId}`,
     distanceMi: target.distanceMi,
     matchScore: target.matchScore,
   };
