@@ -31,20 +31,24 @@ export interface FallbackDriverCardData {
   targetId: string;
   driverId: string;
   matchScore: number;
-  /** Pickup → driver's *current* (or home, if GPS stale) location. */
   distanceFromPickupMi: number | null;
-  /** Pickup → driver's home base. Null if the driver hasn't set a home. */
   distanceFromHomeMi: number | null;
-  /** True when distanceFromPickupMi was computed from fresh GPS, not home. */
   locationIsLive: boolean;
-  /** Driver's home label (e.g. "Decatur, GA"). Null if not set. */
   homeLabel: string | null;
   driver: {
     handle: string | null;
     displayName: string | null;
     videoUrl: string | null;
-    vehicle: Record<string, unknown> | null;
+    thumbnailUrl: string | null;
+    vehicleLabel: string | null;
+    vehicleColor: string | null;
+    vehiclePhotoUrl: string | null;
+    maxRiders: number | null;
+    areaSlugs: string[];
+    lgbtqFriendly: boolean;
+    acceptsLongDistance: boolean;
     chillScore: number;
+    completedRides: number;
     tier: string | null;
   };
 }
@@ -178,7 +182,7 @@ export function SwipeableDriverDeck({
       <div
         style={{
           position: 'relative',
-          minHeight: 340,
+          minHeight: 400,
           // Reserve room for the stack offset so the layout doesn't jump
           // when the bottom card peeks out.
           marginBottom: 8,
@@ -281,176 +285,310 @@ function DriverCardBody({
   onHmu?: () => void;
   onPass?: () => void;
 }) {
-  const name = card.driver.displayName ?? card.driver.handle ?? 'Driver';
-  const initial = name.charAt(0).toUpperCase();
-  const chill = Math.round(card.driver.chillScore);
+  const { driver } = card;
+  const name = driver.displayName ?? driver.handle ?? 'Driver';
+  const handle = driver.handle ? `@${driver.handle}` : null;
+  const chill = Math.round(driver.chillScore);
+  const hasPhoto = Boolean(driver.thumbnailUrl);
+  const hasVideo = Boolean(driver.videoUrl);
+
+  // Prettify area slugs: "westside" → "Westside"
+  const areaLabels = driver.areaSlugs
+    .slice(0, 3)
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' '));
 
   return (
     <div
       style={{
-        height: 340,
-        background: dimmed
-          ? 'linear-gradient(180deg, #1a1a1a 0%, #0f0f0f 100%)'
-          : 'linear-gradient(180deg, #1f1f1f 0%, #141414 100%)',
+        height: 400,
+        background: '#111',
         borderRadius: 24,
-        border: '1px solid rgba(255,255,255,0.08)',
-        padding: 20,
+        border: dimmed ? '1px solid rgba(255,255,255,0.04)' : '1px solid rgba(255,255,255,0.1)',
         display: 'flex',
         flexDirection: 'column',
-        gap: 16,
+        overflow: 'hidden',
         opacity: dimmed ? 0.4 : 1,
         userSelect: 'none',
         WebkitUserSelect: 'none',
-        boxShadow: dimmed ? 'none' : '0 12px 32px rgba(0,0,0,0.45)',
+        boxShadow: dimmed ? 'none' : '0 16px 40px rgba(0,0,0,0.6)',
+        position: 'relative',
       }}
     >
-      {/* Header — avatar + name */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        <div
-          style={{
-            width: 64,
-            height: 64,
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, #2a2a2a 0%, #111 100%)',
-            border: '1.5px solid rgba(0,230,118,0.35)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 28,
-            fontWeight: 800,
-            color: '#fff',
-            flexShrink: 0,
-          }}
-        >
-          {initial}
-        </div>
-        <div style={{ minWidth: 0, flex: 1 }}>
+      {/* ── Hero: photo or video thumbnail with gradient overlay ── */}
+      <div style={{ position: 'relative', height: 200, flexShrink: 0, background: '#1a1a1a' }}>
+        {hasPhoto && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={driver.thumbnailUrl!}
+            alt={name}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              objectPosition: 'top center',
+              display: 'block',
+            }}
+          />
+        )}
+        {!hasPhoto && (
+          /* Fallback monogram when no photo uploaded yet */
           <div
             style={{
-              fontSize: 20,
-              fontWeight: 700,
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'linear-gradient(135deg, #1f1f1f 0%, #0a0a0a 100%)',
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+                fontSize: 72,
+                color: 'rgba(255,255,255,0.12)',
+                lineHeight: 1,
+                letterSpacing: 2,
+              }}
+            >
+              {name.charAt(0).toUpperCase()}
+            </span>
+          </div>
+        )}
+        {/* Video play badge — shown when a video intro is available */}
+        {hasVideo && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 10,
+              right: 10,
+              background: 'rgba(0,0,0,0.7)',
+              backdropFilter: 'blur(6px)',
+              borderRadius: 20,
+              padding: '4px 10px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+            }}
+          >
+            <span style={{ fontSize: 11, color: '#fff', fontWeight: 600 }}>▶ Intro</span>
+          </div>
+        )}
+        {/* Tier badge */}
+        {driver.tier === 'hmu_first' && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 10,
+              left: 10,
+              background: '#FFB300',
+              borderRadius: 20,
+              padding: '3px 10px',
+              fontSize: 10,
+              fontWeight: 800,
+              color: '#000',
+              letterSpacing: 0.8,
+              textTransform: 'uppercase',
+            }}
+          >
+            ★ HMU First
+          </div>
+        )}
+        {/* Bottom gradient so text over the photo stays readable */}
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 80,
+            background: 'linear-gradient(to top, #111 0%, transparent 100%)',
+          }}
+        />
+      </div>
+
+      {/* ── Content area ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '12px 16px 0' }}>
+        {/* Name row */}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2 }}>
+          <span
+            style={{
+              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+              fontSize: 26,
               color: '#fff',
+              lineHeight: 1,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
+              maxWidth: '70%',
             }}
           >
             {name}
-          </div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
-            {chill}% chill
-            {card.driver.tier === 'hmu_first' && <span style={{ color: '#FFB300', marginLeft: 8 }}>★ HMU First</span>}
-          </div>
+          </span>
+          {handle && (
+            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', flexShrink: 0 }}>
+              {handle}
+            </span>
+          )}
         </div>
-      </div>
 
-      {/* Distance pills */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {card.distanceFromPickupMi != null && (
-          <DistancePill
-            label={card.locationIsLive ? 'Currently' : 'From'}
-            valueLabel={card.locationIsLive ? `${card.distanceFromPickupMi} mi away` : `${card.distanceFromPickupMi} mi from pickup`}
-            live={card.locationIsLive}
-          />
+        {/* Stats row: chill score + completed rides */}
+        <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
+            <span style={{ color: '#00E676', fontWeight: 700 }}>{chill}%</span> chill
+          </span>
+          {driver.completedRides > 0 && (
+            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
+              <span style={{ color: '#fff', fontWeight: 700 }}>{driver.completedRides}</span> rides
+            </span>
+          )}
+          {driver.lgbtqFriendly && (
+            <span style={{ fontSize: 12, color: '#E040FB', fontWeight: 600 }}>🏳️‍🌈</span>
+          )}
+        </div>
+
+        {/* Distance + location */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          {card.distanceFromPickupMi != null && (
+            <InfoChip
+              live={card.locationIsLive}
+              text={
+                card.locationIsLive
+                  ? `${card.distanceFromPickupMi} mi away`
+                  : `${card.distanceFromPickupMi} mi from pickup`
+              }
+            />
+          )}
+          {card.distanceFromHomeMi != null && card.homeLabel && (
+            <InfoChip text={`Based: ${card.homeLabel}`} />
+          )}
+          {card.distanceFromPickupMi == null && card.distanceFromHomeMi == null && (
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>Location not shared</span>
+          )}
+        </div>
+
+        {/* Vehicle */}
+        {driver.vehicleLabel && (
+          <div style={{ marginBottom: 6 }}>
+            <InfoChip
+              icon="🚗"
+              text={[driver.vehicleLabel, driver.vehicleColor].filter(Boolean).join(' · ')}
+            />
+          </div>
         )}
-        {card.distanceFromHomeMi != null && card.homeLabel && (
-          <DistancePill
-            label="Home"
-            valueLabel={`${card.distanceFromHomeMi} mi · ${card.homeLabel}`}
-            live={false}
-          />
+
+        {/* Areas */}
+        {areaLabels.length > 0 && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {areaLabels.map((a) => (
+              <span
+                key={a}
+                style={{
+                  fontSize: 10,
+                  color: 'rgba(255,255,255,0.45)',
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 6,
+                  padding: '2px 7px',
+                  fontWeight: 500,
+                  letterSpacing: 0.3,
+                }}
+              >
+                {a}
+              </span>
+            ))}
+          </div>
         )}
-        {card.distanceFromPickupMi == null && card.distanceFromHomeMi == null && (
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
-            Location not shared yet.
+
+        <div style={{ flex: 1 }} />
+
+        {/* Action buttons */}
+        {onHmu && (
+          <div style={{ display: 'flex', gap: 10, paddingBottom: 16, paddingTop: 10 }}>
+            <button
+              type="button"
+              onClick={onPass}
+              style={{
+                flex: 1,
+                padding: '13px 0',
+                borderRadius: 100,
+                background: 'transparent',
+                color: 'rgba(255,255,255,0.55)',
+                fontSize: 15,
+                fontWeight: 700,
+                border: '1.5px solid rgba(255,255,255,0.12)',
+                cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Nah
+            </button>
+            <button
+              type="button"
+              onClick={onHmu}
+              style={{
+                flex: 2,
+                padding: '13px 0',
+                borderRadius: 100,
+                background: '#00E676',
+                color: '#050505',
+                fontSize: 16,
+                fontWeight: 900,
+                border: 'none',
+                cursor: 'pointer',
+                letterSpacing: 0.5,
+                fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+              }}
+            >
+              HMU
+            </button>
           </div>
         )}
       </div>
-
-      <div style={{ flex: 1 }} />
-
-      {/* Action buttons — mirror swipe gestures for accessibility. */}
-      {onHmu && (
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button
-            type="button"
-            onClick={onPass}
-            style={{
-              flex: 1,
-              padding: '12px 0',
-              borderRadius: 100,
-              background: 'transparent',
-              color: 'rgba(255,255,255,0.6)',
-              fontSize: 14,
-              fontWeight: 600,
-              border: '1px solid rgba(255,255,255,0.15)',
-              cursor: 'pointer',
-            }}
-          >
-            Pass
-          </button>
-          <button
-            type="button"
-            onClick={onHmu}
-            style={{
-              flex: 2,
-              padding: '12px 0',
-              borderRadius: 100,
-              background: '#00E676',
-              color: '#080808',
-              fontSize: 15,
-              fontWeight: 800,
-              border: 'none',
-              cursor: 'pointer',
-              letterSpacing: 0.3,
-            }}
-          >
-            HMU
-          </button>
-        </div>
-      )}
     </div>
   );
 }
 
-function DistancePill({
-  label,
-  valueLabel,
+function InfoChip({
+  text,
+  icon,
   live,
 }: {
-  label: string;
-  valueLabel: string;
-  live: boolean;
+  text: string;
+  icon?: string;
+  live?: boolean;
 }) {
   return (
     <div
       style={{
-        display: 'flex',
+        display: 'inline-flex',
         alignItems: 'center',
-        gap: 8,
-        padding: '8px 12px',
-        borderRadius: 12,
-        background: 'rgba(255,255,255,0.04)',
-        border: '1px solid rgba(255,255,255,0.06)',
+        gap: 5,
+        padding: '4px 10px',
+        borderRadius: 10,
+        background: 'rgba(255,255,255,0.05)',
+        border: '1px solid rgba(255,255,255,0.07)',
+        fontSize: 12,
+        color: 'rgba(255,255,255,0.75)',
+        fontWeight: 500,
+        whiteSpace: 'nowrap',
       }}
     >
       {live && (
         <span
           style={{
-            width: 8,
-            height: 8,
+            width: 6,
+            height: 6,
             borderRadius: '50%',
             background: '#00E676',
-            boxShadow: '0 0 8px #00E676',
+            boxShadow: '0 0 6px #00E676',
             flexShrink: 0,
           }}
           aria-hidden="true"
         />
       )}
-      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 1.2 }}>
-        {label}
-      </span>
-      <span style={{ fontSize: 13, color: '#fff', marginLeft: 'auto' }}>{valueLabel}</span>
+      {icon && <span>{icon}</span>}
+      {text}
     </div>
   );
 }

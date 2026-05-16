@@ -71,7 +71,11 @@ export async function GET(
       dp.handle,
       dp.display_name,
       dp.video_url,
+      dp.thumbnail_url,
       dp.vehicle_info,
+      dp.area_slugs,
+      dp.lgbtq_friendly,
+      dp.accepts_long_distance,
       dp.current_lat,
       dp.current_lng,
       dp.location_updated_at,
@@ -79,7 +83,8 @@ export async function GET(
       dp.home_lng,
       dp.home_label,
       u.chill_score,
-      u.tier
+      u.tier,
+      u.completed_rides
     FROM blast_driver_targets bdt
     JOIN driver_profiles dp ON dp.user_id = bdt.driver_id
     JOIN users u ON u.id = bdt.driver_id
@@ -156,14 +161,7 @@ export async function GET(
         pullUpAt: row.pull_up_at ?? null,
         rejectedAt: row.rejected_at,
         notifiedAt: row.notified_at,
-        driver: {
-          handle: row.handle,
-          displayName: row.display_name,
-          videoUrl: row.video_url,
-          vehicle: row.vehicle_info,
-          chillScore: Number(row.chill_score ?? 0),
-          tier: row.tier,
-        },
+        driver: buildDriverInfo(row),
       };
     }),
     fallbackDrivers: fallbackTargets.map((r: unknown) => {
@@ -211,15 +209,36 @@ export async function GET(
         // the pill (e.g. green dot) only when the location is live.
         locationIsLive: isGpsFresh,
         homeLabel: (row.home_label as string | null) ?? null,
-        driver: {
-          handle: row.handle,
-          displayName: row.display_name,
-          videoUrl: row.video_url,
-          vehicle: row.vehicle_info,
-          chillScore: Number(row.chill_score ?? 0),
-          tier: row.tier,
-        },
+        driver: buildDriverInfo(row),
       };
     }),
   });
+}
+
+function buildDriverInfo(row: Record<string, unknown>) {
+  const vi = row.vehicle_info as Record<string, unknown> | null;
+  const vehicleLabel = vi
+    ? [vi.year, vi.make, vi.model].filter(Boolean).join(' ') || null
+    : null;
+  const vehicleColor = (vi?.color as string) || null;
+  const vehiclePhotoUrl = (vi?.photo_url as string) || null;
+  const maxRiders =
+    vi ? (Number(vi.max_adults ?? 0) + Number(vi.max_children ?? 0)) || null : null;
+  const areaSlugs = Array.isArray(row.area_slugs) ? (row.area_slugs as string[]) : [];
+  return {
+    handle: row.handle as string | null,
+    displayName: row.display_name as string | null,
+    videoUrl: row.video_url as string | null,
+    thumbnailUrl: row.thumbnail_url as string | null,
+    vehicleLabel,
+    vehicleColor,
+    vehiclePhotoUrl,
+    maxRiders,
+    areaSlugs,
+    lgbtqFriendly: Boolean(row.lgbtq_friendly),
+    acceptsLongDistance: Boolean(row.accepts_long_distance),
+    chillScore: Number(row.chill_score ?? 0),
+    completedRides: Number(row.completed_rides ?? 0),
+    tier: row.tier as string | null,
+  };
 }
