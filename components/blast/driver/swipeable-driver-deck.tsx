@@ -187,7 +187,7 @@ export function SwipeableDriverDeck({
       <div
         style={{
           position: 'relative',
-          minHeight: 400,
+          minHeight: 480,
           // Reserve room for the stack offset so the layout doesn't jump
           // when the bottom card peeks out.
           marginBottom: 8,
@@ -331,7 +331,7 @@ function DriverCardBody({
   return (
     <div
       style={{
-        height: 400,
+        height: 480,
         background: '#111',
         borderRadius: 24,
         border: dimmed ? '1px solid rgba(255,255,255,0.04)' : '1px solid rgba(255,255,255,0.1)',
@@ -345,8 +345,8 @@ function DriverCardBody({
         position: 'relative',
       }}
     >
-      {/* ── Hero: photo or video thumbnail with gradient overlay ── */}
-      <div style={{ position: 'relative', height: 200, flexShrink: 0, background: '#1a1a1a' }}>
+      {/* ── Hero: photo or video — 150px keeps it recognisable without eating the detail area ── */}
+      <div style={{ position: 'relative', height: 150, flexShrink: 0, background: '#1a1a1a' }}>
         {hasVideo && (
           // Video intro — autoplay muted loop so it plays silently in the deck.
           <video
@@ -455,138 +455,151 @@ function DriverCardBody({
         />
       </div>
 
-      {/* ── Content area ── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '10px 16px 0' }}>
+      {/* ── Content area (330px) ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '12px 16px 0', minHeight: 0 }}>
 
-        {/* Row 1 — name + price side by side */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
-          <div style={{ minWidth: 0, flex: 1, marginRight: 8 }}>
-            <div style={{
-              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-              fontSize: 24,
-              color: '#fff',
-              lineHeight: 1,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+        {/* ── Row 1: Name + LIVE badge ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+          <span style={{
+            fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+            fontSize: 26,
+            color: '#fff',
+            lineHeight: 1,
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}>
+            {name}
+          </span>
+          {card.locationIsLive && (
+            <span style={{
+              fontSize: 9,
+              fontWeight: 800,
+              letterSpacing: 1,
+              color: '#00E676',
+              background: 'rgba(0,230,118,0.12)',
+              border: '1px solid rgba(0,230,118,0.3)',
+              borderRadius: 20,
+              padding: '2px 7px',
+              flexShrink: 0,
             }}>
-              {name}
-            </div>
-            {handle && (
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 1 }}>
-                {handle}
-              </div>
-            )}
-          </div>
-          {/* Minimum fare + price compat */}
-          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            {driver.minimumFare != null ? (
-              <>
-                <div style={{
-                  fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-                  fontSize: 22,
-                  color: priceOk === false ? '#FFB300' : '#00E676',
-                  lineHeight: 1,
-                }}>
-                  ${driver.minimumFare} min
-                </div>
-                {priceOk === false && (
-                  <div style={{ fontSize: 9, color: '#FFB300', marginTop: 1 }}>
-                    above your offer
-                  </div>
-                )}
-                {priceOk === true && (
-                  <div style={{ fontSize: 9, color: '#00E676', marginTop: 1 }}>
-                    in range ✓
-                  </div>
-                )}
-              </>
-            ) : (
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
-                No min set
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Row 2 — chill + rides + LGBTQ */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 8, alignItems: 'center' }}>
-          {chill > 0 && (
-            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
-              <span style={{ color: '#00E676', fontWeight: 700 }}>{chill}%</span> chill
+              ● LIVE
             </span>
           )}
+          {driver.tier === 'hmu_first' && (
+            <span style={{
+              fontSize: 9,
+              fontWeight: 800,
+              color: '#000',
+              background: '#FFB300',
+              borderRadius: 20,
+              padding: '2px 7px',
+              flexShrink: 0,
+            }}>
+              ★ 1ST
+            </span>
+          )}
+        </div>
+
+        {/* ── Row 2: Chill score + rides ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
+            <span style={{ color: '#00E676', fontWeight: 700 }}>{chill > 0 ? `${chill}%` : '—'}</span>
+            {' '}chill score
+          </span>
           {driver.completedRides > 0 && (
-            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
-              <span style={{ color: '#fff', fontWeight: 700 }}>{driver.completedRides}</span> rides
-            </span>
+            <>
+              <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10 }}>·</span>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
+                <span style={{ color: '#fff', fontWeight: 600 }}>{driver.completedRides}</span> rides
+              </span>
+            </>
           )}
-          {driver.acceptsLongDistance && (
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.06)', borderRadius: 4, padding: '1px 5px' }}>
-              Long distance ✓
-            </span>
-          )}
-          {driver.lgbtqFriendly && (
-            <span style={{ fontSize: 11 }}>🏳️‍🌈</span>
-          )}
+          {driver.lgbtqFriendly && <span style={{ fontSize: 12 }}>🏳️‍🌈</span>}
         </div>
 
-        {/* Row 3 — distance from pickup */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
-          {card.distanceFromPickupMi != null ? (
-            <InfoChip
-              live={card.locationIsLive}
-              text={card.locationIsLive
-                ? `${card.distanceFromPickupMi} mi from you now`
-                : `${card.distanceFromPickupMi} mi from pickup`}
-            />
-          ) : card.distanceFromHomeMi != null && card.homeLabel ? (
-            <InfoChip text={`Based ${card.distanceFromHomeMi} mi away · ${card.homeLabel}`} />
-          ) : areaLabels.length > 0 ? (
-            <InfoChip text={`Serves: ${areaLabels.join(', ')}`} />
-          ) : (
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>GPS offline</span>
-          )}
-          {/* Show home label as secondary when we already have live distance */}
-          {card.distanceFromPickupMi != null && card.homeLabel && (
-            <InfoChip text={`Home: ${card.homeLabel}`} />
-          )}
-        </div>
+        {/* ── Row 3: Distance (always shows something) ── */}
+        <DetailRow label="Distance">
+          {card.distanceFromPickupMi != null
+            ? `${card.distanceFromPickupMi} mi from pickup${card.locationIsLive ? ' (live)' : ''}`
+            : card.distanceFromHomeMi != null
+              ? `~${card.distanceFromHomeMi} mi · Based: ${card.homeLabel ?? 'unknown'}`
+              : areaLabels.length > 0
+                ? `Serves ${areaLabels.join(', ')}`
+                : 'GPS offline'}
+        </DetailRow>
 
-        {/* Row 4 — vehicle */}
-        {driver.vehicleLabel ? (
-          <div style={{ marginBottom: 6 }}>
-            <InfoChip
-              icon="🚗"
-              text={[driver.vehicleLabel, driver.vehicleColor].filter(Boolean).join(' · ')}
-            />
-          </div>
-        ) : (
-          <div style={{ marginBottom: 6 }}>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>Vehicle not listed</span>
-          </div>
-        )}
+        {/* ── Row 4: Car ── */}
+        <DetailRow label="Car">
+          {driver.vehicleLabel
+            ? [driver.vehicleLabel, driver.vehicleColor].filter(Boolean).join(' · ')
+            : 'Not listed'}
+        </DetailRow>
 
-        {/* Row 5 — deposit context (when set) */}
-        {depositAmount != null && depositAmount > 0 && (
-          <div style={{ marginBottom: 6 }}>
-            <InfoChip text={`$${depositAmount} deposit held`} />
+        {/* ── Row 5: Min price + deposit (side by side) ── */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <div style={{
+            flex: 1,
+            background: 'rgba(255,255,255,0.04)',
+            border: `1px solid ${priceOk === false ? 'rgba(255,179,0,0.3)' : priceOk === true ? 'rgba(0,230,118,0.25)' : 'rgba(255,255,255,0.08)'}`,
+            borderRadius: 10,
+            padding: '7px 10px',
+          }}>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>
+              Min fare
+            </div>
+            <div style={{
+              fontSize: 18,
+              fontWeight: 800,
+              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+              color: priceOk === false ? '#FFB300' : priceOk === true ? '#00E676' : '#fff',
+              lineHeight: 1,
+            }}>
+              {driver.minimumFare != null ? `$${driver.minimumFare}` : 'Ask'}
+            </div>
+            {priceOk === true && (
+              <div style={{ fontSize: 9, color: '#00E676', marginTop: 2 }}>in range ✓</div>
+            )}
+            {priceOk === false && (
+              <div style={{ fontSize: 9, color: '#FFB300', marginTop: 2 }}>above offer</div>
+            )}
           </div>
-        )}
-
-        {/* Row 6 — area slugs (when not already shown in distance row) */}
-        {areaLabels.length > 0 && card.distanceFromPickupMi != null && (
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
-            {areaLabels.map((a) => (
-              <span key={a} style={{
-                fontSize: 10,
-                color: 'rgba(255,255,255,0.4)',
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(255,255,255,0.07)',
-                borderRadius: 5,
-                padding: '2px 6px',
-                fontWeight: 500,
+          {depositAmount != null && depositAmount > 0 && (
+            <div style={{
+              flex: 1,
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 10,
+              padding: '7px 10px',
+            }}>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>
+                Deposit
+              </div>
+              <div style={{
+                fontSize: 18,
+                fontWeight: 800,
+                fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+                color: '#fff',
+                lineHeight: 1,
               }}>
+                ${depositAmount}
+              </div>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>held</div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Row 6: Extra flags ── */}
+        {(driver.acceptsLongDistance || areaLabels.length > 0) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+            {driver.acceptsLongDistance && (
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 5, padding: '2px 7px' }}>
+                Long distance ✓
+              </span>
+            )}
+            {areaLabels.map((a) => (
+              <span key={a} style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 5, padding: '2px 7px' }}>
                 {a}
               </span>
             ))}
@@ -642,46 +655,38 @@ function DriverCardBody({
   );
 }
 
-function InfoChip({
-  text,
-  icon,
-  live,
-}: {
-  text: string;
-  icon?: string;
-  live?: boolean;
-}) {
+// Label-value row for structured driver data — always renders even when value
+// is a fallback string like "Not listed" so the layout never has empty gaps.
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 5,
-        padding: '4px 10px',
-        borderRadius: 10,
-        background: 'rgba(255,255,255,0.05)',
-        border: '1px solid rgba(255,255,255,0.07)',
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.75)',
+    <div style={{
+      display: 'flex',
+      alignItems: 'baseline',
+      gap: 8,
+      marginBottom: 7,
+      minWidth: 0,
+    }}>
+      <span style={{
+        fontSize: 10,
+        color: 'rgba(255,255,255,0.35)',
+        textTransform: 'uppercase',
+        letterSpacing: 0.8,
+        flexShrink: 0,
+        width: 56,
+      }}>
+        {label}
+      </span>
+      <span style={{
+        fontSize: 13,
+        color: 'rgba(255,255,255,0.85)',
         fontWeight: 500,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
-      }}
-    >
-      {live && (
-        <span
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: '50%',
-            background: '#00E676',
-            boxShadow: '0 0 6px #00E676',
-            flexShrink: 0,
-          }}
-          aria-hidden="true"
-        />
-      )}
-      {icon && <span>{icon}</span>}
-      {text}
+        flex: 1,
+      }}>
+        {children}
+      </span>
     </div>
   );
 }
