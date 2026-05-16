@@ -22,6 +22,13 @@ export interface MetroOutline {
   polygon: readonly [number, number][];
   /** Center hint for camera framing — average if omitted. */
   focus?: [number, number];
+  /**
+   * Mapbox Static Images API center [lng, lat] and zoom.
+   * Choose a zoom where the metro polygon fills ~70% of the frame —
+   * too tight and suburb detail dominates; too loose and the city is a dot.
+   */
+  mapCenter?: [number, number];
+  mapZoom?: number;
 }
 
 // Atlanta — I-285 "Perimeter" inspired oval, slightly squashed N-S with the
@@ -31,6 +38,9 @@ export interface MetroOutline {
 export const ATL_METRO: MetroOutline = {
   slug: 'atl',
   name: 'Atlanta',
+  // I-285 perimeter center. Zoom 9 fits the full metro with light padding.
+  mapCenter: [-84.388, 33.749],
+  mapZoom: 9,
   polygon: [
     [0.50, 0.06], // top — Roswell/Alpharetta bulge
     [0.62, 0.08],
@@ -59,6 +69,9 @@ export const ATL_METRO: MetroOutline = {
 export const NOLA_METRO: MetroOutline = {
   slug: 'nola',
   name: 'New Orleans',
+  // Orleans Parish center. Zoom 11 captures the crescent shape tightly.
+  mapCenter: [-90.075, 29.951],
+  mapZoom: 11,
   polygon: [
     [0.08, 0.36], // Lake Pontchartrain shore — NW
     [0.18, 0.28],

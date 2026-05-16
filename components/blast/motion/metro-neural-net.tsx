@@ -180,6 +180,19 @@ export function MetroNeuralNet({
   const dashLength = size * 0.06;
   const gapLength = size * 0.42;
 
+  // Mapbox Static Images URL — dark-v11 gives a premium near-black basemap.
+  // The token is NEXT_PUBLIC_ so it's safe to use client-side (already in
+  // the Mapbox GL JS bundle). Size is the SVG coordinate size * 2 for @2x;
+  // CSS background-size:cover scales it to the container.
+  const mapboxToken = typeof process !== 'undefined'
+    ? process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+    : undefined;
+  const mapCenter = metro.mapCenter;
+  const mapZoom = metro.mapZoom ?? 9;
+  const mapboxBg = mapboxToken && mapCenter
+    ? `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${mapCenter[0]},${mapCenter[1]},${mapZoom},0/${size * 2}x${size * 2}@2x?access_token=${mapboxToken}`
+    : null;
+
   return (
     <div
       className={className}
@@ -196,9 +209,6 @@ export function MetroNeuralNet({
       <div
         style={{
           width: '100%',
-          // Panoramic 2.5:1 banner — city silhouette as a compact wide strip
-          // so the animation stays atmospheric without dominating the screen.
-          // slice fills the rectangle from the center of the polygon.
           paddingBottom: '40%',
           position: 'relative',
           transformStyle: 'preserve-3d',
@@ -206,15 +216,29 @@ export function MetroNeuralNet({
           animation: prefersReduced
             ? undefined
             : `metro-rotate-y ${ROTATION_DURATION_S}s linear infinite`,
+          // Mapbox dark map as the background layer. The SVG is transparent
+          // so the city streets show through the neural-net mesh.
+          backgroundImage: mapboxBg ? `url(${mapboxBg})` : undefined,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundColor: '#0a0a0a', // fallback when map hasn't loaded
         }}
       >
+        {/* Dark scrim between map and mesh — keeps the neural net readable
+            without completely obscuring the street grid. */}
+        {mapboxBg && (
+          <div style={{
+            position: 'absolute', inset: 0, zIndex: 0,
+            background: 'rgba(0,0,0,0.55)',
+          }} />
+        )}
         <svg
           width="100%"
           height="100%"
           viewBox={`0 0 ${view} ${view}`}
           preserveAspectRatio="xMidYMid slice"
           aria-hidden="true"
-          style={{ position: 'absolute', inset: 0 }}
+          style={{ position: 'absolute', inset: 0, zIndex: 1 }}
         >
           <defs>
             <filter id="metro-glow" x="-50%" y="-50%" width="200%" height="200%">
@@ -230,13 +254,16 @@ export function MetroNeuralNet({
             </linearGradient>
           </defs>
 
-          {/* Metro outline — soft glow, subtle so the mesh dominates. */}
+          {/* Metro outline — transparent fill when map is present (map provides
+              the visual fill); slightly brighter stroke so the I-285 boundary
+              reads as a city limit on the dark map. */}
           <path
             d={outlinePath}
-            fill="rgba(0, 230, 118, 0.04)"
+            fill={mapboxBg ? 'none' : 'rgba(0, 230, 118, 0.04)'}
             stroke="url(#metro-outline-grad)"
-            strokeWidth={1.4}
+            strokeWidth={mapboxBg ? 2 : 1.4}
             strokeLinejoin="round"
+            opacity={mapboxBg ? 0.6 : 1}
           />
 
           {/* Edges — shimmering current effect. */}
@@ -313,11 +340,12 @@ export function MetroNeuralNet({
       {label && (
         <p
           style={{
-            marginTop: 16,
-            fontSize: 14,
-            color: '#BBBBBB',
+            marginTop: 8,
+            fontSize: 12,
+            color: 'rgba(255,255,255,0.45)',
             textAlign: 'center',
             fontFamily: "var(--font-body, 'DM Sans', system-ui, sans-serif)",
+            letterSpacing: 0.3,
           }}
         >
           {label}
