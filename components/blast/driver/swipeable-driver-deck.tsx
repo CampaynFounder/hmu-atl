@@ -198,8 +198,12 @@ export function SwipeableDriverDeck({
                 key={card.targetId}
                 initial={prefersReduced ? false : { opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: offsetY, scale }}
-                exit={prefersReduced ? undefined : { opacity: 0, x: 240, transition: { duration: 0.18 } }}
-                transition={{ type: 'spring', stiffness: 260, damping: 28 }}
+                // Exit is a simple fade — for the top card, SwipeableCard
+                // already flew it off-screen imperatively before the parent
+                // state update, so this only needs to handle the rare case
+                // where a card is removed by other means (API cancel, etc.).
+                exit={prefersReduced ? undefined : { opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
+                transition={{ type: 'spring', stiffness: 280, damping: 28 }}
                 style={{
                   position: 'absolute',
                   inset: 0,
@@ -212,6 +216,8 @@ export function SwipeableDriverDeck({
                     axis="x"
                     onSwipeLeft={() => handlePass(card)}
                     onSwipeRight={() => handleHmu(card)}
+                    leftLabel="Nah"
+                    rightLabel="HMU"
                     ariaLabel={`Driver ${card.driver.displayName ?? card.driver.handle ?? 'card'}. Swipe right to HMU, left to pass.`}
                     className="h-full"
                   >
@@ -289,8 +295,17 @@ function DriverCardBody({
   const name = driver.displayName ?? driver.handle ?? 'Driver';
   const handle = driver.handle ? `@${driver.handle}` : null;
   const chill = Math.round(driver.chillScore);
-  const hasPhoto = Boolean(driver.thumbnailUrl);
-  const hasVideo = Boolean(driver.videoUrl);
+
+  // thumbnail_url may point to a video file when the driver uploaded a video
+  // as their intro (the upload route stores the same URL in both columns).
+  // Detect this so we render <video> instead of a broken <img>.
+  const isVideoUrl = (url: string | null) =>
+    url ? /\.(mp4|mov|webm|m4v)(\?.*)?$/i.test(url) : false;
+  const thumbIsVideo = isVideoUrl(driver.thumbnailUrl);
+  const photoUrl = driver.thumbnailUrl && !thumbIsVideo ? driver.thumbnailUrl : null;
+  const videoUrl = driver.videoUrl ?? (thumbIsVideo ? driver.thumbnailUrl : null);
+  const hasPhoto = Boolean(photoUrl);
+  const hasVideo = Boolean(videoUrl);
 
   // Prettify area slugs: "westside" → "Westside"
   const areaLabels = driver.areaSlugs
@@ -316,10 +331,27 @@ function DriverCardBody({
     >
       {/* ── Hero: photo or video thumbnail with gradient overlay ── */}
       <div style={{ position: 'relative', height: 200, flexShrink: 0, background: '#1a1a1a' }}>
-        {hasPhoto && (
+        {hasVideo && (
+          // Video intro — autoplay muted loop so it plays silently in the deck.
+          <video
+            src={videoUrl!}
+            autoPlay
+            muted
+            loop
+            playsInline
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              objectPosition: 'top center',
+              display: 'block',
+            }}
+          />
+        )}
+        {!hasVideo && hasPhoto && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={driver.thumbnailUrl!}
+            src={photoUrl!}
             alt={name}
             style={{
               width: '100%',
@@ -355,7 +387,7 @@ function DriverCardBody({
             </span>
           </div>
         )}
-        {/* Video play badge — shown when a video intro is available */}
+        {/* Video badge — shown when a video is playing in the hero */}
         {hasVideo && (
           <div
             style={{

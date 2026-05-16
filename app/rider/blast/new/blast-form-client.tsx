@@ -587,7 +587,7 @@ function DatetimeStep({
 }) {
   const [text, setText] = useState(freeText);
   const [parsing, setParsing] = useState(false);
-  const [parserStatus, setParserStatus] = useState<'idle' | 'parsed' | 'low_conf' | 'failed'>('idle');
+  const [parserStatus, setParserStatus] = useState<'idle' | 'parsed' | 'picked' | 'low_conf' | 'failed'>('idle');
   const parserRef = useRef(getDateParser());
   const debounceRef = useRef<number | null>(null);
 
@@ -670,9 +670,16 @@ function DatetimeStep({
       />
       <div style={{ minHeight: 18, marginTop: 8, fontSize: 12, color: '#888' }}>
         {parsing && 'Reading that…'}
-        {!parsing && parserStatus === 'parsed' && scheduledFor && (
+        {!parsing && (parserStatus === 'parsed' || parserStatus === 'picked') && scheduledFor && (
           <span style={{ color: '#00E676' }}>
-            {new Date(scheduledFor).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}
+            ✓{' '}
+            {new Date(scheduledFor).toLocaleString(undefined, {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+            })}
           </span>
         )}
         {!parsing && parserStatus === 'low_conf' && (
@@ -722,25 +729,44 @@ function DatetimeStep({
             alignItems: 'center',
             padding: '12px 14px',
             borderRadius: 14,
-            border: '1.5px solid rgba(255,255,255,0.12)',
-            background: 'rgba(255,255,255,0.04)',
-            color: 'rgba(255,255,255,0.78)',
+            border: parserStatus === 'picked' && scheduledFor
+              ? '1.5px solid rgba(0,230,118,0.5)'
+              : '1.5px solid rgba(255,255,255,0.12)',
+            background: parserStatus === 'picked' && scheduledFor
+              ? 'rgba(0,230,118,0.08)'
+              : 'rgba(255,255,255,0.04)',
+            color: parserStatus === 'picked' && scheduledFor
+              ? '#00E676'
+              : 'rgba(255,255,255,0.78)',
             fontSize: 14,
             fontWeight: 600,
             fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
             cursor: 'pointer',
             whiteSpace: 'nowrap',
             userSelect: 'none',
+            transition: 'border-color 0.2s, background 0.2s, color 0.2s',
           }}
         >
-          Pick date
+          {parserStatus === 'picked' && scheduledFor
+            ? new Date(scheduledFor).toLocaleString(undefined, {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              })
+            : 'Pick date'}
           <input
             id="blast-pick-date"
             type="datetime-local"
             min={new Date(Date.now() + 5 * 60_000).toISOString().slice(0, 16)}
             onChange={(e) => {
               const t = new Date(e.target.value);
-              if (Number.isFinite(t.getTime())) onChange(t.toISOString(), '', null);
+              if (Number.isFinite(t.getTime())) {
+                setText('');
+                setParserStatus('picked');
+                onChange(t.toISOString(), '', null);
+              }
             }}
             // Cover the entire chip so any tap inside the chip lands on the
             // input — that's the gesture that opens the native picker on iOS
