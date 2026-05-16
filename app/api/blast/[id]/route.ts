@@ -212,13 +212,18 @@ export async function GET(
         matchScore: Number(row.match_score),
         distanceFromPickupMi,
         distanceFromHomeMi,
-        // True when the rider card's "X mi away" reflects real-time GPS,
-        // false when it's the driver's static home. Lets the UI decorate
-        // the pill (e.g. green dot) only when the location is live.
         locationIsLive: isGpsFresh,
         homeLabel: (row.home_label as string | null) ?? null,
         driver: buildDriverInfo(row),
       };
+    // Sort by proximity to pickup (nearest first, nulls last) so the rider
+    // sees the most reachable driver at the top of the swipe deck.
+    // Admin can influence relative ordering via the proximity_to_pickup weight
+    // in the blast matching config, but card ORDER defaults to raw distance.
+    }).sort((a: { distanceFromPickupMi: number | null; distanceFromHomeMi: number | null }, b: { distanceFromPickupMi: number | null; distanceFromHomeMi: number | null }) => {
+      const da = a.distanceFromPickupMi ?? a.distanceFromHomeMi ?? Infinity;
+      const db = b.distanceFromPickupMi ?? b.distanceFromHomeMi ?? Infinity;
+      return da - db;
     }),
   });
 }

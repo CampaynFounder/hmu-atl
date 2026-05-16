@@ -17,7 +17,6 @@
 // fixed app header (contract §5.1).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAbly } from '@/hooks/use-ably';
@@ -32,16 +31,6 @@ import {
 } from '@/components/blast/motion';
 import { SwipeableDriverDeck } from '@/components/blast/driver/swipeable-driver-deck';
 
-// InlinePaymentForm uses @stripe/react-stripe-js — dynamic import keeps it
-// out of the initial bundle and avoids SSR issues.
-const InlinePaymentForm = dynamic(
-  () => import('@/components/payments/inline-payment-form'),
-  { ssr: false, loading: () => (
-    <div style={{ padding: 16, textAlign: 'center', color: '#888', fontSize: 13 }}>
-      Loading secure payment…
-    </div>
-  )},
-);
 
 interface DriverInfo {
   handle: string | null;
@@ -132,12 +121,10 @@ export default function BlastOfferBoardClientV3({
   const [now, setNow] = useState(() => Date.now());
   const [actionToast, setActionToast] = useState<string | null>(null);
 
-  // Payment gate — first 3 fallback drivers are free; rest require a card.
+  // Payment gate — deck itself handles the gate at end-of-cards.
   const [hasCard, setHasCard] = useState<boolean | null>(null); // null = loading
-  const [showCardForm, setShowCardForm] = useState(false);
-  const FREE_DRIVER_LIMIT = 3;
 
-  // Review mode — toggled after rider exhausts the swipe deck or explicitly opens it.
+  // Review mode — toggled when rider taps "Review matches".
   const [showReview, setShowReview] = useState(false);
 
   // Initial fetch + soft 15s poll fallback (Ably is the primary live channel).
@@ -523,72 +510,19 @@ export default function BlastOfferBoardClientV3({
         {/* ── Nearby drivers — swipeable deck ──────────────────────────── */}
         {fallback.length > 0 && !showReview && (
           <section className="mt-4">
-            {/* Free tier: first 3 drivers, no card needed */}
             <SwipeableDriverDeck
               blastId={blastId}
-              cards={hasCard ? fallback : fallback.slice(0, FREE_DRIVER_LIMIT)}
+              cards={fallback}
               blastPrice={blast.price}
               depositAmount={blast.depositAmount}
+              hasCard={hasCard === true}
               onAfterHmu={refresh}
-              onDeckEmpty={() => setShowReview(true)}
+              onExpanded={() => {
+                setHasCard(true);
+                void refresh();
+                track('blast_expanded', { blastId });
+              }}
             />
-
-            {/* Payment gate — shown when rider has no card + more drivers exist */}
-            <AnimatePresence>
-              {!hasCard && fallback.length > FREE_DRIVER_LIMIT && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 8 }}
-                  transition={{ duration: 0.2 }}
-                  className="mt-4"
-                >
-                  {!showCardForm ? (
-                    <button
-                      onClick={() => setShowCardForm(true)}
-                      className="w-full rounded-2xl border border-[#00E676]/30 bg-[#00E676]/5 p-4 text-left transition-all hover:bg-[#00E676]/10"
-                    >
-                      <div className="text-sm font-bold text-white mb-0.5">
-                        {fallback.length - FREE_DRIVER_LIMIT} more drivers nearby
-                      </div>
-                      <div className="text-xs text-neutral-400">
-                        Link your card to see them — no charge until you ride.
-                      </div>
-                      <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[#00E676] px-4 py-2 text-xs font-bold text-black">
-                        Link card to unlock
-                      </div>
-                    </button>
-                  ) : (
-                    <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-sm font-semibold text-white">
-                          Link your card
-                        </span>
-                        <button
-                          onClick={() => setShowCardForm(false)}
-                          className="text-neutral-500 hover:text-white text-xs"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                      <p className="text-xs text-neutral-500 mb-4">
-                        No charge now — only charged when a ride completes.
-                        Unlocks {fallback.length - FREE_DRIVER_LIMIT} more drivers.
-                      </p>
-                      <InlinePaymentForm
-                        compact
-                        onSuccess={() => {
-                          setHasCard(true);
-                          setShowCardForm(false);
-                          track('blast_card_linked', { blastId, extraDrivers: fallback.length - FREE_DRIVER_LIMIT });
-                        }}
-                        onCancel={() => setShowCardForm(false)}
-                      />
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
           </section>
         )}
 
