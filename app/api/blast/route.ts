@@ -158,6 +158,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ── 2b. One-blast-at-a-time gate ──
+    // Riders can only have one active blast. Return the existing shortcode so
+    // the client can redirect the rider back to their offer board.
+    const existingBlast = await runQuery('check_existing_blast', () => sql`
+      SELECT id, shortcode FROM hmu_posts
+      WHERE user_id = ${riderId}
+        AND post_type = 'blast'
+        AND status = 'active'
+        AND expires_at > NOW()
+      LIMIT 1
+    `);
+    if (existingBlast.length) {
+      const existing = existingBlast[0] as { id: string; shortcode: string };
+      return NextResponse.json(
+        {
+          error: 'ACTIVE_BLAST_EXISTS',
+          message: 'You already have an active blast',
+          shortcode: existing.shortcode,
+          blastId: existing.id,
+        },
+        { status: 409 },
+      );
+    }
+
     // ── 3. Body validation ──
     const body = (await req.json().catch(() => ({}))) as BlastBody;
 
