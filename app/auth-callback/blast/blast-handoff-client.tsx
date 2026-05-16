@@ -78,10 +78,15 @@ export default function BlastHandoffClient() {
   const [sendError, setSendError] = useState<string | null>(null);
 
   // sendBlast is declared further down with useCallback so it can close over
-  // state setters; we keep a ref to the latest version so the mount effect
-  // (which runs once Clerk loads + draft restores) can fire it for the
-  // signin path without ordering gymnastics.
+  // state setters; commitAndSend (signup path) calls it via a ref because it
+  // is defined before sendBlast in source order.
   const sendBlastRef = useRef<(() => Promise<void>) | null>(null);
+
+  // Idempotency guard for the signin auto-send effect. The effect below runs
+  // whenever its deps change (draft, sendBlast); without this we'd risk
+  // firing the POST twice if a re-render happened to land while still in
+  // 'sending' state.
+  const autoSendFiredRef = useRef(false);
 
   // ─── Mount: restore draft + decide first step ─────────────────────────────
   useEffect(() => {
@@ -99,19 +104,35 @@ export default function BlastHandoffClient() {
     });
     if (mode === 'signin') {
       // Existing rider — they already have a handle + (probably) a photo
-      // from a prior sign-up. Skip account_setup, fire confetti, auto-send.
+      // from a prior sign-up. Skip account_setup, fire confetti, advance to
+      // 'sending'. The auto-send effect below fires sendBlast once draft +
+      // sendBlast are both committed — using setTimeout(0) + ref here raced
+      // the draft state commit and left sendBlast closed over a null draft
+      // (silent stall).
       posthog.capture('blast_handoff_signin_started');
       setConfettiArmed(true);
       setStep('sending');
-      // sendBlastRef populates after first render; tiny defer ensures it's
-      // wired before we call it. If the ref is still null (extremely fast
-      // render), fall through — the user can retry from the error state.
-      setTimeout(() => { void sendBlastRef.current?.(); }, 0);
     } else {
       posthog.capture('blast_handoff_signup_started');
       setStep('account_setup');
     }
   }, [clerkLoaded, mode]);
+
+  // ─── Signin auto-send: fire once draft is restored + sendBlast is fresh ──
+  // Replaces the prior setTimeout(0) pattern. Effect re-runs as draft and
+  // sendBlast settle; autoSendFiredRef ensures exactly one POST.
+  useEffect(() => {
+    if (autoSendFiredRef.current) return;
+    if (mode !== 'signin') return;
+    if (step !== 'sending') return;
+    if (!draft) return;
+    autoSendFiredRef.current = true;
+    void sendBlast();
+    // sendBlast intentionally omitted from deps — it re-creates when draft
+    // changes, but draft is already in deps so the effect re-runs anyway.
+    // The ref guard above ensures only the first valid run actually fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, step, draft]);
 
   // ─── Bounce if no draft ───────────────────────────────────────────────────
   useEffect(() => {
