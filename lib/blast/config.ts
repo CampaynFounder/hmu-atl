@@ -72,7 +72,7 @@ export const MATCHING_DEFAULTS: BlastMatchingConfig = {
   filters: {
     max_distance_mi: 5.0,
     min_chill_score: 50,
-    must_match_sex_preference: false,
+    must_match_sex_preference: true,
     must_be_signed_in_within_hours: 72,
     exclude_if_in_active_ride: true,
     exclude_if_today_passed_count_gte: 3,

@@ -78,6 +78,13 @@ interface SwipeableDriverDeckProps {
   onAfterPass?: () => void;
   /** Called after "More Drivers" expand succeeds so parent can refresh. */
   onExpanded?: () => void;
+  /**
+   * Dismissed target IDs managed by the parent so they survive deck unmounts.
+   * The deck merges these with its own local dismissedIds.
+   */
+  externalDismissedIds?: Set<string>;
+  /** Called whenever the deck commits a dismissal so the parent can persist it. */
+  onDismissed?: (targetId: string) => void;
 }
 
 type PendingAction =
@@ -94,6 +101,8 @@ export function SwipeableDriverDeck({
   onAfterHmu,
   onAfterPass,
   onExpanded,
+  externalDismissedIds,
+  onDismissed,
 }: SwipeableDriverDeckProps) {
   const prefersReduced = useReducedMotion();
   // We don't mirror `cards` into local state. Instead we keep:
@@ -107,13 +116,16 @@ export function SwipeableDriverDeck({
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [expanding, setExpanding] = useState(false);
 
-  // Cards visible right now = parent list minus already-committed and
-  // minus the currently-pending card.
+  // Cards visible right now = parent list minus already-committed (local +
+  // external from parent) and minus the currently-pending card.
   const deck = useMemo(() => {
     return cards.filter(
-      (c) => !dismissedIds.has(c.targetId) && c.targetId !== pending?.card.targetId,
+      (c) =>
+        !dismissedIds.has(c.targetId) &&
+        !externalDismissedIds?.has(c.targetId) &&
+        c.targetId !== pending?.card.targetId,
     );
-  }, [cards, dismissedIds, pending]);
+  }, [cards, dismissedIds, externalDismissedIds, pending]);
 
   // Commit timer — once the undo window elapses, the action is final. We
   // move the card from `pending` into `dismissedIds` (so it stays hidden
@@ -129,6 +141,8 @@ export function SwipeableDriverDeck({
         next.add(committed.card.targetId);
         return next;
       });
+      // Also tell parent so it survives a deck remount.
+      onDismissed?.(committed.card.targetId);
       setPending(null);
       if (committed.type === 'hmu') onAfterHmu?.();
       else onAfterPass?.();
