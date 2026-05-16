@@ -127,6 +127,13 @@ export default function BlastOfferBoardClientV3({
   // Review mode — toggled when rider taps "Review matches".
   const [showReview, setShowReview] = useState(false);
 
+  // Dismissed fallback card IDs — lifted out of SwipeableDriverDeck so they
+  // survive deck unmounts (the deck section unmounts when fallback empties and
+  // remounts when new fallback drivers arrive, which would reset local state).
+  const [dismissedFallbackIds, setDismissedFallbackIds] = useState<Set<string>>(
+    () => new Set<string>(),
+  );
+
   // Initial fetch + soft 15s poll fallback (Ably is the primary live channel).
   const refresh = useCallback(async () => {
     try {
@@ -516,6 +523,14 @@ export default function BlastOfferBoardClientV3({
               blastPrice={blast.price}
               depositAmount={blast.depositAmount}
               hasCard={hasCard === true}
+              externalDismissedIds={dismissedFallbackIds}
+              onDismissed={(id) =>
+                setDismissedFallbackIds((prev) => {
+                  const next = new Set(prev);
+                  next.add(id);
+                  return next;
+                })
+              }
               onAfterHmu={refresh}
               onExpanded={() => {
                 setHasCard(true);
