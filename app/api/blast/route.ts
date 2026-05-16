@@ -161,8 +161,11 @@ export async function POST(req: NextRequest) {
     // ── 2b. One-blast-at-a-time gate ──
     // Riders can only have one active blast. Return the existing shortcode so
     // the client can redirect the rider back to their offer board.
+    // shortcode is not a column — it's stored as areas[1] = 'shortcode:{code}'
+    // and also in time_window->>'shortcode'. Extract via time_window JSONB.
     const existingBlast = await runQuery('check_existing_blast', () => sql`
-      SELECT id, shortcode FROM hmu_posts
+      SELECT id, time_window->>'shortcode' AS shortcode
+      FROM hmu_posts
       WHERE user_id = ${riderId}
         AND post_type = 'blast'
         AND status = 'active'
