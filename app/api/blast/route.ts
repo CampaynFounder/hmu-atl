@@ -131,7 +131,9 @@ export async function POST(req: NextRequest) {
     }
 
     const userRows = await runQuery('lookup_user_by_clerk_id', () => sql`
-      SELECT u.id, u.gender, rp.thumbnail_url, rp.stripe_customer_id, rp.display_name
+      SELECT u.id, u.gender,
+        COALESCE(rp.thumbnail_url, rp.avatar_url) AS photo_url,
+        rp.stripe_customer_id, rp.display_name
       FROM users u
       LEFT JOIN rider_profiles rp ON rp.user_id = u.id
       WHERE u.clerk_id = ${clerkId} LIMIT 1
@@ -149,7 +151,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 2. Photo gate ──
-    if (!user.thumbnail_url) {
+    if (!user.photo_url) {
       return NextResponse.json(
         { error: 'PHOTO_REQUIRED', message: 'Upload a profile photo before sending a blast' },
         { status: 412 },
