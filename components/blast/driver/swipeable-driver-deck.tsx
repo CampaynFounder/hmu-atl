@@ -44,11 +44,13 @@ export interface FallbackDriverCardData {
     vehicleColor: string | null;
     vehiclePhotoUrl: string | null;
     maxRiders: number | null;
+    minimumFare: number | null;
     areaSlugs: string[];
     lgbtqFriendly: boolean;
     acceptsLongDistance: boolean;
     chillScore: number;
     completedRides: number;
+    minRiderChillScore: number;
     tier: string | null;
   };
 }
@@ -56,10 +58,11 @@ export interface FallbackDriverCardData {
 interface SwipeableDriverDeckProps {
   blastId: string;
   cards: FallbackDriverCardData[];
-  /** Called after a non-undone HMU completes so the parent can re-fetch. */
+  /** Rider's offered price — used to show price compatibility on each card. */
+  blastPrice?: number;
+  /** Deposit amount the rider has already put down for this blast. */
+  depositAmount?: number;
   onAfterHmu?: () => void;
-  /** Called after a non-undone pass completes — usually a no-op (the next
-   *  poll cycle already filters dismissed targets) but exposed for tests. */
   onAfterPass?: () => void;
 }
 
@@ -70,6 +73,8 @@ type PendingAction =
 export function SwipeableDriverDeck({
   blastId,
   cards,
+  blastPrice,
+  depositAmount,
   onAfterHmu,
   onAfterPass,
 }: SwipeableDriverDeckProps) {
@@ -221,10 +226,16 @@ export function SwipeableDriverDeck({
                     ariaLabel={`Driver ${card.driver.displayName ?? card.driver.handle ?? 'card'}. Swipe right to HMU, left to pass.`}
                     className="h-full"
                   >
-                    <DriverCardBody card={card} onHmu={() => handleHmu(card)} onPass={() => handlePass(card)} />
+                    <DriverCardBody
+                      card={card}
+                      blastPrice={blastPrice}
+                      depositAmount={depositAmount}
+                      onHmu={() => handleHmu(card)}
+                      onPass={() => handlePass(card)}
+                    />
                   </SwipeableCard>
                 ) : (
-                  <DriverCardBody card={card} dimmed />
+                  <DriverCardBody card={card} blastPrice={blastPrice} dimmed />
                 )}
               </motion.div>
             );
@@ -282,11 +293,15 @@ export function SwipeableDriverDeck({
 
 function DriverCardBody({
   card,
+  blastPrice,
+  depositAmount,
   dimmed,
   onHmu,
   onPass,
 }: {
   card: FallbackDriverCardData;
+  blastPrice?: number;
+  depositAmount?: number;
   dimmed?: boolean;
   onHmu?: () => void;
   onPass?: () => void;
@@ -296,9 +311,6 @@ function DriverCardBody({
   const handle = driver.handle ? `@${driver.handle}` : null;
   const chill = Math.round(driver.chillScore);
 
-  // thumbnail_url may point to a video file when the driver uploaded a video
-  // as their intro (the upload route stores the same URL in both columns).
-  // Detect this so we render <video> instead of a broken <img>.
   const isVideoUrl = (url: string | null) =>
     url ? /\.(mp4|mov|webm|m4v)(\?.*)?$/i.test(url) : false;
   const thumbIsVideo = isVideoUrl(driver.thumbnailUrl);
@@ -307,10 +319,14 @@ function DriverCardBody({
   const hasPhoto = Boolean(photoUrl);
   const hasVideo = Boolean(videoUrl);
 
-  // Prettify area slugs: "westside" → "Westside"
   const areaLabels = driver.areaSlugs
     .slice(0, 3)
     .map((s) => s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' '));
+
+  // Price compatibility: green if rider's offer meets driver's minimum, amber if not set
+  const priceOk = driver.minimumFare != null && blastPrice != null
+    ? blastPrice >= driver.minimumFare
+    : null;
 
   return (
     <div
@@ -440,92 +456,137 @@ function DriverCardBody({
       </div>
 
       {/* ── Content area ── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '12px 16px 0' }}>
-        {/* Name row */}
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2 }}>
-          <span
-            style={{
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '10px 16px 0' }}>
+
+        {/* Row 1 — name + price side by side */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
+          <div style={{ minWidth: 0, flex: 1, marginRight: 8 }}>
+            <div style={{
               fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-              fontSize: 26,
+              fontSize: 24,
               color: '#fff',
               lineHeight: 1,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              maxWidth: '70%',
-            }}
-          >
-            {name}
-          </span>
-          {handle && (
-            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', flexShrink: 0 }}>
-              {handle}
-            </span>
-          )}
+            }}>
+              {name}
+            </div>
+            {handle && (
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 1 }}>
+                {handle}
+              </div>
+            )}
+          </div>
+          {/* Minimum fare + price compat */}
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            {driver.minimumFare != null ? (
+              <>
+                <div style={{
+                  fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+                  fontSize: 22,
+                  color: priceOk === false ? '#FFB300' : '#00E676',
+                  lineHeight: 1,
+                }}>
+                  ${driver.minimumFare} min
+                </div>
+                {priceOk === false && (
+                  <div style={{ fontSize: 9, color: '#FFB300', marginTop: 1 }}>
+                    above your offer
+                  </div>
+                )}
+                {priceOk === true && (
+                  <div style={{ fontSize: 9, color: '#00E676', marginTop: 1 }}>
+                    in range ✓
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
+                No min set
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Stats row: chill score + completed rides */}
-        <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
-          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
-            <span style={{ color: '#00E676', fontWeight: 700 }}>{chill}%</span> chill
-          </span>
+        {/* Row 2 — chill + rides + LGBTQ */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 8, alignItems: 'center' }}>
+          {chill > 0 && (
+            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
+              <span style={{ color: '#00E676', fontWeight: 700 }}>{chill}%</span> chill
+            </span>
+          )}
           {driver.completedRides > 0 && (
             <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
               <span style={{ color: '#fff', fontWeight: 700 }}>{driver.completedRides}</span> rides
             </span>
           )}
+          {driver.acceptsLongDistance && (
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.06)', borderRadius: 4, padding: '1px 5px' }}>
+              Long distance ✓
+            </span>
+          )}
           {driver.lgbtqFriendly && (
-            <span style={{ fontSize: 12, color: '#E040FB', fontWeight: 600 }}>🏳️‍🌈</span>
+            <span style={{ fontSize: 11 }}>🏳️‍🌈</span>
           )}
         </div>
 
-        {/* Distance + location */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-          {card.distanceFromPickupMi != null && (
+        {/* Row 3 — distance from pickup */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+          {card.distanceFromPickupMi != null ? (
             <InfoChip
               live={card.locationIsLive}
-              text={
-                card.locationIsLive
-                  ? `${card.distanceFromPickupMi} mi away`
-                  : `${card.distanceFromPickupMi} mi from pickup`
-              }
+              text={card.locationIsLive
+                ? `${card.distanceFromPickupMi} mi from you now`
+                : `${card.distanceFromPickupMi} mi from pickup`}
             />
+          ) : card.distanceFromHomeMi != null && card.homeLabel ? (
+            <InfoChip text={`Based ${card.distanceFromHomeMi} mi away · ${card.homeLabel}`} />
+          ) : areaLabels.length > 0 ? (
+            <InfoChip text={`Serves: ${areaLabels.join(', ')}`} />
+          ) : (
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>GPS offline</span>
           )}
-          {card.distanceFromHomeMi != null && card.homeLabel && (
-            <InfoChip text={`Based: ${card.homeLabel}`} />
-          )}
-          {card.distanceFromPickupMi == null && card.distanceFromHomeMi == null && (
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>Location not shared</span>
+          {/* Show home label as secondary when we already have live distance */}
+          {card.distanceFromPickupMi != null && card.homeLabel && (
+            <InfoChip text={`Home: ${card.homeLabel}`} />
           )}
         </div>
 
-        {/* Vehicle */}
-        {driver.vehicleLabel && (
+        {/* Row 4 — vehicle */}
+        {driver.vehicleLabel ? (
           <div style={{ marginBottom: 6 }}>
             <InfoChip
               icon="🚗"
               text={[driver.vehicleLabel, driver.vehicleColor].filter(Boolean).join(' · ')}
             />
           </div>
+        ) : (
+          <div style={{ marginBottom: 6 }}>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>Vehicle not listed</span>
+          </div>
         )}
 
-        {/* Areas */}
-        {areaLabels.length > 0 && (
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        {/* Row 5 — deposit context (when set) */}
+        {depositAmount != null && depositAmount > 0 && (
+          <div style={{ marginBottom: 6 }}>
+            <InfoChip text={`$${depositAmount} deposit held`} />
+          </div>
+        )}
+
+        {/* Row 6 — area slugs (when not already shown in distance row) */}
+        {areaLabels.length > 0 && card.distanceFromPickupMi != null && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
             {areaLabels.map((a) => (
-              <span
-                key={a}
-                style={{
-                  fontSize: 10,
-                  color: 'rgba(255,255,255,0.45)',
-                  background: 'rgba(255,255,255,0.06)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: 6,
-                  padding: '2px 7px',
-                  fontWeight: 500,
-                  letterSpacing: 0.3,
-                }}
-              >
+              <span key={a} style={{
+                fontSize: 10,
+                color: 'rgba(255,255,255,0.4)',
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.07)',
+                borderRadius: 5,
+                padding: '2px 6px',
+                fontWeight: 500,
+              }}>
                 {a}
               </span>
             ))}

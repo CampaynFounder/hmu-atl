@@ -76,6 +76,8 @@ export async function GET(
       dp.area_slugs,
       dp.lgbtq_friendly,
       dp.accepts_long_distance,
+      dp.pricing,
+      dp.min_rider_chill_score,
       dp.current_lat,
       dp.current_lng,
       dp.location_updated_at,
@@ -217,6 +219,8 @@ export async function GET(
 
 function buildDriverInfo(row: Record<string, unknown>) {
   const vi = row.vehicle_info as Record<string, unknown> | null;
+  const pricing = row.pricing as Record<string, unknown> | null;
+
   const vehicleLabel = vi
     ? [vi.year, vi.make, vi.model].filter(Boolean).join(' ') || null
     : null;
@@ -224,7 +228,14 @@ function buildDriverInfo(row: Record<string, unknown>) {
   const vehiclePhotoUrl = (vi?.photo_url as string) || null;
   const maxRiders =
     vi ? (Number(vi.max_adults ?? 0) + Number(vi.max_children ?? 0)) || null : null;
+
+  // pricing.minimum = driver's minimum fare. Fall back to base_rate if minimum
+  // not explicitly set. Null when the driver hasn't configured pricing at all.
+  const rawMin = pricing?.minimum ?? pricing?.base_rate ?? null;
+  const minimumFare = rawMin != null && Number(rawMin) > 0 ? Number(rawMin) : null;
+
   const areaSlugs = Array.isArray(row.area_slugs) ? (row.area_slugs as string[]) : [];
+
   return {
     handle: row.handle as string | null,
     displayName: row.display_name as string | null,
@@ -234,11 +245,13 @@ function buildDriverInfo(row: Record<string, unknown>) {
     vehicleColor,
     vehiclePhotoUrl,
     maxRiders,
+    minimumFare,
     areaSlugs,
     lgbtqFriendly: Boolean(row.lgbtq_friendly),
     acceptsLongDistance: Boolean(row.accepts_long_distance),
     chillScore: Number(row.chill_score ?? 0),
     completedRides: Number(row.completed_rides ?? 0),
+    minRiderChillScore: Number(row.min_rider_chill_score ?? 0),
     tier: row.tier as string | null,
   };
 }

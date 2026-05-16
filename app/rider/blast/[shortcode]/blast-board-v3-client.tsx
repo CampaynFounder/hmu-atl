@@ -40,11 +40,13 @@ interface DriverInfo {
   vehicleColor: string | null;
   vehiclePhotoUrl: string | null;
   maxRiders: number | null;
+  minimumFare: number | null;
   areaSlugs: string[];
   lgbtqFriendly: boolean;
   acceptsLongDistance: boolean;
   chillScore: number;
   completedRides: number;
+  minRiderChillScore: number;
   tier: string | null;
 }
 
@@ -503,6 +505,8 @@ export default function BlastOfferBoardClientV3({
             <SwipeableDriverDeck
               blastId={blastId}
               cards={fallback}
+              blastPrice={blast.price}
+              depositAmount={blast.depositAmount}
               onAfterHmu={refresh}
             />
           </section>
