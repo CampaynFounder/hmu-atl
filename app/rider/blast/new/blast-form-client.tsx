@@ -590,34 +590,42 @@ function DatetimeStep({
   const [parserStatus, setParserStatus] = useState<'idle' | 'parsed' | 'picked' | 'low_conf' | 'failed'>('idle');
   const parserRef = useRef(getDateParser());
   const debounceRef = useRef<number | null>(null);
+  // Stable ref for onChange — parent recreates the callback on every render
+  // (inline arrow in JSX) so adding it to effect deps causes re-fires even
+  // when text hasn't changed. Read via ref inside the effect instead.
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  // Track the last text that produced a confident parse so we never call
+  // the API again for the same input once we have a good result.
+  const lastParsedTextRef = useRef<string | null>(null);
 
-  // Debounced LLM parse on text change. Per D-4 the threshold is 0.9; below
-  // we keep null and surface chips. Per spec the parser self-degrades to chips
-  // on 501 / timeout / network — we just translate that to UI.
+  // Debounced LLM parse — fires only on text changes, not on every parent
+  // render. onChange is read via onChangeRef so it never appears in deps.
+  // Once a text string produces a confident parse it's cached in
+  // lastParsedTextRef and won't fire the API again for that exact input.
   useEffect(() => {
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
     if (!text || text.trim().length < 3) {
-      // Only reset to idle if the user hasn't already made a picker selection.
-      // parserStatus='picked' means the native date picker committed a value —
-      // clearing text doesn't invalidate that.
       setParserStatus((prev) => (prev === 'picked' ? 'picked' : 'idle'));
       return;
     }
+    // Already parsed this exact phrase successfully — don't call the API again.
+    if (text === lastParsedTextRef.current && parserStatus === 'parsed') return;
+
     debounceRef.current = window.setTimeout(async () => {
       setParsing(true);
       try {
         const result = await parserRef.current.parse(text);
         if (result.scheduledFor && result.confidence >= NLP_CONFIDENCE_CUTOFF) {
-          onChange(result.scheduledFor.toISOString(), text, result.confidence);
+          onChangeRef.current(result.scheduledFor.toISOString(), text, result.confidence);
+          lastParsedTextRef.current = text;
           setParserStatus('parsed');
         } else if (result.scheduledFor) {
-          // Got a parse but not confident enough — keep the value as null
-          // and let chips be the canonical source.
           setParserStatus('low_conf');
-          onChange(null, text, result.confidence);
+          onChangeRef.current(null, text, result.confidence);
         } else {
           setParserStatus('failed');
-          onChange(null, text, null);
+          onChangeRef.current(null, text, null);
         }
         try {
           posthog.capture('blast_nlp_parsed', {
@@ -632,7 +640,8 @@ function DatetimeStep({
     return () => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
-  }, [text, onChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]); // onChange intentionally excluded — read via stable onChangeRef
 
   // Chip times are sensible defaults (Tonight = 8pm tonight, Tomorrow = 9am
   // tomorrow); labels stay terse per UX spec. A rider who wants a precise

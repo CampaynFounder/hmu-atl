@@ -138,9 +138,12 @@ export async function POST(request: NextRequest) {
               WHERE user_id = ${userId}
             `;
           } else {
+            // avatar_url is the legacy column; thumbnail_url is what the blast
+            // API photo gate and driver card hero both read — set both so
+            // either path that checks either column sees the photo.
             await sql`
               UPDATE rider_profiles
-              SET avatar_url = ${publicUrl}
+              SET avatar_url = ${publicUrl}, thumbnail_url = ${publicUrl}
               WHERE user_id = ${userId}
             `;
           }

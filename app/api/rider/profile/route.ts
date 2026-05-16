@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { updateRiderProfile } from '@/lib/db/profiles';
 
@@ -58,6 +59,27 @@ export async function PATCH(req: NextRequest) {
   if (userRows.length === 0) return NextResponse.json({ error: 'User not found' }, { status: 404 });
   const userId = userRows[0].id as string;
 
+  // Blast funnel signups reach this endpoint before the full onboarding flow
+  // runs, so rider_profiles may not exist yet. Upsert a minimal row using
+  // Clerk name data so updateRiderProfile never throws "not found".
+  try {
+    const existing = await sql`SELECT id FROM rider_profiles WHERE user_id = ${userId} LIMIT 1`;
+    if (!existing.length) {
+      const clerk = await clerkClient();
+      const clerkUser = await clerk.users.getUser(clerkId);
+      const firstName = clerkUser.firstName || 'Rider';
+      const lastName = clerkUser.lastName || '';
+      await sql`
+        INSERT INTO rider_profiles (user_id, first_name, last_name, safety_preferences)
+        VALUES (${userId}, ${firstName}, ${lastName}, '{}')
+        ON CONFLICT (user_id) DO NOTHING
+      `;
+    }
+  } catch {
+    // Non-fatal — updateRiderProfile will throw its own error if the row
+    // still doesn't exist after this, handled below.
+  }
+
   try {
     const updated = await updateRiderProfile(userId, patch);
     return NextResponse.json({
@@ -67,8 +89,6 @@ export async function PATCH(req: NextRequest) {
       home_area_slug: updated.home_area_slug,
     });
   } catch (err) {
-    // 23505 = unique_violation. Race against another rider claiming the same
-    // handle between the check and the write.
     const msg = err instanceof Error ? err.message : '';
     if (/duplicate key|unique/i.test(msg)) {
       return NextResponse.json({ error: 'Handle already taken' }, { status: 409 });
