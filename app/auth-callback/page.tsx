@@ -108,6 +108,17 @@ export default function AuthCallbackPage() {
     const returnTo = params.get('returnTo') || localStorage.getItem('hmu_signup_returnTo');
     const isCash = params.get('cash') || localStorage.getItem('hmu_signup_cash');
     const mode = params.get('mode') || localStorage.getItem('hmu_signup_mode');
+
+    // Blast funnel detection. saveBlastDraft writes the canonical 'hmu.blast.draft'
+    // key right before the auth round-trip; the returnTo param is also a hint but
+    // Clerk OAuth can drop URL params on the way back, so localStorage is the
+    // dependable signal. If either is present, the rider MUST land on the minimal
+    // /auth-callback/blast handle+photo screen — NEVER the full /onboarding wizard,
+    // which loses the draft and asks for fields blast doesn't need.
+    let hasBlastDraft = false;
+    try { hasBlastDraft = !!window.localStorage.getItem('hmu.blast.draft'); } catch { /* private mode */ }
+    const cameFromBlast =
+      hasBlastDraft || (typeof returnTo === 'string' && returnTo.startsWith('/auth-callback/blast'));
     // Booking funnel: /rider/browse → /sign-up → here. Both branches forward
     // the params, but OAuth round-trips can drop them, so localStorage and
     // the Clerk user's unsafeMetadata both back-stop.
@@ -123,6 +134,27 @@ export default function AuthCallbackPage() {
     localStorage.removeItem('hmu_signup_mode');
     localStorage.removeItem('hmu_signup_draft');
     localStorage.removeItem('hmu_signup_handle');
+
+    // Blast funnel routing takes priority over the standard onboarding flow.
+    // The handoff page reads the draft on mount, so we don't clear it here —
+    // /auth-callback/blast clears via clearBlastDraft() after the POST.
+    // Drivers can't blast; drop the parked draft and route them home so the
+    // funnel doesn't trap them in a screen that doesn't apply.
+    if (cameFromBlast) {
+      const metaType = user?.publicMetadata?.profileType as string | undefined;
+      if (metaType === 'driver') {
+        try { localStorage.removeItem('hmu.blast.draft'); } catch { /* private mode */ }
+        router.replace('/driver/home');
+        return;
+      }
+      // metaType === 'rider' → returning rider, auto-send via signin mode.
+      // metaType === undefined → brand-new signup before the Clerk webhook
+      // has set profileType; mode=signup shows the handle+photo step.
+      router.replace(metaType === 'rider'
+        ? '/auth-callback/blast?mode=signin'
+        : '/auth-callback/blast?mode=signup');
+      return;
+    }
 
     // Retry the onboarding-status fetch once on transient failure. A single
     // Neon/Worker cold-start blip must NEVER drop an existing user onto
