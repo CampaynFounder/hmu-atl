@@ -328,324 +328,184 @@ function DriverCardBody({
     ? blastPrice >= driver.minimumFare
     : null;
 
+  // Distance label — most prominent detail, always shows something
+  const distanceLabel = card.distanceFromPickupMi != null
+    ? `${card.distanceFromPickupMi} mi from pickup${card.locationIsLive ? ' · live' : ''}`
+    : card.distanceFromHomeMi != null
+      ? `~${card.distanceFromHomeMi} mi · ${card.homeLabel ?? 'home base'}`
+      : areaLabels.length > 0
+        ? `Serves ${areaLabels.slice(0, 2).join(', ')}`
+        : 'Distance unknown';
+
   return (
+    // Overlay layout: media fills the full card, details panel anchored to bottom.
+    // No stacked sections — nothing can clip off-screen.
     <div
       style={{
         height: 480,
-        background: '#111',
         borderRadius: 24,
-        border: dimmed ? '1px solid rgba(255,255,255,0.04)' : '1px solid rgba(255,255,255,0.1)',
-        display: 'flex',
-        flexDirection: 'column',
         overflow: 'hidden',
-        opacity: dimmed ? 0.4 : 1,
+        position: 'relative',
+        background: '#0a0a0a',
+        opacity: dimmed ? 0.45 : 1,
         userSelect: 'none',
         WebkitUserSelect: 'none',
-        boxShadow: dimmed ? 'none' : '0 16px 40px rgba(0,0,0,0.6)',
-        position: 'relative',
+        boxShadow: dimmed ? 'none' : '0 16px 40px rgba(0,0,0,0.7)',
+        border: dimmed ? '1px solid rgba(255,255,255,0.04)' : '1px solid rgba(255,255,255,0.08)',
       }}
     >
-      {/* ── Hero: photo or video — 150px keeps it recognisable without eating the detail area ── */}
-      <div style={{ position: 'relative', height: 150, flexShrink: 0, background: '#1a1a1a' }}>
-        {hasVideo && (
-          // Video intro — autoplay muted loop so it plays silently in the deck.
-          <video
-            src={videoUrl!}
-            autoPlay
-            muted
-            loop
-            playsInline
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              objectPosition: 'top center',
-              display: 'block',
-            }}
-          />
-        )}
-        {!hasVideo && hasPhoto && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={photoUrl!}
-            alt={name}
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              objectPosition: 'top center',
-              display: 'block',
-            }}
-          />
-        )}
-        {!hasVideo && !hasPhoto && (
-          /* Fallback monogram — only when neither video nor photo is available */
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'linear-gradient(135deg, #1f1f1f 0%, #0a0a0a 100%)',
-            }}
-          >
-            <span
-              style={{
-                fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-                fontSize: 72,
-                color: 'rgba(255,255,255,0.12)',
-                lineHeight: 1,
-                letterSpacing: 2,
-              }}
-            >
-              {name.charAt(0).toUpperCase()}
-            </span>
-          </div>
-        )}
-        {/* Video badge — shown when a video is playing in the hero */}
-        {hasVideo && (
-          <div
-            style={{
-              position: 'absolute',
-              top: 10,
-              right: 10,
-              background: 'rgba(0,0,0,0.7)',
-              backdropFilter: 'blur(6px)',
-              borderRadius: 20,
-              padding: '4px 10px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5,
-            }}
-          >
-            <span style={{ fontSize: 11, color: '#fff', fontWeight: 600 }}>▶ Intro</span>
-          </div>
-        )}
-        {/* Tier badge */}
-        {driver.tier === 'hmu_first' && (
-          <div
-            style={{
-              position: 'absolute',
-              top: 10,
-              left: 10,
-              background: '#FFB300',
-              borderRadius: 20,
-              padding: '3px 10px',
-              fontSize: 10,
-              fontWeight: 800,
-              color: '#000',
-              letterSpacing: 0.8,
-              textTransform: 'uppercase',
-            }}
-          >
-            ★ HMU First
-          </div>
-        )}
-        {/* Bottom gradient so text over the photo stays readable */}
-        <div
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 80,
-            background: 'linear-gradient(to top, #111 0%, transparent 100%)',
-          }}
+      {/* ── Full-card media layer ── */}
+      {hasVideo && (
+        <video
+          src={videoUrl!}
+          autoPlay
+          muted
+          loop
+          playsInline
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center' }}
         />
-      </div>
-
-      {/* ── Content area (330px) ── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '12px 16px 0', minHeight: 0 }}>
-
-        {/* ── Row 1: Name + LIVE badge ── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+      )}
+      {!hasVideo && hasPhoto && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={photoUrl!}
+          alt={name}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center' }}
+        />
+      )}
+      {!hasVideo && !hasPhoto && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'linear-gradient(160deg, #1c1c1c 0%, #0a0a0a 100%)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
           <span style={{
             fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-            fontSize: 26,
-            color: '#fff',
-            lineHeight: 1,
-            flex: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
+            fontSize: 96, color: 'rgba(255,255,255,0.07)', lineHeight: 1,
           }}>
-            {name}
+            {name.charAt(0).toUpperCase()}
           </span>
+        </div>
+      )}
+
+      {/* ── Top badges (LIVE, tier, video) ── */}
+      <div style={{ position: 'absolute', top: 12, left: 12, right: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', zIndex: 2 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
           {card.locationIsLive && (
-            <span style={{
-              fontSize: 9,
-              fontWeight: 800,
-              letterSpacing: 1,
-              color: '#00E676',
-              background: 'rgba(0,230,118,0.12)',
-              border: '1px solid rgba(0,230,118,0.3)',
-              borderRadius: 20,
-              padding: '2px 7px',
-              flexShrink: 0,
-            }}>
+            <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.8, color: '#00E676', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', border: '1px solid rgba(0,230,118,0.4)', borderRadius: 20, padding: '3px 9px' }}>
               ● LIVE
             </span>
           )}
           {driver.tier === 'hmu_first' && (
-            <span style={{
-              fontSize: 9,
-              fontWeight: 800,
-              color: '#000',
-              background: '#FFB300',
-              borderRadius: 20,
-              padding: '2px 7px',
-              flexShrink: 0,
-            }}>
+            <span style={{ fontSize: 10, fontWeight: 800, color: '#000', background: '#FFB300', borderRadius: 20, padding: '3px 9px' }}>
               ★ 1ST
             </span>
           )}
         </div>
+        {hasVideo && (
+          <span style={{ fontSize: 10, fontWeight: 600, color: '#fff', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', borderRadius: 20, padding: '3px 9px' }}>
+            ▶ Intro
+          </span>
+        )}
+      </div>
 
-        {/* ── Row 2: Chill score + rides ── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
-            <span style={{ color: '#00E676', fontWeight: 700 }}>{chill > 0 ? `${chill}%` : '—'}</span>
-            {' '}chill score
+      {/* ── Gradient scrim — transparent at top, opaque at bottom ── */}
+      <div style={{
+        position: 'absolute', inset: 0, zIndex: 1,
+        background: 'linear-gradient(to top, rgba(0,0,0,0.97) 0%, rgba(0,0,0,0.82) 38%, rgba(0,0,0,0.3) 62%, transparent 100%)',
+        pointerEvents: 'none',
+      }} />
+
+      {/* ── Details panel overlaid at bottom ── */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 2, padding: '0 16px 14px' }}>
+
+        {/* Name */}
+        <div style={{
+          fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+          fontSize: 28, color: '#fff', lineHeight: 1.05,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          marginBottom: 2,
+        }}>
+          {name}
+        </div>
+
+        {/* Score + rides — secondary line */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+            <span style={{ color: '#00E676', fontWeight: 700 }}>{chill > 0 ? `${chill}%` : '—'}</span> chill
           </span>
           {driver.completedRides > 0 && (
-            <>
-              <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10 }}>·</span>
-              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
-                <span style={{ color: '#fff', fontWeight: 600 }}>{driver.completedRides}</span> rides
-              </span>
-            </>
+            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+              · <span style={{ color: '#fff', fontWeight: 600 }}>{driver.completedRides}</span> rides
+            </span>
           )}
           {driver.lgbtqFriendly && <span style={{ fontSize: 12 }}>🏳️‍🌈</span>}
         </div>
 
-        {/* ── Row 3: Distance (always shows something) ── */}
-        <DetailRow label="Distance">
-          {card.distanceFromPickupMi != null
-            ? `${card.distanceFromPickupMi} mi from pickup${card.locationIsLive ? ' (live)' : ''}`
-            : card.distanceFromHomeMi != null
-              ? `~${card.distanceFromHomeMi} mi · Based: ${card.homeLabel ?? 'unknown'}`
-              : areaLabels.length > 0
-                ? `Serves ${areaLabels.join(', ')}`
-                : 'GPS offline'}
-        </DetailRow>
+        {/* Distance — most important, own row */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6,
+          background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '7px 11px',
+        }}>
+          {card.locationIsLive
+            ? <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#00E676', boxShadow: '0 0 6px #00E676', flexShrink: 0 }} />
+            : <span style={{ fontSize: 13 }}>📍</span>
+          }
+          <span style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{distanceLabel}</span>
+        </div>
 
-        {/* ── Row 4: Car ── */}
-        <DetailRow label="Car">
-          {driver.vehicleLabel
-            ? [driver.vehicleLabel, driver.vehicleColor].filter(Boolean).join(' · ')
-            : 'Not listed'}
-        </DetailRow>
+        {/* Car */}
+        <div style={{ marginBottom: 8 }}>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>🚗 </span>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', fontWeight: 500 }}>
+            {driver.vehicleLabel
+              ? [driver.vehicleLabel, driver.vehicleColor].filter(Boolean).join(' · ')
+              : 'Vehicle not listed'}
+          </span>
+        </div>
 
-        {/* ── Row 5: Min price + deposit (side by side) ── */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+        {/* Min fare + deposit tiles */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           <div style={{
-            flex: 1,
-            background: 'rgba(255,255,255,0.04)',
-            border: `1px solid ${priceOk === false ? 'rgba(255,179,0,0.3)' : priceOk === true ? 'rgba(0,230,118,0.25)' : 'rgba(255,255,255,0.08)'}`,
-            borderRadius: 10,
-            padding: '7px 10px',
+            flex: 1, borderRadius: 10, padding: '7px 10px',
+            background: priceOk === false ? 'rgba(255,179,0,0.12)' : priceOk === true ? 'rgba(0,230,118,0.1)' : 'rgba(255,255,255,0.07)',
+            border: `1px solid ${priceOk === false ? 'rgba(255,179,0,0.3)' : priceOk === true ? 'rgba(0,230,118,0.25)' : 'rgba(255,255,255,0.1)'}`,
           }}>
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>
-              Min fare
-            </div>
-            <div style={{
-              fontSize: 18,
-              fontWeight: 800,
-              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-              color: priceOk === false ? '#FFB300' : priceOk === true ? '#00E676' : '#fff',
-              lineHeight: 1,
-            }}>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>Min fare</div>
+            <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 20, color: priceOk === false ? '#FFB300' : priceOk === true ? '#00E676' : '#fff', lineHeight: 1 }}>
               {driver.minimumFare != null ? `$${driver.minimumFare}` : 'Ask'}
             </div>
-            {priceOk === true && (
-              <div style={{ fontSize: 9, color: '#00E676', marginTop: 2 }}>in range ✓</div>
-            )}
-            {priceOk === false && (
-              <div style={{ fontSize: 9, color: '#FFB300', marginTop: 2 }}>above offer</div>
-            )}
+            {priceOk === true && <div style={{ fontSize: 9, color: '#00E676', marginTop: 1 }}>in range ✓</div>}
+            {priceOk === false && <div style={{ fontSize: 9, color: '#FFB300', marginTop: 1 }}>above your offer</div>}
           </div>
           {depositAmount != null && depositAmount > 0 && (
-            <div style={{
-              flex: 1,
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 10,
-              padding: '7px 10px',
-            }}>
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>
-                Deposit
-              </div>
-              <div style={{
-                fontSize: 18,
-                fontWeight: 800,
-                fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-                color: '#fff',
-                lineHeight: 1,
-              }}>
-                ${depositAmount}
-              </div>
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>held</div>
+            <div style={{ flex: 1, borderRadius: 10, padding: '7px 10px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>Deposit</div>
+              <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 20, color: '#fff', lineHeight: 1 }}>${depositAmount}</div>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', marginTop: 1 }}>held</div>
             </div>
           )}
         </div>
 
-        {/* ── Row 6: Extra flags ── */}
-        {(driver.acceptsLongDistance || areaLabels.length > 0) && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-            {driver.acceptsLongDistance && (
-              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 5, padding: '2px 7px' }}>
-                Long distance ✓
-              </span>
-            )}
-            {areaLabels.map((a) => (
-              <span key={a} style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 5, padding: '2px 7px' }}>
-                {a}
-              </span>
-            ))}
-          </div>
-        )}
-
-        <div style={{ flex: 1 }} />
-
         {/* Action buttons */}
         {onHmu && (
-          <div style={{ display: 'flex', gap: 10, paddingBottom: 16, paddingTop: 10 }}>
-            <button
-              type="button"
-              onClick={onPass}
-              style={{
-                flex: 1,
-                padding: '13px 0',
-                borderRadius: 100,
-                background: 'transparent',
-                color: 'rgba(255,255,255,0.55)',
-                fontSize: 15,
-                fontWeight: 700,
-                border: '1.5px solid rgba(255,255,255,0.12)',
-                cursor: 'pointer',
-                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-              }}
-            >
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button type="button" onClick={onPass} style={{
+              flex: 1, padding: '13px 0', borderRadius: 100,
+              background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)',
+              fontSize: 15, fontWeight: 700, border: '1px solid rgba(255,255,255,0.15)',
+              cursor: 'pointer', fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              backdropFilter: 'blur(8px)',
+            }}>
               Nah
             </button>
-            <button
-              type="button"
-              onClick={onHmu}
-              style={{
-                flex: 2,
-                padding: '13px 0',
-                borderRadius: 100,
-                background: '#00E676',
-                color: '#050505',
-                fontSize: 16,
-                fontWeight: 900,
-                border: 'none',
-                cursor: 'pointer',
-                letterSpacing: 0.5,
-                fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-              }}
-            >
+            <button type="button" onClick={onHmu} style={{
+              flex: 2, padding: '13px 0', borderRadius: 100,
+              background: '#00E676', color: '#050505',
+              fontSize: 16, fontWeight: 900, border: 'none',
+              cursor: 'pointer', letterSpacing: 0.5,
+              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+            }}>
               HMU
             </button>
           </div>
@@ -655,40 +515,5 @@ function DriverCardBody({
   );
 }
 
-// Label-value row for structured driver data — always renders even when value
-// is a fallback string like "Not listed" so the layout never has empty gaps.
-function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'baseline',
-      gap: 8,
-      marginBottom: 7,
-      minWidth: 0,
-    }}>
-      <span style={{
-        fontSize: 10,
-        color: 'rgba(255,255,255,0.35)',
-        textTransform: 'uppercase',
-        letterSpacing: 0.8,
-        flexShrink: 0,
-        width: 56,
-      }}>
-        {label}
-      </span>
-      <span style={{
-        fontSize: 13,
-        color: 'rgba(255,255,255,0.85)',
-        fontWeight: 500,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        flex: 1,
-      }}>
-        {children}
-      </span>
-    </div>
-  );
-}
 
 export default SwipeableDriverDeck;
