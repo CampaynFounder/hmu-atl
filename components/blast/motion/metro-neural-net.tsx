@@ -27,7 +27,12 @@ interface MetroNeuralNetProps {
   metro: MetroOutline;
   /** Optional label rendered below the network. */
   label?: string;
-  /** Pixel size of the square viewport (default 240). */
+  /**
+   * Pixel size for the internal SVG coordinate system (default 320).
+   * The SVG itself renders at 100% width of its container — `size` only
+   * controls the density of the neural-net mesh (node spacing, edge lengths,
+   * glow radii). Increase it for sharper meshes at large display sizes.
+   */
   size?: number;
   className?: string;
 }
@@ -137,7 +142,7 @@ function polygonToPath(polygon: readonly [number, number][], scale: number): str
 export function MetroNeuralNet({
   metro,
   label,
-  size = 240,
+  size = 320,
   className,
 }: MetroNeuralNetProps) {
   const prefersReduced = useReducedMotion();
@@ -181,6 +186,7 @@ export function MetroNeuralNet({
       role="status"
       aria-live="polite"
       style={{
+        width: '100%',
         perspective: `${size * 6}px`,
         perspectiveOrigin: '50% 55%',
       }}
@@ -189,9 +195,11 @@ export function MetroNeuralNet({
 
       <div
         style={{
-          width: size,
-          height: size,
-          margin: '0 auto',
+          width: '100%',
+          // Maintain square aspect ratio via padding trick so the shape
+          // is never squashed into a rectangle on wide containers.
+          paddingBottom: '100%',
+          position: 'relative',
           transformStyle: 'preserve-3d',
           transform: 'rotateX(18deg)',
           animation: prefersReduced
@@ -199,7 +207,15 @@ export function MetroNeuralNet({
             : `metro-rotate-y ${ROTATION_DURATION_S}s linear infinite`,
         }}
       >
-        <svg width={size} height={size} viewBox={`0 0 ${view} ${view}`} aria-hidden="true">
+        {/* Absolute fill so the SVG occupies the padding-trick square. */}
+        <svg
+          width="100%"
+          height="100%"
+          viewBox={`0 0 ${view} ${view}`}
+          preserveAspectRatio="xMidYMid meet"
+          aria-hidden="true"
+          style={{ position: 'absolute', inset: 0 }}
+        >
           <defs>
             <filter id="metro-glow" x="-50%" y="-50%" width="200%" height="200%">
               <feGaussianBlur stdDeviation={size * 0.012} result="blur" />
