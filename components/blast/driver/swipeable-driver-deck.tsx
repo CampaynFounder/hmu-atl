@@ -378,8 +378,8 @@ function DriverCardBody({
             }}
           />
         )}
-        {!hasPhoto && (
-          /* Fallback monogram when no photo uploaded yet */
+        {!hasVideo && !hasPhoto && (
+          /* Fallback monogram — only when neither video nor photo is available */
           <div
             style={{
               width: '100%',
