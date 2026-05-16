@@ -84,12 +84,11 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
       : profileType === 'rider' ? '/rider/home'
       : profileType === 'driver' ? '/driver'
       : '/';
-    // Clerk v6 SignOutOptions only has `sessionId` — passing `redirectUrl` is
-    // a no-op, so the previous one-arg form cleared the session but never
-    // navigated. Hard-navigate after the promise resolves to force a fresh
-    // server render with the cleared auth state.
-    await signOut();
-    window.location.href = redirectUrl;
+    // redirectUrl passed directly so Clerk navigates atomically after clearing
+    // the session — avoids the blank white interstitial that appears when we
+    // call signOut() and then race window.location.href against Clerk's own
+    // post-signout redirect.
+    await signOut({ redirectUrl });
   };
 
   return (

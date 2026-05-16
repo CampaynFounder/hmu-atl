@@ -597,7 +597,10 @@ function DatetimeStep({
   useEffect(() => {
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
     if (!text || text.trim().length < 3) {
-      setParserStatus('idle');
+      // Only reset to idle if the user hasn't already made a picker selection.
+      // parserStatus='picked' means the native date picker committed a value —
+      // clearing text doesn't invalidate that.
+      setParserStatus((prev) => (prev === 'picked' ? 'picked' : 'idle'));
       return;
     }
     debounceRef.current = window.setTimeout(async () => {
@@ -763,7 +766,9 @@ function DatetimeStep({
             onChange={(e) => {
               const t = new Date(e.target.value);
               if (Number.isFinite(t.getTime())) {
-                setText('');
+                // Don't clear the text input — calling setText('') triggers the
+                // NLP debounce effect which resets parserStatus back to 'idle',
+                // erasing the 'picked' state before the next render.
                 setParserStatus('picked');
                 onChange(t.toISOString(), '', null);
               }

@@ -524,8 +524,7 @@ function PhotoStep({
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
-        capture="user"
+        accept="image/*,video/*"
         onChange={(e) => e.target.files?.[0] && onSelect(e.target.files[0])}
         style={{ display: 'none' }}
       />
@@ -553,7 +552,7 @@ function PhotoStep({
           }}
         >
           <span style={{ fontSize: 32 }}>📷</span>
-          Take a photo
+          Take a photo or upload from library
         </button>
       )}
 
