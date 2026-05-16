@@ -121,7 +121,10 @@ export function NeuralNetworkLoader({
       <MetroNeuralNet
         metro={metro}
         label={label}
-        size={size ?? 240}
+        // size controls mesh density only — the SVG fills 100% of its
+        // container via responsive CSS. Callers control display size via
+        // the className or a wrapper div, not via this prop.
+        size={size ?? 320}
         className={className}
       />
     );

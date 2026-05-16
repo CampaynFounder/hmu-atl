@@ -481,7 +481,7 @@ export default function BlastOfferBoardClientV3({
             <h2 className="text-xs uppercase tracking-wider text-neutral-500 px-1 mb-3">
               Searching
             </h2>
-            <div className="rounded-2xl bg-neutral-900 border border-neutral-800 p-6 flex flex-col items-center">
+            <div className="rounded-2xl bg-neutral-900 border border-neutral-800 overflow-hidden">
               <NeuralNetworkLoader
                 label={
                   notifiedCount > 0
