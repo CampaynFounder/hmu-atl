@@ -122,12 +122,32 @@ export function BlastMotionGallery() {
         }}
       >
         <Section
-          title="NeuralNetworkLoader"
-          spec="5x5 pulsing node grid + edges. Searching state on rider offer board (§6.3)."
+          title="NeuralNetworkLoader — Atlanta"
+          spec="Metro-shaped 3D mesh. Shimmering edges + pulsing nodes inside the I-285 perimeter shape."
         >
-          <NeuralNetworkLoader label="Notifying 7 drivers…" />
+          <NeuralNetworkLoader marketSlug="atl" label="Notifying 7 drivers near you…" />
           <ReducedMotionWrap>
-            <NeuralNetworkLoader label="Notifying 7 drivers…" />
+            <NeuralNetworkLoader marketSlug="atl" label="Notifying 7 drivers near you…" />
+          </ReducedMotionWrap>
+        </Section>
+
+        <Section
+          title="NeuralNetworkLoader — New Orleans"
+          spec="Same loader, NOLA crescent silhouette. Verifies the per-market polygon path."
+        >
+          <NeuralNetworkLoader marketSlug="nola" label="Scanning Orleans Parish…" />
+          <ReducedMotionWrap>
+            <NeuralNetworkLoader marketSlug="nola" label="Scanning Orleans Parish…" />
+          </ReducedMotionWrap>
+        </Section>
+
+        <Section
+          title="NeuralNetworkLoader — legacy grid"
+          spec="Fallback when no marketSlug is passed AND subdomain isn't a known metro. Also the reduced-motion path."
+        >
+          <NeuralNetworkLoader marketSlug={null} label="Notifying 7 drivers…" />
+          <ReducedMotionWrap>
+            <NeuralNetworkLoader marketSlug={null} label="Notifying 7 drivers…" />
           </ReducedMotionWrap>
         </Section>
 
