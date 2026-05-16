@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { calculateDistance } from '@/lib/geo/distance';
+import { getMatchingConfig } from '@/lib/blast/config';
 
 // How fresh `driver_profiles.current_lat/lng` must be (matches the matching
 // algorithm's staleness rule). Beyond this, fall through to home_lat/lng.
@@ -142,6 +143,11 @@ export async function GET(
       driverPreference: post.driver_preference,
       depositAmount: Number(post.deposit_amount ?? 0),
       bumpCount: Number(post.bump_count ?? 0),
+      // Per-target response window from admin config. Riders see a countdown
+      // per driver based on when that driver was notified.
+      targetWindowMs: await getMatchingConfig('atl').then(
+        (cfg) => (cfg.expiry?.default_blast_minutes ?? 15) * 60_000
+      ).catch(() => 15 * 60_000),
     },
     targets: regularTargets.map((r: unknown) => {
       const row = r as Record<string, unknown>;
