@@ -35,9 +35,17 @@ interface DriverInfo {
   handle: string | null;
   displayName: string | null;
   videoUrl: string | null;
-  vehicle: Record<string, unknown> | null;
+  thumbnailUrl: string | null;
+  vehicleLabel: string | null;
+  vehicleColor: string | null;
+  vehiclePhotoUrl: string | null;
+  maxRiders: number | null;
+  areaSlugs: string[];
+  lgbtqFriendly: boolean;
+  acceptsLongDistance: boolean;
   chillScore: number;
-  tier: 'free' | 'hmu_first';
+  completedRides: number;
+  tier: string | null;
 }
 
 interface Target {
@@ -58,17 +66,14 @@ interface FallbackDriver {
   targetId: string;
   driverId: string;
   matchScore: number;
-  /** Pickup → driver location (live GPS if fresh, else home). Null if neither. */
   distanceFromPickupMi: number | null;
-  /** Pickup → driver's home base. Null when no home set. */
   distanceFromHomeMi: number | null;
-  /** True when distanceFromPickupMi reflects fresh GPS, not the home fallback. */
   locationIsLive: boolean;
-  /** Driver's curated home label (e.g. "Decatur, GA"). Null if not set. */
   homeLabel: string | null;
   driver: DriverInfo;
 }
 
+// FallbackDriver reuses DriverInfo shape — same fields.
 interface Blast {
   id: string;
   status: 'active' | 'matched' | 'cancelled' | 'expired';
@@ -394,8 +399,17 @@ export default function BlastOfferBoardClientV3({
                           secondsRemaining={secondsLeft}
                           totalSeconds={PER_TARGET_WINDOW_MS / 1000}
                         />
-                        <div className="absolute inset-1 rounded-full bg-neutral-800 flex items-center justify-center text-sm font-bold">
-                          {(t.driver.displayName ?? t.driver.handle ?? '?')[0]?.toUpperCase()}
+                        <div className="absolute inset-1 rounded-full bg-neutral-800 overflow-hidden flex items-center justify-center text-sm font-bold">
+                          {t.driver.thumbnailUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={t.driver.thumbnailUrl}
+                              alt={t.driver.displayName ?? t.driver.handle ?? 'Driver'}
+                              className="w-full h-full object-cover object-top"
+                            />
+                          ) : (
+                            (t.driver.displayName ?? t.driver.handle ?? '?')[0]?.toUpperCase()
+                          )}
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
@@ -407,9 +421,15 @@ export default function BlastOfferBoardClientV3({
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-neutral-500 mt-0.5 flex items-center gap-2">
+                        <div className="text-[11px] text-neutral-500 mt-0.5 flex items-center gap-2 flex-wrap">
                           {Number.isFinite(t.driver.chillScore) && t.driver.chillScore > 0 && (
-                            <span>{Math.round(t.driver.chillScore)}% chill</span>
+                            <span><span className="text-[#00E676] font-semibold">{Math.round(t.driver.chillScore)}%</span> chill</span>
+                          )}
+                          {t.driver.completedRides > 0 && (
+                            <span><span className="text-white font-semibold">{t.driver.completedRides}</span> rides</span>
+                          )}
+                          {t.driver.vehicleLabel && (
+                            <span className="text-neutral-600">🚗 {t.driver.vehicleLabel}</span>
                           )}
                           {counter && (
                             <span className="text-amber-400 inline-flex items-center gap-1">
