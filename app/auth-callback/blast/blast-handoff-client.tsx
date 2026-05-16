@@ -250,6 +250,14 @@ export default function BlastHandoffClient() {
         setStep('error');
         return;
       }
+      if (res.status === 409) {
+        // Rider already has an active blast — send them straight to it.
+        const body = await res.json().catch(() => ({}));
+        clearBlastDraft();
+        setStep('sent');
+        router.push(`/rider/blast/${body.shortcode}`);
+        return;
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setSendError(body.error || 'Could not send blast — try again.');
