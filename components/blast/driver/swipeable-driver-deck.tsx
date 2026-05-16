@@ -2,6 +2,15 @@
 
 // SwipeableDriverDeck — Tinder-style stack of fallback driver cards rendered
 // on the rider's offer board. Replaces the linear "More options" list.
+// Inline payment gate lives here so the parent offer board doesn't need to
+// manage card-form state separately.
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+import dynamic from 'next/dynamic';
+const InlinePaymentForm = dynamic(
+  () => import('@/components/payments/inline-payment-form'),
+  { ssr: false, loading: () => <div className="py-3 text-center text-xs text-neutral-500">Loading…</div> },
+);
 //
 // Mechanics
 //   - Top card is draggable on the x-axis. Right swipe = HMU (notify that
@@ -58,14 +67,17 @@ export interface FallbackDriverCardData {
 interface SwipeableDriverDeckProps {
   blastId: string;
   cards: FallbackDriverCardData[];
-  /** Rider's offered price — used to show price compatibility on each card. */
   blastPrice?: number;
-  /** Deposit amount the rider has already put down for this blast. */
   depositAmount?: number;
+  /** True when rider has a saved payment method. Controls empty-state CTA. */
+  hasCard?: boolean;
+  /** Total drivers in the market (including ones not yet fetched). Used in
+   *  the "More Drivers" CTA copy when the deck is exhausted. */
+  totalAvailable?: number;
   onAfterHmu?: () => void;
   onAfterPass?: () => void;
-  /** Called when the rider swipes through all cards in the deck. */
-  onDeckEmpty?: () => void;
+  /** Called after "More Drivers" expand succeeds so parent can refresh. */
+  onExpanded?: () => void;
 }
 
 type PendingAction =
@@ -77,9 +89,11 @@ export function SwipeableDriverDeck({
   cards,
   blastPrice,
   depositAmount,
+  hasCard = false,
+  totalAvailable,
   onAfterHmu,
   onAfterPass,
-  onDeckEmpty,
+  onExpanded,
 }: SwipeableDriverDeckProps) {
   const prefersReduced = useReducedMotion();
   // We don't mirror `cards` into local state. Instead we keep:
@@ -90,6 +104,8 @@ export function SwipeableDriverDeck({
   // and derive what the deck shows from those + the parent's `cards` prop.
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [expanding, setExpanding] = useState(false);
 
   // Cards visible right now = parent list minus already-committed and
   // minus the currently-pending card.
@@ -171,20 +187,86 @@ export function SwipeableDriverDeck({
     setPending(null);
   }, [pending, blastId]);
 
-  // Notify parent when all cards have been swiped through.
-  useEffect(() => {
-    if (deck.length === 0 && !pending && cards.length > 0) {
-      onDeckEmpty?.();
+  // Expand blast — calls the expand endpoint then lets parent refresh.
+  const handleExpand = useCallback(async () => {
+    setExpanding(true);
+    try {
+      const res = await fetch(`/api/blast/${blastId}/expand`, { method: 'POST' });
+      if (res.ok) {
+        onExpanded?.();
+        setShowPaymentForm(false);
+      }
+    } finally {
+      setExpanding(false);
     }
-  }, [deck.length, pending, cards.length, onDeckEmpty]);
+  }, [blastId, onExpanded]);
 
   if (deck.length === 0 && !pending) {
+    // Rider has swiped through all drivers. Show payment gate if no card,
+    // otherwise show a "no more" message with a bump suggestion.
+    if (!hasCard && !showPaymentForm) {
+      return (
+        <div className="rounded-2xl border border-[#00E676]/20 bg-[#00E676]/5 p-5 text-center">
+          <p className="text-sm font-semibold text-white mb-1">
+            {totalAvailable ? `${totalAvailable} more drivers nearby` : 'More drivers available'}
+          </p>
+          <p className="text-xs text-neutral-400 mb-4">
+            Link your card to search a wider area — no charge until you ride.
+          </p>
+          <button
+            onClick={() => setShowPaymentForm(true)}
+            className="w-full rounded-full bg-[#00E676] py-3 text-sm font-bold text-black"
+          >
+            More Drivers...
+          </button>
+        </div>
+      );
+    }
+
+    if (!hasCard && showPaymentForm) {
+      return (
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-semibold text-white">Link your card</span>
+            <button
+              onClick={() => setShowPaymentForm(false)}
+              className="text-neutral-500 hover:text-white text-xs"
+            >✕</button>
+          </div>
+          <p className="text-xs text-neutral-500 mb-4">
+            No charge now — only when a ride completes. Expands your search radius.
+          </p>
+          <InlinePaymentForm
+            compact
+            onSuccess={() => {
+              try {
+                const ph = (globalThis as unknown as { posthog?: { capture: (e: string) => void } }).posthog;
+                ph?.capture?.('blast_card_linked_from_deck');
+              } catch { /* ignore */ }
+              void handleExpand();
+            }}
+            onCancel={() => setShowPaymentForm(false)}
+          />
+        </div>
+      );
+    }
+
+    // Has card but no more drivers — suggest bumping
     return (
-      <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl p-6 text-center">
-        <p className="text-sm text-neutral-400">No more drivers in range.</p>
-        <p className="text-xs text-neutral-500 mt-1">
-          Bump your blast to reach drivers a bit farther out.
-        </p>
+      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-5 text-center">
+        {expanding ? (
+          <p className="text-sm text-neutral-400">Searching wider area…</p>
+        ) : (
+          <>
+            <p className="text-sm text-neutral-400">You&apos;ve seen all matched drivers.</p>
+            <button
+              onClick={handleExpand}
+              className="mt-3 text-xs text-[#00E676] hover:underline"
+            >
+              Search wider area
+            </button>
+          </>
+        )}
       </div>
     );
   }
