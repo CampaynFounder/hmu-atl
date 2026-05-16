@@ -72,23 +72,21 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
   const logoHref = getLogoHref(pathname, profileType);
   const close = () => setIsMenuOpen(false);
 
-  const handleSignOut = async () => {
+  const handleSignOut = () => {
     close();
-    // Sign-out from any blast page (the /rider/blast/* funnel or the
-    // /rider/browse/blast landing) lands on /rider/browse/blast — keeps the
-    // signed-out user inside the blast acquisition surface instead of
-    // bouncing them to the generic /rider/home.
     const onBlastPage = pathname.startsWith('/rider/blast') || pathname === '/rider/browse/blast';
     const redirectUrl = onBlastPage
       ? '/rider/browse/blast'
       : profileType === 'rider' ? '/rider/home'
       : profileType === 'driver' ? '/driver'
       : '/';
-    // redirectUrl passed directly so Clerk navigates atomically after clearing
-    // the session — avoids the blank white interstitial that appears when we
-    // call signOut() and then race window.location.href against Clerk's own
-    // post-signout redirect.
-    await signOut({ redirectUrl });
+    // Defer to the next tick so the close() state update (isMenuOpen → false)
+    // finishes its render cycle before Clerk's signOut triggers its own
+    // internal auth-state broadcast — mixing the two in the same microtask
+    // causes React error #300 ("cannot update while rendering").
+    setTimeout(() => {
+      void signOut({ redirectUrl });
+    }, 0);
   };
 
   return (
