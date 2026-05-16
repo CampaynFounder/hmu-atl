@@ -696,27 +696,69 @@ function DatetimeStep({
             {p.label}
           </Chip>
         ))}
-        <Chip
-          active={false}
+        {/* Native picker chip. The prior implementation relayed through a
+            separate hidden input via showPicker() — which silently failed on
+            iOS Safari because the input was pointer-events:none / height:0
+            (not focusable) and showPicker() requires a focusable element +
+            user activation in the same call stack. Wrapping the input in a
+            <label> styled like a chip lets the tap land directly on the input
+            so the native picker opens reliably across iOS, Android, and
+            desktop. showPicker() is called as a belt-and-suspenders fallback
+            for desktop browsers that don't auto-open on click. */}
+        <label
+          htmlFor="blast-pick-date"
           onClick={() => {
-            const input = document.getElementById('blast-pick-date') as HTMLInputElement | null;
-            input?.showPicker?.();
+            // Best-effort — user activation is fresh inside this click handler.
+            // Wrapped in try/catch because Safari throws NotAllowedError if it
+            // disagrees about user gesture, which we can safely ignore — the
+            // label-wrapped input's native click already opens the picker on
+            // browsers that need it.
+            const el = document.getElementById('blast-pick-date') as HTMLInputElement | null;
+            try { el?.showPicker?.(); } catch { /* ignore */ }
+          }}
+          style={{
+            position: 'relative',
+            display: 'inline-flex',
+            alignItems: 'center',
+            padding: '12px 14px',
+            borderRadius: 14,
+            border: '1.5px solid rgba(255,255,255,0.12)',
+            background: 'rgba(255,255,255,0.04)',
+            color: 'rgba(255,255,255,0.78)',
+            fontSize: 14,
+            fontWeight: 600,
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            userSelect: 'none',
           }}
         >
           Pick date
-        </Chip>
+          <input
+            id="blast-pick-date"
+            type="datetime-local"
+            min={new Date(Date.now() + 5 * 60_000).toISOString().slice(0, 16)}
+            onChange={(e) => {
+              const t = new Date(e.target.value);
+              if (Number.isFinite(t.getTime())) onChange(t.toISOString(), '', null);
+            }}
+            // Cover the entire chip so any tap inside the chip lands on the
+            // input — that's the gesture that opens the native picker on iOS
+            // Safari + Android Chrome. opacity:0 hides the native field UI
+            // (which would otherwise render its own visible text on iOS).
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              opacity: 0,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              fontSize: 14,
+            }}
+          />
+        </label>
       </div>
-      <input
-        id="blast-pick-date"
-        type="datetime-local"
-        min={new Date(Date.now() + 5 * 60_000).toISOString().slice(0, 16)}
-        onChange={(e) => {
-          const t = new Date(e.target.value);
-          if (Number.isFinite(t.getTime())) onChange(t.toISOString(), '', null);
-        }}
-        style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', height: 0 }}
-        aria-hidden
-      />
     </div>
   );
 }
