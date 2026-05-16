@@ -6,6 +6,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { calculateDistance } from '@/lib/geo/distance';
+
+// How fresh `driver_profiles.current_lat/lng` must be (matches the matching
+// algorithm's staleness rule). Beyond this, fall through to home_lat/lng.
+const CURRENT_LOCATION_FRESH_MS = 5 * 60 * 1000;
 
 export const runtime = 'nodejs';
 
@@ -46,6 +51,10 @@ export async function GET(
   // over hmu_counter_price (v2) when both are populated; backward-compat fall-
   // through keeps the existing /rider/blast/[id] board rendering correctly
   // until the v2 column is dropped (additive migration per contract §3 D-11).
+  // NOT EXISTS subquery suppresses targets the rider has already swipe-passed
+  // on the fallback deck (event_type='fallback_dismissed'). Those rows stay
+  // in blast_driver_targets — the deck UI just hides them. DELETE on the
+  // dismiss endpoint removes the event row so the card reappears on next poll.
   const targetRows = await sql`
     SELECT
       bdt.id AS target_id,
@@ -63,18 +72,35 @@ export async function GET(
       dp.display_name,
       dp.video_url,
       dp.vehicle_info,
+      dp.current_lat,
+      dp.current_lng,
+      dp.location_updated_at,
+      dp.home_lat,
+      dp.home_lng,
+      dp.home_label,
       u.chill_score,
       u.tier
     FROM blast_driver_targets bdt
     JOIN driver_profiles dp ON dp.user_id = bdt.driver_id
     JOIN users u ON u.id = bdt.driver_id
     WHERE bdt.blast_id = ${id}
+      AND NOT EXISTS (
+        SELECT 1 FROM blast_driver_events bde
+        WHERE bde.blast_id = bdt.blast_id
+          AND bde.driver_id = bdt.driver_id
+          AND bde.event_type = 'fallback_dismissed'
+      )
     ORDER BY
       bdt.pull_up_at DESC NULLS LAST,
       bdt.selected_at DESC NULLS LAST,
       bdt.hmu_at DESC NULLS LAST,
       bdt.match_score DESC
   `;
+
+  const riderPickup = {
+    latitude: Number(post.pickup_lat),
+    longitude: Number(post.pickup_lng),
+  };
 
   // Separate fallback drivers (notified_at = NULL) from regular targets
   const regularTargets = targetRows.filter((r: unknown) => {
@@ -142,10 +168,49 @@ export async function GET(
     }),
     fallbackDrivers: fallbackTargets.map((r: unknown) => {
       const row = r as Record<string, unknown>;
+
+      // distanceFromPickupMi = "how far the driver is from the rider RIGHT NOW".
+      // Prefer fresh GPS; fall back to home_* if GPS is stale or missing.
+      // null when the driver has neither — rider card just hides that pill.
+      const locationUpdatedAt = row.location_updated_at
+        ? new Date(row.location_updated_at as string).getTime()
+        : null;
+      const isGpsFresh =
+        locationUpdatedAt != null
+        && Date.now() - locationUpdatedAt < CURRENT_LOCATION_FRESH_MS
+        && row.current_lat != null
+        && row.current_lng != null;
+
+      const liveCoord = isGpsFresh
+        ? { latitude: Number(row.current_lat), longitude: Number(row.current_lng) }
+        : row.home_lat != null && row.home_lng != null
+          ? { latitude: Number(row.home_lat), longitude: Number(row.home_lng) }
+          : null;
+
+      const distanceFromPickupMi = liveCoord
+        ? Math.round(calculateDistance(riderPickup, liveCoord) * 10) / 10
+        : null;
+
+      // distanceFromHomeMi = pickup → driver's home base. Null when the driver
+      // hasn't set a home. Surfaces "X mi from their home" on the rider card.
+      const homeCoord = row.home_lat != null && row.home_lng != null
+        ? { latitude: Number(row.home_lat), longitude: Number(row.home_lng) }
+        : null;
+      const distanceFromHomeMi = homeCoord
+        ? Math.round(calculateDistance(riderPickup, homeCoord) * 10) / 10
+        : null;
+
       return {
         targetId: row.target_id,
         driverId: row.driver_id,
         matchScore: Number(row.match_score),
+        distanceFromPickupMi,
+        distanceFromHomeMi,
+        // True when the rider card's "X mi away" reflects real-time GPS,
+        // false when it's the driver's static home. Lets the UI decorate
+        // the pill (e.g. green dot) only when the location is live.
+        locationIsLive: isGpsFresh,
+        homeLabel: (row.home_label as string | null) ?? null,
         driver: {
           handle: row.handle,
           displayName: row.display_name,

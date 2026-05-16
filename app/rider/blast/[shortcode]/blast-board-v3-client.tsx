@@ -29,6 +29,7 @@ import {
   StaggeredList,
   SuccessCheckmark,
 } from '@/components/blast/motion';
+import { SwipeableDriverDeck } from '@/components/blast/driver/swipeable-driver-deck';
 
 interface DriverInfo {
   handle: string | null;
@@ -57,6 +58,14 @@ interface FallbackDriver {
   targetId: string;
   driverId: string;
   matchScore: number;
+  /** Pickup → driver location (live GPS if fresh, else home). Null if neither. */
+  distanceFromPickupMi: number | null;
+  /** Pickup → driver's home base. Null when no home set. */
+  distanceFromHomeMi: number | null;
+  /** True when distanceFromPickupMi reflects fresh GPS, not the home fallback. */
+  locationIsLive: boolean;
+  /** Driver's curated home label (e.g. "Decatur, GA"). Null if not set. */
+  homeLabel: string | null;
   driver: DriverInfo;
 }
 
@@ -462,48 +471,20 @@ export default function BlastOfferBoardClientV3({
           </section>
         )}
 
-        {/* ── More options (fallback drivers) ───────────────────────────── */}
+        {/* ── More options — swipeable driver deck ──────────────────────── */}
         {fallback.length > 0 && (
           <section className="mt-6">
             <h2 className="text-xs uppercase tracking-wider text-neutral-500 px-1 mb-3">
-              More options
+              Nearby Drivers
             </h2>
             <p className="text-xs text-neutral-500 mb-3 px-1">
-              Drivers we found nearby. Tap to send them a direct ping.
+              Swipe right to HMU, left to pass. Tap an action button if you prefer.
             </p>
-            <StaggeredList staggerMs={60} as="ul" className="space-y-2">
-              {fallback.map((f) => (
-                <li
-                  key={f.targetId}
-                  className="bg-neutral-900/50 border border-neutral-800 rounded-2xl p-3 list-none"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-neutral-700 to-neutral-800 flex items-center justify-center text-base font-bold flex-shrink-0">
-                      {(f.driver.displayName ?? f.driver.handle ?? '?')[0]?.toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold truncate">
-                        {f.driver.displayName ?? f.driver.handle ?? 'Driver'}
-                      </div>
-                      <div className="text-[11px] text-neutral-500">
-                        {Math.round(f.driver.chillScore)}% chill
-                      </div>
-                    </div>
-                    <motion.button
-                      whileTap={{ scale: 0.97 }}
-                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                      onClick={async () => {
-                        await fetch(`/api/blast/${blastId}/hmu-fallback/${f.targetId}`, { method: 'POST' });
-                        await refresh();
-                      }}
-                      className="bg-[#00E676]/90 text-black text-sm font-bold px-3 py-1.5 rounded-lg"
-                    >
-                      Ping
-                    </motion.button>
-                  </div>
-                </li>
-              ))}
-            </StaggeredList>
+            <SwipeableDriverDeck
+              blastId={blastId}
+              cards={fallback}
+              onAfterHmu={refresh}
+            />
           </section>
         )}
 
