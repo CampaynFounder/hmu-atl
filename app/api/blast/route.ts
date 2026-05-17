@@ -23,7 +23,7 @@
 //   10. Return { blastId, expiresAt, targetedCount, shortcode }
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { isFeatureEnabled } from '@/lib/feature-flags';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
@@ -154,7 +154,29 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 2. Photo gate ──
-    if (!user.photo_url) {
+    // Existing riders who signed up before photo was required won't have
+    // avatar_url in rider_profiles. Fall back to Clerk's profileImageUrl
+    // (every authed user has one) and save it so future requests hit the fast
+    // path. Only hard-block if neither source has a photo.
+    let photoUrl = user.photo_url as string | null;
+    if (!photoUrl) {
+      try {
+        const cc = await clerkClient();
+        const clerkUser = await cc.users.getUser(clerkId);
+        const clerkImage = clerkUser.imageUrl ?? null;
+        if (clerkImage) {
+          await sql`
+            UPDATE rider_profiles
+            SET avatar_url = ${clerkImage}
+            WHERE user_id = ${riderId} AND avatar_url IS NULL
+          `;
+          photoUrl = clerkImage;
+        }
+      } catch (e) {
+        console.error('[blast] clerk image fallback failed:', e);
+      }
+    }
+    if (!photoUrl) {
       return NextResponse.json(
         { error: 'PHOTO_REQUIRED', message: 'Upload a profile photo before sending a blast' },
         { status: 412 },
