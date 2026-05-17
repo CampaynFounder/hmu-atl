@@ -140,6 +140,13 @@ async function fetchCandidates(
     blast.riderGender === 'female' || blast.riderGender === 'woman' ? 'woman' :
     ''  // empty string instead of null to avoid parameter type inference issues;
 
+  // driver_profiles.gender stores 'man'/'woman'; blast.driverPreference uses
+  // 'male'/'female'. Normalize so SQL equality works.
+  const dpGenderForDb =
+    blast.driverPreference === 'female' ? 'woman' :
+    blast.driverPreference === 'male' ? 'man' :
+    blast.driverPreference;
+
   let rows: unknown[];
   try {
     rows = await sql`
@@ -147,7 +154,7 @@ async function fetchCandidates(
       u.id AS user_id,
       dp.current_lat,
       dp.current_lng,
-      u.gender,
+      dp.gender,
       COALESCE(u.chill_score, 0) AS chill_score,
       COALESCE(u.tier, 'free') AS tier,
       COALESCE(u.completed_rides, 0) AS completed_rides,
@@ -183,7 +190,7 @@ async function fetchCandidates(
       -- Rider's preferred driver gender (when set as a hard filter). The OR-
       -- bool pattern is tolerated here because the parameter is in a position
       -- the type resolver can fix from the other side of the OR.
-      AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
+      AND (${!requireSexMatch}::boolean OR dp.gender = ${dpGenderForDb}::text)
       -- Driver's preferred rider gender (always honored: drivers who chose
       -- women_only / men_only never see riders of the other gender). Drivers
       -- with no_preference / NULL pref see everyone.
@@ -263,7 +270,8 @@ function scoreCandidate(
 
   let sexMatch = 1;
   if (blast.driverPreference !== 'any') {
-    sexMatch = c.gender === blast.driverPreference ? 1 : 0;
+    const prefNorm = blast.driverPreference === 'female' ? 'woman' : blast.driverPreference === 'male' ? 'man' : blast.driverPreference;
+    sexMatch = c.gender === prefNorm ? 1 : 0;
   }
 
   const chill = clamp01(c.chill_score / 100);
@@ -395,6 +403,11 @@ export async function fetchFallbackDrivers(
     blast.riderGender === 'female' || blast.riderGender === 'woman' ? 'woman' :
     ''  // empty string instead of null to avoid parameter type inference issues;
 
+  const dpGenderForDb =
+    blast.driverPreference === 'female' ? 'woman' :
+    blast.driverPreference === 'male' ? 'man' :
+    blast.driverPreference;
+
   // Query drivers matching gender preference + price range, ignoring location
   let rows: unknown[];
   try {
@@ -403,7 +416,7 @@ export async function fetchFallbackDrivers(
       u.id AS user_id,
       dp.current_lat,
       dp.current_lng,
-      u.gender,
+      dp.gender,
       COALESCE(u.chill_score, 0) AS chill_score,
       COALESCE(u.tier, 'free') AS tier,
       COALESCE(u.completed_rides, 0) AS completed_rides,
@@ -441,7 +454,7 @@ export async function fetchFallbackDrivers(
       AND u.account_status = 'active'
       -- Honor rider's hard gender preference (filter is no-op when admin's
       -- must_match_sex_preference knob is off).
-      AND (${!requireSexMatch}::boolean OR u.gender = ${blast.driverPreference}::text)
+      AND (${!requireSexMatch}::boolean OR dp.gender = ${dpGenderForDb}::text)
       -- Always honor driver's preferred rider gender — drivers who said
       -- women_only / men_only never see riders of the other gender.
       AND CASE
@@ -506,7 +519,8 @@ export async function fetchFallbackDrivers(
 
       let sexMatch = 1;
       if (blast.driverPreference !== 'any') {
-        sexMatch = c.gender === blast.driverPreference ? 1 : 0;
+        const prefNorm = blast.driverPreference === 'female' ? 'woman' : blast.driverPreference === 'male' ? 'man' : blast.driverPreference;
+        sexMatch = c.gender === prefNorm ? 1 : 0;
       }
 
       const breakdown = {
