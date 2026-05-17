@@ -80,8 +80,6 @@ export interface ScoredTarget {
   tier: 'free' | 'hmu_first';
 }
 
-const STALE_LOCATION_MINUTES = 5;
-
 /** Pull the candidate pool for a given radius. SQL handles all hard filters. */
 async function fetchCandidates(
   blast: BlastInput,
@@ -90,7 +88,9 @@ async function fetchCandidates(
 ): Promise<DriverCandidate[]> {
   const requireSexMatch = config.filters.must_match_sex_preference && blast.driverPreference !== 'any';
   const minChillScore = config.filters.min_chill_score;
-  const maxStaleMinutes = STALE_LOCATION_MINUTES;
+  // max_stale_location_minutes is admin-configurable; fall back to 5 minutes if
+  // not set (safe default for production — drivers need live GPS).
+  const maxStaleMinutes = config.filters.max_stale_location_minutes ?? 5;
   // 0 = disable the check entirely (so admins can knob-out a filter without
   // hitting the API). Both prior approaches (CASE WHEN ${num}::int = 0 and
   // ${disabled}::boolean OR ...) tripped Postgres' parameter type resolver
