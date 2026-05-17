@@ -25,6 +25,8 @@ export type BlastMatchingConfig = {
     min_chill_score: number;
     must_match_sex_preference: boolean;
     must_be_signed_in_within_hours: number;
+    /** How old a driver's GPS ping can be before they're excluded. 0 = no limit. */
+    max_stale_location_minutes: number;
     exclude_if_in_active_ride: boolean;
     exclude_if_today_passed_count_gte: number;
   };
@@ -74,6 +76,7 @@ export const MATCHING_DEFAULTS: BlastMatchingConfig = {
     min_chill_score: 50,
     must_match_sex_preference: true,
     must_be_signed_in_within_hours: 72,
+    max_stale_location_minutes: 5,
     exclude_if_in_active_ride: true,
     exclude_if_today_passed_count_gte: 3,
   },
