@@ -207,6 +207,12 @@ export default function BlastOfferBoardClientV3({
     () => targets.filter((t) => t.hmuAt && !t.passedAt && !t.rejectedAt),
     [targets],
   );
+
+  // Drivers who received the blast but haven't responded yet
+  const pendingTargets = useMemo(
+    () => targets.filter((t) => t.notifiedAt && !t.hmuAt && !t.passedAt && !t.rejectedAt),
+    [targets],
+  );
   const selectedTarget = useMemo(
     () => targets.find((t) => t.selectedAt && !t.rejectedAt) ?? null,
     [targets],
@@ -499,18 +505,103 @@ export default function BlastOfferBoardClientV3({
           </section>
         )}
 
-        {/* ── Searching state — compact panoramic map banner ───────────── */}
+        {/* ── Searching state — map banner + pending driver list ──────── */}
         {interestedTargets.length === 0 && (
           <section className="mt-4">
-            <div className="rounded-2xl overflow-hidden" style={{ marginBottom: 12 }}>
+            {/* Compact map banner — smaller when we have pending drivers to show */}
+            <div
+              className="rounded-2xl overflow-hidden"
+              style={{
+                marginBottom: pendingTargets.length > 0 ? 16 : 12,
+                maxHeight: pendingTargets.length > 0 ? 80 : undefined,
+              }}
+            >
               <NeuralNetworkLoader
                 label={
-                  notifiedCount > 0
-                    ? `Notifying ${notifiedCount} driver${notifiedCount === 1 ? '' : 's'} near you…`
-                    : 'Scanning your area for drivers…'
+                  pendingTargets.length > 0
+                    ? `${pendingTargets.length} driver${pendingTargets.length === 1 ? '' : 's'} considering your blast…`
+                    : notifiedCount > 0
+                      ? `Notifying ${notifiedCount} driver${notifiedCount === 1 ? '' : 's'} near you…`
+                      : 'Scanning your area for drivers…'
                 }
               />
             </div>
+
+            {/* Pending drivers — who received the blast, waiting for their response */}
+            {pendingTargets.length > 0 && (
+              <div className="rounded-2xl border border-neutral-800 bg-neutral-900 overflow-hidden">
+                <div className="px-4 pt-3 pb-2 border-b border-neutral-800 flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-wider text-neutral-500">
+                    Blast sent to
+                  </span>
+                  <span className="text-xs text-neutral-600">
+                    Tap to wait · they&apos;ll HMU when ready
+                  </span>
+                </div>
+                <ul className="divide-y divide-neutral-800">
+                  {pendingTargets.map((t) => {
+                    const secsLeft = perTargetSecondsLeft(t.notifiedAt);
+                    const pct = Math.max(0, Math.min(1, secsLeft / (targetWindowMs / 1000)));
+                    return (
+                      <li key={t.targetId} className="flex items-center gap-3 px-4 py-3">
+                        {/* Avatar */}
+                        <div className="relative w-10 h-10 flex-shrink-0">
+                          <svg width="40" height="40" className="absolute inset-0" style={{ transform: 'rotate(-90deg)' }}>
+                            <circle cx="20" cy="20" r="17" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="2.5" />
+                            <circle
+                              cx="20" cy="20" r="17"
+                              fill="none"
+                              stroke={pct > 0.33 ? 'rgba(0,230,118,0.5)' : pct > 0.1 ? 'rgba(255,179,0,0.5)' : 'rgba(255,68,68,0.5)'}
+                              strokeWidth="2.5"
+                              strokeDasharray={`${2 * Math.PI * 17}`}
+                              strokeDashoffset={`${2 * Math.PI * 17 * (1 - pct)}`}
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                          <div className="absolute inset-1 rounded-full bg-neutral-800 overflow-hidden flex items-center justify-center text-xs font-bold text-white">
+                            {t.driver.thumbnailUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={t.driver.thumbnailUrl} alt="" className="w-full h-full object-cover object-top" />
+                            ) : (
+                              (t.driver.displayName ?? t.driver.handle ?? '?')[0]?.toUpperCase()
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-white truncate flex items-center gap-1.5">
+                            {t.driver.displayName ?? t.driver.handle ?? 'Driver'}
+                            {t.driver.tier === 'hmu_first' && (
+                              <span className="text-[9px] bg-amber-500/90 text-black px-1.5 rounded font-bold">1ST</span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-neutral-500 mt-0.5 flex items-center gap-2">
+                            {t.driver.chillScore > 0 && (
+                              <span><span className="text-[#00E676] font-semibold">{Math.round(t.driver.chillScore)}%</span> chill</span>
+                            )}
+                            {t.driver.vehicleLabel && (
+                              <span className="text-neutral-600">🚗 {t.driver.vehicleLabel}</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Window countdown */}
+                        <div className="text-right flex-shrink-0">
+                          <div
+                            className="text-[11px] font-mono tabular-nums"
+                            style={{ color: pct > 0.33 ? '#888' : pct > 0.1 ? '#FFB300' : '#FF4444' }}
+                          >
+                            {Math.floor(secsLeft / 60)}:{String(secsLeft % 60).padStart(2, '0')}
+                          </div>
+                          <div className="text-[9px] text-neutral-700 mt-0.5">deciding</div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
           </section>
         )}
 
