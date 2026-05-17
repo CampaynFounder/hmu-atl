@@ -429,18 +429,21 @@ export async function POST(req: NextRequest) {
       )
     `);
 
-    // Insert per-target audit rows. UNIQUE(blast_id, driver_id) guards
-    // accidental dupes if matching ever returns the same driver twice.
+    // Insert all matched drivers with notified_at = NULL so they appear in
+    // the swipe deck. Riders contact drivers individually by swiping right;
+    // there is no auto-fanout. UNIQUE(blast_id, driver_id) guards dupes.
     const targetIds: { id: string; driverId: string; matchScore: number; distanceMi: number }[] = [];
-    for (const t of scoredTargets) {
+    const allMatchedDrivers = [...scoredTargets, ...fallbackDrivers];
+    for (const t of allMatchedDrivers) {
       const inserted = await runQuery('insert_blast_driver_target', () => sql`
         INSERT INTO blast_driver_targets (
           blast_id, driver_id, match_score, score_breakdown,
-          notification_channels
+          notification_channels, notified_at
         ) VALUES (
           ${blastId}, ${t.driverId}, ${t.matchScore},
           ${JSON.stringify(t.scoreBreakdown)}::jsonb,
-          ARRAY[]::text[]
+          ARRAY[]::text[],
+          NULL
         )
         ON CONFLICT (blast_id, driver_id) DO UPDATE
           SET match_score = EXCLUDED.match_score,
@@ -449,23 +452,6 @@ export async function POST(req: NextRequest) {
       `);
       const row = inserted[0] as { id: string };
       targetIds.push({ id: row.id, driverId: t.driverId, matchScore: t.matchScore, distanceMi: t.distanceMi });
-    }
-
-    // Insert fallback drivers with notified_at = NULL (not auto-notified)
-    // Rider manually triggers HMU for these via separate API endpoint
-    for (const f of fallbackDrivers) {
-      await runQuery('insert_blast_driver_target_fallback', () => sql`
-        INSERT INTO blast_driver_targets (
-          blast_id, driver_id, match_score, score_breakdown,
-          notification_channels, notified_at
-        ) VALUES (
-          ${blastId}, ${f.driverId}, ${f.matchScore},
-          ${JSON.stringify(f.scoreBreakdown)}::jsonb,
-          ARRAY[]::text[],
-          NULL
-        )
-        ON CONFLICT (blast_id, driver_id) DO NOTHING
-      `);
     }
 
     // ── 7b. Funnel observability (fire-and-forget) ──
