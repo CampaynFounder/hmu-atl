@@ -33,6 +33,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { posthog } from '@/components/analytics/posthog-provider';
 import { SwipeableCard } from '@/components/blast/motion';
+import { FirstTimePaymentSheet } from '@/components/rider/first-time-payment-sheet';
 
 const UNDO_WINDOW_MS = 3000;
 
@@ -376,41 +377,13 @@ export function SwipeableDriverDeck({
         </AnimatePresence>
       </div>
 
-      {/* Payment gate — slides in when rider tries to HMU without a linked card */}
-      <AnimatePresence>
-        {paymentGateCard && (
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 24 }}
-            transition={{ type: 'spring', stiffness: 340, damping: 30 }}
-            className="mt-3 rounded-2xl border border-[#00E676]/25 bg-neutral-950 p-4"
-          >
-            <div className="flex items-start justify-between mb-1">
-              <div>
-                <p className="text-sm font-bold text-white">
-                  Link your card to contact {paymentGateCard.driver.displayName ?? paymentGateCard.driver.handle ?? 'this driver'}
-                </p>
-                <p className="text-xs text-neutral-400 mt-0.5">
-                  No charge now — just prevents fraud
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPaymentGateCard(null)}
-                className="text-neutral-500 hover:text-white text-xs ml-3 mt-0.5"
-              >✕</button>
-            </div>
-            <InlinePaymentForm
-              compact
-              onSuccess={() => {
-                handlePaymentSuccess();
-              }}
-              onCancel={() => setPaymentGateCard(null)}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Payment gate — full-screen overlay when rider tries to HMU without a linked card */}
+      <FirstTimePaymentSheet
+        open={!!paymentGateCard}
+        driverDisplayName={paymentGateCard?.driver.displayName ?? paymentGateCard?.driver.handle}
+        onSuccess={handlePaymentSuccess}
+        onCancel={() => setPaymentGateCard(null)}
+      />
 
       {/* Undo toast — 3s ticker bar then auto-commit. */}
       <AnimatePresence>
