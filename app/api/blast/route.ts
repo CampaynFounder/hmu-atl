@@ -72,11 +72,18 @@ async function runQuery<T = any[]>(name: string, fn: () => Promise<T>): Promise<
 interface BlastBody {
   pickup?: { lat?: number; lng?: number; address?: string };
   dropoff?: { lat?: number; lng?: number; address?: string };
+  // Accept both snake_case (legacy) and camelCase (client BlastCreateInput)
   trip_type?: 'one_way' | 'round_trip';
+  tripType?: 'one_way' | 'round_trip';
   scheduled_for?: string | null;
+  scheduledFor?: string | null;
   storage?: boolean;
   driver_preference?: 'male' | 'female' | 'any';
+  // Client sends GenderPreference { preferred: string[], strict: boolean }
+  driverPreference?: { preferred: string[]; strict: boolean };
   price_dollars?: number;
+  priceDollars?: number;
+  riderGender?: string | null;
   /** Rider-set max drive time to pickup in minutes. Sent from the proximity step. */
   maxPickupMinutes?: number | null;
 }
@@ -229,15 +236,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid pickup or dropoff coordinates' }, { status: 400 });
     }
 
-    const tripType = body.trip_type === 'round_trip' ? 'round_trip' : 'one_way';
-    const driverPreference = body.driver_preference === 'male' || body.driver_preference === 'female'
-      ? body.driver_preference
-      : 'any';
+    const tripType = (body.trip_type ?? body.tripType) === 'round_trip' ? 'round_trip' : 'one_way';
+
+    // driverPreference: legacy API sent 'male'|'female'|'any' string; new client
+    // sends GenderPreference { preferred: string[], strict: boolean }.
+    let driverPreference: 'male' | 'female' | 'any' = 'any';
+    if (body.driver_preference === 'male' || body.driver_preference === 'female') {
+      driverPreference = body.driver_preference;
+    } else if (body.driverPreference?.preferred?.length) {
+      const p = body.driverPreference.preferred[0];
+      if (p === 'man') driverPreference = 'male';
+      else if (p === 'woman') driverPreference = 'female';
+    }
+
     const storageRequested = Boolean(body.storage);
 
     let scheduledFor: Date | null = null;
-    if (body.scheduled_for) {
-      const parsed = new Date(body.scheduled_for);
+    const scheduledForRaw = body.scheduled_for ?? body.scheduledFor;
+    if (scheduledForRaw) {
+      const parsed = new Date(scheduledForRaw);
       if (Number.isNaN(parsed.getTime())) {
         return NextResponse.json({ error: 'Invalid scheduled_for' }, { status: 400 });
       }
@@ -252,7 +269,7 @@ export async function POST(req: NextRequest) {
     }
 
     const config = await getMatchingConfig();
-    const priceDollars = Number(body.price_dollars ?? config.default_price_dollars);
+    const priceDollars = Number(body.price_dollars ?? body.priceDollars ?? config.default_price_dollars);
     if (!Number.isFinite(priceDollars) || priceDollars < 1 || priceDollars > config.max_price_dollars) {
       return NextResponse.json(
         { error: `price_dollars must be between $1 and $${config.max_price_dollars}` },
