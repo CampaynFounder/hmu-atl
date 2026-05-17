@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { estimateTripBlockMinutes } from '@/lib/geo/distance';
 
 /**
  * GET — Fetch driver's weekly schedule + bookings for a date range.
@@ -74,6 +75,61 @@ export async function GET(req: NextRequest) {
       };
     }));
 
+    // Blast-originated rides with a scheduled_for in this week — not tracked
+    // in driver_bookings, so we query rides + hmu_posts directly.
+    const blastRideRows = await sql`
+      SELECT r.id, r.rider_id, r.status,
+             r.pickup_address, r.dropoff_address,
+             r.pickup_lat, r.pickup_lng, r.dropoff_lat, r.dropoff_lng,
+             p.scheduled_for, p.price AS blast_price
+        FROM rides r
+        JOIN hmu_posts p ON p.id = r.hmu_post_id
+       WHERE r.driver_id = ${user.id}
+         AND r.status NOT IN ('cancelled', 'refunded')
+         AND p.post_type = 'blast'
+         AND p.scheduled_for IS NOT NULL
+         AND p.scheduled_for < ${weekEnd.toISOString()}
+         AND p.scheduled_for > ${weekStart.toISOString()}
+       ORDER BY p.scheduled_for
+    `;
+
+    const blastBookings = await Promise.all(blastRideRows.map(async (r: Record<string, unknown>) => {
+      const scheduledFor = new Date(r.scheduled_for as string);
+      const blockMinutes = estimateTripBlockMinutes(
+        { latitude: Number(r.pickup_lat), longitude: Number(r.pickup_lng) },
+        { latitude: Number(r.dropoff_lat), longitude: Number(r.dropoff_lng) },
+      );
+      const endAt = new Date(scheduledFor.getTime() + blockMinutes * 60_000);
+
+      let riderName = null;
+      let riderHandle = null;
+      if (r.rider_id) {
+        const riderRows = await sql`
+          SELECT handle, display_name FROM rider_profiles WHERE user_id = ${r.rider_id} LIMIT 1
+        `;
+        if (riderRows.length) {
+          riderName = (riderRows[0] as Record<string, unknown>).display_name || (riderRows[0] as Record<string, unknown>).handle;
+          riderHandle = (riderRows[0] as Record<string, unknown>).handle;
+        }
+      }
+
+      return {
+        id: r.id,
+        bookingType: 'ride',
+        startAt: scheduledFor.toISOString(),
+        endAt: endAt.toISOString(),
+        status: r.status,
+        title: `Blast ride — ${r.pickup_address ?? 'Pickup'}`,
+        notes: r.dropoff_address ?? null,
+        rideId: r.id,
+        riderId: r.rider_id,
+        riderName,
+        riderHandle,
+        recurringGroupId: null,
+        source: 'blast',
+      };
+    }));
+
     return NextResponse.json({
       schedule: scheduleRows.map((s: Record<string, unknown>) => ({
         id: s.id,
@@ -82,7 +138,9 @@ export async function GET(req: NextRequest) {
         endTime: s.end_time,
         isActive: s.is_active,
       })),
-      bookings,
+      bookings: [...bookings, ...blastBookings].sort(
+        (a, b) => new Date(a.startAt as string).getTime() - new Date(b.startAt as string).getTime(),
+      ),
       timezone: user.timezone || 'America/New_York',
       weekOf: weekStart.toISOString().split('T')[0],
     });

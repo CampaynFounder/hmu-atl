@@ -20,7 +20,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { stripe } from '@/lib/stripe/connect';
-import { writeBlastEvent, insertScheduleBlock } from '@/lib/blast/lifecycle';
+import { writeBlastEvent, promoteScheduleBlock } from '@/lib/blast/lifecycle';
 import { broadcastBlastEvent } from '@/lib/blast/notify';
 
 export const runtime = 'nodejs';
@@ -144,12 +144,12 @@ export async function POST(
     ? (pulledRows[0] as { pull_up_at: string }).pull_up_at
     : new Date().toISOString();
 
-  // Best-effort: don't fail the response on a schedule-block insert hiccup.
-  insertScheduleBlock({
+  // Promote the soft block inserted at /select to hard. The block already
+  // has the correct time window (scheduled_for + estimated trip duration).
+  promoteScheduleBlock({
     driverId: target.driver_id,
     blastId,
-    blockType: 'hard',
-  }).catch((e) => console.error('[blast/pull-up] schedule block insert failed:', e));
+  }).catch((e) => console.error('[blast/pull-up] promote schedule block failed:', e));
 
   const finalPrice = target.counter_price !== null
     ? Number(target.counter_price)
