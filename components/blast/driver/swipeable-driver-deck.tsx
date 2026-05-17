@@ -119,6 +119,13 @@ export function SwipeableDriverDeck({
   const [paymentGateCard, setPaymentGateCard] = useState<FallbackDriverCardData | null>(null);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [expanding, setExpanding] = useState(false);
+  // Local card-linked flag: starts from the parent prop but latches to true
+  // once the rider saves a card so subsequent swipes don't re-trigger the gate.
+  // The parent only fetches payment methods once on mount, so we can't rely on
+  // the prop updating — we own the truth here after a successful payment.
+  const [cardLinked, setCardLinked] = useState(hasCard);
+  // If the parent eventually passes hasCard=true (e.g. after a re-mount), latch.
+  if (hasCard && !cardLinked) setCardLinked(true);
 
   // Cards visible right now = parent list minus already-committed (local +
   // external from parent) and minus the currently-pending card.
@@ -157,7 +164,7 @@ export function SwipeableDriverDeck({
   const handleHmu = useCallback(
     (card: FallbackDriverCardData) => {
       // Button-tap path: check payment gate before any animation.
-      if (!hasCard) {
+      if (!cardLinked) {
         setPaymentGateCard(card);
         return;
       }
@@ -173,12 +180,13 @@ export function SwipeableDriverDeck({
         });
       } catch { /* ignore */ }
     },
-    [blastId, hasCard],
+    [blastId, cardLinked],
   );
 
   const handlePaymentSuccess = useCallback(() => {
     const card = paymentGateCard;
     setPaymentGateCard(null);
+    setCardLinked(true);
     if (!card) return;
     // Card already sprang back to center — now fire HMU with card now linked.
     setPending({ type: 'hmu', card, expiresAt: Date.now() + UNDO_WINDOW_MS });
@@ -244,7 +252,7 @@ export function SwipeableDriverDeck({
   if (deck.length === 0 && !pending) {
     // Rider has swiped through all drivers. Show payment gate if no card,
     // otherwise show a "no more" message with a bump suggestion.
-    if (!hasCard && !showPaymentForm) {
+    if (!cardLinked && !showPaymentForm) {
       return (
         <div className="rounded-2xl border border-[#00E676]/20 bg-[#00E676]/5 p-5 text-center">
           <p className="text-sm font-semibold text-white mb-1">
@@ -263,7 +271,7 @@ export function SwipeableDriverDeck({
       );
     }
 
-    if (!hasCard && showPaymentForm) {
+    if (!cardLinked && showPaymentForm) {
       return (
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
           <div className="flex items-center justify-between mb-3">
@@ -353,7 +361,7 @@ export function SwipeableDriverDeck({
                     axis="x"
                     onSwipeLeft={() => handlePass(card)}
                     onSwipeRight={() => handleHmu(card)}
-                    canSwipeRight={() => hasCard}
+                    canSwipeRight={() => cardLinked}
                     onSwipeRightBlocked={() => setPaymentGateCard(card)}
                     leftLabel="Nah"
                     rightLabel="HMU"
