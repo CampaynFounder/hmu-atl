@@ -22,6 +22,12 @@ export interface BlastDraft {
   priceDollars: number;
   riderGender: GenderOption | null;
   driverPreference: GenderPreference;
+  /**
+   * Maximum acceptable driver distance expressed as drive time in minutes.
+   * Converted to miles in the matching algorithm (25 mph urban speed assumption).
+   * null = no constraint beyond the market default max_distance_mi.
+   */
+  maxPickupMinutes: number | null;
   parsedFromText?: string;            // original "next Wednesday" string for audit
   nlpConfidence?: number;             // 0..1 if parsed by LLM
   draftCreatedAt: number;             // epoch ms

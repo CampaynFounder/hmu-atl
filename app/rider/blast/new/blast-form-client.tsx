@@ -51,6 +51,7 @@ type StepId =
   | 'datetime'
   | 'storage'
   | 'price'
+  | 'proximity'
   | 'driver_pref'
   | 'rider_gender';
 
@@ -61,6 +62,7 @@ const STEPS: ReadonlyArray<StepId> = [
   'datetime',
   'storage',
   'price',
+  'proximity',
   'driver_pref',
   'rider_gender',
 ];
@@ -72,6 +74,7 @@ const STEP_TITLES: Record<StepId, string> = {
   datetime: 'When you trying to roll?',
   storage: 'Bringing bags?',
   price: 'What you paying?',
+  proximity: 'How close they need to be?',
   driver_pref: 'Driver preference',
   rider_gender: 'About you',
 };
@@ -85,10 +88,11 @@ interface FormDraft {
   dropoff: ValidatedAddress | null;
   tripType: 'one_way' | 'round_trip';
   scheduledFor: string | null;
-  scheduledFreeText: string;       // free text the user typed for the LLM parser
+  scheduledFreeText: string;
   nlpConfidence: number | null;
   storage: boolean;
   priceDollars: number;
+  maxPickupMinutes: number | null;
   riderGender: GenderOption | null;
   driverPreference: GenderPreference;
 }
@@ -102,6 +106,7 @@ const EMPTY_DRAFT: FormDraft = {
   nlpConfidence: null,
   storage: false,
   priceDollars: DEFAULT_PRICE_DOLLARS,
+  maxPickupMinutes: null,
   riderGender: null,
   driverPreference: { preferred: [], strict: false },
 };
@@ -230,6 +235,7 @@ export default function BlastFormClient() {
       case 'datetime': return true; // null means "ASAP" — always valid
       case 'storage': return true;  // boolean is always valid
       case 'price': return d.priceDollars >= 1 && d.priceDollars <= 500;
+      case 'proximity': return true; // null = no constraint, any value is valid
       case 'driver_pref': return true; // empty preferred is "no preference" — valid
       // About You is now mandatory — drivers honor the rider's stated
       // gender preference, so we need this for matching to work.
@@ -292,6 +298,7 @@ export default function BlastFormClient() {
       priceDollars: draft.priceDollars,
       riderGender: draft.riderGender,
       driverPreference: draft.driverPreference,
+      maxPickupMinutes: draft.maxPickupMinutes,
       parsedFromText: draft.scheduledFreeText || undefined,
       nlpConfidence: draft.nlpConfidence ?? undefined,
       draftCreatedAt: Date.now(),
@@ -386,6 +393,13 @@ export default function BlastFormClient() {
               priceTouchedRef.current = true;
               setDraft((d) => ({ ...d, priceDollars: next }));
             }}
+          />
+        );
+      case 'proximity':
+        return (
+          <ProximityStep
+            value={draft.maxPickupMinutes}
+            onChange={(v) => setDraft((d) => ({ ...d, maxPickupMinutes: v }))}
           />
         );
       case 'driver_pref':
@@ -852,6 +866,100 @@ function PriceStep({
       </div>
       <PriceStepperButton direction="+" onClick={() => onChange(value + 5)} />
     </div>
+  );
+}
+
+// ─── Proximity step ─────────────────────────────────────────────────────────
+// Rider sets the maximum drive time to pickup. Displayed as a row of chips
+// (5 / 7 / 10 / 12 / 15 / 20 min) with a Framer spring on the active
+// indicator so each tap feels snappy. null = "Any distance" (default).
+
+const PROXIMITY_OPTIONS = [5, 7, 10, 12, 15, 20] as const;
+type ProximityMinutes = typeof PROXIMITY_OPTIONS[number];
+
+function ProximityStep({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (v: number | null) => void;
+}) {
+  return (
+    <div>
+      <p style={{ fontSize: 13, color: '#888', margin: '0 0 16px', lineHeight: 1.5 }}>
+        Only show drivers within this drive time of your pickup.
+        Closer = faster pickup. Farther = more options.
+      </p>
+
+      {/* Chip row */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {/* "Any" chip — clears the filter */}
+        <ProximityChip
+          label="Any"
+          active={value === null}
+          onClick={() => onChange(null)}
+        />
+        {PROXIMITY_OPTIONS.map((min) => (
+          <ProximityChip
+            key={min}
+            label={`${min} min`}
+            active={value === min}
+            onClick={() => onChange(min)}
+          />
+        ))}
+      </div>
+
+      {/* Live label */}
+      <div style={{ marginTop: 14, minHeight: 18, fontSize: 12, color: '#888' }}>
+        {value === null ? (
+          'Showing drivers across the whole market'
+        ) : (
+          <span style={{ color: '#00E676' }}>
+            ✓ Within ~{value} min of your pickup
+            <span style={{ color: '#666', marginLeft: 6 }}>
+              (~{Math.round(value * 25 / 60 * 10) / 10} mi at city speed)
+            </span>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProximityChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      whileTap={{ scale: 0.94 }}
+      animate={{
+        background: active ? '#00E676' : 'rgba(255,255,255,0.05)',
+        color: active ? '#080808' : 'rgba(255,255,255,0.75)',
+        borderColor: active ? '#00E676' : 'rgba(255,255,255,0.12)',
+      }}
+      transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+      style={{
+        padding: '11px 18px',
+        borderRadius: 100,
+        border: '1.5px solid',
+        fontSize: 14,
+        fontWeight: 700,
+        cursor: 'pointer',
+        fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+        outline: 'none',
+        WebkitTapHighlightColor: 'transparent',
+      }}
+    >
+      {label}
+    </motion.button>
   );
 }
 

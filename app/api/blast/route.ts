@@ -72,10 +72,12 @@ interface BlastBody {
   pickup?: { lat?: number; lng?: number; address?: string };
   dropoff?: { lat?: number; lng?: number; address?: string };
   trip_type?: 'one_way' | 'round_trip';
-  scheduled_for?: string | null; // ISO timestamp; null = "now"
+  scheduled_for?: string | null;
   storage?: boolean;
   driver_preference?: 'male' | 'female' | 'any';
   price_dollars?: number;
+  /** Rider-set max drive time to pickup in minutes. Sent from the proximity step. */
+  maxPickupMinutes?: number | null;
 }
 
 const SCHEDULED_FOR_MIN_LEAD_MIN = 5;
@@ -285,12 +287,26 @@ export async function POST(req: NextRequest) {
     // InternalMatcher is the only impl wired today; behavior is byte-for-byte
     // identical to the prior direct matchBlast() call (it delegates internally).
     const provider = getMatchingProvider(market.slug);
-    // Build a v3-shaped config overlay from the v2 config we already loaded.
-    // Stream E will replace this with a read of the new blast_config table.
+    // Rider-set proximity constraint → override max_distance_mi in config.
+    // 25 mph urban speed: maxPickupMinutes * 25/60 = miles.
+    const maxPickupMinutes =
+      typeof body.maxPickupMinutes === 'number' &&
+      body.maxPickupMinutes >= 1 &&
+      body.maxPickupMinutes <= 60
+        ? body.maxPickupMinutes
+        : null;
+    const proximityOverrideMi = maxPickupMinutes != null
+      ? Math.round(maxPickupMinutes * 25 / 60 * 10) / 10
+      : null;
+
     const v3Config: V3BlastConfig = {
       weights: config.weights as unknown as Record<string, number>,
       hardFilters: config.filters as unknown as Record<string, unknown>,
-      limits: config.limits as unknown as Record<string, number | boolean>,
+      limits: {
+        ...(config.limits as unknown as Record<string, number | boolean>),
+        // Override radius when rider specified a proximity cap
+        ...(proximityOverrideMi != null ? { max_distance_mi: proximityOverrideMi } : {}),
+      },
       rewardFunction: 'revenue_per_blast',
       counterOfferMaxPct: 0.25,
       feedMinScorePercentile: 0,
@@ -306,6 +322,7 @@ export async function POST(req: NextRequest) {
       priceDollars,
       riderGender: null,
       driverPreference: { preferred: [], strict: false },
+      maxPickupMinutes,
       draftCreatedAt: Date.now(),
       marketSlug: market.slug,
     };
