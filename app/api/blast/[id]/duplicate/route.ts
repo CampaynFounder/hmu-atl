@@ -87,6 +87,7 @@ export async function POST(
     priceDollars: Number(post.price),
     riderGender: (user.gender as 'man' | 'woman' | 'nonbinary' | null) ?? null,
     driverPreference,
+    maxPickupMinutes: null, // reset on duplicate — rider can set a new proximity
     draftCreatedAt: Date.now(),
   };
 
