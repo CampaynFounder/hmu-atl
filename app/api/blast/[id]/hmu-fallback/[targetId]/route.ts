@@ -1,5 +1,7 @@
-// POST /api/blast/[id]/hmu-fallback/[targetId] — rider manually triggers HMU for fallback driver
-// Updates blast_driver_targets.notified_at and triggers SMS/push notification fanout
+// POST /api/blast/[id]/hmu-fallback/[targetId]
+// Rider taps HMU / swipes right on a driver card.
+// Payment gate: rider must have a saved card (fraud prevention, no charge now).
+// Sets notified_at and sends SMS + Ably push to that driver.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
@@ -18,42 +20,44 @@ export async function POST(
 
   const { id: blastId, targetId } = await params;
 
-  // Verify rider owns the blast
   const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
   if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
   const riderId = (userRows[0] as { id: string }).id;
 
+  // ── Payment gate ──
+  // Rider must have a saved payment method before we contact any driver.
+  // No charge at this stage — it's purely a fraud-prevention measure.
+  const paymentRows = await sql`
+    SELECT 1 FROM rider_payment_methods WHERE rider_id = ${riderId} LIMIT 1
+  `;
+  if (!paymentRows.length) {
+    return NextResponse.json(
+      { error: 'PAYMENT_REQUIRED', message: 'Link a card to contact drivers — no charge now, just fraud prevention' },
+      { status: 412 },
+    );
+  }
+
   const blastRows = await sql`
     SELECT user_id, price, pickup_lat, pickup_lng, pickup_address,
-           dropoff_lat, dropoff_lng, dropoff_address, status
+           dropoff_lat, dropoff_lng, dropoff_address, scheduled_for, status,
+           time_window->>'shortcode' AS shortcode
     FROM hmu_posts
     WHERE id = ${blastId} AND post_type = 'blast' LIMIT 1
   `;
-  if (!blastRows.length) {
-    return NextResponse.json({ error: 'Blast not found' }, { status: 404 });
-  }
+  if (!blastRows.length) return NextResponse.json({ error: 'Blast not found' }, { status: 404 });
   const blast = blastRows[0] as Record<string, unknown>;
 
-  if (blast.user_id !== riderId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  if (blast.user_id !== riderId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (blast.status !== 'active') return NextResponse.json({ error: 'Blast is not active' }, { status: 400 });
 
-  if (blast.status !== 'active') {
-    return NextResponse.json({ error: 'Blast is not active' }, { status: 400 });
-  }
-
-  // Verify target exists and is a fallback driver (notified_at IS NULL)
   const targetRows = await sql`
-    SELECT
-      bdt.id, bdt.driver_id, bdt.match_score, bdt.notified_at,
-      bdt.score_breakdown->>'distanceMi' AS distance_mi
-    FROM blast_driver_targets bdt
-    WHERE bdt.id = ${targetId} AND bdt.blast_id = ${blastId}
+    SELECT id, driver_id, match_score, notified_at,
+           score_breakdown->>'distanceMi' AS distance_mi
+    FROM blast_driver_targets
+    WHERE id = ${targetId} AND blast_id = ${blastId}
     LIMIT 1
   `;
-  if (!targetRows.length) {
-    return NextResponse.json({ error: 'Target not found' }, { status: 404 });
-  }
+  if (!targetRows.length) return NextResponse.json({ error: 'Target not found' }, { status: 404 });
   const target = targetRows[0] as {
     id: string;
     driver_id: string;
@@ -66,31 +70,16 @@ export async function POST(
     return NextResponse.json({ error: 'Driver already notified' }, { status: 400 });
   }
 
-  // Get rider display name and blast shortcode for notification context
   const userCtxRows = await sql`
-    SELECT u.display_name, hp.shortcode
-    FROM users u
-    JOIN hmu_posts hp ON hp.id = ${blastId}
-    WHERE u.id = ${riderId}
-    LIMIT 1
+    SELECT display_name FROM users WHERE id = ${riderId} LIMIT 1
   `;
-  const userCtx = userCtxRows[0] as { display_name: string | null; shortcode: string };
+  const displayName = (userCtxRows[0] as { display_name: string | null } | undefined)?.display_name ?? 'A rider';
 
-  // Get market slug
   const marketRows = await sql`
-    SELECT m.slug
-    FROM hmu_posts hp
-    JOIN markets m ON m.id = hp.market_id
-    WHERE hp.id = ${blastId}
-    LIMIT 1
+    SELECT m.slug FROM hmu_posts hp JOIN markets m ON m.id = hp.market_id
+    WHERE hp.id = ${blastId} LIMIT 1
   `;
-  const market = marketRows[0] as { slug: string };
-
-  // Build notification context
-  const pickupLat = Number(blast.pickup_lat);
-  const pickupLng = Number(blast.pickup_lng);
-  const dropoffLat = Number(blast.dropoff_lat);
-  const dropoffLng = Number(blast.dropoff_lng);
+  const marketSlug = (marketRows[0] as { slug: string } | undefined)?.slug ?? 'atl';
 
   const shortLabel = (address: string | undefined, lat: number, lng: number): string => {
     if (address) {
@@ -106,13 +95,11 @@ export async function POST(
     if (minutes <= 0) return 'now';
     if (minutes < 60) return `in ${minutes} min`;
     const hours = Math.round(minutes / 60);
-    if (hours < 12) return `in ~${hours}h`;
-    const local = new Date(scheduledFor.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    if (local.toDateString() === tomorrow.toDateString()) return 'tomorrow';
-    return local.toLocaleDateString('en-US', { weekday: 'short' });
+    return hours < 12 ? `in ~${hours}h` : 'soon';
   };
+
+  const pickupLat = Number(blast.pickup_lat);
+  const pickupLng = Number(blast.pickup_lng);
 
   const blastTarget: BlastTarget = {
     targetId,
@@ -123,41 +110,34 @@ export async function POST(
 
   const ctx: BlastNotificationContext = {
     blastId,
-    riderDisplayName: userCtx.display_name ?? 'A rider',
+    riderDisplayName: displayName,
     pickupLabel: shortLabel(blast.pickup_address as string | undefined, pickupLat, pickupLng),
-    dropoffLabel: shortLabel(blast.dropoff_address as string | undefined, dropoffLat, dropoffLng),
+    dropoffLabel: shortLabel(blast.dropoff_address as string | undefined, Number(blast.dropoff_lat), Number(blast.dropoff_lng)),
     priceDollars: Number(blast.price),
     scheduledForLabel: whenLabel(blast.scheduled_for as Date | null),
-    marketSlug: market.slug,
-    shortcode: userCtx.shortcode,
+    marketSlug,
+    shortcode: (blast.shortcode as string) ?? '',
   };
 
-  // Update notified_at timestamp BEFORE fanout (fanout reads prefs and may skip, but we mark as "attempted")
   await sql`
-    UPDATE blast_driver_targets
-    SET notified_at = NOW()
-    WHERE id = ${targetId}
+    UPDATE blast_driver_targets SET notified_at = NOW() WHERE id = ${targetId}
   `;
 
-  // Trigger SMS/push notification fanout for this single driver
   try {
     await fanoutBlast([blastTarget], ctx);
   } catch (err) {
-    console.error('Fanout error for fallback driver:', err);
-    // Non-fatal — DB updated, notification just failed
+    console.error('[hmu-fallback] fanout error:', err);
   }
 
-  // Publish Ably event to update offer board in real-time
   try {
-    await publishToChannel(`blast:${blastId}`, 'target.notified', {
+    await publishToChannel(`blast:${blastId}`, 'target_notified', {
       targetId,
       driverId: target.driver_id,
       notifiedAt: new Date().toISOString(),
     });
   } catch (err) {
-    console.error('Ably publish error:', err);
-    // Non-fatal
+    console.error('[hmu-fallback] ably error:', err);
   }
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ ok: true });
 }

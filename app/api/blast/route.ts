@@ -30,7 +30,8 @@ import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 import { calculateDistance } from '@/lib/geo/distance';
 import { getMatchingConfig, getKnob } from '@/lib/blast/config';
-import { fanoutBlast, type BlastTarget, type BlastNotificationContext } from '@/lib/blast/notify';
+// fanoutBlast intentionally not called here — notification is deferred to the
+// per-driver right-swipe action in POST /api/blast/[id]/hmu-fallback/[targetId].
 import { publishToChannel } from '@/lib/ably/server';
 import { getMatchingProvider, InternalMatcher } from '@/lib/blast/provider';
 import type { BlastConfig as V3BlastConfig, BlastCreateInput } from '@/lib/blast/types';
@@ -477,27 +478,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ── 8. Fanout (fire-and-forget; do not await) ──
-    const fanoutTargets: BlastTarget[] = targetIds.map((t) => ({
-      targetId: t.id,
-      driverId: t.driverId,
-      matchScore: t.matchScore,
-      distanceMi: t.distanceMi,
-    }));
-    const ctx: BlastNotificationContext = {
-      blastId,
-      riderDisplayName: (user.display_name as string) ?? 'A rider',
-      pickupLabel: shortLabel(body.pickup?.address, pickupLat, pickupLng),
-      dropoffLabel: shortLabel(body.dropoff?.address, dropoffLat, dropoffLng),
-      priceDollars,
-      scheduledForLabel: whenLabel(scheduledFor),
-      marketSlug: market.slug,
-      shortcode,
-    };
-    // Worker-friendly fire-and-forget: detach from the request promise. The
-    // Cloudflare runtime will keep this task alive briefly via the global
-    // event loop. For longer fanouts we'd switch to a Queue.
-    void fanoutBlast(fanoutTargets, ctx);
+    // ── 8. Fanout deferred ──
+    // Drivers are notified one-at-a-time when the rider swipes right in the
+    // swipe deck (POST /api/blast/[id]/hmu-fallback/[targetId]). All targets
+    // are stored with notified_at = NULL so they appear in the swipe deck.
 
     // ── 9. Publish to blast channel for the rider's live offer board ──
     publishToChannel(`blast:${blastId}`, 'blast_created', {
