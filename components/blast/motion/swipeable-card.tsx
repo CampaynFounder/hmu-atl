@@ -78,6 +78,13 @@ export function SwipeableCard({
   const ref = useRef<HTMLDivElement>(null);
   const controls = useAnimation();
 
+  // Refs so handleDragEnd always calls the latest callbacks without needing
+  // them in its deps array (avoids React Compiler stale-closure warning).
+  const canSwipeRightRef = useRef(canSwipeRight);
+  canSwipeRightRef.current = canSwipeRight;
+  const onSwipeRightBlockedRef = useRef(onSwipeRightBlocked);
+  onSwipeRightBlockedRef.current = onSwipeRightBlocked;
+
   // Shared motion values so overlays can react to drag position.
   const x = useMotionValue(0);
   const y = useMotionValue(0);
@@ -140,13 +147,13 @@ export function SwipeableCard({
             })
             .then(() => onSwipeLeft?.());
         } else if (goRight) {
-          if (canSwipeRight && !canSwipeRight()) {
+          if (canSwipeRightRef.current && !canSwipeRightRef.current()) {
             // Payment gate (or any other blocker) — bounce back and notify parent.
             void controls.start({
               x: 0, rotate: 0, opacity: 1,
               transition: { type: 'spring', stiffness: 420, damping: 30 },
             });
-            onSwipeRightBlocked?.();
+            onSwipeRightBlockedRef.current?.();
             return;
           }
           void controls
