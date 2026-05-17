@@ -113,6 +113,9 @@ export function SwipeableDriverDeck({
   // and derive what the deck shows from those + the parent's `cards` prop.
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
+  // Payment gate — card that the rider tried to right-swipe without a linked card.
+  // The card springs back and this form slides in. On success, we fire the HMU.
+  const [paymentGateCard, setPaymentGateCard] = useState<FallbackDriverCardData | null>(null);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [expanding, setExpanding] = useState(false);
 
@@ -152,20 +155,42 @@ export function SwipeableDriverDeck({
 
   const handleHmu = useCallback(
     (card: FallbackDriverCardData) => {
+      // Button-tap path: check payment gate before any animation.
+      if (!hasCard) {
+        setPaymentGateCard(card);
+        return;
+      }
       setPending({ type: 'hmu', card, expiresAt: Date.now() + UNDO_WINDOW_MS });
       void fetch(`/api/blast/${blastId}/hmu-fallback/${card.targetId}`, {
         method: 'POST',
       }).catch(() => { /* swallowed — UI already optimistic; next poll will reflect actual state */ });
       try {
-        posthog.capture('blast_fallback_hmu', {
+        posthog.capture('blast_hmu', {
           target_id: card.targetId,
           distance_from_pickup_mi: card.distanceFromPickupMi,
           via: 'swipe_or_button',
         });
       } catch { /* ignore */ }
     },
-    [blastId],
+    [blastId, hasCard],
   );
+
+  const handlePaymentSuccess = useCallback(() => {
+    const card = paymentGateCard;
+    setPaymentGateCard(null);
+    if (!card) return;
+    // Card already sprang back to center — now fire HMU with card now linked.
+    setPending({ type: 'hmu', card, expiresAt: Date.now() + UNDO_WINDOW_MS });
+    void fetch(`/api/blast/${blastId}/hmu-fallback/${card.targetId}`, {
+      method: 'POST',
+    }).catch(() => {});
+    try {
+      posthog.capture('blast_hmu', {
+        target_id: card.targetId,
+        via: 'after_payment_link',
+      });
+    } catch { /* ignore */ }
+  }, [blastId, paymentGateCard]);
 
   const handlePass = useCallback(
     (card: FallbackDriverCardData) => {
@@ -327,6 +352,8 @@ export function SwipeableDriverDeck({
                     axis="x"
                     onSwipeLeft={() => handlePass(card)}
                     onSwipeRight={() => handleHmu(card)}
+                    canSwipeRight={() => hasCard}
+                    onSwipeRightBlocked={() => setPaymentGateCard(card)}
                     leftLabel="Nah"
                     rightLabel="HMU"
                     ariaLabel={`Driver ${card.driver.displayName ?? card.driver.handle ?? 'card'}. Swipe right to HMU, left to pass.`}
@@ -348,6 +375,42 @@ export function SwipeableDriverDeck({
           })}
         </AnimatePresence>
       </div>
+
+      {/* Payment gate — slides in when rider tries to HMU without a linked card */}
+      <AnimatePresence>
+        {paymentGateCard && (
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 24 }}
+            transition={{ type: 'spring', stiffness: 340, damping: 30 }}
+            className="mt-3 rounded-2xl border border-[#00E676]/25 bg-neutral-950 p-4"
+          >
+            <div className="flex items-start justify-between mb-1">
+              <div>
+                <p className="text-sm font-bold text-white">
+                  Link your card to contact {paymentGateCard.driver.displayName ?? paymentGateCard.driver.handle ?? 'this driver'}
+                </p>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  No charge now — just prevents fraud
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPaymentGateCard(null)}
+                className="text-neutral-500 hover:text-white text-xs ml-3 mt-0.5"
+              >✕</button>
+            </div>
+            <InlinePaymentForm
+              compact
+              onSuccess={() => {
+                handlePaymentSuccess();
+              }}
+              onCancel={() => setPaymentGateCard(null)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Undo toast — 3s ticker bar then auto-commit. */}
       <AnimatePresence>

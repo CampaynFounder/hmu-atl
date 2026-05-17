@@ -40,6 +40,15 @@ export interface SwipeableCardProps {
   rightLabel?: string;
   className?: string;
   ariaLabel?: string;
+  /**
+   * Called before the right-swipe fly-off animation starts. If it returns
+   * false the card springs back to center and onSwipeRightBlocked fires instead.
+   * Use this for payment gates — the rider sees the card bounce back before the
+   * form slides in.
+   */
+  canSwipeRight?: () => boolean;
+  /** Called when canSwipeRight returned false and the card has sprung back. */
+  onSwipeRightBlocked?: () => void;
 }
 
 const VELOCITY_ESCAPE_PX_PER_S = 600;
@@ -62,6 +71,8 @@ export function SwipeableCard({
   rightLabel,
   className,
   ariaLabel,
+  canSwipeRight,
+  onSwipeRightBlocked,
 }: SwipeableCardProps) {
   const prefersReduced = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
@@ -129,6 +140,15 @@ export function SwipeableCard({
             })
             .then(() => onSwipeLeft?.());
         } else if (goRight) {
+          if (canSwipeRight && !canSwipeRight()) {
+            // Payment gate (or any other blocker) — bounce back and notify parent.
+            void controls.start({
+              x: 0, rotate: 0, opacity: 1,
+              transition: { type: 'spring', stiffness: 420, damping: 30 },
+            });
+            onSwipeRightBlocked?.();
+            return;
+          }
           void controls
             .start({
               x: FLY_OFF_X,
