@@ -240,7 +240,7 @@ export async function POST(req: NextRequest) {
 
     // driverPreference: legacy API sent 'male'|'female'|'any' string; new client
     // sends GenderPreference { preferred: string[], strict: boolean }.
-    let driverPreference: string = 'any';
+    let driverPreference: 'male' | 'female' | 'any' = 'any';
     if (body.driver_preference === 'male' || body.driver_preference === 'female') {
       driverPreference = body.driver_preference;
     } else if (body.driverPreference?.preferred?.length) {
