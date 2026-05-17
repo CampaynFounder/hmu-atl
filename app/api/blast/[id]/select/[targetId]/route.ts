@@ -25,6 +25,8 @@ import { stripe } from '@/lib/stripe/connect';
 import { publishToChannel, notifyUser } from '@/lib/ably/server';
 import { generateRefCode } from '@/lib/rides/ref-code';
 import { getMatchingConfig } from '@/lib/blast/config';
+import { insertScheduleBlock } from '@/lib/blast/lifecycle';
+import { estimateTripBlockMinutes } from '@/lib/geo/distance';
 
 export const runtime = 'nodejs';
 
@@ -226,6 +228,22 @@ export async function POST(
     RETURNING id, ref_code
   `;
   const rideId = (rideRows[0] as { id: string }).id;
+
+  // Insert a soft schedule block anchored to the ride's scheduled time.
+  // Pull-up will promote this to hard. Released automatically on blast
+  // cancel or if the rider never pulls up.
+  const blockFrom = post.scheduled_for ? new Date(post.scheduled_for as string) : new Date();
+  const blockMinutes = estimateTripBlockMinutes(
+    { latitude: Number(post.pickup_lat), longitude: Number(post.pickup_lng) },
+    { latitude: Number(post.dropoff_lat), longitude: Number(post.dropoff_lng) },
+  );
+  insertScheduleBlock({
+    driverId,
+    blastId,
+    blockType: 'soft',
+    blockedFrom: blockFrom,
+    blockedUntil: new Date(blockFrom.getTime() + blockMinutes * 60_000),
+  }).catch((e) => console.error('[blast/select] schedule block insert failed:', e));
 
   // Notify everyone.
   publishToChannel(`blast:${blastId}`, 'match_locked', {

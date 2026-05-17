@@ -211,6 +211,27 @@ export async function insertScheduleBlock(opts: {
 }
 
 /**
+ * Promote a driver's soft schedule block to hard on pull-up. The soft block
+ * was inserted at /select with the correct time window (scheduled_for +
+ * estimated trip duration); pull-up just upgrades the commitment level.
+ * No-ops if no soft block exists (edge case: select was skipped or block
+ * already promoted).
+ */
+export async function promoteScheduleBlock(opts: {
+  driverId: string;
+  blastId: string;
+}): Promise<void> {
+  await sql`
+    UPDATE driver_schedule_blocks
+       SET block_type = 'hard'
+     WHERE blast_id = ${opts.blastId}
+       AND driver_id = ${opts.driverId}
+       AND block_type = 'soft'
+       AND released_at IS NULL
+  `;
+}
+
+/**
  * Release any open schedule blocks tied to (driver, blast). Used when the
  * 5-min soft hold expires without a pull-up, when the rider cancels pre-
  * pull-up, or when an alternate driver gets selected.

@@ -17,7 +17,7 @@
 //   4. Cap to max_drivers_to_notify; reserve HMU First slots if configured.
 
 import { sql } from '@/lib/db/client';
-import { calculateDistance } from '@/lib/geo/distance';
+import { calculateDistance, estimateTripBlockMinutes } from '@/lib/geo/distance';
 import type { BlastMatchingConfig } from './config';
 
 // Strict uuid format check — used before passing the riderId through the
@@ -48,6 +48,8 @@ export interface BlastInput {
   riderId: string;
   pickupLat: number;
   pickupLng: number;
+  dropoffLat?: number | null;
+  dropoffLng?: number | null;
   marketId: string | null;
   driverPreference: 'male' | 'female' | 'any';
   // Rider's own gender (man/woman/other/female/male — accepts both old + new
@@ -120,6 +122,23 @@ async function fetchCandidates(
   // `notified_at > NOW() - INTERVAL '0 minutes'` is `notified_at > NOW()`,
   // which is false for every past notification, so NOT EXISTS is true and
   // every driver passes the filter.
+
+  // Schedule block overlap window for scheduled rides. We only apply this
+  // filter when the blast has a future scheduled_for AND dropoff coords —
+  // ASAP rides are already protected by the active-ride NOT EXISTS check
+  // once the ride reaches 'matched' status.
+  const hasDropoff = blast.dropoffLat != null && blast.dropoffLng != null;
+  const skipBlockCheck = blast.scheduledFor === null || !hasDropoff;
+  let blockStartStr = 'epoch';
+  let blockEndStr = 'epoch';
+  if (!skipBlockCheck) {
+    const tripMin = estimateTripBlockMinutes(
+      { latitude: blast.pickupLat, longitude: blast.pickupLng },
+      { latitude: blast.dropoffLat!, longitude: blast.dropoffLng! },
+    );
+    blockStartStr = blast.scheduledFor!.toISOString();
+    blockEndStr = new Date(blast.scheduledFor!.getTime() + tripMin * 60_000).toISOString();
+  }
 
   // Bounding box pre-filter — Postgres can't use indexes on Haversine, so we
   // crop to a rough lat/lng box first and let the in-loop distance compute
@@ -211,6 +230,16 @@ async function fetchCandidates(
         WHERE bdt.driver_id = u.id
           AND hp.user_id = ${riderIdSafe}::uuid
           AND bdt.notified_at > NOW() - (${dedupeMinutesSafe}::text || ' minutes')::interval
+      )
+      AND (
+        ${skipBlockCheck}::boolean
+        OR NOT EXISTS (
+          SELECT 1 FROM driver_schedule_blocks dsb
+          WHERE dsb.driver_id = u.id
+            AND dsb.released_at IS NULL
+            AND dsb.blocked_from < ${blockEndStr}::timestamptz
+            AND dsb.blocked_until > ${blockStartStr}::timestamptz
+        )
       )
   `;
   } catch (e) {
@@ -408,6 +437,20 @@ export async function fetchFallbackDrivers(
     blast.driverPreference === 'male' ? 'man' :
     blast.driverPreference;
 
+  // Schedule block window — same logic as fetchCandidates.
+  const fbHasDropoff = blast.dropoffLat != null && blast.dropoffLng != null;
+  const fbSkipBlockCheck = blast.scheduledFor === null || !fbHasDropoff;
+  let fbBlockStartStr = 'epoch';
+  let fbBlockEndStr = 'epoch';
+  if (!fbSkipBlockCheck) {
+    const tripMin = estimateTripBlockMinutes(
+      { latitude: blast.pickupLat, longitude: blast.pickupLng },
+      { latitude: blast.dropoffLat!, longitude: blast.dropoffLng! },
+    );
+    fbBlockStartStr = blast.scheduledFor!.toISOString();
+    fbBlockEndStr = new Date(blast.scheduledFor!.getTime() + tripMin * 60_000).toISOString();
+  }
+
   // Query drivers matching gender preference + price range, ignoring location
   let rows: unknown[];
   try {
@@ -467,6 +510,16 @@ export async function fetchFallbackDrivers(
       AND NOT EXISTS (
         SELECT 1 FROM rides r
         WHERE r.driver_id = u.id AND r.status IN ('matched','otw','here','active')
+      )
+      AND (
+        ${fbSkipBlockCheck}::boolean
+        OR NOT EXISTS (
+          SELECT 1 FROM driver_schedule_blocks dsb
+          WHERE dsb.driver_id = u.id
+            AND dsb.released_at IS NULL
+            AND dsb.blocked_from < ${fbBlockEndStr}::timestamptz
+            AND dsb.blocked_until > ${fbBlockStartStr}::timestamptz
+        )
       )
     ORDER BY
       -- Prioritize HMU First tier
