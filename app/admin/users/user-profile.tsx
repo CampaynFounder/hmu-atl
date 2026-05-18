@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 
 interface UserData {
   user: {
@@ -100,12 +100,15 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
   const [labDraft, setLabDraft] = useState<{
     displayName: string;
     thumbnailUrl: string;
+    videoUrl: string;
     vehicleMake: string; vehicleModel: string; vehicleYear: string; vehicleColor: string;
     minimumFare: string;
     lat: string; lng: string;
   } | null>(null);
   const [labSaving, setLabSaving] = useState(false);
   const [labMsg, setLabMsg] = useState<string | null>(null);
+  const [labUploading, setLabUploading] = useState(false);
+  const labFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!avatarOpen) return;
@@ -620,6 +623,7 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
         const draft = labDraft ?? {
           displayName: user.displayName ?? '',
           thumbnailUrl: user.avatarUrl ?? '',
+          videoUrl: user.videoUrl ?? '',
           vehicleMake: (vi.make as string) ?? '',
           vehicleModel: (vi.model as string) ?? '',
           vehicleYear: String(vi.year ?? ''),
@@ -631,12 +635,43 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
         const setField = (k: keyof typeof draft, v: string) =>
           setLabDraft((prev) => ({ ...(prev ?? draft), [k]: v }));
 
+        const handleFileUpload = async (file: File) => {
+          setLabUploading(true);
+          setLabMsg(null);
+          try {
+            const fd = new FormData();
+            fd.append('video', file, file.name);
+            fd.append('profile_type', 'driver');
+            fd.append('media_type', 'auto');
+            fd.append('save_to_profile', 'false');
+            const res = await fetch('/api/upload/video', { method: 'POST', body: fd });
+            const result = await res.json() as { url?: string; error?: string };
+            if (res.ok && result.url) {
+              const isVideo = file.type.startsWith('video/');
+              setLabDraft((prev) => ({
+                ...(prev ?? draft),
+                thumbnailUrl: result.url!,
+                ...(isVideo ? { videoUrl: result.url! } : {}),
+              }));
+              setLabMsg('Uploaded — click Save to apply');
+            } else {
+              setLabMsg(result.error ?? 'Upload failed');
+            }
+          } catch {
+            setLabMsg('Upload failed');
+          } finally {
+            setLabUploading(false);
+            if (labFileRef.current) labFileRef.current.value = '';
+          }
+        };
+
         const saveLab = async () => {
           setLabSaving(true);
           setLabMsg(null);
           const payload: Record<string, unknown> = {};
           if (draft.displayName) payload.displayName = draft.displayName;
           if (draft.thumbnailUrl) payload.thumbnailUrl = draft.thumbnailUrl;
+          if (draft.videoUrl) payload.videoUrl = draft.videoUrl;
           const vi: Record<string, unknown> = {};
           if (draft.vehicleMake) vi.make = draft.vehicleMake;
           if (draft.vehicleModel) vi.model = draft.vehicleModel;
@@ -690,17 +725,49 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
               </div>
 
               <div className="col-span-2">
-                <label className="block text-[11px] text-neutral-400 mb-1">Photo URL</label>
-                <div className="flex gap-2">
+                <label className="block text-[11px] text-neutral-400 mb-1">Photo / Video</label>
+                {/* Upload button */}
+                <div className="flex gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => labFileRef.current?.click()}
+                    disabled={labUploading}
+                    className="text-xs font-medium px-3 py-2 rounded-lg bg-neutral-700 hover:bg-neutral-600 text-white transition-colors disabled:opacity-50"
+                  >
+                    {labUploading ? 'Uploading…' : '↑ Upload file'}
+                  </button>
+                  <span className="text-[10px] text-neutral-500 self-center">or paste a URL below</span>
+                </div>
+                <input
+                  ref={labFileRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFileUpload(f); }}
+                />
+                {/* Photo URL */}
+                <div className="flex gap-2 mb-2">
                   <input
                     value={draft.thumbnailUrl}
                     onChange={(e) => setField('thumbnailUrl', e.target.value)}
-                    placeholder="https://…"
+                    placeholder="Photo URL (https://…)"
                     className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50"
                   />
                   {draft.thumbnailUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={draft.thumbnailUrl} alt="" className="h-9 w-9 rounded-lg object-cover shrink-0 border border-neutral-700" />
+                  )}
+                </div>
+                {/* Video URL — auto-filled when a video is uploaded */}
+                <div className="flex gap-2 items-center">
+                  <input
+                    value={draft.videoUrl}
+                    onChange={(e) => setField('videoUrl', e.target.value)}
+                    placeholder="Video URL (https://…) — optional"
+                    className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50"
+                  />
+                  {draft.videoUrl && (
+                    <span className="text-[10px] text-amber-400 shrink-0">▶ video set</span>
                   )}
                 </div>
               </div>
