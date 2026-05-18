@@ -70,6 +70,7 @@ const PRESETS: { id: string; label: string; weights: Weights }[] = [
 const HARD_FILTER_DEFS: { key: string; label: string; type: 'toggle' | 'stepper' }[] = [
   { key: 'must_match_sex_preference', label: 'Strictly match rider gender preference', type: 'toggle' },
   { key: 'exclude_if_in_active_ride', label: 'Skip drivers in an active ride', type: 'toggle' },
+  { key: 'allow_home_location_fallback', label: 'Use home base when driver GPS is absent or stale', type: 'toggle' },
   { key: 'must_be_signed_in_within_hours', label: 'Driver must have signed in within (hours)', type: 'stepper' },
   { key: 'max_stale_location_minutes', label: 'Max GPS age (minutes, 0 = any)', type: 'stepper' },
   { key: 'min_chill_score', label: 'Minimum chill score', type: 'stepper' },
