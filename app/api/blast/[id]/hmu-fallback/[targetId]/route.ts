@@ -114,7 +114,7 @@ export async function POST(
     pickupLabel: shortLabel(blast.pickup_address as string | undefined, pickupLat, pickupLng),
     dropoffLabel: shortLabel(blast.dropoff_address as string | undefined, Number(blast.dropoff_lat), Number(blast.dropoff_lng)),
     priceDollars: Number(blast.price),
-    scheduledForLabel: whenLabel(blast.scheduled_for as Date | null),
+    scheduledForLabel: whenLabel(blast.scheduled_for ? new Date(blast.scheduled_for as string) : null),
     marketSlug,
     shortcode: (blast.shortcode as string) ?? '',
   };
