@@ -85,7 +85,7 @@ async function loadDriverPrefs(driverIds: string[]): Promise<Map<string, DriverP
       dp.phone,
       COALESCE(t.sent_today, 0) AS sent_today
     FROM users u
-    JOIN driver_profiles dp ON dp.user_id = u.id
+    LEFT JOIN driver_profiles dp ON dp.user_id = u.id
     LEFT JOIN driver_blast_preferences p ON p.user_id = u.id
     LEFT JOIN (
       SELECT driver_id, COUNT(*) AS sent_today

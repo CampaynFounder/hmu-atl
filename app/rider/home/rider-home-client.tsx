@@ -59,6 +59,13 @@ function ActiveBlastCard() {
 
   if (blast === undefined || blast === null) return null;
 
+  // Link to the swipe deck — that's where riders contact drivers and can
+  // navigate to the status board via the sticky CTA. Linking directly to
+  // /status strands riders on an empty "Waiting…" screen if they haven't
+  // HMU'd anyone yet.
+  const deckPath = blast.shortcode
+    ? `/rider/blast/${blast.shortcode}`
+    : `/rider/blast/${blast.id}`;
   const statusPath = blast.shortcode
     ? `/rider/blast/${blast.shortcode}/status`
     : `/rider/blast/${blast.id}/status`;
@@ -66,7 +73,7 @@ function ActiveBlastCard() {
   return (
     <div style={{ padding: '12px 20px 0' }}>
       <a
-        href={statusPath}
+        href={deckPath}
         onClick={() => posthog.capture('rider_home_active_blast_tapped')}
         style={{
           display: 'block', textDecoration: 'none',
@@ -105,9 +112,19 @@ function ActiveBlastCard() {
             fontSize: 13, fontWeight: 600, color: '#080808',
             background: '#00E676', borderRadius: 100, padding: '6px 16px',
           }}>
-            See Responses →
+            Find Drivers →
           </span>
         </div>
+      </a>
+      <a
+        href={statusPath}
+        onClick={() => posthog.capture('rider_home_blast_status_tapped')}
+        style={{
+          display: 'block', textDecoration: 'none', textAlign: 'center',
+          fontSize: 12, color: 'rgba(0,230,118,0.7)', padding: '8px 0 4px',
+        }}
+      >
+        View driver responses →
       </a>
     </div>
   );

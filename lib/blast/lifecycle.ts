@@ -272,11 +272,16 @@ export async function resolveShortcode(shortcode: string): Promise<{
   user_id: string;
 } | null> {
   if (!shortcode || shortcode.length < 4) return null;
+  // Check the dedicated shortcode column first (post-migration), fall back to
+  // the legacy areas[1] = 'shortcode:XYZ' storage for pre-migration blasts.
   const rows = await sql`
     SELECT id, user_id
       FROM hmu_posts
      WHERE post_type = 'blast'
-       AND areas[1] = ${`shortcode:${shortcode}`}
+       AND (
+         shortcode = ${shortcode}
+         OR areas[1] = ${`shortcode:${shortcode}`}
+       )
      LIMIT 1
   `;
   if (!rows.length) return null;
