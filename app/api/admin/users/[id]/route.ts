@@ -237,21 +237,27 @@ export async function PATCH(
     (currentLat !== undefined && currentLng !== undefined);
 
   if (hasDriverProfileChanges) {
-    // Fetch current vehicle_info + pricing so we can merge rather than replace.
-    const dpRows = await sql`
-      SELECT vehicle_info, pricing FROM driver_profiles WHERE user_id = ${id} LIMIT 1
-    `;
-    const dp = (dpRows[0] as Record<string, unknown> | undefined) ?? {};
-    const existingVehicle = (dp.vehicle_info as Record<string, unknown>) ?? {};
-    const existingPricing = (dp.pricing as Record<string, unknown>) ?? {};
+    // Only merge vehicle_info / pricing when those specific fields are in the payload.
+    // Always fetching + writing them back would wipe data when the admin only
+    // touches an unrelated field (e.g. thumbnailUrl).
+    const needsVehicleOrPricing = vehicleInfo !== undefined || minimumFare !== undefined;
+    let mergedVehicle: Record<string, unknown> | null = null;
+    let mergedPricing: Record<string, unknown> | null = null;
 
-    const mergedVehicle = vehicleInfo
-      ? { ...existingVehicle, ...vehicleInfo }
-      : existingVehicle;
+    if (needsVehicleOrPricing) {
+      const dpRows = await sql`
+        SELECT vehicle_info, pricing FROM driver_profiles WHERE user_id = ${id} LIMIT 1
+      `;
+      const dp = (dpRows[0] as Record<string, unknown> | undefined) ?? {};
+      const existingVehicle = (dp.vehicle_info as Record<string, unknown>) ?? {};
+      const existingPricing = (dp.pricing as Record<string, unknown>) ?? {};
+      mergedVehicle = vehicleInfo ? { ...existingVehicle, ...vehicleInfo } : existingVehicle;
+      mergedPricing = minimumFare !== undefined ? { ...existingPricing, minimum: minimumFare } : existingPricing;
+    }
 
-    const mergedPricing = minimumFare !== undefined
-      ? { ...existingPricing, minimum: minimumFare }
-      : existingPricing;
+    // Use a boolean param for the location_updated_at CASE so Postgres can
+    // always infer the parameter type (null has no type and causes a 500).
+    const setLocationNow = currentLat !== undefined && currentLat !== null;
 
     await sql`
       UPDATE driver_profiles SET
@@ -259,14 +265,16 @@ export async function PATCH(
         display_name     = COALESCE(${displayName ?? null}, display_name),
         thumbnail_url    = COALESCE(${thumbnailUrl ?? null}, thumbnail_url),
         video_url        = COALESCE(${videoUrl ?? null}, video_url),
-        vehicle_info     = ${JSON.stringify(mergedVehicle)}::jsonb,
-        pricing          = ${JSON.stringify(mergedPricing)}::jsonb,
+        vehicle_info     = CASE WHEN ${needsVehicleOrPricing}::boolean
+                             THEN ${JSON.stringify(mergedVehicle ?? {})}::jsonb
+                             ELSE vehicle_info END,
+        pricing          = CASE WHEN ${needsVehicleOrPricing}::boolean
+                             THEN ${JSON.stringify(mergedPricing ?? {})}::jsonb
+                             ELSE pricing END,
         current_lat      = COALESCE(${currentLat ?? null}, current_lat),
         current_lng      = COALESCE(${currentLng ?? null}, current_lng),
-        location_updated_at = CASE
-          WHEN ${currentLat ?? null} IS NOT NULL THEN NOW()
-          ELSE location_updated_at
-        END,
+        location_updated_at = CASE WHEN ${setLocationNow}::boolean
+                               THEN NOW() ELSE location_updated_at END,
         updated_at = NOW()
       WHERE user_id = ${id}
     `;
