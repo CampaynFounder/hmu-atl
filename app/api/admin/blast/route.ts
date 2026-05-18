@@ -31,7 +31,8 @@ export async function GET(req: Request): Promise<Response> {
       SELECT
         p.id, p.user_id, p.market_id, p.status, p.price,
         p.expires_at, p.created_at, p.scheduled_for,
-        p.pickup_address, p.dropoff_address
+        p.pickup_address, p.dropoff_address,
+        regexp_replace(p.areas[1], '^shortcode:', '') AS shortcode
       FROM hmu_posts p
       LEFT JOIN markets m ON m.id = p.market_id
       WHERE p.post_type = 'blast'
@@ -56,6 +57,7 @@ export async function GET(req: Request): Promise<Response> {
 
   const items = rows.map((r: Record<string, unknown>) => ({
     id: r.id,
+    shortcode: r.shortcode ?? null,
     riderId: r.user_id,
     marketId: r.market_id,
     status: r.status,

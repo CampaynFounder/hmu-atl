@@ -13,6 +13,8 @@ interface Params {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Shortcodes are 7-char uppercase alphanumeric (stored as areas[0]='shortcode:XXXXXXX')
+const SHORTCODE_RE = /^[A-Z0-9]{4,12}$/;
 
 export async function GET(_req: Request, { params }: Params): Promise<Response> {
   const admin = await requireAdmin();
@@ -20,8 +22,24 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
   if (!hasPermission(admin, 'monitor.blasts.view')) return unauthorizedResponse();
 
   const { id } = await params;
-  if (!UUID_RE.test(id)) {
+  const isUuid = UUID_RE.test(id);
+  const isShortcode = !isUuid && SHORTCODE_RE.test(id.toUpperCase());
+  if (!isUuid && !isShortcode) {
     return NextResponse.json({ error: 'invalid_blast_id' }, { status: 400 });
+  }
+
+  // If a shortcode was provided, resolve it to a UUID first
+  let blastId = id;
+  if (isShortcode) {
+    const resolved = await sql`
+      SELECT id FROM hmu_posts
+      WHERE post_type = 'blast' AND areas && ARRAY[${`shortcode:${id.toUpperCase()}`}]
+      LIMIT 1
+    `;
+    if (!resolved.length) {
+      return NextResponse.json({ error: 'not_found' }, { status: 404 });
+    }
+    blastId = (resolved[0] as { id: string }).id;
   }
 
   const blastRows = await sql`
@@ -33,7 +51,7 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
            m.reward_function, m.counter_offer_max_pct
     FROM hmu_posts p
     LEFT JOIN markets m ON m.id = p.market_id
-    WHERE p.id = ${id} AND p.post_type = 'blast'
+    WHERE p.id = ${blastId} AND p.post_type = 'blast'
     LIMIT 1
   `;
   if (!blastRows.length) {
@@ -46,7 +64,7 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
            score, percentile_rank, was_notified, config_version, provider_name,
            experiment_arm_id, created_at
     FROM blast_match_log
-    WHERE blast_id = ${id}
+    WHERE blast_id = ${blastId}
     ORDER BY score DESC NULLS LAST
   `;
   const candidates = candidateRows.map((r: Record<string, unknown>) => ({
@@ -73,7 +91,7 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
     LEFT JOIN users u ON u.id = t.driver_id
     LEFT JOIN driver_profiles dp ON dp.user_id = t.driver_id
     LEFT JOIN rider_profiles rp ON rp.user_id = t.driver_id
-    WHERE t.blast_id = ${id}
+    WHERE t.blast_id = ${blastId}
     ORDER BY t.match_score DESC NULLS LAST
   `;
   const targets = targetRows.map((r: Record<string, unknown>) => ({
@@ -96,7 +114,7 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
   const eventRows = await sql`
     SELECT id, blast_id, driver_id, event_type, event_data, source, occurred_at
     FROM blast_driver_events
-    WHERE blast_id = ${id}
+    WHERE blast_id = ${blastId}
     ORDER BY occurred_at ASC
     LIMIT 500
   `;
