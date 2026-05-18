@@ -44,11 +44,9 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
 
   const blastRows = await sql`
     SELECT p.id, p.user_id, p.market_id, p.status, p.price,
-           p.expires_at, p.created_at, p.scheduled_for,
-           p.pickup_address, p.dropoff_address, p.trip_type,
-           p.deposit_amount, p.bump_count,
-           m.slug AS market_slug, m.display_name AS market_name,
-           m.reward_function, m.counter_offer_max_pct
+           p.expires_at, p.created_at,
+           p.pickup_address, p.dropoff_address,
+           m.slug AS market_slug, m.name AS market_name
     FROM hmu_posts p
     LEFT JOIN markets m ON m.id = p.market_id
     WHERE p.id = ${blastId} AND p.post_type = 'blast'
@@ -59,74 +57,99 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
   }
   const blast = blastRows[0];
 
-  const candidateRows = await sql`
-    SELECT id, driver_id, raw_features, normalized_features, filter_results,
-           score, percentile_rank, was_notified, config_version, provider_name,
-           experiment_arm_id, created_at
-    FROM blast_match_log
-    WHERE blast_id = ${blastId}
-    ORDER BY score DESC NULLS LAST
-  `;
-  const candidates = candidateRows.map((r: Record<string, unknown>) => ({
-    id: r.id,
-    driverId: r.driver_id,
-    rawFeatures: r.raw_features ?? {},
-    normalizedFeatures: r.normalized_features ?? {},
-    filterResults: r.filter_results ?? [],
-    score: r.score === null ? null : Number(r.score),
-    percentileRank: r.percentile_rank,
-    wasNotified: r.was_notified,
-    configVersion: r.config_version,
-    providerName: r.provider_name,
-    experimentArmId: r.experiment_arm_id,
-  }));
+  // blast_match_log, blast_driver_targets, blast_driver_events may not exist
+  // in older DB branches — catch and return empty arrays so the page degrades
+  // gracefully rather than 500ing.
+  let candidates: Array<{
+    id: unknown; driverId: unknown; rawFeatures: Record<string, number>;
+    normalizedFeatures: Record<string, number>; filterResults: unknown[];
+    score: number | null; percentileRank: unknown; wasNotified: unknown;
+    configVersion: unknown; providerName: unknown; experimentArmId: unknown;
+  }> = [];
+  try {
+    const candidateRows = await sql`
+      SELECT id, driver_id, raw_features, normalized_features, filter_results,
+             score, percentile_rank, was_notified, config_version, provider_name,
+             experiment_arm_id, created_at
+      FROM blast_match_log
+      WHERE blast_id = ${blastId}
+      ORDER BY score DESC NULLS LAST
+    `;
+    candidates = candidateRows.map((r: Record<string, unknown>) => ({
+      id: r.id,
+      driverId: r.driver_id,
+      rawFeatures: (r.raw_features ?? {}) as Record<string, number>,
+      normalizedFeatures: (r.normalized_features ?? {}) as Record<string, number>,
+      filterResults: (r.filter_results ?? []) as unknown[],
+      score: r.score === null ? null : Number(r.score),
+      percentileRank: r.percentile_rank,
+      wasNotified: r.was_notified,
+      configVersion: r.config_version,
+      providerName: r.provider_name,
+      experimentArmId: r.experiment_arm_id,
+    }));
+  } catch { /* blast_match_log table absent in this DB branch */ }
 
-  const targetRows = await sql`
-    SELECT t.id, t.driver_id, t.match_score, t.score_breakdown,
-           t.notified_at, t.notification_channels, t.hmu_at, t.counter_price,
-           t.passed_at, t.selected_at, t.pull_up_at, t.rejected_at, t.interest_at,
-           u.id AS user_id,
-           COALESCE(rp.display_name, dp.display_name, dp.first_name) AS display_name
-    FROM blast_driver_targets t
-    LEFT JOIN users u ON u.id = t.driver_id
-    LEFT JOIN driver_profiles dp ON dp.user_id = t.driver_id
-    LEFT JOIN rider_profiles rp ON rp.user_id = t.driver_id
-    WHERE t.blast_id = ${blastId}
-    ORDER BY t.match_score DESC NULLS LAST
-  `;
-  const targets = targetRows.map((r: Record<string, unknown>) => ({
-    id: r.id,
-    driverId: r.driver_id,
-    displayName: r.display_name ?? 'Unknown',
-    matchScore: Number(r.match_score),
-    scoreBreakdown: (r.score_breakdown ?? {}) as Record<string, number>,
-    notifiedAt: r.notified_at,
-    notificationChannels: r.notification_channels ?? [],
-    hmuAt: r.hmu_at,
-    counterPrice: r.counter_price === null ? null : Number(r.counter_price),
-    passedAt: r.passed_at,
-    selectedAt: r.selected_at,
-    pullUpAt: r.pull_up_at,
-    rejectedAt: r.rejected_at,
-    interestAt: r.interest_at,
-  }));
+  let targets: Array<{
+    id: unknown; driverId: unknown; displayName: string;
+    matchScore: number; scoreBreakdown: Record<string, number>;
+    notifiedAt: unknown; notificationChannels: string[];
+    hmuAt: unknown; counterPrice: number | null;
+    passedAt: unknown; selectedAt: unknown; pullUpAt: unknown;
+    rejectedAt: unknown; interestAt: unknown;
+  }> = [];
+  try {
+    const targetRows = await sql`
+      SELECT t.id, t.driver_id, t.match_score, t.score_breakdown,
+             t.notified_at, t.notification_channels, t.hmu_at, t.counter_price,
+             t.passed_at, t.selected_at, t.pull_up_at,
+             COALESCE(dp.display_name, dp.first_name) AS display_name
+      FROM blast_driver_targets t
+      LEFT JOIN driver_profiles dp ON dp.user_id = t.driver_id
+      WHERE t.blast_id = ${blastId}
+      ORDER BY t.match_score DESC NULLS LAST
+    `;
+    targets = targetRows.map((r: Record<string, unknown>) => ({
+      id: r.id,
+      driverId: r.driver_id,
+      displayName: (r.display_name as string | null) ?? 'Unknown',
+      matchScore: Number(r.match_score),
+      scoreBreakdown: (r.score_breakdown ?? {}) as Record<string, number>,
+      notifiedAt: r.notified_at,
+      notificationChannels: (r.notification_channels as string[] | null) ?? [],
+      hmuAt: r.hmu_at,
+      counterPrice: r.counter_price === null ? null : Number(r.counter_price),
+      passedAt: r.passed_at,
+      selectedAt: r.selected_at,
+      pullUpAt: r.pull_up_at,
+      rejectedAt: null,
+      interestAt: null,
+    }));
+  } catch { /* blast_driver_targets table absent in this DB branch */ }
 
-  const eventRows = await sql`
-    SELECT id, blast_id, driver_id, event_type, event_data, source, occurred_at
-    FROM blast_driver_events
-    WHERE blast_id = ${blastId}
-    ORDER BY occurred_at ASC
-    LIMIT 500
-  `;
-  const events = eventRows.map((r: Record<string, unknown>) => ({
-    id: r.id,
-    blastId: r.blast_id,
-    driverId: r.driver_id,
-    eventType: r.event_type,
-    eventData: r.event_data,
-    source: r.source,
-    occurredAt: r.occurred_at,
-  }));
+  let events: Array<{
+    id: unknown; blastId: unknown; driverId: unknown;
+    eventType: unknown; eventData: Record<string, unknown> | null;
+    source: unknown; occurredAt: unknown;
+  }> = [];
+  try {
+    const eventRows = await sql`
+      SELECT id, blast_id, driver_id, event_type, event_data, source, occurred_at
+      FROM blast_driver_events
+      WHERE blast_id = ${blastId}
+      ORDER BY occurred_at ASC
+      LIMIT 500
+    `;
+    events = eventRows.map((r: Record<string, unknown>) => ({
+      id: r.id,
+      blastId: r.blast_id,
+      driverId: r.driver_id,
+      eventType: r.event_type,
+      eventData: r.event_data as Record<string, unknown> | null,
+      source: r.source,
+      occurredAt: r.occurred_at,
+    }));
+  } catch { /* blast_driver_events table absent in this DB branch */ }
 
   // Plain-English summary — template-based, NOT LLM.
   const poolSize = candidates.length;
@@ -159,16 +182,17 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
       marketName: blast.market_name,
       status: blast.status,
       priceDollars: Number(blast.price),
-      pickupAddress: blast.pickup_address,
-      dropoffAddress: blast.dropoff_address,
-      tripType: blast.trip_type,
-      depositAmount: blast.deposit_amount === null ? null : Number(blast.deposit_amount),
-      scheduledFor: blast.scheduled_for,
+      pickupAddress: (blast.pickup_address as string | null) ?? null,
+      dropoffAddress: (blast.dropoff_address as string | null) ?? null,
       expiresAt: blast.expires_at,
       createdAt: blast.created_at,
-      bumpCount: blast.bump_count,
-      rewardFunction: blast.reward_function,
-      counterOfferMaxPct: blast.counter_offer_max_pct === null ? null : Number(blast.counter_offer_max_pct),
+      // These columns may not exist in older DB branches — default to null
+      tripType: null,
+      depositAmount: null,
+      scheduledFor: null,
+      bumpCount: 0,
+      rewardFunction: null,
+      counterOfferMaxPct: null,
     },
     candidates,
     targets,
