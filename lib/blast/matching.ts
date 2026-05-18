@@ -214,6 +214,7 @@ async function fetchCandidates(
     ) passes ON passes.driver_id = u.id
     WHERE u.profile_type = 'driver'
       AND u.account_status = 'active'
+      AND dp.profile_visible IS NOT FALSE
       -- Location gate: fresh GPS within bbox, OR home location when fallback is on.
       AND (
         (
@@ -526,6 +527,7 @@ export async function fetchFallbackDrivers(
     -- so re-surfacing a recently-notified driver is fine.
     WHERE u.profile_type = 'driver'
       AND u.account_status = 'active'
+      AND dp.profile_visible IS NOT FALSE
       -- Honor rider's hard gender preference (filter is no-op when admin's
       -- must_match_sex_preference knob is off).
       AND (${!requireSexMatch}::boolean OR dp.gender = ${dpGenderForDb}::text)

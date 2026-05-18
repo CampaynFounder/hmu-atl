@@ -203,7 +203,12 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await req.json();
-  const { accountStatus, tier, ogStatus, chillScore, profileVisible, adminNotes } = body;
+  const {
+    accountStatus, tier, ogStatus, chillScore, profileVisible, adminNotes,
+    // Driver Lab fields — only applied when present
+    displayName, thumbnailUrl, vehicleInfo, minimumFare,
+    currentLat, currentLng,
+  } = body;
 
   // Use COALESCE to only update provided fields
   const rows = await sql`
@@ -221,10 +226,45 @@ export async function PATCH(
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
   }
 
-  if (profileVisible !== undefined) {
+  // Driver profile fields — build a single UPDATE only when something changed.
+  const hasDriverProfileChanges =
+    profileVisible !== undefined ||
+    displayName !== undefined ||
+    thumbnailUrl !== undefined ||
+    vehicleInfo !== undefined ||
+    minimumFare !== undefined ||
+    (currentLat !== undefined && currentLng !== undefined);
+
+  if (hasDriverProfileChanges) {
+    // Fetch current vehicle_info + pricing so we can merge rather than replace.
+    const dpRows = await sql`
+      SELECT vehicle_info, pricing FROM driver_profiles WHERE user_id = ${id} LIMIT 1
+    `;
+    const dp = (dpRows[0] as Record<string, unknown> | undefined) ?? {};
+    const existingVehicle = (dp.vehicle_info as Record<string, unknown>) ?? {};
+    const existingPricing = (dp.pricing as Record<string, unknown>) ?? {};
+
+    const mergedVehicle = vehicleInfo
+      ? { ...existingVehicle, ...vehicleInfo }
+      : existingVehicle;
+
+    const mergedPricing = minimumFare !== undefined
+      ? { ...existingPricing, minimum: minimumFare }
+      : existingPricing;
+
     await sql`
       UPDATE driver_profiles SET
-        profile_visible = ${profileVisible},
+        profile_visible  = COALESCE(${profileVisible ?? null}, profile_visible),
+        display_name     = COALESCE(${displayName ?? null}, display_name),
+        thumbnail_url    = COALESCE(${thumbnailUrl ?? null}, thumbnail_url),
+        vehicle_info     = ${JSON.stringify(mergedVehicle)}::jsonb,
+        pricing          = ${JSON.stringify(mergedPricing)}::jsonb,
+        current_lat      = COALESCE(${currentLat ?? null}, current_lat),
+        current_lng      = COALESCE(${currentLng ?? null}, current_lng),
+        location_updated_at = CASE
+          WHEN ${currentLat ?? null} IS NOT NULL THEN NOW()
+          ELSE location_updated_at
+        END,
         updated_at = NOW()
       WHERE user_id = ${id}
     `;

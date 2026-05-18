@@ -96,6 +96,16 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
     | { kind: 'dedup'; lastSentAt: string; windowHours: number }
     | null
   >(null);
+  // Driver Lab — local draft state, committed on Save
+  const [labDraft, setLabDraft] = useState<{
+    displayName: string;
+    thumbnailUrl: string;
+    vehicleMake: string; vehicleModel: string; vehicleYear: string; vehicleColor: string;
+    minimumFare: string;
+    lat: string; lng: string;
+  } | null>(null);
+  const [labSaving, setLabSaving] = useState(false);
+  const [labMsg, setLabMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!avatarOpen) return;
@@ -604,16 +614,164 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
         </div>
       )}
 
-      {/* Browse Visibility — separate from account status */}
+      {/* Driver Lab — edit test driver data without touching the driver's own profile */}
+      {(user.profileType === 'driver' || user.profileType === 'both') && (() => {
+        const vi = user.vehicleInfo ?? {};
+        const draft = labDraft ?? {
+          displayName: user.displayName ?? '',
+          thumbnailUrl: user.avatarUrl ?? '',
+          vehicleMake: (vi.make as string) ?? '',
+          vehicleModel: (vi.model as string) ?? '',
+          vehicleYear: String(vi.year ?? ''),
+          vehicleColor: (vi.color as string) ?? '',
+          minimumFare: '',
+          lat: '',
+          lng: '',
+        };
+        const setField = (k: keyof typeof draft, v: string) =>
+          setLabDraft((prev) => ({ ...(prev ?? draft), [k]: v }));
+
+        const saveLab = async () => {
+          setLabSaving(true);
+          setLabMsg(null);
+          const payload: Record<string, unknown> = {};
+          if (draft.displayName) payload.displayName = draft.displayName;
+          if (draft.thumbnailUrl) payload.thumbnailUrl = draft.thumbnailUrl;
+          const vi: Record<string, unknown> = {};
+          if (draft.vehicleMake) vi.make = draft.vehicleMake;
+          if (draft.vehicleModel) vi.model = draft.vehicleModel;
+          if (draft.vehicleYear) vi.year = Number(draft.vehicleYear);
+          if (draft.vehicleColor) vi.color = draft.vehicleColor;
+          if (Object.keys(vi).length) payload.vehicleInfo = vi;
+          if (draft.minimumFare) payload.minimumFare = Number(draft.minimumFare);
+          if (draft.lat && draft.lng) {
+            payload.currentLat = Number(draft.lat);
+            payload.currentLng = Number(draft.lng);
+          }
+          try {
+            const res = await fetch(`/api/admin/users/${userId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            if (res.ok) {
+              setLabMsg('Saved');
+              setLabDraft(null);
+              fetchUser();
+            } else {
+              setLabMsg('Save failed');
+            }
+          } catch {
+            setLabMsg('Save failed');
+          } finally {
+            setLabSaving(false);
+          }
+        };
+
+        return (
+          <div className="bg-neutral-900 border border-amber-500/20 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-amber-400">Driver Lab</h3>
+                <p className="text-[11px] text-neutral-500 mt-0.5">Edit test driver data — name, photo, car, fare, location.</p>
+              </div>
+              <span className="text-[10px] font-bold bg-amber-500/15 text-amber-400 px-2 py-0.5 rounded-full">ADMIN ONLY</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="col-span-2">
+                <label className="block text-[11px] text-neutral-400 mb-1">Display name</label>
+                <input
+                  value={draft.displayName}
+                  onChange={(e) => setField('displayName', e.target.value)}
+                  placeholder={user.displayName ?? 'Name'}
+                  className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50"
+                />
+              </div>
+
+              <div className="col-span-2">
+                <label className="block text-[11px] text-neutral-400 mb-1">Photo URL</label>
+                <div className="flex gap-2">
+                  <input
+                    value={draft.thumbnailUrl}
+                    onChange={(e) => setField('thumbnailUrl', e.target.value)}
+                    placeholder="https://…"
+                    className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50"
+                  />
+                  {draft.thumbnailUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={draft.thumbnailUrl} alt="" className="h-9 w-9 rounded-lg object-cover shrink-0 border border-neutral-700" />
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-neutral-400 mb-1">Make</label>
+                <input value={draft.vehicleMake} onChange={(e) => setField('vehicleMake', e.target.value)}
+                  placeholder="Toyota" className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+              </div>
+              <div>
+                <label className="block text-[11px] text-neutral-400 mb-1">Model</label>
+                <input value={draft.vehicleModel} onChange={(e) => setField('vehicleModel', e.target.value)}
+                  placeholder="Camry" className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+              </div>
+              <div>
+                <label className="block text-[11px] text-neutral-400 mb-1">Year</label>
+                <input value={draft.vehicleYear} onChange={(e) => setField('vehicleYear', e.target.value)}
+                  placeholder="2022" type="number" className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+              </div>
+              <div>
+                <label className="block text-[11px] text-neutral-400 mb-1">Color</label>
+                <input value={draft.vehicleColor} onChange={(e) => setField('vehicleColor', e.target.value)}
+                  placeholder="Black" className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-neutral-400 mb-1">Min fare ($)</label>
+                <input value={draft.minimumFare} onChange={(e) => setField('minimumFare', e.target.value)}
+                  placeholder="15" type="number" className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+              </div>
+
+              <div className="col-span-2">
+                <label className="block text-[11px] text-neutral-400 mb-1">Set GPS location (lat, lng) — sets driver as live at this coordinate</label>
+                <div className="flex gap-2">
+                  <input value={draft.lat} onChange={(e) => setField('lat', e.target.value)}
+                    placeholder="33.749" type="number" step="any"
+                    className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+                  <input value={draft.lng} onChange={(e) => setField('lng', e.target.value)}
+                    placeholder="-84.388" type="number" step="any"
+                    className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+                </div>
+                <p className="text-[10px] text-neutral-600 mt-1">Atlanta downtown: 33.749, -84.388 · Midtown: 33.781, -84.383 · Buckhead: 33.838, -84.365</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={saveLab}
+                disabled={labSaving}
+                className="bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {labSaving ? 'Saving…' : 'Save changes'}
+              </button>
+              {labMsg && (
+                <span className={`text-xs ${labMsg === 'Saved' ? 'text-green-400' : 'text-red-400'}`}>{labMsg}</span>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Browse Visibility + Blast Exclusion */}
       {user.profileType === 'driver' && (
         <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-sm font-semibold">Browse Visibility</h3>
+              <h3 className="text-sm font-semibold">Visibility</h3>
               <p className="text-[11px] text-neutral-500 mt-1 max-w-md">
                 {user.profileVisible === false
-                  ? 'Hidden from /rider/browse. Direct HMU link still works and bookings still flow.'
-                  : 'Shown in /rider/browse. Riders discover this driver in the list.'}
+                  ? 'Hidden from browse and excluded from blast matching. Use this to park test drivers.'
+                  : 'Visible in browse and eligible for blast matching.'}
               </p>
             </div>
             <button
@@ -625,7 +783,7 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
                   : 'bg-neutral-700 hover:bg-neutral-600 text-white'
               }`}
             >
-              {user.profileVisible === false ? 'Show in browse' : 'Hide from browse'}
+              {user.profileVisible === false ? 'Enable driver' : 'Disable driver'}
             </button>
           </div>
         </div>

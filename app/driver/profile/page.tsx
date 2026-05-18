@@ -51,7 +51,7 @@ export default async function DriverProfilePage() {
         schedule: (p.schedule as Record<string, unknown>) || {},
         videoUrl: (p.video_url as string) || '',
         vibeVideoUrl: (p.vibe_video_url as string) || '',
-        vehiclePhotoUrl: ((p.vehicle_info as Record<string, unknown>)?.photo_url as string) || '',
+        vehiclePhotoUrl: ((p.vehicle_info as Record<string, unknown>)?.photo_url as string) || (p.thumbnail_url as string) || '',
         licensePlate: ((p.vehicle_info as Record<string, unknown>)?.license_plate as string) || '',
         plateState: ((p.vehicle_info as Record<string, unknown>)?.plate_state as string) || 'GA',
         acceptDirectBookings: (p.accept_direct_bookings as boolean) ?? true,
