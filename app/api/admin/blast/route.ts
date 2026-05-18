@@ -30,7 +30,7 @@ export async function GET(req: Request): Promise<Response> {
     WITH blast AS (
       SELECT
         p.id, p.user_id, p.market_id, p.status, p.price,
-        p.expires_at, p.created_at, p.scheduled_for,
+        p.expires_at, p.created_at,
         p.pickup_address, p.dropoff_address,
         regexp_replace(p.areas[1], '^shortcode:', '') AS shortcode
       FROM hmu_posts p
