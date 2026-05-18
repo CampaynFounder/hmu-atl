@@ -93,6 +93,7 @@ async function fetchCandidates(
   // max_stale_location_minutes is admin-configurable; fall back to 5 minutes if
   // not set (safe default for production — drivers need live GPS).
   const maxStaleMinutes = config.filters.max_stale_location_minutes ?? 5;
+  const allowHomeFallback = config.filters.allow_home_location_fallback ?? false;
   // 0 = disable the check entirely (so admins can knob-out a filter without
   // hitting the API). Both prior approaches (CASE WHEN ${num}::int = 0 and
   // ${disabled}::boolean OR ...) tripped Postgres' parameter type resolver
@@ -171,8 +172,22 @@ async function fetchCandidates(
     rows = await sql`
     SELECT
       u.id AS user_id,
-      dp.current_lat,
-      dp.current_lng,
+      -- Effective location: fresh GPS wins; home_lat/lng is the fallback when
+      -- allow_home_location_fallback is on and the driver has no GPS or stale GPS.
+      CASE
+        WHEN dp.current_lat IS NOT NULL
+          AND dp.location_updated_at > NOW() - (${maxStaleMinutes}::text || ' minutes')::interval
+        THEN dp.current_lat
+        WHEN ${allowHomeFallback}::boolean THEN dp.home_lat
+        ELSE NULL
+      END AS current_lat,
+      CASE
+        WHEN dp.current_lng IS NOT NULL
+          AND dp.location_updated_at > NOW() - (${maxStaleMinutes}::text || ' minutes')::interval
+        THEN dp.current_lng
+        WHEN ${allowHomeFallback}::boolean THEN dp.home_lng
+        ELSE NULL
+      END AS current_lng,
       dp.gender,
       COALESCE(u.chill_score, 0) AS chill_score,
       COALESCE(u.tier, 'free') AS tier,
@@ -199,11 +214,27 @@ async function fetchCandidates(
     ) passes ON passes.driver_id = u.id
     WHERE u.profile_type = 'driver'
       AND u.account_status = 'active'
-      AND dp.current_lat IS NOT NULL
-      AND dp.current_lng IS NOT NULL
-      AND dp.location_updated_at > NOW() - (${maxStaleMinutes}::text || ' minutes')::interval
-      AND dp.current_lat BETWEEN ${minLat} AND ${maxLat}
-      AND dp.current_lng BETWEEN ${minLng} AND ${maxLng}
+      -- Location gate: fresh GPS within bbox, OR home location when fallback is on.
+      AND (
+        (
+          dp.current_lat IS NOT NULL
+          AND dp.current_lng IS NOT NULL
+          AND dp.location_updated_at > NOW() - (${maxStaleMinutes}::text || ' minutes')::interval
+          AND dp.current_lat BETWEEN ${minLat} AND ${maxLat}
+          AND dp.current_lng BETWEEN ${minLng} AND ${maxLng}
+        ) OR (
+          ${allowHomeFallback}::boolean
+          AND dp.home_lat IS NOT NULL
+          AND dp.home_lng IS NOT NULL
+          AND (
+            dp.current_lat IS NULL
+            OR dp.location_updated_at IS NULL
+            OR dp.location_updated_at <= NOW() - (${maxStaleMinutes}::text || ' minutes')::interval
+          )
+          AND dp.home_lat BETWEEN ${minLat} AND ${maxLat}
+          AND dp.home_lng BETWEEN ${minLng} AND ${maxLng}
+        )
+      )
       AND COALESCE(u.chill_score, 0) >= ${minChillScore}::int
       AND u.last_active > NOW() - (${effSigninHours}::text || ' hours')::interval
       -- Rider's preferred driver gender (when set as a hard filter). The OR-
