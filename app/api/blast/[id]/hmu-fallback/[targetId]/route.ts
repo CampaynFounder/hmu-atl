@@ -84,9 +84,10 @@ async function handlePost(
   }
 
   const userCtxRows = await sql`
-    SELECT display_name FROM users WHERE id = ${riderId} LIMIT 1
+    SELECT COALESCE(display_name, handle, first_name, 'A rider') AS display_name
+    FROM rider_profiles WHERE user_id = ${riderId} LIMIT 1
   `;
-  const displayName = (userCtxRows[0] as { display_name: string | null } | undefined)?.display_name ?? 'A rider';
+  const displayName = (userCtxRows[0] as { display_name: string } | undefined)?.display_name ?? 'A rider';
 
   const marketRows = await sql`
     SELECT m.slug FROM hmu_posts hp JOIN markets m ON m.id = hp.market_id
