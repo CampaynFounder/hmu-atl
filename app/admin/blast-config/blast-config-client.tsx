@@ -21,6 +21,8 @@ interface MatchingConfig {
     min_chill_score: number;
     must_match_sex_preference: boolean;
     must_be_signed_in_within_hours: number;
+    max_stale_location_minutes: number;
+    allow_home_location_fallback: boolean;
     exclude_if_in_active_ride: boolean;
     exclude_if_today_passed_count_gte: number;
   };
@@ -408,6 +410,26 @@ function MatchingEditor({
                 max={50}
                 onChange={(v) =>
                   setDraft((d) => ({ ...d, filters: { ...d.filters, exclude_if_today_passed_count_gte: v } }))
+                }
+              />
+              <NumberRow
+                label="GPS stale threshold"
+                unit="min"
+                help="Drivers whose GPS ping is older than this are considered off-grid. Set to 0 to disable this check (accept any ping age). Default 5 min."
+                value={draft.filters.max_stale_location_minutes ?? 5}
+                step={1}
+                min={0}
+                max={60}
+                onChange={(v) =>
+                  setDraft((d) => ({ ...d, filters: { ...d.filters, max_stale_location_minutes: v } }))
+                }
+              />
+              <ToggleRow
+                label="Use home base when GPS is absent or stale"
+                help="ON = drivers with no live GPS (or stale GPS) are still considered using their saved home location. Good for drivers who leave location tracking off. OFF = drivers without fresh GPS are excluded."
+                value={draft.filters.allow_home_location_fallback ?? false}
+                onChange={(v) =>
+                  setDraft((d) => ({ ...d, filters: { ...d.filters, allow_home_location_fallback: v } }))
                 }
               />
               <ToggleRow
