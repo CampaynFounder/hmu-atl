@@ -27,6 +27,12 @@ export type BlastMatchingConfig = {
     must_be_signed_in_within_hours: number;
     /** How old a driver's GPS ping can be before they're excluded. 0 = no limit. */
     max_stale_location_minutes: number;
+    /**
+     * When true, drivers with no GPS (or stale GPS) are included in the pool
+     * using their saved home_lat/home_lng for proximity scoring. Only applies
+     * when the driver has a home location set in their profile.
+     */
+    allow_home_location_fallback: boolean;
     exclude_if_in_active_ride: boolean;
     exclude_if_today_passed_count_gte: number;
   };
@@ -77,6 +83,7 @@ export const MATCHING_DEFAULTS: BlastMatchingConfig = {
     must_match_sex_preference: true,
     must_be_signed_in_within_hours: 72,
     max_stale_location_minutes: 5,
+    allow_home_location_fallback: false,
     exclude_if_in_active_ride: true,
     exclude_if_today_passed_count_gte: 3,
   },
