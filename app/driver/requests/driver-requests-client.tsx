@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAbly } from '@/hooks/use-ably';
 import { posthog } from '@/components/analytics/posthog-provider';
 import PassReasonSheet, { type PassReason } from '@/components/driver/pass-reason-sheet';
+import { DriverBlastStatusSection } from '@/components/blast/driver/driver-blast-status-section';
 
 interface Request {
   id: string;
@@ -40,7 +41,7 @@ export interface DriverRequestsClientProps {
 export function DriverRequestsClient({ driverId, marketSlug }: DriverRequestsClientProps) {
   const [requests, setRequests] = useState<Request[] | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [pendingPassPostId, setPendingPassPostId] = useState<string | null>(null);
+  const [pendingPassRequest, setPendingPassRequest] = useState<Request | null>(null);
   const [actionToast, setActionToast] = useState<string | null>(null);
   const [newRequestIds, setNewRequestIds] = useState<Set<string>>(new Set());
   const [exitDirs, setExitDirs] = useState<Record<string, 'left' | 'right'>>({});
@@ -110,58 +111,95 @@ export function DriverRequestsClient({ driverId, marketSlug }: DriverRequestsCli
     setRequests((prev) => prev ? prev.filter((r) => r.id !== postId) : prev);
   }, []);
 
-  const handleAction = async (postId: string, action: 'accept' | 'decline') => {
-    if (action === 'decline') { setPendingPassPostId(postId); return; }
-    setActionLoading(postId);
+  const showToast = (msg: string, duration = 2000) => {
+    setActionToast(msg);
+    setTimeout(() => setActionToast(null), duration);
+  };
+
+  const handleAction = async (req: Request, action: 'accept' | 'decline') => {
+    if (action === 'decline') { setPendingPassRequest(req); return; }
+
+    setActionLoading(req.id);
     try {
-      const res = await fetch(`/api/bookings/${postId}/accept`, { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        setExitDirs((d) => ({ ...d, [postId]: 'right' }));
-        setTimeout(() => {
-          setRequests((prev) => prev ? prev.filter((r) => r.id !== postId) : prev);
-          if (data.rideId) setTimeout(() => window.location.replace(`/ride/${data.rideId}`), 560);
-        }, 0);
-      } else if (data.error === 'PAYOUT_REQUIRED') {
-        if (confirm('Set up your payout account to accept rides. Go to payout setup?')) {
-          window.location.href = '/driver/payout-setup';
+      if (req.type === 'blast' && req.targetId) {
+        // Blast: HMU via blast-specific endpoint
+        const res = await fetch(`/api/blast/${req.id}/targets/${req.targetId}/hmu`, {
+          method: 'POST',
+        });
+        const data = await res.json().catch(() => ({})) as { error?: string; payout_onboarding_url?: string };
+        if (res.ok) {
+          setExitDirs((d) => ({ ...d, [req.id]: 'right' }));
+          setTimeout(() => {
+            setRequests((prev) => prev ? prev.filter((r) => r.id !== req.id) : prev);
+          }, 0);
+          showToast('HMU sent — waiting for rider');
+        } else if (data.error === 'PAYOUT_ONBOARDING_REQUIRED') {
+          if (confirm('Set up your payout account to accept rides. Go to payout setup?')) {
+            window.location.href = '/driver/payout-setup';
+          }
+        } else {
+          showToast(data.error ?? 'Could not HMU — try again', 3000);
+        }
+      } else {
+        // Regular booking: direct_booking or rider_request
+        const res = await fetch(`/api/bookings/${req.id}/accept`, { method: 'POST' });
+        const data = await res.json().catch(() => ({})) as { rideId?: string; error?: string };
+        if (res.ok) {
+          setExitDirs((d) => ({ ...d, [req.id]: 'right' }));
+          setTimeout(() => {
+            setRequests((prev) => prev ? prev.filter((r) => r.id !== req.id) : prev);
+            if (data.rideId) setTimeout(() => window.location.replace(`/ride/${data.rideId}`), 560);
+          }, 0);
+        } else if (data.error === 'PAYOUT_REQUIRED') {
+          if (confirm('Set up your payout account to accept rides. Go to payout setup?')) {
+            window.location.href = '/driver/payout-setup';
+          }
         }
       }
     } catch {
-      // silent
+      showToast('Network error — try again', 3000);
     } finally {
       setActionLoading(null);
     }
   };
 
   const submitPass = async (reason: PassReason | null, message: string) => {
-    const postId = pendingPassPostId;
-    if (!postId) return;
-    setActionLoading(postId);
+    const req = pendingPassRequest;
+    if (!req) return;
+    setActionLoading(req.id);
     try {
-      const res = await fetch(`/api/bookings/${postId}/decline`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason, message }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setExitDirs((d) => ({ ...d, [postId]: 'left' }));
-        setTimeout(() => {
-          setRequests((prev) => prev ? prev.filter((r) => r.id !== postId) : prev);
-        }, 0);
-        setActionToast(data.status === 'declined_awaiting_rider' ? 'Passed — rider notified' : 'Passed');
-        setTimeout(() => setActionToast(null), 2000);
+      let res: Response;
+      if (req.type === 'blast' && req.targetId) {
+        res = await fetch(`/api/blast/${req.id}/targets/${req.targetId}/pass`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason, message }),
+        });
       } else {
-        setActionToast(data.error || `Couldn't pass (${res.status})`);
-        setTimeout(() => setActionToast(null), 3000);
+        res = await fetch(`/api/bookings/${req.id}/decline`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason, message }),
+        });
+      }
+      const data = await res.json().catch(() => ({})) as { status?: string; error?: string };
+      if (res.ok) {
+        setExitDirs((d) => ({ ...d, [req.id]: 'left' }));
+        setTimeout(() => {
+          setRequests((prev) => prev ? prev.filter((r) => r.id !== req.id) : prev);
+        }, 0);
+        const label = req.type === 'blast' ? 'Passed on blast'
+          : data.status === 'declined_awaiting_rider' ? 'Passed — rider notified'
+          : 'Passed';
+        showToast(label);
+      } else {
+        showToast(data.error ?? `Couldn't pass (${res.status})`, 3000);
       }
     } catch {
-      setActionToast('Network error — try again');
-      setTimeout(() => setActionToast(null), 3000);
+      showToast('Network error — try again', 3000);
     } finally {
       setActionLoading(null);
-      setPendingPassPostId(null);
+      setPendingPassRequest(null);
     }
   };
 
@@ -200,6 +238,9 @@ export function DriverRequestsClient({ driverId, marketSlug }: DriverRequestsCli
       `}</style>
 
       <div className="req-page">
+        {/* Consolidated blast HMU tracker — sits above incoming requests */}
+        <DriverBlastStatusSection driverId={driverId} />
+
         <motion.h1
           style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 36, lineHeight: 1, margin: '0 0 4px' }}
           initial={{ opacity: 0, y: 10 }}
@@ -261,8 +302,8 @@ export function DriverRequestsClient({ driverId, marketSlug }: DriverRequestsCli
       </div>
 
       <PassReasonSheet
-        open={pendingPassPostId !== null}
-        onClose={() => setPendingPassPostId(null)}
+        open={pendingPassRequest !== null}
+        onClose={() => setPendingPassRequest(null)}
         onConfirm={submitPass}
       />
 
@@ -285,7 +326,7 @@ function RequestCard({
 }: {
   req: Request;
   actionLoading: string | null;
-  onAction: (id: string, action: 'accept' | 'decline') => void;
+  onAction: (req: Request, action: 'accept' | 'decline') => void;
   isNew?: boolean;
   exitDir?: 'left' | 'right';
   onExpired?: (postId: string) => void;
@@ -480,14 +521,14 @@ function RequestCard({
         <div className="req-actions">
           <button
             className="req-btn req-btn--decline"
-            onClick={() => onAction(req.id, 'decline')}
+            onClick={() => onAction(req, 'decline')}
             disabled={actionLoading === req.id}
           >
             Pass
           </button>
           <button
             className="req-btn req-btn--accept"
-            onClick={() => onAction(req.id, 'accept')}
+            onClick={() => onAction(req, 'accept')}
             disabled={actionLoading === req.id}
           >
             {req.type === 'blast' ? 'HMU' : req.type === 'direct' ? 'Accept' : 'HMU'}

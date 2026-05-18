@@ -103,8 +103,8 @@ export async function POST(
 
   // Driver info for the offer-board card payload.
   const driverRows = await sql`
-    SELECT u.id, dp.handle, dp.display_name, dp.video_url, dp.vehicle_info,
-           u.chill_score, u.tier
+    SELECT u.id, dp.handle, dp.display_name, dp.video_url, dp.thumbnail_url,
+           dp.vehicle_info, u.chill_score, u.tier, u.completed_rides
       FROM users u
       JOIN driver_profiles dp ON dp.user_id = u.id
      WHERE u.id = ${driverUserId}
@@ -135,9 +135,14 @@ export async function POST(
       ? {
           handle: driver.handle,
           displayName: driver.display_name,
+          thumbnailUrl: driver.thumbnail_url ?? null,
           videoUrl: driver.video_url,
-          vehicle: driver.vehicle_info,
+          vehicleLabel: (() => {
+            const vi = driver.vehicle_info as Record<string, unknown> | null;
+            return vi ? [vi.year, vi.make, vi.model].filter(Boolean).join(' ') || null : null;
+          })(),
           chillScore: Number(driver.chill_score ?? 0),
+          completedRides: Number(driver.completed_rides ?? 0),
           tier: driver.tier,
         }
       : null,

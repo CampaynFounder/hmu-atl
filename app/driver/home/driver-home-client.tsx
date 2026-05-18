@@ -8,10 +8,14 @@ import CashoutCard from '@/components/driver/cashout-card';
 import { ViewsCard } from '@/components/driver/views-card';
 import { PendingActionBanner } from '@/components/pending-action-banner';
 import PassReasonSheet, { type PassReason } from '@/components/driver/pass-reason-sheet';
+import { DriverBlastStatusSection } from '@/components/blast/driver/driver-blast-status-section';
 
 interface BookingRequest {
   id: string;
   type?: string;
+  targetId?: string | null;
+  pickupAddress?: string | null;
+  dropoffAddress?: string | null;
   riderName: string;
   riderHandle: string | null;
   riderAvatarUrl: string | null;
@@ -59,7 +63,7 @@ export default function DriverHomeClient({
   const [requests, setRequests] = useState<BookingRequest[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [pendingPassPostId, setPendingPassPostId] = useState<string | null>(null);
+  const [pendingPassRequest, setPendingPassRequest] = useState<BookingRequest | null>(null);
   const [actionToast, setActionToast] = useState<string | null>(null);
   const [focusedPostId, setFocusedPostId] = useState<string | null>(null);
   const [newRequestIds, setNewRequestIds] = useState<Set<string>>(new Set());
@@ -212,73 +216,87 @@ export default function DriverHomeClient({
     }
   };
 
-  const handleAction = async (postId: string, action: 'accept' | 'decline') => {
-    // Pass routes through the reason sheet — same payload contract as /driver/feed
-    // so riders see the reason chip + note on the "driver passed" card.
+  const showToast = (msg: string, duration = 2500) => {
+    setActionToast(msg);
+    setTimeout(() => setActionToast(null), duration);
+  };
+
+  const handleAction = async (req: BookingRequest, action: 'accept' | 'decline') => {
     if (action === 'decline') {
-      setPendingPassPostId(postId);
+      setPendingPassRequest(req);
       return;
     }
-    setActionLoading(postId);
+    setActionLoading(req.id);
     try {
-      const res = await fetch(`/api/bookings/${postId}/accept`, { method: 'POST' });
+      let res: Response;
+      if (req.type === 'blast' && req.targetId) {
+        res = await fetch(`/api/blast/${req.id}/targets/${req.targetId}/hmu`, { method: 'POST' });
+      } else {
+        res = await fetch(`/api/bookings/${req.id}/accept`, { method: 'POST' });
+      }
       const data = await res.json();
       if (res.ok) {
-        // Accept = throw card right. Two-tick dance: set direction first, then
-        // defer removal so React flushes the new exit variant into
-        // AnimatePresence's cache BEFORE the card unmounts. Without the defer,
-        // both state updates batch into one render and AP captures the prior
-        // (undefined) exit prop — card disappears with no throw.
-        setExitDirs((d) => ({ ...d, [postId]: 'right' }));
-        setTimeout(() => {
-          setRequests((prev) => prev.filter((r) => r.id !== postId));
-          if (data.rideId) {
-            // Let the throw animate before navigating off the page.
-            setTimeout(() => window.location.replace(`/ride/${data.rideId}`), 560);
-          }
-        }, 0);
+        if (req.type === 'blast') {
+          // Blast HMU — card exits right, driver waits for rider Pull Up
+          setExitDirs((d) => ({ ...d, [req.id]: 'right' }));
+          setTimeout(() => setRequests((prev) => prev.filter((r) => r.id !== req.id)), 0);
+          showToast('HMU sent — waiting for rider');
+        } else {
+          // Direct accept — throw card right, navigate to ride
+          setExitDirs((d) => ({ ...d, [req.id]: 'right' }));
+          setTimeout(() => {
+            setRequests((prev) => prev.filter((r) => r.id !== req.id));
+            if (data.rideId) {
+              setTimeout(() => window.location.replace(`/ride/${data.rideId}`), 560);
+            }
+          }, 0);
+        }
       } else if (data.error === 'PAYOUT_REQUIRED') {
         if (confirm('Set up your payout account to accept rides. Go to payout setup?')) {
           window.location.href = '/driver/payout-setup';
         }
+      } else {
+        showToast(data.error ?? `Error (${res.status})`, 3000);
       }
     } catch {
-      // silent
+      showToast('Network error — try again', 3000);
     } finally {
       setActionLoading(null);
     }
   };
 
   const submitPass = async (reason: PassReason | null, message: string) => {
-    const postId = pendingPassPostId;
-    if (!postId) return;
-    setActionLoading(postId);
+    const req = pendingPassRequest;
+    if (!req) return;
+    setActionLoading(req.id);
     try {
-      const res = await fetch(`/api/bookings/${postId}/decline`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason, message }),
-      });
+      let res: Response;
+      if (req.type === 'blast' && req.targetId) {
+        res = await fetch(`/api/blast/${req.id}/targets/${req.targetId}/pass`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason, message }),
+        });
+      } else {
+        res = await fetch(`/api/bookings/${req.id}/decline`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason, message }),
+        });
+      }
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        // Pass = throw card left. Defer removal one tick so AnimatePresence
-        // captures the new exit variant — see handleAction for the rationale.
-        setExitDirs((d) => ({ ...d, [postId]: 'left' }));
-        setTimeout(() => {
-          setRequests((prev) => prev.filter((r) => r.id !== postId));
-        }, 0);
-        setActionToast(data.status === 'declined_awaiting_rider' ? 'Passed — rider notified' : 'Passed');
-        setTimeout(() => setActionToast(null), 2000);
+        setExitDirs((d) => ({ ...d, [req.id]: 'left' }));
+        setTimeout(() => setRequests((prev) => prev.filter((r) => r.id !== req.id)), 0);
+        showToast(data.status === 'declined_awaiting_rider' ? 'Passed — rider notified' : 'Passed', 2000);
       } else {
-        setActionToast(data.error || `Couldn't pass (${res.status})`);
-        setTimeout(() => setActionToast(null), 3000);
+        showToast(data.error || `Couldn't pass (${res.status})`, 3000);
       }
     } catch {
-      setActionToast('Network error — try again');
-      setTimeout(() => setActionToast(null), 3000);
+      showToast('Network error — try again', 3000);
     } finally {
       setActionLoading(null);
-      setPendingPassPostId(null);
+      setPendingPassRequest(null);
     }
   };
 
@@ -406,6 +424,9 @@ export default function DriverHomeClient({
 
         {/* Profile-views growth card — self-hides when there are zero views */}
         <ViewsCard />
+
+        {/* Active HMUs — self-hides when driver has no pending blast responses */}
+        <DriverBlastStatusSection driverId={userId} />
 
         {/* Incoming Requests — collapse the section entirely when empty so the
             cashout card sits above the fold for new drivers. Loading still
@@ -581,8 +602,8 @@ export default function DriverHomeClient({
       </div>
 
       <PassReasonSheet
-        open={pendingPassPostId !== null}
-        onClose={() => setPendingPassPostId(null)}
+        open={pendingPassRequest !== null}
+        onClose={() => setPendingPassRequest(null)}
         onConfirm={submitPass}
       />
 
@@ -657,7 +678,7 @@ function getTimeAgo(dateStr: string): string {
 function RequestCard({ req, actionLoading, onAction, focused, isNew, exitDir, onExpired }: {
   req: BookingRequest;
   actionLoading: string | null;
-  onAction: (id: string, action: 'accept' | 'decline') => void;
+  onAction: (req: BookingRequest, action: 'accept' | 'decline') => void;
   focused?: boolean;
   isNew?: boolean;
   exitDir?: 'left' | 'right';
@@ -845,17 +866,17 @@ function RequestCard({ req, actionLoading, onAction, focused, isNew, exitDir, on
         <div className="request-actions">
           <button
             className="req-btn req-btn--decline"
-            onClick={() => onAction(req.id, 'decline')}
+            onClick={() => onAction(req, 'decline')}
             disabled={actionLoading === req.id}
           >
             Pass
           </button>
           <button
             className="req-btn req-btn--accept"
-            onClick={() => onAction(req.id, 'accept')}
+            onClick={() => onAction(req, 'accept')}
             disabled={actionLoading === req.id}
           >
-            {req.type === 'direct' ? 'Accept' : 'HMU'}
+            {req.type === 'blast' ? 'HMU' : 'Accept'}
           </button>
         </div>
       )}

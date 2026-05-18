@@ -1,8 +1,8 @@
 'use client';
 
-// Blast status board — shows contacted drivers and their responses.
-// Only drivers the rider swiped right on (notified_at IS NOT NULL) appear here.
-// Ably pushes real-time updates; a toast fires when a driver HMUs back.
+// Blast status board — shows all drivers the rider has contacted and their responses.
+// Pull Up is the single action that matches a driver, rejects all others, and
+// creates the ride. No separate Select step.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -15,7 +15,6 @@ import {
   PulseOnMount,
   ShimmerSlot,
   StaggeredList,
-  SuccessCheckmark,
 } from '@/components/blast/motion';
 
 interface DriverInfo {
@@ -75,7 +74,6 @@ export default function BlastStatusClient({
   const [blast, setBlast] = useState<Blast | null>(null);
   const [targets, setTargets] = useState<Target[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectingId, setSelectingId] = useState<string | null>(null);
   const [pullingUpId, setPullingUpId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [toast, setToast] = useState<string | null>(null);
@@ -84,10 +82,7 @@ export default function BlastStatusClient({
     try {
       const res = await fetch(`/api/blast/${blastId}`);
       if (!res.ok) return;
-      const data = (await res.json()) as {
-        blast: Blast;
-        targets: Target[];
-      };
+      const data = (await res.json()) as { blast: Blast; targets: Target[] };
       setBlast(data.blast);
       setTargets(data.targets ?? []);
     } finally {
@@ -110,13 +105,15 @@ export default function BlastStatusClient({
     channelName: `blast:${blastId}`,
     blastId,
     onMessage: (msg) => {
-      // Rider swiped right on swipe deck → driver moved to pendingTargets here
       if (msg.name === 'target_notified') {
         void refresh();
         return;
       }
       if (msg.name === 'target_hmu' || msg.name === 'target_counter') {
-        const t = msg.data as Partial<Target> & { targetId?: string };
+        const t = msg.data as Partial<Target> & {
+          targetId?: string;
+          driver?: { displayName?: string | null; handle?: string | null };
+        };
         if (!t.targetId) return;
         setTargets((prev) => {
           const idx = prev.findIndex((x) => x.targetId === t.targetId);
@@ -125,9 +122,8 @@ export default function BlastStatusClient({
           next[idx] = { ...next[idx], ...(t as Partial<Target>) };
           return next;
         });
-        // In-app notification
-        const driver = targets.find((x) => x.targetId === t.targetId);
-        const name = driver?.driver.displayName ?? driver?.driver.handle ?? 'A driver';
+        // Use driver info from event payload directly (no stale closure)
+        const name = t.driver?.displayName ?? t.driver?.handle ?? 'A driver';
         setToast(`${name} said HMU! 🎉`);
         track('blast_driver_hmu_received', { targetId: t.targetId });
       } else if (msg.name === 'target_pass') {
@@ -135,28 +131,35 @@ export default function BlastStatusClient({
         if (!t.targetId) return;
         setTargets((prev) =>
           prev.map((x) =>
-            x.targetId === t.targetId ? { ...x, passedAt: t.passedAt ?? new Date().toISOString() } : x,
+            x.targetId === t.targetId
+              ? { ...x, passedAt: t.passedAt ?? new Date().toISOString() }
+              : x,
           ),
         );
       } else if (msg.name === 'pull_up_started') {
         const t = msg.data as { rideId?: string };
         if (t.rideId) router.push(`/ride/${t.rideId}`);
-      } else if (msg.name === 'match_locked' || msg.name === 'blast_cancelled' || msg.name === 'blast_bumped') {
+      } else if (msg.name === 'match_locked') {
+        const t = msg.data as { rideId?: string };
+        if (t.rideId) {
+          router.push(`/ride/${t.rideId}`);
+        } else {
+          void refresh();
+        }
+      } else if (msg.name === 'blast_cancelled' || msg.name === 'blast_bumped') {
         void refresh();
       }
     },
   });
 
+  // Drivers who said HMU and haven't been rejected
   const interestedTargets = useMemo(
     () => targets.filter((t) => t.hmuAt && !t.passedAt && !t.rejectedAt),
     [targets],
   );
+  // Drivers who were notified but haven't responded yet
   const pendingTargets = useMemo(
     () => targets.filter((t) => t.notifiedAt && !t.hmuAt && !t.passedAt && !t.rejectedAt),
-    [targets],
-  );
-  const selectedTarget = useMemo(
-    () => targets.find((t) => t.selectedAt && !t.rejectedAt) ?? null,
     [targets],
   );
 
@@ -168,45 +171,28 @@ export default function BlastStatusClient({
     return Math.max(0, Math.floor((targetWindowMs - elapsed) / 1000));
   };
 
-  const handleSelect = useCallback(
-    async (target: Target) => {
-      if (selectingId || pullingUpId) return;
-      setSelectingId(target.targetId);
-      setTargets((prev) =>
-        prev.map((t) =>
-          t.targetId === target.targetId ? { ...t, selectedAt: new Date().toISOString() } : t,
-        ),
-      );
-      try {
-        const res = await fetch(`/api/blast/${blastId}/select/${target.targetId}`, { method: 'POST' });
-        const body = (await res.json().catch(() => ({}))) as { rideId?: string; error?: string; message?: string };
-        if (res.ok) {
-          track('blast_selected', { targetId: target.targetId });
-          await refresh();
-          return;
-        }
-        setTargets((prev) => prev.map((t) => (t.targetId === target.targetId ? { ...t, selectedAt: null } : t)));
-        setToast(body.message ?? body.error ?? 'Could not match');
-      } finally {
-        setSelectingId(null);
-      }
-    },
-    [selectingId, pullingUpId, blastId, refresh],
-  );
-
+  // Pull Up = single action: match + create ride + notify driver + reject others
   const handlePullUp = useCallback(
     async (target: Target) => {
       if (pullingUpId) return;
       setPullingUpId(target.targetId);
       try {
-        const res = await fetch(`/api/blast/${blastId}/pull-up/${target.targetId}`, { method: 'POST' });
-        const body = (await res.json().catch(() => ({}))) as { rideId?: string; error?: string };
+        const res = await fetch(`/api/blast/${blastId}/pull-up/${target.targetId}`, {
+          method: 'POST',
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          rideId?: string;
+          error?: string;
+          message?: string;
+        };
         if (res.ok && body.rideId) {
-          track('blast_pulled_up', { priceDollars: target.counterPrice ?? blast?.price ?? 0 });
-          window.setTimeout(() => router.push(`/ride/${body.rideId}`), 600);
+          track('blast_pulled_up', {
+            priceDollars: target.counterPrice ?? blast?.price ?? 0,
+          });
+          window.setTimeout(() => router.push(`/ride/${body.rideId}`), 400);
           return;
         }
-        setToast(body.error ?? 'Could not pull up');
+        setToast(body.message ?? body.error ?? 'Could not pull up — try again');
       } finally {
         setPullingUpId(null);
       }
@@ -237,12 +223,14 @@ export default function BlastStatusClient({
     );
   }
 
+  const isMatched = blast.status === 'matched';
+
   return (
     <div
       className="min-h-screen bg-black text-white pb-20"
       style={{ paddingTop: 'var(--header-height)' }}
     >
-      {/* ── Header ── */}
+      {/* Header */}
       <header className="px-4 pt-4 pb-3">
         <button
           onClick={() => router.push(`/rider/blast/${shortcode}`)}
@@ -259,33 +247,44 @@ export default function BlastStatusClient({
               {blast.pickup.address ?? 'pickup'} → {blast.dropoff.address ?? 'dropoff'}
             </p>
           </div>
+          {isMatched && (
+            <span className="text-xs font-bold text-[#00E676] bg-[#00E676]/10 border border-[#00E676]/25 px-3 py-1 rounded-full">
+              Matched
+            </span>
+          )}
         </div>
       </header>
 
       <main className="px-3 mt-2 space-y-4">
-        {/* ── HMU'd section ── */}
+        {/* ── Drivers who said HMU — Pull Up button shown directly ── */}
         {interestedTargets.length > 0 && (
           <section>
             <h2 className="text-xs uppercase tracking-wider text-neutral-500 px-1 mb-3">
-              Said HMU ({interestedTargets.length})
+              Said HMU ({interestedTargets.length}) — tap Pull Up to lock in
             </h2>
             <StaggeredList staggerMs={80} as="ul" className="space-y-2">
               {interestedTargets.map((t) => {
-                const isDimmed = selectedTarget && selectedTarget.targetId !== t.targetId;
-                const isSelected = selectedTarget?.targetId === t.targetId;
+                const isPulling = pullingUpId === t.targetId;
+                const isDisabled = pullingUpId !== null && !isPulling;
                 const counter = t.counterPrice && t.counterPrice !== blast.price;
                 const secsLeft = perTargetSecondsLeft(t.notifiedAt);
                 return (
                   <motion.li
                     key={t.targetId}
                     initial={{ opacity: 0, x: 24 }}
-                    animate={{ opacity: isDimmed ? 0.4 : 1, x: 0, scale: isSelected ? 1.02 : 1 }}
+                    animate={{ opacity: isDisabled ? 0.45 : 1, x: 0 }}
                     transition={{ duration: 0.25, ease: [0, 0, 0.2, 1] }}
-                    className={`bg-neutral-900 border ${isSelected ? 'border-[#00E676]' : 'border-neutral-800'} rounded-2xl p-3 list-none`}
+                    className="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 list-none"
                   >
                     <div className="flex items-center gap-3">
+                      {/* Avatar + countdown ring */}
                       <div className="relative w-12 h-12 flex-shrink-0">
-                        <CountdownRing size={48} strokeWidth={3} secondsRemaining={secsLeft} totalSeconds={targetWindowMs / 1000} />
+                        <CountdownRing
+                          size={48}
+                          strokeWidth={3}
+                          secondsRemaining={secsLeft}
+                          totalSeconds={targetWindowMs / 1000}
+                        />
                         <div className="absolute inset-1 rounded-full bg-neutral-800 overflow-hidden flex items-center justify-center text-sm font-bold">
                           {t.driver.thumbnailUrl
                             // eslint-disable-next-line @next/next/no-img-element
@@ -294,6 +293,8 @@ export default function BlastStatusClient({
                           }
                         </div>
                       </div>
+
+                      {/* Driver info */}
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-semibold truncate flex items-center gap-1.5">
                           {t.driver.displayName ?? t.driver.handle ?? 'Driver'}
@@ -303,42 +304,46 @@ export default function BlastStatusClient({
                         </div>
                         <div className="text-[11px] text-neutral-500 mt-0.5 flex items-center gap-2 flex-wrap">
                           {t.driver.chillScore > 0 && (
-                            <span><span className="text-[#00E676] font-semibold">{Math.round(t.driver.chillScore)}%</span> chill</span>
+                            <span>
+                              <span className="text-[#00E676] font-semibold">{Math.round(t.driver.chillScore)}%</span> chill
+                            </span>
                           )}
                           {t.driver.completedRides > 0 && (
-                            <span><span className="text-white font-semibold">{t.driver.completedRides}</span> rides</span>
+                            <span>
+                              <span className="text-white font-semibold">{t.driver.completedRides}</span> rides
+                            </span>
                           )}
-                          {t.driver.vehicleLabel && <span className="text-neutral-600">🚗 {t.driver.vehicleLabel}</span>}
+                          {t.driver.vehicleLabel && (
+                            <span className="text-neutral-600">🚗 {t.driver.vehicleLabel}</span>
+                          )}
                           {counter && (
                             <span className="text-amber-400 inline-flex items-center gap-1">
-                              <CountUpNumber value={t.counterPrice ?? 0} formatter={(n) => `$${Math.round(n)}`} />
+                              <CountUpNumber
+                                value={t.counterPrice ?? 0}
+                                formatter={(n) => `$${Math.round(n)}`}
+                              />
                               <span className="text-neutral-600">counter</span>
                             </span>
                           )}
                         </div>
                       </div>
-                      {!selectedTarget && (
-                        <motion.button
-                          whileTap={{ scale: 0.97 }}
-                          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                          onClick={() => handleSelect(t)}
-                          disabled={selectingId != null}
-                          className="bg-white text-black text-sm font-bold px-4 py-2 rounded-xl disabled:bg-neutral-800 disabled:text-neutral-500 min-w-[72px]"
-                        >
-                          {selectingId === t.targetId ? '…' : 'Select'}
-                        </motion.button>
-                      )}
-                      {isSelected && (
-                        <motion.button
-                          whileTap={{ scale: 0.97 }}
-                          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                          onClick={() => handlePullUp(t)}
-                          disabled={pullingUpId != null}
-                          className="bg-[#00E676] text-black text-sm font-bold px-4 py-2 rounded-xl disabled:opacity-60 min-w-[88px] flex items-center justify-center"
-                        >
-                          {pullingUpId === t.targetId ? <SuccessCheckmark size={20} autoHide={false} /> : 'Pull Up'}
-                        </motion.button>
-                      )}
+
+                      {/* Pull Up button — single action, no Select step */}
+                      <motion.button
+                        whileTap={{ scale: 0.96 }}
+                        transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                        onClick={() => handlePullUp(t)}
+                        disabled={pullingUpId !== null}
+                        className="bg-[#00E676] text-black text-sm font-bold px-4 py-2 rounded-xl disabled:opacity-50 min-w-[88px] flex items-center justify-center"
+                      >
+                        {isPulling ? (
+                          <span className="inline-flex gap-1">
+                            <span className="animate-bounce" style={{ animationDelay: '0ms' }}>·</span>
+                            <span className="animate-bounce" style={{ animationDelay: '150ms' }}>·</span>
+                            <span className="animate-bounce" style={{ animationDelay: '300ms' }}>·</span>
+                          </span>
+                        ) : 'Pull Up'}
+                      </motion.button>
                     </div>
                   </motion.li>
                 );
@@ -351,7 +356,7 @@ export default function BlastStatusClient({
         {pendingTargets.length > 0 && (
           <section>
             <h2 className="text-xs uppercase tracking-wider text-neutral-500 px-1 mb-3">
-              Blast sent to ({pendingTargets.length})
+              Waiting on ({pendingTargets.length})
             </h2>
             <div className="rounded-2xl border border-neutral-800 bg-neutral-900 overflow-hidden">
               <ul className="divide-y divide-neutral-800">
@@ -389,13 +394,20 @@ export default function BlastStatusClient({
                         </div>
                         <div className="text-[11px] text-neutral-500 mt-0.5 flex items-center gap-2">
                           {t.driver.chillScore > 0 && (
-                            <span><span className="text-[#00E676] font-semibold">{Math.round(t.driver.chillScore)}%</span> chill</span>
+                            <span>
+                              <span className="text-[#00E676] font-semibold">{Math.round(t.driver.chillScore)}%</span> chill
+                            </span>
                           )}
-                          {t.driver.vehicleLabel && <span className="text-neutral-600">🚗 {t.driver.vehicleLabel}</span>}
+                          {t.driver.vehicleLabel && (
+                            <span className="text-neutral-600">🚗 {t.driver.vehicleLabel}</span>
+                          )}
                         </div>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <div className="text-[11px] font-mono tabular-nums" style={{ color: pct > 0.33 ? '#888' : pct > 0.1 ? '#FFB300' : '#FF4444' }}>
+                        <div
+                          className="text-[11px] font-mono tabular-nums"
+                          style={{ color: pct > 0.33 ? '#888' : pct > 0.1 ? '#FFB300' : '#FF4444' }}
+                        >
                           {Math.floor(secsLeft / 60)}:{String(secsLeft % 60).padStart(2, '0')}
                         </div>
                         <div className="text-[9px] text-neutral-700 mt-0.5">deciding</div>
@@ -408,14 +420,14 @@ export default function BlastStatusClient({
           </section>
         )}
 
-        {/* ── Empty state ── */}
+        {/* Empty state */}
         {targets.length === 0 && (
           <div className="rounded-2xl overflow-hidden mt-2">
             <NeuralNetworkLoader label="Waiting for driver responses…" />
           </div>
         )}
 
-        {/* ── Send another blast ── */}
+        {/* Duplicate CTA */}
         <div className="mt-6 px-1">
           <button
             onClick={handleDuplicate}
@@ -426,11 +438,9 @@ export default function BlastStatusClient({
         </div>
       </main>
 
-      {/* ── Toast ── */}
+      {/* Toast */}
       <AnimatePresence>
-        {toast && (
-          <ToastShim message={toast} onTimeout={() => setToast(null)} />
-        )}
+        {toast && <ToastShim message={toast} onTimeout={() => setToast(null)} />}
       </AnimatePresence>
     </div>
   );
