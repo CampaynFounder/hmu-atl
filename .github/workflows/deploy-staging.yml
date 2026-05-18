@@ -134,6 +134,12 @@ jobs:
           sync_secret VOIPMS_API_USERNAME       "${{ secrets.VOIPMS_API_USERNAME }}"
           sync_secret VOIPMS_API_PASSWORD       "${{ secrets.VOIPMS_API_PASSWORD }}"
 
+      - name: Apply schema migrations to staging DB
+        env:
+          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
+        run: |
+          node scripts/apply-migration.mjs lib/db/migrations/rider-payment-methods.sql
+
       - name: Post-deploy health check
         run: |
           set -euo pipefail
