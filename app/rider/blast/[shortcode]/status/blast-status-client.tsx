@@ -110,6 +110,11 @@ export default function BlastStatusClient({
     channelName: `blast:${blastId}`,
     blastId,
     onMessage: (msg) => {
+      // Rider swiped right on swipe deck → driver moved to pendingTargets here
+      if (msg.name === 'target_notified') {
+        void refresh();
+        return;
+      }
       if (msg.name === 'target_hmu' || msg.name === 'target_counter') {
         const t = msg.data as Partial<Target> & { targetId?: string };
         if (!t.targetId) return;
