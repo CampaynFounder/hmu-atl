@@ -77,6 +77,7 @@ export default function BlastStatusClient({
   const [pullingUpId, setPullingUpId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [toast, setToast] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -146,7 +147,9 @@ export default function BlastStatusClient({
         } else {
           void refresh();
         }
-      } else if (msg.name === 'blast_cancelled' || msg.name === 'blast_bumped') {
+      } else if (msg.name === 'blast_cancelled') {
+        router.replace('/rider/browse/blast');
+      } else if (msg.name === 'blast_bumped') {
         void refresh();
       }
     },
@@ -200,6 +203,19 @@ export default function BlastStatusClient({
     [pullingUpId, blastId, blast?.price, router],
   );
 
+  const handleCancel = useCallback(async () => {
+    if (!confirm('Cancel this blast? HMU\'d drivers will be notified.')) return;
+    setCancelling(true);
+    try {
+      await fetch(`/api/blast/${blastId}/cancel`, { method: 'POST' });
+      track('blast_cancelled_by_rider', { blastId, from: 'status_board' });
+      router.replace('/rider/browse/blast');
+    } catch {
+      setToast('Could not cancel — try again');
+      setCancelling(false);
+    }
+  }, [blastId, router]);
+
   const handleDuplicate = useCallback(async () => {
     track('blast_duplicated', { sourceBlastId: blastId });
     const res = await fetch(`/api/blast/${blastId}/duplicate`, { method: 'POST' });
@@ -232,12 +248,23 @@ export default function BlastStatusClient({
     >
       {/* Header */}
       <header className="px-4 pt-4 pb-3">
-        <button
-          onClick={() => router.push(`/rider/blast/${shortcode}`)}
-          className="text-xs text-neutral-500 hover:text-white mb-3 flex items-center gap-1.5 transition-colors"
-        >
-          ← Back to deck
-        </button>
+        <div className="flex items-center justify-between mb-3">
+          <button
+            onClick={() => router.push(`/rider/blast/${shortcode}`)}
+            className="text-xs text-neutral-500 hover:text-white flex items-center gap-1.5 transition-colors"
+          >
+            ← Back to deck
+          </button>
+          {!isMatched && (
+            <button
+              onClick={handleCancel}
+              disabled={cancelling}
+              className="text-xs text-red-500 hover:text-red-400 transition-colors disabled:opacity-40"
+            >
+              {cancelling ? 'Cancelling…' : 'Cancel blast'}
+            </button>
+          )}
+        </div>
         <div className="flex justify-between items-start gap-3">
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-bold flex items-center gap-2">
