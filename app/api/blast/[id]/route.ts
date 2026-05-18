@@ -247,11 +247,17 @@ function buildDriverInfo(row: Record<string, unknown>) {
 
   const areaSlugs = Array.isArray(row.area_slugs) ? (row.area_slugs as string[]) : [];
 
+  // thumbnail_url is only set when a driver uploads a video (the upload route
+  // sets both video_url + thumbnail_url). Drivers who upload a photo during
+  // onboarding have their photo in vehicle_info.photo_url. Fall back there so
+  // the swipe card shows an actual photo instead of the initial letter.
+  const resolvedThumbnailUrl = (row.thumbnail_url as string | null) ?? vehiclePhotoUrl;
+
   return {
     handle: row.handle as string | null,
     displayName: row.display_name as string | null,
     videoUrl: row.video_url as string | null,
-    thumbnailUrl: row.thumbnail_url as string | null,
+    thumbnailUrl: resolvedThumbnailUrl,
     vehicleLabel,
     vehicleColor,
     vehiclePhotoUrl,
