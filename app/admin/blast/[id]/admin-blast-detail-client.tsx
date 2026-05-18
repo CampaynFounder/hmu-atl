@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ScoreBreakdownBars } from '@/components/blast/score-breakdown-bars';
 import { PulseOnMount, ShimmerSlot, StaggeredList } from '@/components/blast/motion';
+import { DriverLookup } from './driver-lookup';
 
 interface FilterResult {
   filter?: string;
@@ -398,6 +399,14 @@ export function AdminBlastDetailClient({ blastId }: { blastId: string }) {
             </table>
           </div>
         )}
+      </Card>
+
+      {/* Driver lookup */}
+      <Card title="Driver lookup — where did this driver fall out?">
+        <p style={{ margin: '0 0 12px', fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>
+          Search any driver by name or handle to see exactly where they were excluded from this blast.
+        </p>
+        <DriverLookup blastId={blast.id} />
       </Card>
 
       {/* Event timeline */}
