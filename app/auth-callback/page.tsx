@@ -109,23 +109,27 @@ export default function AuthCallbackPage() {
     const isCash = params.get('cash') || localStorage.getItem('hmu_signup_cash');
     const mode = params.get('mode') || localStorage.getItem('hmu_signup_mode');
 
-    // Blast funnel detection. saveBlastDraft writes the canonical 'hmu.blast.draft'
-    // key right before the auth round-trip; the returnTo param is also a hint but
-    // Clerk OAuth can drop URL params on the way back, so localStorage is the
-    // dependable signal. If either is present, the rider MUST land on the minimal
-    // /auth-callback/blast handle+photo screen — NEVER the full /onboarding wizard,
-    // which loses the draft and asks for fields blast doesn't need.
-    let hasBlastDraft = false;
-    try { hasBlastDraft = !!window.localStorage.getItem('hmu.blast.draft'); } catch { /* private mode */ }
-    const cameFromBlast =
-      hasBlastDraft || (typeof returnTo === 'string' && returnTo.startsWith('/auth-callback/blast'));
-    // Booking funnel: /rider/browse → /sign-up → here. Both branches forward
-    // the params, but OAuth round-trips can drop them, so localStorage and
-    // the Clerk user's unsafeMetadata both back-stop.
+    // Read draft params before blast detection so we can distinguish a real
+    // browse-booking UUID from the blast sentinel string 'blast'.
     const draftFromMeta = (user?.unsafeMetadata?.draft_booking_id as string | undefined) || '';
     const handleFromMeta = (user?.unsafeMetadata?.draft_booking_handle as string | undefined) || '';
     const draftId = params.get('draft') || localStorage.getItem('hmu_signup_draft') || draftFromMeta || '';
     const draftHandle = params.get('handle') || localStorage.getItem('hmu_signup_handle') || handleFromMeta || '';
+
+    // A real browse-booking draft has a non-sentinel UUID draftId and a driver handle.
+    // When present, suppress blast routing so a stale hmu.blast.draft left in
+    // localStorage from an abandoned blast session can't hijack this booking flow.
+    const isBrowseDraft = !!(draftId && draftHandle && draftId !== 'blast');
+
+    // Blast funnel detection. saveBlastDraft writes 'hmu.blast.draft' before the
+    // auth round-trip; returnTo=/auth-callback/blast is now also forwarded as a
+    // URL param by sign-up and sign-in (independent of localStorage). Both signals
+    // are ignored when a live browse draft is present.
+    let hasBlastDraft = false;
+    try { hasBlastDraft = !!window.localStorage.getItem('hmu.blast.draft'); } catch { /* private mode */ }
+    const cameFromBlast = !isBrowseDraft && (
+      hasBlastDraft || (typeof returnTo === 'string' && returnTo.startsWith('/auth-callback/blast'))
+    );
 
     // Clean up localStorage after reading — one-time use
     localStorage.removeItem('hmu_signup_type');
@@ -135,31 +139,11 @@ export default function AuthCallbackPage() {
     localStorage.removeItem('hmu_signup_draft');
     localStorage.removeItem('hmu_signup_handle');
 
-    // Blast funnel routing takes priority over the standard onboarding flow.
-    // The handoff page reads the draft on mount, so we don't clear it here —
-    // /auth-callback/blast clears via clearBlastDraft() after the POST.
-    // Drivers can't blast; drop the parked draft and route them home so the
-    // funnel doesn't trap them in a screen that doesn't apply.
-    if (cameFromBlast) {
-      const metaType = user?.publicMetadata?.profileType as string | undefined;
-      if (metaType === 'driver') {
-        try { localStorage.removeItem('hmu.blast.draft'); } catch { /* private mode */ }
-        router.replace('/driver/home');
-        return;
-      }
-      // metaType === 'rider' → returning rider, auto-send via signin mode.
-      // metaType === undefined → brand-new signup before the Clerk webhook
-      // has set profileType; mode=signup shows the handle+photo step.
-      router.replace(metaType === 'rider'
-        ? '/auth-callback/blast?mode=signin'
-        : '/auth-callback/blast?mode=signup');
-      return;
-    }
-
-    // Retry the onboarding-status fetch once on transient failure. A single
-    // Neon/Worker cold-start blip must NEVER drop an existing user onto
-    // /onboarding — that was the bug silently pushing signed-in drivers
-    // through the new-user flow.
+    // Fetch onboarding status before blast routing so the authoritative DB value
+    // (hasRiderProfile) is available. publicMetadata.profileType can be stamped by
+    // the Clerk webhook before the rider_profiles row is written, which would route
+    // a brand-new blast signup to mode=signin (auto-send with no profile row),
+    // causing the blast photo gate to fail.
     let data: {
       hasDriverProfile?: boolean;
       hasRiderProfile?: boolean;
@@ -177,6 +161,28 @@ export default function AuthCallbackPage() {
         console.error('[auth-callback] onboarding status threw', { attempt, err });
       }
       if (attempt === 0) await new Promise(r => setTimeout(r, 400));
+    }
+
+    // Blast funnel routing takes priority over the standard onboarding flow.
+    // Use data.hasRiderProfile (DB truth) to gate signin vs signup mode — NOT
+    // publicMetadata.profileType, which the webhook can set before the DB row exists.
+    if (cameFromBlast) {
+      const isDriver = data?.profileType === 'driver'
+        || (!data && user?.publicMetadata?.profileType === 'driver');
+      if (isDriver) {
+        try { localStorage.removeItem('hmu.blast.draft'); } catch { /* private mode */ }
+        router.replace('/driver/home');
+        return;
+      }
+      // Use DB hasRiderProfile as the authoritative existing-rider signal.
+      // Fall back to Clerk metadata only when the API call itself failed.
+      const hasRiderProfile = data != null
+        ? !!data.hasRiderProfile
+        : user?.publicMetadata?.profileType === 'rider';
+      router.replace(hasRiderProfile
+        ? '/auth-callback/blast?mode=signin'
+        : '/auth-callback/blast?mode=signup');
+      return;
     }
 
     // On persistent API failure, route from the Clerk session's

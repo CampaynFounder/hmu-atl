@@ -104,7 +104,33 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          echo "${{ secrets.OPENAI_API_KEY }}" | npx wrangler secret put OPENAI_API_KEY --config wrangler.staging.jsonc
+          sync_secret() {
+            local name="$1"
+            local value="$2"
+            if [ -z "$value" ]; then
+              echo "⚠️  $name is empty — skipping"
+              return
+            fi
+            echo "$value" | npx wrangler secret put "$name" --config wrangler.staging.jsonc
+            echo "✓ $name"
+          }
+          sync_secret DATABASE_URL              "${{ secrets.DATABASE_URL }}"
+          sync_secret DATABASE_URL_UNPOOLED     "${{ secrets.DATABASE_URL_UNPOOLED }}"
+          sync_secret CLERK_SECRET_KEY          "${{ secrets.CLERK_SECRET_KEY }}"
+          sync_secret CLERK_WEBHOOK_SECRET      "${{ secrets.CLERK_WEBHOOK_SECRET }}"
+          sync_secret STRIPE_SECRET_KEY         "${{ secrets.STRIPE_SECRET_KEY }}"
+          sync_secret STRIPE_WEBHOOK_SECRET     "${{ secrets.STRIPE_WEBHOOK_SECRET }}"
+          sync_secret STRIPE_PLATFORM_ACCOUNT_ID "${{ secrets.STRIPE_PLATFORM_ACCOUNT_ID }}"
+          sync_secret HMU_FIRST_PRICE_ID        "${{ secrets.HMU_FIRST_PRICE_ID }}"
+          sync_secret ABLY_API_KEY              "${{ secrets.ABLY_API_KEY }}"
+          sync_secret TWILIO_ACCOUNT_SID        "${{ secrets.TWILIO_ACCOUNT_SID }}"
+          sync_secret TWILIO_AUTH_TOKEN         "${{ secrets.TWILIO_AUTH_TOKEN }}"
+          sync_secret TWILIO_PHONE_NUMBER       "${{ secrets.TWILIO_PHONE_NUMBER }}"
+          sync_secret TWILIO_VERIFY_SERVICE_SID "${{ secrets.TWILIO_VERIFY_SERVICE_SID }}"
+          sync_secret UPSTASH_REDIS_REST_URL    "${{ secrets.UPSTASH_REDIS_REST_URL }}"
+          sync_secret UPSTASH_REDIS_REST_TOKEN  "${{ secrets.UPSTASH_REDIS_REST_TOKEN }}"
+          sync_secret OPENAI_API_KEY            "${{ secrets.OPENAI_API_KEY }}"
+          sync_secret META_CONVERSIONS_API_TOKEN "${{ secrets.META_CONVERSIONS_API_TOKEN }}"
 
       - name: Post-deploy health check
         run: |

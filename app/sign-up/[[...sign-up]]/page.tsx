@@ -20,8 +20,14 @@ export default async function SignUpPage({ searchParams }: Props) {
 
   const callbackParams = new URLSearchParams();
   if (type) callbackParams.set('type', type);
-  // /d/ = chat-funnel from a driver's share link; /r/ = rider ad-funnel landing.
-  if (returnTo && (returnTo.startsWith('/d/') || returnTo.startsWith('/r/'))) {
+  // /d/ = chat-funnel from a driver's share link; /r/ = rider ad-funnel landing;
+  // /auth-callback/blast = blast funnel (URL-param channel so blast is detectable
+  // even when localStorage is unavailable).
+  if (returnTo && (
+    returnTo.startsWith('/d/') ||
+    returnTo.startsWith('/r/') ||
+    returnTo.startsWith('/auth-callback/blast')
+  )) {
     callbackParams.set('returnTo', returnTo);
   }
   // Browse-funnel draft → auth-callback routes through ExpressRiderOnboarding,
