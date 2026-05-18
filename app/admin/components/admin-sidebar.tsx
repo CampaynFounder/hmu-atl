@@ -23,6 +23,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
     label: 'MONITOR',
     items: [
       { href: '/admin', label: 'Live Ops', icon: '⚡' },
+      { href: '/admin/blast', label: 'Blast Monitor', icon: '📡' },
       { href: '/admin/growth', label: 'Growth', icon: '📈' },
       { href: '/admin/money', label: 'Revenue', icon: '💰' },
       { href: '/admin/pricing', label: 'Pricing', icon: '⚙️' },
