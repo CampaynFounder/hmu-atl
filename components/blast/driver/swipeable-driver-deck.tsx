@@ -114,6 +114,12 @@ export function SwipeableDriverDeck({
   // and derive what the deck shows from those + the parent's `cards` prop.
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
+  // swipedInSession tracks every card the rider has acted on (left OR right)
+  // immediately — before the 3-second undo window expires. This prevents a
+  // card from reappearing when the next swipe replaces `pending`. On undo of
+  // a pass, the card is removed from this set so it comes back. On undo of an
+  // HMU, the card stays hidden (driver was already notified via SMS).
+  const [swipedInSession, setSwipedInSession] = useState<Set<string>>(() => new Set());
   // Payment gate — card that the rider tried to right-swipe without a linked card.
   // The card springs back and this form slides in. On success, we fire the HMU.
   const [paymentGateCard, setPaymentGateCard] = useState<FallbackDriverCardData | null>(null);
@@ -127,16 +133,16 @@ export function SwipeableDriverDeck({
   // If the parent eventually passes hasCard=true (e.g. after a re-mount), latch.
   if (hasCard && !cardLinked) setCardLinked(true);
 
-  // Cards visible right now = parent list minus already-committed (local +
-  // external from parent) and minus the currently-pending card.
+  // Cards visible right now = parent list minus swiped (immediate), committed
+  // (post-undo-window), and parent-managed dismissed IDs.
   const deck = useMemo(() => {
     return cards.filter(
       (c) =>
+        !swipedInSession.has(c.targetId) &&
         !dismissedIds.has(c.targetId) &&
-        !externalDismissedIds?.has(c.targetId) &&
-        c.targetId !== pending?.card.targetId,
+        !externalDismissedIds?.has(c.targetId),
     );
-  }, [cards, dismissedIds, externalDismissedIds, pending]);
+  }, [cards, swipedInSession, dismissedIds, externalDismissedIds]);
 
   // Commit timer — once the undo window elapses, the action is final. We
   // move the card from `pending` into `dismissedIds` (so it stays hidden
@@ -168,6 +174,7 @@ export function SwipeableDriverDeck({
         setPaymentGateCard(card);
         return;
       }
+      setSwipedInSession((prev) => { const next = new Set(prev); next.add(card.targetId); return next; });
       setPending({ type: 'hmu', card, expiresAt: Date.now() + UNDO_WINDOW_MS });
       void fetch(`/api/blast/${blastId}/hmu-fallback/${card.targetId}`, {
         method: 'POST',
@@ -189,6 +196,7 @@ export function SwipeableDriverDeck({
     setCardLinked(true);
     if (!card) return;
     // Card already sprang back to center — now fire HMU with card now linked.
+    setSwipedInSession((prev) => { const next = new Set(prev); next.add(card.targetId); return next; });
     setPending({ type: 'hmu', card, expiresAt: Date.now() + UNDO_WINDOW_MS });
     void fetch(`/api/blast/${blastId}/hmu-fallback/${card.targetId}`, {
       method: 'POST',
@@ -203,6 +211,7 @@ export function SwipeableDriverDeck({
 
   const handlePass = useCallback(
     (card: FallbackDriverCardData) => {
+      setSwipedInSession((prev) => { const next = new Set(prev); next.add(card.targetId); return next; });
       setPending({ type: 'pass', card, expiresAt: Date.now() + UNDO_WINDOW_MS });
       void fetch(`/api/blast/${blastId}/fallback-pass/${card.targetId}`, {
         method: 'POST',
@@ -220,14 +229,14 @@ export function SwipeableDriverDeck({
   const handleUndo = useCallback(() => {
     if (!pending) return;
     const { type, card } = pending;
-    // HMU is irreversible from the driver's side (they were already notified
-    // via SMS/push); we still pop the card back so the rider sees what they
-    // un-did. Pass IS reversible — DELETE removes the dismiss event so the
-    // card resurfaces on the next poll and `dismissedIds` never picked it up.
+    // Pass is reversible — DELETE removes the dismiss event and we remove the
+    // card from swipedInSession so it reappears. HMU is irreversible from the
+    // driver's side (SMS already sent), so the card stays hidden even after undo.
     if (type === 'pass') {
       void fetch(`/api/blast/${blastId}/fallback-pass/${card.targetId}`, {
         method: 'DELETE',
       }).catch(() => { /* ignore */ });
+      setSwipedInSession((prev) => { const next = new Set(prev); next.delete(card.targetId); return next; });
     }
     try {
       posthog.capture('blast_fallback_undo', { type, target_id: card.targetId });
