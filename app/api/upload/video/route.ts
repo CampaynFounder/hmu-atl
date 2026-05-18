@@ -118,9 +118,12 @@ export async function POST(request: NextRequest) {
               WHERE user_id = ${userId}
             `;
           } else {
+            // Driver profile photo: write to thumbnail_url (what the swipe card reads)
+            // AND vehicle_info.photo_url (legacy / vehicle display).
             await sql`
               UPDATE driver_profiles
-              SET vehicle_info = jsonb_set(COALESCE(vehicle_info, '{}')::jsonb, '{photo_url}', ${JSON.stringify(publicUrl)}::jsonb)
+              SET thumbnail_url = ${publicUrl},
+                  vehicle_info = jsonb_set(COALESCE(vehicle_info, '{}')::jsonb, '{photo_url}', ${JSON.stringify(publicUrl)}::jsonb)
               WHERE user_id = ${userId}
             `;
           }
