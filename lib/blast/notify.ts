@@ -82,7 +82,7 @@ async function loadDriverPrefs(driverIds: string[]): Promise<Map<string, DriverP
       p.quiet_hours_end::text AS quiet_hours_end,
       COALESCE(p.max_blasts_per_day, ${DEFAULT_MAX_BLASTS_PER_DAY}) AS max_blasts_per_day,
       p.min_fare_threshold,
-      dp.phone,
+      COALESCE(dp.phone, u.phone) AS phone,
       COALESCE(t.sent_today, 0) AS sent_today
     FROM users u
     LEFT JOIN driver_profiles dp ON dp.user_id = u.id
