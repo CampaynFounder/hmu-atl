@@ -132,7 +132,7 @@ export async function POST(
     targetId,
     title: `New ride request — $${ctx.priceDollars}`,
     body: `${ctx.pickupLabel} → ${ctx.dropoffLabel} ${ctx.scheduledForLabel}`,
-    url: `/driver/home?focus=${blastId}`,
+    url: `/driver/requests`,
   }).catch((err) => console.error('[hmu-fallback] push error:', err));
 
   // ── SMS via fanoutBlast (handles quiet hours, daily caps, kill switch) ──
