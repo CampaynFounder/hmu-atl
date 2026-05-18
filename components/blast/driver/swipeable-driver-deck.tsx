@@ -487,11 +487,13 @@ function DriverCardBody({
     ? blastPrice >= driver.minimumFare
     : null;
 
-  // Distance label — most prominent detail, always shows something
+  // City driving estimate: 20 mph average
+  const toMinutes = (mi: number) => Math.max(1, Math.round(mi / 20 * 60));
+
   const distanceLabel = card.distanceFromPickupMi != null
-    ? `${card.distanceFromPickupMi} mi from pickup${card.locationIsLive ? ' · live' : ''}`
+    ? `${card.distanceFromPickupMi}mi · ~${toMinutes(card.distanceFromPickupMi)} min away${card.locationIsLive ? ' · live' : ''}`
     : card.distanceFromHomeMi != null
-      ? `~${card.distanceFromHomeMi} mi · ${card.homeLabel ?? 'home base'}`
+      ? `~${card.distanceFromHomeMi}mi · ~${toMinutes(card.distanceFromHomeMi)} min · ${card.homeLabel ?? 'home base'}`
       : areaLabels.length > 0
         ? `Serves ${areaLabels.slice(0, 2).join(', ')}`
         : 'Distance unknown';
@@ -536,15 +538,7 @@ function DriverCardBody({
         <div style={{
           position: 'absolute', inset: 0,
           background: 'linear-gradient(160deg, #1c1c1c 0%, #0a0a0a 100%)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <span style={{
-            fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-            fontSize: 96, color: 'rgba(255,255,255,0.07)', lineHeight: 1,
-          }}>
-            {name.charAt(0).toUpperCase()}
-          </span>
-        </div>
+        }} />
       )}
 
       {/* ── Top badges (LIVE, tier, video) ── */}

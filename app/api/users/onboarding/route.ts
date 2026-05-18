@@ -286,7 +286,10 @@ export async function POST(request: NextRequest) {
           pronouns,
           lgbtq_friendly,
           video_url,
-          thumbnail_url,
+          // ad_photo_url is the driver's profile photo from onboarding. Use it
+          // as thumbnail_url when no video thumbnail exists so the swipe card
+          // shows the driver's face instead of a blank background.
+          thumbnail_url: thumbnail_url ?? ad_photo_url ?? null,
           areas,
           area_slugs: Array.isArray(area_slugs) ? area_slugs : undefined,
           services_entire_market: typeof services_entire_market === 'boolean' ? services_entire_market : undefined,
