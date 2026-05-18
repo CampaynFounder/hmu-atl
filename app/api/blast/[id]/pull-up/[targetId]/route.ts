@@ -30,6 +30,19 @@ export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string; targetId: string }> },
 ): Promise<Response> {
+  try {
+    return await handlePost(_req, params);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[blast/pull-up] unhandled error:', msg, err);
+    return NextResponse.json({ error: 'Internal error', detail: msg }, { status: 500 });
+  }
+}
+
+async function handlePost(
+  _req: NextRequest,
+  params: Promise<{ id: string; targetId: string }>,
+): Promise<Response> {
   const { userId: clerkId } = await auth();
   if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

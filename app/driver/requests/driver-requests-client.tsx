@@ -6,6 +6,7 @@ import { useAbly } from '@/hooks/use-ably';
 import { posthog } from '@/components/analytics/posthog-provider';
 import PassReasonSheet, { type PassReason } from '@/components/driver/pass-reason-sheet';
 import { DriverBlastStatusSection } from '@/components/blast/driver/driver-blast-status-section';
+import { DriverBlastMatchHistory } from '@/components/blast/driver/driver-blast-match-history';
 
 interface Request {
   id: string;
@@ -299,6 +300,8 @@ export function DriverRequestsClient({ driverId, marketSlug }: DriverRequestsCli
             ))}
           </AnimatePresence>
         )}
+
+        <DriverBlastMatchHistory driverId={driverId} />
       </div>
 
       <PassReasonSheet
