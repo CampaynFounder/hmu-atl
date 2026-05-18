@@ -206,7 +206,7 @@ export async function PATCH(
   const {
     accountStatus, tier, ogStatus, chillScore, profileVisible, adminNotes,
     // Driver Lab fields — only applied when present
-    displayName, thumbnailUrl, vehicleInfo, minimumFare,
+    displayName, thumbnailUrl, videoUrl, vehicleInfo, minimumFare,
     currentLat, currentLng,
   } = body;
 
@@ -231,6 +231,7 @@ export async function PATCH(
     profileVisible !== undefined ||
     displayName !== undefined ||
     thumbnailUrl !== undefined ||
+    videoUrl !== undefined ||
     vehicleInfo !== undefined ||
     minimumFare !== undefined ||
     (currentLat !== undefined && currentLng !== undefined);
@@ -257,6 +258,7 @@ export async function PATCH(
         profile_visible  = COALESCE(${profileVisible ?? null}, profile_visible),
         display_name     = COALESCE(${displayName ?? null}, display_name),
         thumbnail_url    = COALESCE(${thumbnailUrl ?? null}, thumbnail_url),
+        video_url        = COALESCE(${videoUrl ?? null}, video_url),
         vehicle_info     = ${JSON.stringify(mergedVehicle)}::jsonb,
         pricing          = ${JSON.stringify(mergedPricing)}::jsonb,
         current_lat      = COALESCE(${currentLat ?? null}, current_lat),
