@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { fanoutBlast, type BlastTarget, type BlastNotificationContext } from '@/lib/blast/notify';
-import { publishToChannel } from '@/lib/ably/server';
+import { publishToChannel, notifyUser } from '@/lib/ably/server';
 
 export const runtime = 'nodejs';
 
@@ -123,21 +123,29 @@ export async function POST(
     UPDATE blast_driver_targets SET notified_at = NOW() WHERE id = ${targetId}
   `;
 
-  try {
-    await fanoutBlast([blastTarget], ctx);
-  } catch (err) {
-    console.error('[hmu-fallback] fanout error:', err);
-  }
+  // ── Ably push — direct, like direct_booking_request (no gate dependencies) ──
+  // fanoutBlast queries driver_blast_preferences which may not exist in all
+  // envs; calling notifyUser directly here mirrors the direct booking pattern
+  // and guarantees the driver's feed updates regardless of fanout state.
+  await notifyUser(target.driver_id, 'blast_invite', {
+    blastId,
+    targetId,
+    title: `New ride request — $${ctx.priceDollars}`,
+    body: `${ctx.pickupLabel} → ${ctx.dropoffLabel} ${ctx.scheduledForLabel}`,
+    url: `/driver/home?focus=${blastId}`,
+  }).catch((err) => console.error('[hmu-fallback] push error:', err));
 
-  try {
-    await publishToChannel(`blast:${blastId}`, 'target_notified', {
-      targetId,
-      driverId: target.driver_id,
-      notifiedAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    console.error('[hmu-fallback] ably error:', err);
-  }
+  // ── SMS via fanoutBlast (handles quiet hours, daily caps, kill switch) ──
+  fanoutBlast([blastTarget], ctx).catch((err) =>
+    console.error('[hmu-fallback] sms fanout error:', err),
+  );
+
+  // ── Rider's offer board — move this driver from fallback → targets ──
+  publishToChannel(`blast:${blastId}`, 'target_notified', {
+    targetId,
+    driverId: target.driver_id,
+    notifiedAt: new Date().toISOString(),
+  }).catch((err) => console.error('[hmu-fallback] board event error:', err));
 
   return NextResponse.json({ ok: true });
 }

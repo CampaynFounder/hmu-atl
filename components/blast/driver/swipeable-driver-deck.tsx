@@ -176,9 +176,11 @@ export function SwipeableDriverDeck({
       }
       setSwipedInSession((prev) => { const next = new Set(prev); next.add(card.targetId); return next; });
       setPending({ type: 'hmu', card, expiresAt: Date.now() + UNDO_WINDOW_MS });
-      void fetch(`/api/blast/${blastId}/hmu-fallback/${card.targetId}`, {
+      fetch(`/api/blast/${blastId}/hmu-fallback/${card.targetId}`, {
         method: 'POST',
-      }).catch(() => { /* swallowed — UI already optimistic; next poll will reflect actual state */ });
+      }).then((res) => {
+        if (res.ok) onAfterHmu?.();
+      }).catch(() => {});
       try {
         posthog.capture('blast_hmu', {
           target_id: card.targetId,
@@ -187,7 +189,7 @@ export function SwipeableDriverDeck({
         });
       } catch { /* ignore */ }
     },
-    [blastId, cardLinked],
+    [blastId, cardLinked, onAfterHmu],
   );
 
   const handlePaymentSuccess = useCallback(() => {
@@ -198,8 +200,10 @@ export function SwipeableDriverDeck({
     // Card already sprang back to center — now fire HMU with card now linked.
     setSwipedInSession((prev) => { const next = new Set(prev); next.add(card.targetId); return next; });
     setPending({ type: 'hmu', card, expiresAt: Date.now() + UNDO_WINDOW_MS });
-    void fetch(`/api/blast/${blastId}/hmu-fallback/${card.targetId}`, {
+    fetch(`/api/blast/${blastId}/hmu-fallback/${card.targetId}`, {
       method: 'POST',
+    }).then((res) => {
+      if (res.ok) onAfterHmu?.();
     }).catch(() => {});
     try {
       posthog.capture('blast_hmu', {

@@ -89,7 +89,11 @@ export function DriverRequestsClient({ driverId, marketSlug }: DriverRequestsCli
     }
   }, []);
 
-  useEffect(() => { fetchRequests(); }, [fetchRequests]);
+  useEffect(() => {
+    fetchRequests();
+    const t = window.setInterval(fetchRequests, 15_000);
+    return () => window.clearInterval(t);
+  }, [fetchRequests]);
 
   const handleAblyMessage = useCallback(() => { fetchRequests(); }, [fetchRequests]);
 
