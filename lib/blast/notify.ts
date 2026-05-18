@@ -129,7 +129,7 @@ function pushPayload(target: BlastTarget, ctx: BlastNotificationContext) {
     body: `${ctx.pickupLabel} → ${ctx.dropoffLabel} ${ctx.scheduledForLabel}`,
     // ?focus= is the param driver-home-client reads to scroll-to and highlight
     // the specific blast card once the driver lands on /driver/home.
-    url: `/driver/home?focus=${ctx.blastId}`,
+    url: `/driver/requests`,
     distanceMi: target.distanceMi,
     matchScore: target.matchScore,
   };
