@@ -32,10 +32,11 @@ import { calculateDistance } from '@/lib/geo/distance';
 import { getMatchingConfig, getKnob } from '@/lib/blast/config';
 // fanoutBlast intentionally not called here — notification is deferred to the
 // per-driver right-swipe action in POST /api/blast/[id]/hmu-fallback/[targetId].
-import { publishToChannel } from '@/lib/ably/server';
+import { publishToChannel, notifyUser } from '@/lib/ably/server';
 import { getMatchingProvider, InternalMatcher } from '@/lib/blast/provider';
 import type { BlastConfig as V3BlastConfig, BlastCreateInput } from '@/lib/blast/types';
-import { writeBlastEvent, writeMatchLog } from '@/lib/blast/lifecycle';
+import { writeBlastEvent, writeMatchLog, releaseScheduleBlocks } from '@/lib/blast/lifecycle';
+import { stripe } from '@/lib/stripe/connect';
 
 export const runtime = 'nodejs';
 
@@ -395,6 +396,50 @@ export async function POST(req: NextRequest) {
     // and the bump button can widen the radius. Drivers coming online after
     // creation can also be added on bump. See lax-creation note at top.
 
+    // ── 6b. Cancel any existing active blast for this rider ──
+    // A rider can only have one active blast at a time. Cancel before inserting
+    // so the partial unique index (uq_one_active_blast_per_rider) is never
+    // violated under normal flow. Under a race the index is the final guard.
+    const superseded = await runQuery('cancel_existing_blast', () => sql`
+      UPDATE hmu_posts
+         SET status = 'cancelled'
+       WHERE user_id   = ${riderId}
+         AND post_type = 'blast'
+         AND status IN ('active', 'matched')
+       RETURNING id, deposit_payment_intent_id
+    `);
+    for (const old of superseded) {
+      const { id: oldId, deposit_payment_intent_id: depositPi } =
+        old as { id: string; deposit_payment_intent_id: string | null };
+
+      // Release deposit hold if one was captured at /select.
+      if (depositPi && process.env.STRIPE_MOCK !== 'true') {
+        stripe.paymentIntents.cancel(depositPi, {}).catch(() => {});
+      }
+
+      // Tell the offer board (if open in a tab) this blast is gone.
+      publishToChannel(`blast:${oldId}`, 'blast_cancelled', {
+        blastId: oldId,
+        reason: 'superseded',
+      }).catch(() => {});
+
+      // Tell any HMU'd drivers their request is gone.
+      const interestedRows = await sql`
+        SELECT driver_id FROM blast_driver_targets
+         WHERE blast_id = ${oldId}
+           AND (hmu_at IS NOT NULL OR selected_at IS NOT NULL)
+      `;
+      for (const r of interestedRows) {
+        notifyUser(
+          (r as { driver_id: string }).driver_id,
+          'blast_cancelled',
+          { blastId: oldId },
+        ).catch(() => {});
+      }
+
+      void releaseScheduleBlocks({ blastId: oldId });
+    }
+
     // Use a UUID for the blast id up front so any client retry hits the same
     // INSERT. (No deposit PI here — that moves to /api/blast/[id]/select.)
     const blastIdRows = await runQuery('gen_blast_id', () => sql`SELECT gen_random_uuid() AS id`);
@@ -424,7 +469,7 @@ export async function POST(req: NextRequest) {
     // the deposit hold actually fires.
     await runQuery('insert_hmu_posts', () => sql`
       INSERT INTO hmu_posts (
-        id, user_id, post_type, status, areas, price, time_window,
+        id, user_id, post_type, status, areas, shortcode, price, time_window,
         pickup_lat, pickup_lng, pickup_address,
         dropoff_lat, dropoff_lng, dropoff_address,
         trip_type, scheduled_for, storage_requested, driver_preference,
@@ -432,6 +477,7 @@ export async function POST(req: NextRequest) {
       ) VALUES (
         ${blastId}, ${riderId}, 'blast', 'active',
         ARRAY[${`shortcode:${shortcode}`}, ${market.slug}],
+        ${shortcode},
         ${priceDollars},
         ${JSON.stringify({
           shortcode,
@@ -525,6 +571,9 @@ export async function POST(req: NextRequest) {
       finalRadiusMi,
       expansionsUsed,
       buildTag: BUILD_TAG,
+      supersededBlastId: superseded.length
+        ? (superseded[0] as { id: string }).id
+        : null,
     });
   } catch (e) {
     console.error('[blast] POST failed:', e);

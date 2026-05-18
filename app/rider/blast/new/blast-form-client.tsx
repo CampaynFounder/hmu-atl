@@ -120,6 +120,15 @@ const stepSlideTransition = { duration: 0.28, ease: [0.32, 0.72, 0, 1] as [numbe
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
+interface ActiveBlast {
+  id: string;
+  shortcode: string | null;
+  pickupAddress: string;
+  dropoffAddress: string;
+  price: number;
+  expiresAt: string;
+}
+
 export default function BlastFormClient() {
   const router = useRouter();
   const { isSignedIn, isLoaded } = useUser();
@@ -130,6 +139,7 @@ export default function BlastFormClient() {
   const [draft, setDraft] = useState<FormDraft>(EMPTY_DRAFT);
   const [submitting, setSubmitting] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
+  const [existingBlast, setExistingBlast] = useState<ActiveBlast | null>(null);
   // Pricing estimate fetched once both addresses are set. distanceMi feeds the
   // price-step sublabel ("~3.2 mi · ~3 min"); suggestedPriceDollars replaces
   // the static $25 default if the rider hasn't manually adjusted yet.
@@ -271,6 +281,15 @@ export default function BlastFormClient() {
 
   // ─── Submit: park draft, route to handoff ─────────────────────────────────
 
+  const navigateToHandoff = useCallback(() => {
+    if (isLoaded && isSignedIn) {
+      router.push('/auth-callback/blast?mode=signin');
+    } else {
+      const returnTo = encodeURIComponent('/auth-callback/blast');
+      router.push(`/sign-up?type=rider&draft=blast&returnTo=${returnTo}`);
+    }
+  }, [isLoaded, isSignedIn, router]);
+
   const submit = useCallback(async () => {
     if (submitting) return;
     if (!draft.pickup || !draft.dropoff) {
@@ -305,18 +324,27 @@ export default function BlastFormClient() {
     };
     saveBlastDraft(blastDraft);
 
-    // Auth-aware routing per spec:
-    // - Unauth: send through Clerk's sign-up; afterwards Clerk hands back
-    //   to /auth-callback/blast (?mode=signup default).
-    // - Auth: skip Clerk entirely; go directly to handoff in signin mode
-    //   so the username + photo steps are bypassed.
+    // For signed-in riders: check if an active blast already exists.
+    // If so, surface a confirmation sheet before proceeding — the API will
+    // cancel the old blast automatically, but riders deserve to know.
     if (isLoaded && isSignedIn) {
-      router.push('/auth-callback/blast?mode=signin');
-    } else {
-      const returnTo = encodeURIComponent('/auth-callback/blast');
-      router.push(`/sign-up?type=rider&draft=blast&returnTo=${returnTo}`);
+      try {
+        const res = await fetch('/api/blast/active');
+        if (res.ok) {
+          const body = await res.json() as { blast: ActiveBlast | null };
+          if (body.blast) {
+            setExistingBlast(body.blast);
+            setSubmitting(false);
+            return; // wait for confirmation
+          }
+        }
+      } catch {
+        // Network error — proceed anyway; API enforces the rule server-side.
+      }
     }
-  }, [draft, isLoaded, isSignedIn, router, submitting]);
+
+    navigateToHandoff();
+  }, [draft, isLoaded, isSignedIn, navigateToHandoff, submitting]);
 
   // ─── Render step body ─────────────────────────────────────────────────────
 
@@ -522,6 +550,77 @@ export default function BlastFormClient() {
           </PrimaryCta>
         </div>
       </div>
+
+      {/* Cancel-existing-blast confirmation — slides up over the form */}
+      <AnimatePresence>
+        {existingBlast && (
+          <motion.div
+            initial={{ y: '100%', opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: '100%', opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+            style={{
+              position: 'absolute', inset: 0,
+              background: '#101010',
+              borderRadius: 'inherit',
+              padding: '32px 24px 28px',
+              display: 'flex', flexDirection: 'column', gap: 20,
+              zIndex: 10,
+            }}
+          >
+            <div style={{ fontSize: 28, fontFamily: "var(--font-display,'Bebas Neue',sans-serif)", lineHeight: 1 }}>
+              REPLACE YOUR BLAST?
+            </div>
+            <div style={{
+              background: '#1a1a1a', borderRadius: 14,
+              border: '1px solid rgba(255,255,255,0.08)', padding: '14px 16px',
+            }}>
+              <div style={{ fontSize: 12, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+                Active blast
+              </div>
+              <div style={{ fontSize: 14, color: '#fff', fontWeight: 600 }}>
+                {existingBlast.pickupAddress} → {existingBlast.dropoffAddress}
+              </div>
+              <div style={{ fontSize: 13, color: '#00E676', fontFamily: "var(--font-mono,'Space Mono',monospace)", marginTop: 4 }}>
+                ${existingBlast.price}
+              </div>
+            </div>
+            <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.65)', margin: 0, lineHeight: 1.5 }}>
+              Creating a new blast will cancel this one. Any drivers who already HMU&rsquo;d will be notified.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 'auto' }}>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.97 }}
+                onClick={() => {
+                  setExistingBlast(null);
+                  navigateToHandoff();
+                }}
+                style={{
+                  width: '100%', padding: '16px 24px', borderRadius: 100,
+                  background: '#00E676', color: '#080808',
+                  fontSize: 16, fontWeight: 700, border: 'none', cursor: 'pointer',
+                  fontFamily: "var(--font-body,'DM Sans',sans-serif)",
+                }}
+              >
+                Yes, replace it
+              </motion.button>
+              <button
+                type="button"
+                onClick={() => setExistingBlast(null)}
+                style={{
+                  width: '100%', padding: '14px 24px', borderRadius: 100,
+                  background: 'transparent', color: 'rgba(255,255,255,0.6)',
+                  fontSize: 15, fontWeight: 500, border: 'none', cursor: 'pointer',
+                  fontFamily: "var(--font-body,'DM Sans',sans-serif)",
+                }}
+              >
+                Keep my current blast
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </BottomSheet>
   );
 }
