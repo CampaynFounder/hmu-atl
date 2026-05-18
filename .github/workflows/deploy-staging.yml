@@ -140,6 +140,7 @@ jobs:
         run: |
           node scripts/apply-migration.mjs lib/db/migrations/rider-payment-methods.sql
           node scripts/apply-migration.mjs lib/db/migrations/2026-05-18-one-active-blast-per-rider.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-18-driver-location-sharing.sql
 
       - name: Post-deploy health check
         run: |

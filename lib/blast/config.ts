@@ -83,7 +83,7 @@ export const MATCHING_DEFAULTS: BlastMatchingConfig = {
     must_match_sex_preference: true,
     must_be_signed_in_within_hours: 72,
     max_stale_location_minutes: 5,
-    allow_home_location_fallback: false,
+    allow_home_location_fallback: true,
     exclude_if_in_active_ride: true,
     exclude_if_today_passed_count_gte: 3,
   },
