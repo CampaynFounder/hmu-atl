@@ -139,6 +139,7 @@ jobs:
           DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
         run: |
           node scripts/apply-migration.mjs lib/db/migrations/rider-payment-methods.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-18-one-active-blast-per-rider.sql
 
       - name: Post-deploy health check
         run: |
