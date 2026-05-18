@@ -35,6 +35,9 @@
   },
   "observability": {
     "enabled": true
+  },
+  "vars": {
+    "VOIPMS_DID_ATL": "4049137292"
   }
   // Cron triggers — see wrangler.worker.jsonc for the post-merge plan.
   // Routes deliberately omitted on first deploy — wrangler will publish to
