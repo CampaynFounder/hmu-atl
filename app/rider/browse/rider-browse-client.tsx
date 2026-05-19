@@ -402,6 +402,7 @@ export default function RiderBrowseClient({
                 onProfile={() => openProfile(d.handle)}
                 animationDelayMs={i < 4 ? i * 60 : 0}
                 cashAllowed={cashAllowed}
+                riderHasCoords={riderCoords !== null}
               />
             ))}
             {fetchingMore && <FeedSkeleton />}
@@ -422,6 +423,7 @@ export default function RiderBrowseClient({
                   onProfile={() => openProfile(d.handle)}
                   animationDelayMs={i < 8 ? i * 40 : 0}
                   cashAllowed={cashAllowed}
+                  riderHasCoords={riderCoords !== null}
                 />
               ))}
               {fetchingMore && Array.from({ length: 4 }).map((_, i) => <GridSkeleton key={`sk-${i}`} />)}
@@ -450,12 +452,36 @@ export default function RiderBrowseClient({
   );
 }
 
-function formatDistance(mi: number | null | undefined): string | null {
+function formatProximity(
+  mi: number | null | undefined,
+  riderHasCoords: boolean,
+): string | null {
   if (mi == null || !Number.isFinite(mi)) return null;
+  if (riderHasCoords) {
+    // ~20 mph average Atlanta city speed
+    const mins = Math.max(1, Math.round(mi * 60 / 20));
+    if (mins === 1 && mi < 0.15) return 'right here';
+    return `~${mins} min away`;
+  }
   if (mi < 0.1) return 'right here';
   if (mi < 0.5) return '<½ mi away';
   if (mi < 10) return `${mi.toFixed(1)} mi away`;
   return `${Math.round(mi)} mi away`;
+}
+
+function LocationSourceIcon({ source }: { source: BrowseDriverRow['locationSource'] }) {
+  if (source === 'live') return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 3,
+    }}>
+      <span style={{
+        width: 7, height: 7, borderRadius: '50%', background: '#00E676', flexShrink: 0,
+        animation: 'hmuBrowsePulse 1.5s ease-in-out infinite',
+      }} />
+    </span>
+  );
+  if (source === 'home') return <span>🏠</span>;
+  return <span>📍</span>;
 }
 
 function pillStyle(active: boolean): React.CSSProperties {
@@ -492,13 +518,14 @@ function DriverChips({ driver, compact, cashAllowed = true }: { driver: BrowseDr
 // ─── Feed (TikTok) card ──────────────────────────────────────────────────────
 
 function FeedDriverCard({
-  driver, onBook, onProfile, animationDelayMs, cashAllowed,
+  driver, onBook, onProfile, animationDelayMs, cashAllowed, riderHasCoords,
 }: {
   driver: BrowseDriverRow;
   onBook: () => void;
   onProfile: () => void;
   animationDelayMs: number;
   cashAllowed: boolean;
+  riderHasCoords: boolean;
 }) {
   const heroSrc = driver.photoUrl || driver.videoUrl;
 
@@ -640,11 +667,12 @@ function FeedDriverCard({
               </span>
               chill
             </span>
-            {formatDistance(driver.distanceMi) && (
+            {formatProximity(driver.distanceMi, riderHasCoords) && (
               <>
                 <span style={{ color: '#444' }}>·</span>
-                <span style={{ color: '#00E676', fontWeight: 600 }}>
-                  📍 {formatDistance(driver.distanceMi)}
+                <span style={{ color: '#00E676', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <LocationSourceIcon source={driver.locationSource} />
+                  {formatProximity(driver.distanceMi, riderHasCoords)}
                 </span>
               </>
             )}
@@ -684,13 +712,14 @@ function FeedDriverCard({
 // ─── Grid card (compact zoom-out) ────────────────────────────────────────────
 
 function GridDriverCard({
-  driver, onBook, onProfile, animationDelayMs, cashAllowed,
+  driver, onBook, onProfile, animationDelayMs, cashAllowed, riderHasCoords,
 }: {
   driver: BrowseDriverRow;
   onBook: () => void;
   onProfile: () => void;
   animationDelayMs: number;
   cashAllowed: boolean;
+  riderHasCoords: boolean;
 }) {
   return (
     <div
@@ -777,11 +806,12 @@ function GridDriverCard({
               <span>${driver.minPrice}+</span>
             </>
           )}
-          {formatDistance(driver.distanceMi) && (
+          {formatProximity(driver.distanceMi, riderHasCoords) && (
             <>
               <span style={{ color: '#444' }}>·</span>
-              <span style={{ color: '#00E676', fontWeight: 600 }}>
-                📍 {formatDistance(driver.distanceMi)}
+              <span style={{ color: '#00E676', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                <LocationSourceIcon source={driver.locationSource} />
+                {formatProximity(driver.distanceMi, riderHasCoords)}
               </span>
             </>
           )}

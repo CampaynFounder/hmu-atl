@@ -49,15 +49,21 @@ export interface BrowseDriverRow {
   payoutReady: boolean;
   verificationStatus: VerificationStatus;
   /** Miles from the rider, computed server-side via Haversine. Null when
-   * either side is missing a fresh location point. NEVER includes coords. */
+   * no usable location exists on either side. NEVER includes raw coords. */
   distanceMi: number | null;
+  /** Which location tier was used for distanceMi.
+   * live   = GPS shared within the last 15 min
+   * home   = driver's saved homebase
+   * pinned = stale GPS or admin-set coordinates
+   * null   = no location data at all */
+  locationSource: 'live' | 'home' | 'pinned' | null;
 }
 
-// Driver locations older than this are treated as missing. Mirror this
-// in the SQL below — sql tagged template can't parameterize an interval
-// literal, so the value is duplicated. Bump both if you change it.
-const STALE_LOCATION_MINUTES = 5;
-void STALE_LOCATION_MINUTES;
+// Live-location window: GPS fresher than this is shown as "live" on cards.
+// Older GPS falls through to homebase → pinned hierarchy.
+// Mirrored in the SQL INTERVAL literal below — change both together.
+const LIVE_LOCATION_MINUTES = 15;
+void LIVE_LOCATION_MINUTES;
 
 export async function queryBrowseDrivers(
   rider: BrowseRiderContext,
@@ -88,6 +94,7 @@ export async function queryBrowseDrivers(
            dp.accepts_cash, dp.cash_only,
            dp.vibe_video_url, dp.payout_setup_complete,
            dp.first_name, dp.last_name,
+           dp.home_lat, dp.home_lng,
            u.chill_score, u.tier,
            hp.time_window AS live_post,
            hp.price       AS live_price,
@@ -96,13 +103,39 @@ export async function queryBrowseDrivers(
             LEFT JOIN service_menu_items smi ON dsm.item_id = smi.id
             WHERE dsm.driver_id = dp.user_id AND dsm.is_active = true
            ) AS service_icons,
+           -- Location source hierarchy (independent of rider coords):
+           -- live   = GPS shared within 15 min
+           -- home   = saved homebase
+           -- pinned = stale GPS or admin-set coords
+           CASE
+             WHEN dp.current_lat IS NOT NULL
+              AND dp.location_updated_at > NOW() - INTERVAL '15 minutes'
+             THEN 'live'
+             WHEN dp.home_lat IS NOT NULL THEN 'home'
+             WHEN dp.current_lat IS NOT NULL THEN 'pinned'
+             ELSE NULL
+           END AS location_source,
+           -- Distance via the best available location tier.
+           -- Haversine, Earth radius 3959 mi. Driver raw coords never leave the DB.
            CASE
              WHEN ${haveRiderCoords}::boolean
               AND dp.current_lat IS NOT NULL
-              AND dp.current_lng IS NOT NULL
-              AND dp.location_updated_at > NOW() - INTERVAL '5 minutes'
+              AND dp.location_updated_at > NOW() - INTERVAL '15 minutes'
              THEN
-               -- Haversine, miles. Earth radius 3959mi.
+               2 * 3959 * ASIN(SQRT(
+                 POWER(SIN(RADIANS(dp.current_lat - ${riderLat ?? 0}::numeric) / 2), 2)
+                 + COS(RADIANS(${riderLat ?? 0}::numeric)) * COS(RADIANS(dp.current_lat))
+                   * POWER(SIN(RADIANS(dp.current_lng - ${riderLng ?? 0}::numeric) / 2), 2)
+               ))
+             WHEN ${haveRiderCoords}::boolean AND dp.home_lat IS NOT NULL
+             THEN
+               2 * 3959 * ASIN(SQRT(
+                 POWER(SIN(RADIANS(dp.home_lat - ${riderLat ?? 0}::numeric) / 2), 2)
+                 + COS(RADIANS(${riderLat ?? 0}::numeric)) * COS(RADIANS(dp.home_lat))
+                   * POWER(SIN(RADIANS(dp.home_lng - ${riderLng ?? 0}::numeric) / 2), 2)
+               ))
+             WHEN ${haveRiderCoords}::boolean AND dp.current_lat IS NOT NULL
+             THEN
                2 * 3959 * ASIN(SQRT(
                  POWER(SIN(RADIANS(dp.current_lat - ${riderLat ?? 0}::numeric) / 2), 2)
                  + COS(RADIANS(${riderLat ?? 0}::numeric)) * COS(RADIANS(dp.current_lat))
@@ -173,6 +206,7 @@ export async function queryBrowseDrivers(
     const distanceMi = rawDistance !== null && rawDistance !== undefined
       ? Number(rawDistance)
       : null;
+    const src = d.location_source as string | null;
 
     return {
       handle: d.handle as string,
@@ -198,6 +232,7 @@ export async function queryBrowseDrivers(
       vehicleSummary,
       verificationStatus,
       distanceMi: distanceMi !== null && Number.isFinite(distanceMi) ? distanceMi : null,
+      locationSource: src === 'live' || src === 'home' || src === 'pinned' ? src : null,
     };
   });
 }
