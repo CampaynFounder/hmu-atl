@@ -138,6 +138,27 @@ jobs:
           sync_secret UPSTASH_REDIS_REST_TOKEN  "${{ secrets.UPSTASH_REDIS_REST_TOKEN }}"
           sync_secret OPENAI_API_KEY            "${{ secrets.OPENAI_API_KEY }}"
           sync_secret META_CONVERSIONS_API_TOKEN "${{ secrets.META_CONVERSIONS_API_TOKEN }}"
+          sync_secret VOIPMS_API_USERNAME       "${{ secrets.VOIPMS_API_USERNAME }}"
+          sync_secret VOIPMS_API_PASSWORD       "${{ secrets.VOIPMS_API_PASSWORD }}"
+
+      - name: Apply schema migrations to production DB
+        env:
+          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
+        run: |
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-04-admin-dashboards.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-04-admin-notes.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-05-dashboards-field-grain.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-05-dashboards-user-grid-scope.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-07-driver-profile-visible-default.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-09-cancel-cleanup-safety.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-09-cancel-flow-unified.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-12-blast-booking.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-15-blast-pricing-knobs.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-15-driver-home-area.sql
+          node scripts/apply-migration.mjs lib/db/migrations/rider-payment-methods.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-18-one-active-blast-per-rider.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-18-driver-location-sharing.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-18-blast-matching-home-fallback.sql
 
       - name: Post-deploy health check
         run: |
