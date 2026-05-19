@@ -2,11 +2,6 @@
 
 import { useEffect } from 'react';
 
-// Detects stale JS chunks after a deploy. When Next.js can't load a chunk
-// (the hash changed), it throws a ChunkLoadError that bypasses segment-level
-// error boundaries and surfaces here. Auto-reload fetches fresh chunks and
-// resolves it transparently. A sessionStorage flag prevents infinite loops
-// if the chunk is genuinely broken (not just stale).
 function isChunkError(error: Error): boolean {
   const msg = error?.message ?? '';
   const name = error?.name ?? '';
@@ -19,6 +14,21 @@ function isChunkError(error: Error): boolean {
   );
 }
 
+// Timestamp-based guard: allow one auto-reload per 15-second window.
+// A simple presence flag gets stuck for the rest of the browser session.
+function canAutoReload(): boolean {
+  try {
+    const last = Number(sessionStorage.getItem('hmu_chunk_reload_at') ?? 0);
+    return Date.now() - last > 15_000;
+  } catch {
+    return true;
+  }
+}
+
+function markReloaded() {
+  try { sessionStorage.setItem('hmu_chunk_reload_at', String(Date.now())); } catch { /* private */ }
+}
+
 export default function GlobalError({
   error,
   reset,
@@ -27,17 +37,21 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    if (isChunkError(error)) {
-      const key = 'hmu_chunk_reload';
-      if (!sessionStorage.getItem(key)) {
-        sessionStorage.setItem(key, '1');
-        window.location.reload();
-        return;
-      }
-      // Second failure — clear flag so future deploys can retry
-      sessionStorage.removeItem(key);
+    // Always log so it's visible in browser console / wrangler tail
+    console.error('[hmu:global-error]', {
+      name: error?.name,
+      message: error?.message,
+      digest: error?.digest,
+      stack: error?.stack,
+    });
+
+    if (isChunkError(error) && canAutoReload()) {
+      markReloaded();
+      window.location.reload();
     }
   }, [error]);
+
+  const chunk = isChunkError(error);
 
   return (
     <html>
@@ -61,16 +75,22 @@ export default function GlobalError({
           marginBottom: 8,
           letterSpacing: 1,
         }}>
-          Something went wrong
+          {chunk ? 'Updating…' : 'Something went wrong'}
         </div>
-        <p style={{ fontSize: 14, color: '#888', marginBottom: 24, maxWidth: 300 }}>
-          {isChunkError(error)
-            ? 'Reloading to pick up the latest version…'
-            : 'An unexpected error occurred.'}
+        <p style={{ fontSize: 14, color: '#888', marginBottom: 4, maxWidth: 320 }}>
+          {chunk
+            ? 'Loading the latest version — hang tight.'
+            : 'An unexpected error occurred. Check the browser console for details.'}
         </p>
+        {/* Error type visible to admin/dev without opening devtools */}
+        {error?.name && !chunk && (
+          <p style={{ fontSize: 11, color: '#555', marginBottom: 20, fontFamily: 'monospace' }}>
+            {error.name}{error.digest ? ` · digest: ${error.digest}` : ''}
+          </p>
+        )}
         <button
           onClick={() => {
-            sessionStorage.removeItem('hmu_chunk_reload');
+            try { sessionStorage.removeItem('hmu_chunk_reload_at'); } catch { /* private */ }
             reset();
           }}
           style={{
@@ -82,9 +102,10 @@ export default function GlobalError({
             fontSize: 14,
             fontWeight: 700,
             cursor: 'pointer',
+            marginTop: chunk ? 0 : 8,
           }}
         >
-          Try Again
+          {chunk ? 'Reload now' : 'Try Again'}
         </button>
       </body>
     </html>
