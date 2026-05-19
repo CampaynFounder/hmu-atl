@@ -199,7 +199,7 @@ function RiderLandingInner({ brandLabel, brandCity }: { brandLabel: string; bran
       <nav className={styles.nav}>
         <Link href="/" className={styles.navLogo}>{brandLabel}</Link>
         <div className={styles.navActions}>
-          <Link href="/sign-in" className={styles.navSignIn}>Sign In</Link>
+          <a href="/sign-in" className={styles.navSignIn}>Sign In</a>
           <Link
             href={signUpUrl}
             className={styles.navCta}

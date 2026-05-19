@@ -288,7 +288,7 @@ function DriverLandingInner({ brandLabel, brandCity }: { brandLabel: string; bra
       <nav className={styles.nav}>
         <Link href="/" className={styles.navLogo}>{brandLabel}</Link>
         <div className={styles.navActions}>
-          <Link href="/sign-in?type=driver" className={styles.navSignIn}>Sign In</Link>
+          <a href="/sign-in?type=driver" className={styles.navSignIn}>Sign In</a>
           <Link href={signUpUrl} className={styles.navCta} onClick={() => { posthog.capture('driver_nav_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'nav' }); }}>{navCtaText}</Link>
         </div>
       </nav>

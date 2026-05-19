@@ -153,7 +153,7 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
           <div className={styles.themeToggle}>
             <span className={styles.themeIcon}>{isDark ? '🌙' : '☀️'}</span>
           </div>
-          <Link href="/sign-in" className={styles.navSignIn}>Sign In</Link>
+          <a href="/sign-in" className={styles.navSignIn}>Sign In</a>
           <a href="#get-started" className={styles.navCta}>Sign Up</a>
         </div>
       </nav>
@@ -406,7 +406,7 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
           </div>
 
           <div className={`${styles.dualCtaSignIn} ${styles.reveal}`}>
-            Already have an account? <Link href="/sign-in">Sign in</Link>
+            Already have an account? <a href="/sign-in">Sign in</a>
           </div>
         </div>
       </section>
