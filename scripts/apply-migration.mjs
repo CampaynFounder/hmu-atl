@@ -26,5 +26,5 @@ const sql = neon(url);
 const content = readFileSync(migrationFile, 'utf8');
 
 console.log(`Applying migration: ${migrationFile}`);
-await sql(content);
+await sql.query(content);
 console.log(`✓ Done`);
