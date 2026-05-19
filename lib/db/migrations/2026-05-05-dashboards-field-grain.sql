@@ -10,7 +10,17 @@
 
 DELETE FROM admin_dashboard_blocks;
 
-ALTER TABLE admin_dashboard_blocks RENAME COLUMN block_key TO section_type;
+-- Idempotent rename: block_key may already be section_type from a partial prior run.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'admin_dashboard_blocks'
+       AND column_name = 'block_key'
+  ) THEN
+    ALTER TABLE admin_dashboard_blocks RENAME COLUMN block_key TO section_type;
+  END IF;
+END $$;
 ALTER TABLE admin_dashboard_blocks ADD COLUMN IF NOT EXISTS label TEXT;
 ALTER TABLE admin_dashboard_blocks ADD COLUMN IF NOT EXISTS field_keys TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE admin_dashboard_blocks ALTER COLUMN section_type SET DEFAULT 'fields';
