@@ -16,7 +16,7 @@ import { renderTemplate } from '@/lib/sms/templates';
 import { publishAdminEvent } from '@/lib/ably/server';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 import { afterResponse } from '@/lib/runtime/after-response';
-import { resolveMarketBySlug } from '@/lib/markets/resolver';
+import { resolveMarketBySlug, MARKET_SLUG_HEADER } from '@/lib/markets/resolver';
 import { cookies } from 'next/headers';
 import { ATTRIB_COOKIE, attachAttributionToUser } from '@/lib/attribution';
 
@@ -189,11 +189,24 @@ export async function POST(request: NextRequest) {
     } else {
       userId = userResult[0].id;
 
-      // Update profile type if changing
+      // Stamp market_id if the webhook missed it (silent resolution failure).
+      // Reads x-market-slug from the request — stamped by middleware from the
+      // domain the user is on, so this is market-agnostic and works for every
+      // market without any hardcoded fallback.
+      let marketIdPatch: string | null = null;
+      try {
+        const slug = request.headers.get(MARKET_SLUG_HEADER);
+        if (slug) {
+          const market = await resolveMarketBySlug(slug);
+          marketIdPatch = market?.market_id ?? null;
+        }
+      } catch { /* non-fatal */ }
+
       await sql`
         UPDATE users
         SET profile_type = ${profile_type},
-            updated_at = NOW()
+            market_id    = COALESCE(market_id, ${marketIdPatch}),
+            updated_at   = NOW()
         WHERE id = ${userId}
       `;
     }

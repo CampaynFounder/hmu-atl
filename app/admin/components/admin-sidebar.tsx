@@ -257,11 +257,13 @@ export function AdminSidebar() {
                   backgroundPosition: 'right 10px center',
                 }}
               >
+                <option value="">All Markets</option>
                 {markets.map(m => (
                   <option key={m.id} value={m.id}>
                     {m.name} ({m.status.toUpperCase()}) — {m.driverCount}D / {m.riderCount}R
                   </option>
                 ))}
+                <option value="unassigned">Unassigned (no market)</option>
               </select>
             )}
           </div>
