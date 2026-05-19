@@ -153,6 +153,7 @@ jobs:
           node scripts/apply-migration.mjs lib/db/migrations/2026-05-09-cancel-cleanup-safety.sql
           node scripts/apply-migration.mjs lib/db/migrations/2026-05-09-cancel-flow-unified.sql
           node scripts/apply-migration.mjs lib/db/migrations/2026-05-12-blast-booking.sql
+          node scripts/apply-migration.mjs lib/db/migrations/blast-v3-schema.sql
           node scripts/apply-migration.mjs lib/db/migrations/2026-05-15-blast-pricing-knobs.sql
           node scripts/apply-migration.mjs lib/db/migrations/2026-05-15-driver-home-area.sql
           node scripts/apply-migration.mjs lib/db/migrations/rider-payment-methods.sql
