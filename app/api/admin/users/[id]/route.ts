@@ -25,17 +25,21 @@ export async function GET(
         u.created_at, u.updated_at,
         u.signup_source, u.referred_by_driver_id,
         u.last_sign_in_at, u.sign_in_count, u.first_return_at,
+        u.market_id,
+        m.name as market_name, m.slug as market_slug,
         dp.first_name as driver_first, dp.last_name as driver_last,
         dp.display_name as driver_display, dp.handle, dp.stripe_account_id,
         dp.stripe_onboarding_complete,
         dp.video_url, dp.thumbnail_url as driver_thumbnail, dp.areas as driver_areas, dp.vehicle_info, dp.phone as driver_phone,
         dp.profile_visible,
+        dp.area_slugs, dp.services_entire_market,
         rp.first_name as rider_first, rp.last_name as rider_last,
         rp.display_name as rider_display, rp.stripe_customer_id, rp.phone as rider_phone,
         rp.avatar_url as rider_avatar, rp.thumbnail_url as rider_thumbnail,
         -- Referring driver name
         ref_dp.display_name as ref_driver_name, ref_dp.handle as ref_driver_handle
       FROM users u
+      LEFT JOIN markets m ON m.id = u.market_id
       LEFT JOIN driver_profiles dp ON dp.user_id = u.id
       LEFT JOIN rider_profiles rp ON rp.user_id = u.id
       LEFT JOIN driver_profiles ref_dp ON ref_dp.user_id = u.referred_by_driver_id
@@ -146,6 +150,11 @@ export async function GET(
       lastSignInAt: u.last_sign_in_at,
       signInCount: Number(u.sign_in_count ?? 0),
       firstReturnAt: u.first_return_at,
+      marketId: u.market_id ?? null,
+      marketName: u.market_name ?? null,
+      marketSlug: u.market_slug ?? null,
+      areaSlugs: (u.area_slugs as string[]) ?? [],
+      servicesEntireMarket: Boolean(u.services_entire_market),
       paymentReady,
       stripeOnboardingComplete: Boolean(u.stripe_onboarding_complete),
       paymentMethodCount: paymentRows.length,
@@ -205,6 +214,10 @@ export async function PATCH(
   const body = await req.json();
   const {
     accountStatus, tier, ogStatus, chillScore, profileVisible, adminNotes,
+    // Market assignment
+    marketId,
+    // Driver area assignment
+    areaSlugs, servicesEntireMarket,
     // Driver Lab fields — only applied when present
     displayName, thumbnailUrl, videoUrl, vehicleInfo, minimumFare,
     currentLat, currentLng,
@@ -214,9 +227,12 @@ export async function PATCH(
   const rows = await sql`
     UPDATE users SET
       account_status = COALESCE(${accountStatus ?? null}, account_status),
-      tier = COALESCE(${tier ?? null}, tier),
-      og_status = COALESCE(${ogStatus ?? null}, og_status),
-      chill_score = COALESCE(${chillScore ?? null}, chill_score),
+      tier           = COALESCE(${tier ?? null}, tier),
+      og_status      = COALESCE(${ogStatus ?? null}, og_status),
+      chill_score    = COALESCE(${chillScore ?? null}, chill_score),
+      market_id      = CASE WHEN ${marketId !== undefined}::boolean
+                         THEN ${marketId ?? null}::uuid
+                         ELSE market_id END,
       updated_at = NOW()
     WHERE id = ${id}
     RETURNING id, clerk_id, account_status, tier, og_status, chill_score
@@ -234,6 +250,8 @@ export async function PATCH(
     videoUrl !== undefined ||
     vehicleInfo !== undefined ||
     minimumFare !== undefined ||
+    areaSlugs !== undefined ||
+    servicesEntireMarket !== undefined ||
     (currentLat !== undefined && currentLng !== undefined);
 
   if (hasDriverProfileChanges) {
@@ -259,22 +277,29 @@ export async function PATCH(
     // always infer the parameter type (null has no type and causes a 500).
     const setLocationNow = currentLat !== undefined && currentLat !== null;
 
+    const setAreas = Array.isArray(areaSlugs);
     await sql`
       UPDATE driver_profiles SET
-        profile_visible  = COALESCE(${profileVisible ?? null}, profile_visible),
-        display_name     = COALESCE(${displayName ?? null}, display_name),
-        thumbnail_url    = COALESCE(${thumbnailUrl ?? null}, thumbnail_url),
-        video_url        = COALESCE(${videoUrl ?? null}, video_url),
-        vehicle_info     = CASE WHEN ${needsVehicleOrPricing}::boolean
-                             THEN ${JSON.stringify(mergedVehicle ?? {})}::jsonb
-                             ELSE vehicle_info END,
-        pricing          = CASE WHEN ${needsVehicleOrPricing}::boolean
-                             THEN ${JSON.stringify(mergedPricing ?? {})}::jsonb
-                             ELSE pricing END,
-        current_lat      = COALESCE(${currentLat ?? null}, current_lat),
-        current_lng      = COALESCE(${currentLng ?? null}, current_lng),
-        location_updated_at = CASE WHEN ${setLocationNow}::boolean
-                               THEN NOW() ELSE location_updated_at END,
+        profile_visible         = COALESCE(${profileVisible ?? null}, profile_visible),
+        display_name            = COALESCE(${displayName ?? null}, display_name),
+        thumbnail_url           = COALESCE(${thumbnailUrl ?? null}, thumbnail_url),
+        video_url               = COALESCE(${videoUrl ?? null}, video_url),
+        vehicle_info            = CASE WHEN ${needsVehicleOrPricing}::boolean
+                                    THEN ${JSON.stringify(mergedVehicle ?? {})}::jsonb
+                                    ELSE vehicle_info END,
+        pricing                 = CASE WHEN ${needsVehicleOrPricing}::boolean
+                                    THEN ${JSON.stringify(mergedPricing ?? {})}::jsonb
+                                    ELSE pricing END,
+        area_slugs              = CASE WHEN ${setAreas}::boolean
+                                    THEN ${areaSlugs ?? []}
+                                    ELSE area_slugs END,
+        services_entire_market  = CASE WHEN ${servicesEntireMarket !== undefined}::boolean
+                                    THEN ${servicesEntireMarket ?? false}::boolean
+                                    ELSE services_entire_market END,
+        current_lat             = COALESCE(${currentLat ?? null}, current_lat),
+        current_lng             = COALESCE(${currentLng ?? null}, current_lng),
+        location_updated_at     = CASE WHEN ${setLocationNow}::boolean
+                                    THEN NOW() ELSE location_updated_at END,
         updated_at = NOW()
       WHERE user_id = ${id}
     `;

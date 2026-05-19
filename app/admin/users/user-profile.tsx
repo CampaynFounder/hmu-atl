@@ -31,6 +31,11 @@ interface UserData {
     lastSignInAt: string | null;
     signInCount: number;
     firstReturnAt: string | null;
+    marketId: string | null;
+    marketName: string | null;
+    marketSlug: string | null;
+    areaSlugs: string[];
+    servicesEntireMarket: boolean;
     profileVisible: boolean | null;
     paymentReady: boolean;
     stripeOnboardingComplete: boolean;
@@ -109,6 +114,14 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
   const [labMsg, setLabMsg] = useState<string | null>(null);
   const [labUploading, setLabUploading] = useState(false);
   const labFileRef = useRef<HTMLInputElement>(null);
+  // Market & Area assignment
+  const [markets, setMarkets] = useState<{ id: string; name: string; slug: string; status: string }[]>([]);
+  const [areas, setAreas] = useState<{ slug: string; name: string; cardinal: string; sort_order: number }[]>([]);
+  const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
+  const [selectedSlugs, setSelectedSlugs] = useState<string[]>([]);
+  const [servicesEntireMarket, setServicesEntireMarket] = useState(false);
+  const [marketSaving, setMarketSaving] = useState(false);
+  const [marketMsg, setMarketMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!avatarOpen) return;
@@ -116,6 +129,36 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [avatarOpen]);
+
+  // Load markets list once
+  useEffect(() => {
+    fetch('/api/admin/markets')
+      .then(r => r.json())
+      .then(d => setMarkets((d.markets ?? []).map((m: Record<string, unknown>) => ({
+        id: m.id as string,
+        name: m.name as string,
+        slug: m.slug as string,
+        status: m.status as string,
+      }))))
+      .catch(() => {});
+  }, []);
+
+  // Sync local state from loaded user data
+  useEffect(() => {
+    if (!data) return;
+    setSelectedMarketId(data.user.marketId ?? null);
+    setSelectedSlugs(data.user.areaSlugs ?? []);
+    setServicesEntireMarket(data.user.servicesEntireMarket ?? false);
+  }, [data]);
+
+  // Fetch areas when selected market changes
+  useEffect(() => {
+    if (!selectedMarketId) { setAreas([]); return; }
+    fetch(`/api/admin/markets/${selectedMarketId}/areas`)
+      .then(r => r.json())
+      .then(d => setAreas(d.areas ?? []))
+      .catch(() => setAreas([]));
+  }, [selectedMarketId]);
 
   const fetchUser = useCallback(async () => {
     setLoading(true);
@@ -852,6 +895,115 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             >
               {user.profileVisible === false ? 'Enable driver' : 'Disable driver'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Market & Area Assignment */}
+      {(user.profileType === 'driver' || user.profileType === 'both') && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-4">
+          <h3 className="text-sm font-semibold">Market &amp; Areas</h3>
+
+          {/* Market dropdown */}
+          <div>
+            <label className="text-[11px] text-neutral-400 block mb-1">Market</label>
+            <select
+              value={selectedMarketId ?? ''}
+              onChange={e => {
+                setSelectedMarketId(e.target.value || null);
+                setSelectedSlugs([]);
+              }}
+              className="w-full bg-neutral-800 border border-neutral-700 text-white text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-neutral-500"
+            >
+              <option value="">— Unassigned —</option>
+              {markets.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.status.toUpperCase()})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Areas checkboxes — only shown when a market is selected and has areas */}
+          {selectedMarketId && areas.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[11px] text-neutral-400">Service areas</label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <span className="text-[11px] text-neutral-400">Entire market</span>
+                  <button
+                    type="button"
+                    onClick={() => setServicesEntireMarket(v => !v)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                      servicesEntireMarket ? 'bg-[#00E676]' : 'bg-neutral-700'
+                    }`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                      servicesEntireMarket ? 'translate-x-4' : 'translate-x-0.5'
+                    }`} />
+                  </button>
+                </label>
+              </div>
+              {!servicesEntireMarket && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {areas.sort((a, b) => a.sort_order - b.sort_order).map(area => (
+                    <label
+                      key={area.slug}
+                      className="flex items-center gap-2 cursor-pointer text-xs text-neutral-300 hover:text-white"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedSlugs.includes(area.slug)}
+                        onChange={e => {
+                          setSelectedSlugs(prev =>
+                            e.target.checked
+                              ? [...prev, area.slug]
+                              : prev.filter(s => s !== area.slug)
+                          );
+                        }}
+                        className="accent-[#00E676] h-3.5 w-3.5 rounded"
+                      />
+                      {area.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              onClick={async () => {
+                setMarketSaving(true);
+                setMarketMsg(null);
+                try {
+                  const res = await fetch(`/api/admin/users/${userId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      marketId: selectedMarketId,
+                      areaSlugs: servicesEntireMarket ? [] : selectedSlugs,
+                      servicesEntireMarket,
+                    }),
+                  });
+                  setMarketMsg(res.ok ? 'Saved' : 'Failed');
+                  if (res.ok) fetchUser();
+                } catch {
+                  setMarketMsg('Failed');
+                } finally {
+                  setMarketSaving(false);
+                }
+              }}
+              disabled={marketSaving}
+              className="bg-[#00E676] hover:bg-[#00C864] text-black text-xs font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {marketSaving ? 'Saving…' : 'Save market'}
+            </button>
+            {marketMsg && (
+              <span className={`text-xs ${marketMsg === 'Saved' ? 'text-green-400' : 'text-red-400'}`}>
+                {marketMsg}
+              </span>
+            )}
           </div>
         </div>
       )}
