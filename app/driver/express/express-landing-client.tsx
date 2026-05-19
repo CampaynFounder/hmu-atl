@@ -141,7 +141,7 @@ export function ExpressLandingClient() {
   function goSignUp() {
     // Single funnel for any tap. mode=express + type=driver routes through
     // sign-up → auth-callback → /onboarding?mode=express → DriverOnboardingExpress.
-    router.push('/sign-up?type=driver&mode=express');
+    window.location.href = '/sign-up?type=driver&mode=express';
   }
 
   const visible = visibleIds

@@ -559,9 +559,9 @@ export default function RiderHomeClient() {
             <p className="driver-callout-sub">
               Drivers on HMU keep 88-100% of every ride. No corporate cut eating your earnings. Set your own areas, prices, and hours.
             </p>
-            <Link href="/sign-up?type=driver" className="driver-callout-cta" onClick={() => posthog.capture('rider_page_driver_cta_clicked')}>
+            <a href="/sign-up?type=driver" className="driver-callout-cta" onClick={() => posthog.capture('rider_page_driver_cta_clicked')}>
               Start Driving
-            </Link>
+            </a>
           </div>
         </div>
 

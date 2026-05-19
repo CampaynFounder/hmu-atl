@@ -166,7 +166,7 @@ function RiderLandingInner({ brandLabel, brandCity }: { brandLabel: string; bran
     const signUpParams = new URLSearchParams({ type: 'rider' });
     if (currentPersona) signUpParams.set('persona', currentPersona);
     if (currentStage !== 'awareness') signUpParams.set('funnel_stage', currentStage);
-    setTimeout(() => router.push(`/sign-up?${signUpParams}`), 800);
+    setTimeout(() => { window.location.href = `/sign-up?${signUpParams}`; }, 800);
   };
 
   const testimonials = cmsTestimonials;
@@ -200,13 +200,13 @@ function RiderLandingInner({ brandLabel, brandCity }: { brandLabel: string; bran
         <Link href="/" className={styles.navLogo}>{brandLabel}</Link>
         <div className={styles.navActions}>
           <a href="/sign-in" className={styles.navSignIn}>Sign In</a>
-          <Link
+          <a
             href={signUpUrl}
             className={styles.navCta}
             onClick={() => { try { posthog.capture('rider_nav_cta_clicked'); } catch (_) {} }}
           >
             {navCtaText}
-          </Link>
+          </a>
         </div>
       </nav>
 
@@ -233,13 +233,13 @@ function RiderLandingInner({ brandLabel, brandCity }: { brandLabel: string; bran
         </h1>
         <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }} dangerouslySetInnerHTML={{ __html: heroSub }} />
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
-          <Link
+          <a
             href={signUpUrl}
             className={styles.btnPrimary}
             onClick={() => { try { posthog.capture('rider_hero_cta_clicked'); } catch (_) {} }}
           >
             {heroCtaPrimary}
-          </Link>
+          </a>
           <a href="#how-it-works" className={styles.btnGhost}>See how it works &darr;</a>
         </div>
         <div className={`${styles.heroTrust} ${styles.fadeUp}`} style={{ animationDelay: '0.5s' }}>

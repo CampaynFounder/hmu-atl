@@ -123,7 +123,7 @@ export function LandingClient() {
   function handleStart() {
     fbCustomEvent('FunnelLead_cta', { funnel_stage: 'landing_cta', audience: 'rider_ad_funnel' });
     const params = new URLSearchParams({ type: 'rider', returnTo: '/r/express' });
-    router.push(`/sign-up?${params.toString()}`);
+    window.location.href = `/sign-up?${params.toString()}`;
   }
 
   return (

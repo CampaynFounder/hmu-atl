@@ -387,9 +387,9 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
               <p className={styles.dualCtaDesc}>
                 {driverCtaDesc}
               </p>
-              <Link href="/sign-up?type=driver" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnFilled}`}>
+              <a href="/sign-up?type=driver" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnFilled}`}>
                 SIGN UP NOW
-              </Link>
+              </a>
             </div>
 
             <div className={`${styles.dualCtaCard} ${styles.dualCtaCardRider}`}>
@@ -399,9 +399,9 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
               <p className={styles.dualCtaDesc}>
                 {riderCtaDesc}
               </p>
-              <Link href="/sign-up?type=rider" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnOutline}`}>
+              <a href="/sign-up?type=rider" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnOutline}`}>
                 SIGN UP AS RIDER
-              </Link>
+              </a>
             </div>
           </div>
 

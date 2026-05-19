@@ -286,7 +286,7 @@ export default function BlastFormClient() {
       router.push('/auth-callback/blast?mode=signin');
     } else {
       const returnTo = encodeURIComponent('/auth-callback/blast');
-      router.push(`/sign-up?type=rider&draft=blast&returnTo=${returnTo}`);
+      window.location.href = `/sign-up?type=rider&draft=blast&returnTo=${returnTo}`;
     }
   }, [isLoaded, isSignedIn, router]);
 
