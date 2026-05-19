@@ -175,9 +175,9 @@ export default function ShowcaseCarousel() {
           </div>
         )}
 
-        <Link href="/sign-up?type=driver" className="showcase-cta">
+        <a href="/sign-up?type=driver" className="showcase-cta">
           Make My HMU Link
-        </Link>
+        </a>
       </div>
     </>
   );

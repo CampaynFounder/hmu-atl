@@ -257,7 +257,7 @@ function DriverLandingInner({ brandLabel, brandCity }: { brandLabel: string; bra
     const signUpParams = new URLSearchParams({ type: 'driver' });
     if (currentPersona) signUpParams.set('persona', currentPersona);
     if (currentStage !== 'awareness') signUpParams.set('funnel_stage', currentStage);
-    setTimeout(() => router.push(`/sign-up?${signUpParams}`), 800);
+    setTimeout(() => { window.location.href = `/sign-up?${signUpParams}`; }, 800);
   };
 
   // Build sign-up URL that carries persona + funnel stage through
@@ -288,8 +288,8 @@ function DriverLandingInner({ brandLabel, brandCity }: { brandLabel: string; bra
       <nav className={styles.nav}>
         <Link href="/" className={styles.navLogo}>{brandLabel}</Link>
         <div className={styles.navActions}>
-          <Link href="/sign-in?type=driver" className={styles.navSignIn}>Sign In</Link>
-          <Link href={signUpUrl} className={styles.navCta} onClick={() => { posthog.capture('driver_nav_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'nav' }); }}>{navCtaText}</Link>
+          <a href="/sign-in?type=driver" className={styles.navSignIn}>Sign In</a>
+          <a href={signUpUrl} className={styles.navCta} onClick={() => { posthog.capture('driver_nav_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'nav' }); }}>{navCtaText}</a>
         </div>
       </nav>
 
@@ -321,7 +321,7 @@ function DriverLandingInner({ brandLabel, brandCity }: { brandLabel: string; bra
         </h1>
         <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }} dangerouslySetInnerHTML={{ __html: heroSub }} />
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
-          <Link href={signUpUrl} className={styles.btnPrimary} onClick={() => { posthog.capture('driver_hero_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'hero' }); }}>{heroCtaPrimary}</Link>
+          <a href={signUpUrl} className={styles.btnPrimary} onClick={() => { posthog.capture('driver_hero_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'hero' }); }}>{heroCtaPrimary}</a>
           <a href="#how" className={styles.btnGhost}>{heroCtaSecondary}</a>
         </div>
         <div className={`${styles.heroTrust} ${styles.fadeUp}`} style={{ animationDelay: '0.5s' }}>

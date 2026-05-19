@@ -182,9 +182,9 @@ function CTA() {
         style={{ fontSize: 12.5, color: '#666', marginTop: 14 }}
       >
         New to HMU?{' '}
-        <Link href="/sign-up?type=rider" style={{ color: BLUE, textDecoration: 'none' }}>
+        <a href="/sign-up?type=rider" style={{ color: BLUE, textDecoration: 'none' }}>
           Sign up
-        </Link>
+        </a>
       </motion.p>
     </motion.div>
   );

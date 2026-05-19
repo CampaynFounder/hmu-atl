@@ -179,7 +179,7 @@ function ComparePageInner({
       <nav className={styles.nav}>
         <Link href="/" className={styles.navLogo}>HMU {brandCityShort}</Link>
         <div className={styles.navActions}>
-          <Link href="/sign-in" className={styles.navSignIn}>Sign In</Link>
+          <a href="/sign-in" className={styles.navSignIn}>Sign In</a>
           <Link href={heroCtaHref} className={styles.navCta}>Sign Up</Link>
         </div>
       </nav>

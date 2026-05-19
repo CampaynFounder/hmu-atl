@@ -216,14 +216,14 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
                     </>
                   ) : (
                     <li>
-                      <Link
+                      <a
                         href="/sign-in"
                         onClick={close}
                         className="block px-4 py-3 rounded-xl text-center text-[15px] font-semibold text-[#080808] bg-[#00E676] hover:bg-[#00C864] transition-colors"
-                        style={{ fontFamily: 'var(--font-body, DM Sans, sans-serif)' }}
+                        style={{ fontFamily: 'var(--font-body, DM Sans, sans-serif)', textDecoration: 'none' }}
                       >
                         Sign In
-                      </Link>
+                      </a>
                     </li>
                   )}
                 </ul>
