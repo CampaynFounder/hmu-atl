@@ -16,9 +16,11 @@ export async function GET() {
   const { userId: clerkId } = await auth();
   if (!clerkId) return NextResponse.json({ blast: null });
 
-  const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+  const userRows = await sql`SELECT id, profile_type FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
   if (!userRows.length) return NextResponse.json({ blast: null });
-  const riderId = (userRows[0] as { id: string }).id;
+  const row0 = userRows[0] as { id: string; profile_type: string };
+  if (row0.profile_type !== 'rider') return NextResponse.json({ blast: null });
+  const riderId = row0.id;
 
   const rows = await sql`
     SELECT
