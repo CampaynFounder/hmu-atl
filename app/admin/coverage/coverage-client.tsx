@@ -185,7 +185,7 @@ export default function CoverageClient() {
     }).flyTo({ center: [Number(m.centerLng), Number(m.centerLat)], zoom: 11, duration: 1200 });
   }, [selectedMarket, mapLoaded]);
 
-  // Sync markers
+  // Sync markers — all placed drivers, filtered by markerFilter
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -212,7 +212,6 @@ export default function CoverageClient() {
         el.style.background = color;
         el.style.boxShadow = `0 0 10px ${color}55`;
         el.title = '';
-        // Ensure data-driverid is set on pre-existing elements
         if (!el.getAttribute('data-driverid')) el.setAttribute('data-driverid', driver.userId);
       } else {
         const el = createMarkerEl(color, driver.paymentReady, driver.userId);
@@ -221,10 +220,10 @@ export default function CoverageClient() {
           .setLngLat([driver.homeLng, driver.homeLat])
           .addTo(map);
 
-        const driverId        = driver.userId;
-        const driverName      = driver.name;
-        const driverPhone     = driver.phone;
-        const driverPayReady  = driver.paymentReady;
+        const driverId       = driver.userId;
+        const driverName     = driver.name;
+        const driverPhone    = driver.phone;
+        const driverPayReady = driver.paymentReady;
 
         marker.on('dragend', async () => {
           const pos = (marker as { getLngLat(): { lat: number; lng: number } }).getLngLat();
@@ -371,7 +370,7 @@ export default function CoverageClient() {
   const unplaced   = drivers.filter(d => d.homeLat == null);
   const readyCount = drivers.filter(d => d.paymentReady).length;
 
-  const tabDrivers   = drawerTab === 'unplaced' ? unplaced : placed;
+  const tabDrivers    = drawerTab === 'unplaced' ? unplaced : placed;
   const drawerDrivers = tabDrivers.filter(d => {
     if (!drawerSearch) return true;
     const q = drawerSearch.toLowerCase();
@@ -501,7 +500,6 @@ export default function CoverageClient() {
               )}
               <div className="text-[9px] text-neutral-600 mt-0.5">Drag to reposition</div>
             </div>
-            {/* Arrow */}
             <div style={{
               position: 'absolute', left: '50%', bottom: -5,
               transform: 'translateX(-50%) rotate(45deg)',
