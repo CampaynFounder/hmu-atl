@@ -7,12 +7,12 @@ export const dynamic = 'force-dynamic';
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const userId = params.id;
+  const { id: userId } = await params;
   const body = await req.json() as Record<string, unknown>;
   const { lat, lng, label, sendText = false, market = 'atl' } = body;
 
