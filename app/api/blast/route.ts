@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
     }
 
     const userRows = await runQuery('lookup_user_by_clerk_id', () => sql`
-      SELECT u.id, u.gender, u.profile_type,
+      SELECT u.id, u.gender,
         COALESCE(rp.thumbnail_url, rp.avatar_url) AS photo_url,
         rp.stripe_customer_id, rp.display_name
       FROM users u
@@ -153,11 +153,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     const user = userRows[0] as Record<string, unknown>;
-
-    // Role guard: only riders can send blasts.
-    if (user.profile_type !== 'rider') {
-      return NextResponse.json({ error: 'Only riders can send blasts' }, { status: 403 });
-    }
     const riderId = user.id as string;
     const riderGender = (user.gender as string | null) ?? null;
 
