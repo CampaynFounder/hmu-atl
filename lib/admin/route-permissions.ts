@@ -60,6 +60,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/suspect-usage',       rule: { kind: 'permission', slug: 'act.suspect' } },
 
   // ── GROW ────────────────────────────────────────────────────────────
+  { pattern: '/admin/coverage',             rule: { kind: 'permission', slug: 'grow.coverage' } },
   { pattern: '/admin/activation',          rule: { kind: 'permission', slug: 'grow.activation' } },
   { pattern: '/admin/marketing',           rule: { kind: 'permission', slug: 'grow.outreach' } },
   { pattern: '/admin/messages',            rule: { kind: 'permission', slug: 'grow.messages' } },

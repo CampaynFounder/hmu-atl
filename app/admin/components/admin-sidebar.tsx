@@ -46,6 +46,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
   {
     label: 'GROW',
     items: [
+      { href: '/admin/coverage', label: 'Coverage Map', icon: '🗺️' },
       { href: '/admin/activation', label: 'Activation', icon: '🚀' },
       { href: '/admin/marketing', label: 'Outreach', icon: '📣' },
       { href: '/admin/messages', label: 'Messages', icon: '💬', badgeCategory: 'messages', badgeColor: 'green' },
