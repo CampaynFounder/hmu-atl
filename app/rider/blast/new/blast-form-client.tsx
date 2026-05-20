@@ -147,7 +147,7 @@ function isInAppBrowser() {
 
 export default function BlastFormClient() {
   const router = useRouter();
-  const { isSignedIn, isLoaded, user } = useUser();
+  const { isSignedIn, isLoaded } = useUser();
   const prefersReduced = useReducedMotion();
 
   const [open, setOpen] = useState(true);
@@ -185,14 +185,6 @@ export default function BlastFormClient() {
       posthog.capture('blast_form_started', { source: 'direct' });
     } catch { /* ignore */ }
   }, []);
-
-  // Role guard: drivers have no business on the blast form.
-  useEffect(() => {
-    if (!isLoaded) return;
-    if (isSignedIn && user?.publicMetadata?.profileType === 'driver') {
-      router.replace('/driver/home');
-    }
-  }, [isLoaded, isSignedIn, user, router]);
 
   useEffect(() => { setInApp(isInAppBrowser()); }, []);
 
@@ -315,11 +307,6 @@ export default function BlastFormClient() {
   // ─── Submit: park draft, route to handoff ─────────────────────────────────
 
   const navigateToHandoff = useCallback((draftId?: string) => {
-    // Block drivers from entering the rider blast auth flow.
-    if (isLoaded && isSignedIn && user?.publicMetadata?.profileType === 'driver') {
-      router.replace('/driver/home');
-      return;
-    }
     const draftParam = draftId ? `&blastDraftId=${encodeURIComponent(draftId)}` : '';
     if (isLoaded && isSignedIn) {
       router.push(`/auth-callback/blast?mode=signin${draftParam}`);
@@ -327,7 +314,7 @@ export default function BlastFormClient() {
       const returnTo = encodeURIComponent('/auth-callback/blast');
       window.location.href = `/sign-up?type=rider&draft=blast${draftParam}&returnTo=${returnTo}`;
     }
-  }, [isLoaded, isSignedIn, user, router]);
+  }, [isLoaded, isSignedIn, router]);
 
   const submit = useCallback(async () => {
     if (submitting) return;
