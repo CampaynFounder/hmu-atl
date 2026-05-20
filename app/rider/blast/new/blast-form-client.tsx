@@ -129,6 +129,22 @@ interface ActiveBlast {
   expiresAt: string;
 }
 
+function isInAppBrowser() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return (
+    /FBAN|FBAV/i.test(ua) ||
+    /Instagram/i.test(ua) ||
+    /TikTok/i.test(ua) ||
+    /Snapchat/i.test(ua) ||
+    /LinkedInApp/i.test(ua) ||
+    /Twitter/i.test(ua) ||
+    /Line\//i.test(ua) ||
+    /MicroMessenger/i.test(ua) ||
+    (/wv\)/.test(ua) && /Android/.test(ua))
+  );
+}
+
 export default function BlastFormClient() {
   const router = useRouter();
   const { isSignedIn, isLoaded } = useUser();
@@ -136,6 +152,9 @@ export default function BlastFormClient() {
 
   const [open, setOpen] = useState(true);
   const [stepIdx, setStepIdx] = useState(0);
+  const [inAppBannerDismissed, setInAppBannerDismissed] = useState(false);
+  const [inApp, setInApp] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [draft, setDraft] = useState<FormDraft>(EMPTY_DRAFT);
   const [submitting, setSubmitting] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
@@ -162,6 +181,8 @@ export default function BlastFormClient() {
       posthog.capture('blast_form_started', { source: 'direct' });
     } catch { /* ignore */ }
   }, []);
+
+  useEffect(() => { setInApp(isInAppBrowser()); }, []);
 
   // Abandonment beacon if the user navigates away without completing.
   useEffect(() => {
@@ -479,6 +500,76 @@ export default function BlastFormClient() {
           flexDirection: 'column',
         }}
       >
+        {/* In-app browser nudge — soft banner, not a hard gate.
+            Signed-in users can complete the full flow; signed-out users
+            will hit the sign-up gate later and need to switch browsers then. */}
+        {inApp && !inAppBannerDismissed && (
+          <div style={{
+            margin: '0 0 16px',
+            padding: '12px 14px',
+            borderRadius: 12,
+            background: 'rgba(0,230,118,0.08)',
+            border: '1px solid rgba(0,230,118,0.2)',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 10,
+          }}>
+            <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>⚡</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#00E676', letterSpacing: 0.5, marginBottom: 3 }}>
+                WORKS BETTER IN YOUR BROWSER
+              </div>
+              <div style={{ fontSize: 12, color: '#aaa', lineHeight: 1.5 }}>
+                {isSignedIn
+                  ? 'You\'re signed in — this will work. For the smoothest experience, open in Safari or Chrome.'
+                  : 'Fill this out, then you\'ll need to open in Safari or Chrome to sign up.'}
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(window.location.href);
+                  } catch {
+                    const el = document.createElement('input');
+                    el.value = window.location.href;
+                    document.body.appendChild(el);
+                    el.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(el);
+                  }
+                  setLinkCopied(true);
+                  setTimeout(() => setLinkCopied(false), 3000);
+                }}
+                style={{
+                  marginTop: 8,
+                  padding: '5px 12px',
+                  borderRadius: 100,
+                  background: 'rgba(0,230,118,0.15)',
+                  border: '1px solid rgba(0,230,118,0.3)',
+                  color: '#00E676',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  fontFamily: "var(--font-body,'DM Sans',sans-serif)",
+                }}
+              >
+                {linkCopied ? '✓ Link copied — paste in your browser' : 'Copy link to open in browser'}
+              </button>
+            </div>
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={() => setInAppBannerDismissed(true)}
+              style={{
+                flexShrink: 0, background: 'none', border: 'none',
+                color: '#555', fontSize: 16, cursor: 'pointer', padding: 2,
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* Step header */}
         <header style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
