@@ -115,6 +115,11 @@ export default function AuthCallbackPage() {
     const handleFromMeta = (user?.unsafeMetadata?.draft_booking_handle as string | undefined) || '';
     const draftId = params.get('draft') || localStorage.getItem('hmu_signup_draft') || draftFromMeta || '';
     const draftHandle = params.get('handle') || localStorage.getItem('hmu_signup_handle') || handleFromMeta || '';
+    // Blast server-side draft ID — present when user came from in-app browser and
+    // switched to a real browser. Falls back to Clerk unsafeMetadata (survives OAuth).
+    const blastDraftId = params.get('blastDraftId')
+      || (user?.unsafeMetadata?.blast_draft_id as string | undefined)
+      || '';
 
     // A real browse-booking draft has a non-sentinel UUID draftId and a driver handle.
     // When present, suppress blast routing so a stale hmu.blast.draft left in
@@ -179,9 +184,11 @@ export default function AuthCallbackPage() {
       const hasRiderProfile = data != null
         ? !!data.hasRiderProfile
         : user?.publicMetadata?.profileType === 'rider';
-      router.replace(hasRiderProfile
-        ? '/auth-callback/blast?mode=signin'
-        : '/auth-callback/blast?mode=signup');
+      const blastCallbackParams = new URLSearchParams({
+        mode: hasRiderProfile ? 'signin' : 'signup',
+      });
+      if (blastDraftId) blastCallbackParams.set('blastDraftId', blastDraftId);
+      router.replace(`/auth-callback/blast?${blastCallbackParams}`);
       return;
     }
 

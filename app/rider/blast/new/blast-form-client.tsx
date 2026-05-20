@@ -155,6 +155,10 @@ export default function BlastFormClient() {
   const [inAppBannerDismissed, setInAppBannerDismissed] = useState(false);
   const [inApp, setInApp] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  // Server-side draft ID for cross-browser handoff (in-app → Safari/Chrome).
+  // Set once the draft is persisted server-side; passed through the auth URL chain
+  // so blast-handoff-client can fetch the draft even when localStorage is empty.
+  const [serverDraftId, setServerDraftId] = useState<string | undefined>(undefined);
   const [draft, setDraft] = useState<FormDraft>(EMPTY_DRAFT);
   const [submitting, setSubmitting] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
@@ -302,12 +306,13 @@ export default function BlastFormClient() {
 
   // ─── Submit: park draft, route to handoff ─────────────────────────────────
 
-  const navigateToHandoff = useCallback(() => {
+  const navigateToHandoff = useCallback((draftId?: string) => {
+    const draftParam = draftId ? `&blastDraftId=${encodeURIComponent(draftId)}` : '';
     if (isLoaded && isSignedIn) {
-      router.push('/auth-callback/blast?mode=signin');
+      router.push(`/auth-callback/blast?mode=signin${draftParam}`);
     } else {
       const returnTo = encodeURIComponent('/auth-callback/blast');
-      window.location.href = `/sign-up?type=rider&draft=blast&returnTo=${returnTo}`;
+      window.location.href = `/sign-up?type=rider&draft=blast${draftParam}&returnTo=${returnTo}`;
     }
   }, [isLoaded, isSignedIn, router]);
 
@@ -345,6 +350,23 @@ export default function BlastFormClient() {
     };
     saveBlastDraft(blastDraft);
 
+    // Persist server-side so the draft survives a browser switch
+    // (in-app browser → Safari/Chrome). Best-effort: localStorage is the
+    // fallback if this fails.
+    let remoteDraftId: string | undefined;
+    try {
+      const res = await fetch('/api/public/blast-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(blastDraft),
+      });
+      if (res.ok) {
+        const data = await res.json() as { draftId: string };
+        remoteDraftId = data.draftId;
+        setServerDraftId(remoteDraftId);
+      }
+    } catch { /* non-fatal */ }
+
     // For signed-in riders: check if an active blast already exists.
     // If so, surface a confirmation sheet before proceeding — the API will
     // cancel the old blast automatically, but riders deserve to know.
@@ -356,7 +378,7 @@ export default function BlastFormClient() {
           if (body.blast) {
             setExistingBlast(body.blast);
             setSubmitting(false);
-            return; // wait for confirmation
+            return; // wait for confirmation — navigateToHandoff called from replace button
           }
         }
       } catch {
@@ -364,7 +386,7 @@ export default function BlastFormClient() {
       }
     }
 
-    navigateToHandoff();
+    navigateToHandoff(remoteDraftId);
   }, [draft, isLoaded, isSignedIn, navigateToHandoff, submitting]);
 
   // ─── Render step body ─────────────────────────────────────────────────────
@@ -685,7 +707,7 @@ export default function BlastFormClient() {
                 whileTap={{ scale: 0.97 }}
                 onClick={() => {
                   setExistingBlast(null);
-                  navigateToHandoff();
+                  navigateToHandoff(serverDraftId);
                 }}
                 style={{
                   width: '100%', padding: '16px 24px', borderRadius: 100,

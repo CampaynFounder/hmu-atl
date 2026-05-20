@@ -7,11 +7,11 @@ import { MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver'
 import { getMarketBranding } from '@/lib/markets/branding';
 
 interface Props {
-  searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string; mode?: string; draft?: string; handle?: string }>;
+  searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string; mode?: string; draft?: string; handle?: string; blastDraftId?: string }>;
 }
 
 export default async function SignUpPage({ searchParams }: Props) {
-  const [{ type, returnTo, cash, persona, funnel_stage, mode, draft, handle }, h] = await Promise.all([
+  const [{ type, returnTo, cash, persona, funnel_stage, mode, draft, handle, blastDraftId }, h] = await Promise.all([
     searchParams,
     headers(),
   ]);
@@ -38,6 +38,8 @@ export default async function SignUpPage({ searchParams }: Props) {
   if (isExpressMode) callbackParams.set('mode', 'express');
   if (draft) callbackParams.set('draft', draft);
   if (handle) callbackParams.set('handle', handle);
+  // Blast server-side draft ID — survives the browser switch from in-app to Safari/Chrome.
+  if (blastDraftId) callbackParams.set('blastDraftId', blastDraftId);
   const afterSignUpUrl = `/auth-callback${callbackParams.size ? `?${callbackParams}` : ''}`;
 
   const isDriver = type === 'driver';
@@ -72,6 +74,8 @@ export default async function SignUpPage({ searchParams }: Props) {
   // can recover them even if URL params + localStorage are both wiped.
   if (draft) unsafeMetadata.draft_booking_id = draft;
   if (handle) unsafeMetadata.draft_booking_handle = handle;
+  // Separate key from draft_booking_id so blast and browse-funnel don't collide.
+  if (blastDraftId) unsafeMetadata.blast_draft_id = blastDraftId;
 
   return (
     <InAppBrowserGate>
