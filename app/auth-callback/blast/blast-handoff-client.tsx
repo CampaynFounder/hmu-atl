@@ -27,6 +27,7 @@ import {
 import CelebrationConfetti from '@/components/shared/celebration-confetti';
 import {
   loadBlastDraft,
+  saveBlastDraft,
   clearBlastDraft,
 } from '@/lib/storage/blast-draft';
 import type {
@@ -89,34 +90,64 @@ export default function BlastHandoffClient() {
   const autoSendFiredRef = useRef(false);
 
   // ─── Mount: restore draft + decide first step ─────────────────────────────
+  // Priority: (1) localStorage — same browser, instant; (2) server-side draft
+  // via blastDraftId URL param — survives the in-app browser → Safari switch.
   useEffect(() => {
     if (!clerkLoaded) return;
-    const restored = loadBlastDraft();
-    if (!restored) {
+
+    async function restore() {
+      // Fast path: draft is in localStorage (same browser session).
+      const local = loadBlastDraft();
+      if (local) {
+        setDraft(local);
+        posthog.capture('blast_draft_restored', {
+          mode, source: 'local', ageMs: Date.now() - local.draftCreatedAt,
+        });
+        if (mode === 'signin') {
+          posthog.capture('blast_handoff_signin_started');
+          setConfettiArmed(true);
+          setStep('sending');
+        } else {
+          posthog.capture('blast_handoff_signup_started');
+          setStep('account_setup');
+        }
+        return;
+      }
+
+      // Fallback: fetch from server using the draft ID threaded through the
+      // auth URL chain. This fires when the user filled the form in an in-app
+      // browser (Instagram/TikTok/Facebook) and completed sign-up in Safari or
+      // Chrome where localStorage is empty.
+      const remoteDraftId = searchParams.get('blastDraftId');
+      if (remoteDraftId) {
+        try {
+          const res = await fetch(`/api/public/blast-draft?id=${encodeURIComponent(remoteDraftId)}`);
+          if (res.ok) {
+            const fetched = await res.json() as BlastDraft;
+            saveBlastDraft(fetched); // park locally for this session
+            setDraft(fetched);
+            posthog.capture('blast_draft_restored', {
+              mode, source: 'remote', ageMs: Date.now() - fetched.draftCreatedAt,
+            });
+            if (mode === 'signin') {
+              posthog.capture('blast_handoff_signin_started');
+              setConfettiArmed(true);
+              setStep('sending');
+            } else {
+              posthog.capture('blast_handoff_signup_started');
+              setStep('account_setup');
+            }
+            return;
+          }
+        } catch { /* fall through to no_draft */ }
+      }
+
       setStep('no_draft');
       posthog.capture('blast_draft_expired', { mode });
-      return;
     }
-    setDraft(restored);
-    posthog.capture('blast_draft_restored', {
-      mode,
-      ageMs: Date.now() - restored.draftCreatedAt,
-    });
-    if (mode === 'signin') {
-      // Existing rider — they already have a handle + (probably) a photo
-      // from a prior sign-up. Skip account_setup, fire confetti, advance to
-      // 'sending'. The auto-send effect below fires sendBlast once draft +
-      // sendBlast are both committed — using setTimeout(0) + ref here raced
-      // the draft state commit and left sendBlast closed over a null draft
-      // (silent stall).
-      posthog.capture('blast_handoff_signin_started');
-      setConfettiArmed(true);
-      setStep('sending');
-    } else {
-      posthog.capture('blast_handoff_signup_started');
-      setStep('account_setup');
-    }
-  }, [clerkLoaded, mode]);
+
+    void restore();
+  }, [clerkLoaded, mode, searchParams]);
 
   // ─── Signin auto-send: fire once draft is restored + sendBlast is fresh ──
   // Replaces the prior setTimeout(0) pattern. Effect re-runs as draft and
