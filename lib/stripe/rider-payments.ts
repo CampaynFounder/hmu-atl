@@ -37,7 +37,7 @@ export async function createSetupIntent(stripeCustomerId: string): Promise<strin
   const setupIntent = await stripe.setupIntents.create({
     customer: stripeCustomerId,
     automatic_payment_methods: { enabled: true },
-    usage: 'off_session',
+    usage: 'on_session',
   });
   return setupIntent.client_secret!;
 }
