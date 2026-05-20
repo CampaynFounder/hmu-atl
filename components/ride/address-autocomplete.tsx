@@ -22,6 +22,20 @@ interface AddressAutocompleteProps {
 const MAPBOX_BASE = 'https://api.mapbox.com/search/searchbox/v1';
 const ATLANTA_BBOX = '-84.8,33.5,-84.1,34.1';
 
+// generateUUID() is unavailable in in-app browsers (Instagram, TikTok,
+// Facebook WebViews). Fall back to a Math.random UUID v4 so the component
+// initialises without crashing — Mapbox only uses this for session billing,
+// not security, so the fallback is safe.
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return generateUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 export function AddressAutocomplete({
   label,
   placeholder = 'Search address or landmark...',
@@ -36,7 +50,7 @@ export function AddressAutocomplete({
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(!!value);
-  const sessionTokenRef = useRef(crypto.randomUUID());
+  const sessionTokenRef = useRef(generateUUID());
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -145,7 +159,7 @@ export function AddressAutocomplete({
 
       setSelected(true);
       // New session token for next search interaction
-      sessionTokenRef.current = crypto.randomUUID();
+      sessionTokenRef.current = generateUUID();
       onSelect(validated);
     } catch {
       // Silently fail
