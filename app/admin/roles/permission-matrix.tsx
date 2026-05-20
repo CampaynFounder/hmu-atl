@@ -22,6 +22,7 @@ const PERMISSION_SECTIONS = [
     { key: 'act.suspect', label: 'Suspect Usage' },
   ]},
   { group: 'GROW', items: [
+    { key: 'grow.coverage', label: 'Coverage Map' },
     { key: 'grow.activation', label: 'Activation' },
     { key: 'grow.outreach', label: 'Outreach' },
     { key: 'grow.messages', label: 'Messages' },

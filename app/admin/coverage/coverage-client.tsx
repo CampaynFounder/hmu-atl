@@ -21,7 +21,7 @@ interface DriverCoverage {
   accountStatus: string;
 }
 
-type Filter = 'all' | 'home_set' | 'no_home' | 'payment_ready' | 'not_ready';
+type MarkerFilter = 'all' | 'payment_ready' | 'not_ready';
 
 interface PendingSave {
   userId: string;
@@ -51,6 +51,22 @@ async function reverseGeocode(lng: number, lat: number): Promise<string> {
   }
 }
 
+function createMarkerEl(color: string, paymentReady: boolean): HTMLDivElement {
+  const el = document.createElement('div');
+  el.style.cssText = `
+    width: 28px; height: 28px; border-radius: 50%;
+    background: ${color}; border: 2.5px solid rgba(255,255,255,0.8);
+    cursor: grab; box-shadow: 0 0 10px ${color}55;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; line-height: 1;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    will-change: transform;
+    user-select: none;
+  `;
+  el.textContent = paymentReady ? '✓' : '🚗';
+  return el;
+}
+
 export default function CoverageClient() {
   const { selectedMarket } = useMarket();
 
@@ -63,8 +79,11 @@ export default function CoverageClient() {
   const [drivers, setDrivers] = useState<DriverCoverage[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [filter, setFilter] = useState<Filter>('all');
-  const [search, setSearch] = useState('');
+  const [markerFilter, setMarkerFilter] = useState<MarkerFilter>('all');
+
+  // Unplaced drawer
+  const [drawerOpen, setDrawerOpen] = useState(true);
+  const [drawerSearch, setDrawerSearch] = useState('');
 
   // Drag state
   const [draggingDriver, setDraggingDriver] = useState<DriverCoverage | null>(null);
@@ -155,7 +174,7 @@ export default function CoverageClient() {
     }).flyTo({ center: [Number(m.centerLng), Number(m.centerLat)], zoom: 11, duration: 1200 });
   }, [selectedMarket, mapLoaded]);
 
-  // Sync home-location markers
+  // Sync markers — always all placed drivers, filtered by markerFilter
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -165,11 +184,14 @@ export default function CoverageClient() {
     const map = mapRef.current as any;
     const marketSlug = marketSlugRef.current;
 
-    const activeIds = new Set<string>();
+    const visibleIds = new Set<string>();
 
     for (const driver of drivers) {
       if (driver.homeLat == null || driver.homeLng == null) continue;
-      activeIds.add(driver.userId);
+      // Apply marker filter
+      if (markerFilter === 'payment_ready' && !driver.paymentReady) continue;
+      if (markerFilter === 'not_ready' && driver.paymentReady) continue;
+      visibleIds.add(driver.userId);
 
       const color = driver.paymentReady ? READY_COLOR : PENDING_COLOR;
       const existing = markersRef.current.get(driver.userId);
@@ -179,7 +201,6 @@ export default function CoverageClient() {
         const el = (existing as { getElement(): HTMLDivElement }).getElement();
         el.style.background = color;
         el.style.boxShadow = `0 0 10px ${color}55`;
-        el.setAttribute('data-color', color);
       } else {
         const el = createMarkerEl(color, driver.paymentReady);
         el.title = `${driver.name}${driver.homeLabel ? ` — ${driver.homeLabel}` : ''}`;
@@ -188,7 +209,7 @@ export default function CoverageClient() {
           .setLngLat([driver.homeLng, driver.homeLat])
           .addTo(map);
 
-        const driverId = driver.userId;
+        const driverId   = driver.userId;
         const driverName = driver.name;
         const driverPhone = driver.phone;
         const driverPaymentReady = driver.paymentReady;
@@ -201,11 +222,13 @@ export default function CoverageClient() {
         });
 
         el.addEventListener('mouseenter', () => {
-          el.style.transform = 'scale(1.2)';
+          el.style.transform = 'scale(1.25)';
+          el.style.zIndex = '10';
           el.style.boxShadow = `0 0 20px ${color}90`;
         });
         el.addEventListener('mouseleave', () => {
           el.style.transform = 'scale(1)';
+          el.style.zIndex = '';
           el.style.boxShadow = `0 0 10px ${color}55`;
         });
 
@@ -213,28 +236,27 @@ export default function CoverageClient() {
       }
     }
 
+    // Hide markers for drivers filtered out or that lost their home
     for (const [id, marker] of markersRef.current) {
-      if (!activeIds.has(id)) {
+      if (!visibleIds.has(id)) {
         (marker as { remove(): void }).remove();
         markersRef.current.delete(id);
       }
     }
-  }, [drivers, mapLoaded, selectedMarket]);
+  }, [drivers, mapLoaded, markerFilter, selectedMarket]);
 
-  // ── Drag handlers ──
+  // ── Drag from drawer ──
 
   function handleDragStart(e: React.DragEvent, driver: DriverCoverage) {
     setDraggingDriver(driver);
     e.dataTransfer.effectAllowed = 'copy';
     e.dataTransfer.setData('text/plain', driver.userId);
 
-    // Custom drag image: a small pill showing the driver name
     const ghost = document.createElement('div');
     ghost.style.cssText = `
       position: fixed; top: -200px; left: 0;
-      background: #18181b; border: 1px solid rgba(255,255,255,0.25);
-      border-radius: 20px; padding: 6px 12px 6px 8px;
-      color: #fff; font-size: 12px; font-weight: 600;
+      background: #18181b; border: 1px solid rgba(255,255,255,0.25); border-radius: 20px;
+      padding: 6px 12px 6px 8px; color: #fff; font-size: 12px; font-weight: 600;
       white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.6);
     `;
@@ -263,37 +285,22 @@ export default function CoverageClient() {
   }
 
   function handleMapDragLeave(e: React.DragEvent) {
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-      setIsDragOverMap(false);
-    }
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOverMap(false);
   }
 
   async function handleMapDrop(e: React.DragEvent) {
     e.preventDefault();
     setIsDragOverMap(false);
-
     const driver = draggingDriver;
     if (!driver || !mapRef.current) return;
     setDraggingDriver(null);
 
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const lngLat = (mapRef.current as any).unproject([x, y]) as { lat: number; lng: number };
+    const lngLat = (mapRef.current as any).unproject([e.clientX - rect.left, e.clientY - rect.top]) as { lat: number; lng: number };
     const label = await reverseGeocode(lngLat.lng, lngLat.lat);
 
-    setPendingSave({
-      userId: driver.userId,
-      name: driver.name,
-      phone: driver.phone,
-      lat: lngLat.lat,
-      lng: lngLat.lng,
-      label,
-      market: marketSlugRef.current,
-      paymentReady: driver.paymentReady,
-    });
+    setPendingSave({ userId: driver.userId, name: driver.name, phone: driver.phone, lat: lngLat.lat, lng: lngLat.lng, label, market: marketSlugRef.current, paymentReady: driver.paymentReady });
     setSavingLabel(label);
   }
 
@@ -309,7 +316,7 @@ export default function CoverageClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lat: pendingSave.lat, lng: pendingSave.lng, label, sendText, market: pendingSave.market }),
       });
-      if (!res.ok) throw new Error('Save failed');
+      if (!res.ok) throw new Error();
       const data = await res.json() as { smsSent?: boolean };
 
       setDrivers(prev => prev.map(d =>
@@ -318,10 +325,7 @@ export default function CoverageClient() {
           : d,
       ));
 
-      const msg = sendText && data.smsSent
-        ? `Saved + texted ${pendingSave.name}`
-        : `Home set for ${pendingSave.name}`;
-      setToast({ kind: 'ok', text: msg });
+      setToast({ kind: 'ok', text: sendText && data.smsSent ? `Saved + texted ${pendingSave.name}` : `Home set for ${pendingSave.name}` });
       setPendingSave(null);
     } catch {
       setToast({ kind: 'err', text: 'Failed to save — try again' });
@@ -336,46 +340,21 @@ export default function CoverageClient() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  function focusDriver(driver: DriverCoverage) {
-    if (!mapRef.current || driver.homeLat == null || driver.homeLng == null) return;
-    (mapRef.current as {
-      flyTo(opts: { center: [number, number]; zoom?: number; duration?: number }): void;
-    }).flyTo({ center: [driver.homeLng, driver.homeLat], zoom: 14, duration: 800 });
-  }
+  // Stats
+  const placed    = drivers.filter(d => d.homeLat != null);
+  const unplaced  = drivers.filter(d => d.homeLat == null);
+  const readyCount = drivers.filter(d => d.paymentReady).length;
 
-  // Filtered list
-  const filteredDrivers = drivers.filter(d => {
-    if (search) {
-      const q = search.toLowerCase();
-      if (!d.name.toLowerCase().includes(q) && !(d.handle?.toLowerCase().includes(q))) return false;
-    }
-    switch (filter) {
-      case 'home_set':      return d.homeLat != null;
-      case 'no_home':       return d.homeLat == null;
-      case 'payment_ready': return d.paymentReady;
-      case 'not_ready':     return !d.paymentReady;
-    }
-    return true;
+  // Filtered unplaced list for drawer
+  const drawerDrivers = unplaced.filter(d => {
+    if (!drawerSearch) return true;
+    const q = drawerSearch.toLowerCase();
+    return d.name.toLowerCase().includes(q) || (d.handle?.toLowerCase().includes(q) ?? false);
   });
-
-  const stats = {
-    total:        drivers.length,
-    homeSet:      drivers.filter(d => d.homeLat != null).length,
-    noHome:       drivers.filter(d => d.homeLat == null).length,
-    paymentReady: drivers.filter(d => d.paymentReady).length,
-  };
 
   const smsPreview = pendingSave
     ? `What area you drive in? You'll get rides around ${(savingLabel || pendingSave.label).slice(0, 30)}. Change it: atl.hmucashride.com/driver/home fmoig @hmucashrides`
     : '';
-
-  const FILTERS: { key: Filter; label: string; color?: string }[] = [
-    { key: 'all',           label: 'All' },
-    { key: 'no_home',       label: 'No Home',   color: '#ef4444' },
-    { key: 'home_set',      label: 'Home Set',  color: '#8b5cf6' },
-    { key: 'payment_ready', label: 'Pay Ready', color: READY_COLOR },
-    { key: 'not_ready',     label: 'Pending',   color: PENDING_COLOR },
-  ];
 
   if (mapError) {
     return (
@@ -388,273 +367,279 @@ export default function CoverageClient() {
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 180px)', minHeight: '560px' }}>
 
-      {/* Stats bar */}
-      <div className="flex gap-3 px-4 py-2.5 border-b border-neutral-800 flex-shrink-0 flex-wrap items-center">
-        <Stat label="Total" value={stats.total} />
-        <Stat label="Home Set" value={stats.homeSet} color="#8b5cf6" />
-        <Stat label="No Home" value={stats.noHome} color="#ef4444" />
-        <Stat label="Pay Ready" value={stats.paymentReady} color={READY_COLOR} />
-        <div className="flex items-center gap-2 ml-auto">
-          <span className="text-[10px] text-neutral-500">Coverage</span>
-          <div className="w-24 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+      {/* Stats + filter bar */}
+      <div className="flex items-center gap-3 px-4 py-2 border-b border-neutral-800 flex-shrink-0 flex-wrap">
+        <div className="flex gap-2 flex-wrap">
+          <Chip label="Total" value={drivers.length} />
+          <Chip label="Placed" value={placed.length} color="#8b5cf6" />
+          <Chip label="Unplaced" value={unplaced.length} color="#ef4444" />
+          <Chip label="Pay Ready" value={readyCount} color={READY_COLOR} />
+        </div>
+
+        {/* Coverage bar */}
+        <div className="flex items-center gap-2">
+          <div className="w-20 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
             <div
               className="h-full rounded-full"
               style={{
-                width: stats.total > 0 ? `${Math.round((stats.homeSet / stats.total) * 100)}%` : '0%',
+                width: drivers.length > 0 ? `${Math.round((placed.length / drivers.length) * 100)}%` : '0%',
                 background: 'linear-gradient(90deg, #8b5cf6, #22c55e)',
                 transition: 'width 0.5s ease',
               }}
             />
           </div>
-          <span className="text-[10px] text-neutral-400 w-7">
-            {stats.total > 0 ? Math.round((stats.homeSet / stats.total) * 100) : 0}%
+          <span className="text-[10px] text-neutral-400">
+            {drivers.length > 0 ? Math.round((placed.length / drivers.length) * 100) : 0}% placed
           </span>
+        </div>
+
+        {/* Marker filter */}
+        <div className="flex gap-1 ml-auto">
+          {([
+            { key: 'all',           label: 'All drivers' },
+            { key: 'payment_ready', label: 'Pay ready',  color: READY_COLOR },
+            { key: 'not_ready',     label: 'Pending',    color: PENDING_COLOR },
+          ] as { key: MarkerFilter; label: string; color?: string }[]).map(f => (
+            <button
+              key={f.key}
+              onClick={() => setMarkerFilter(f.key)}
+              className="text-[10px] font-medium px-2.5 py-1 rounded-full transition-all"
+              style={{
+                background: markerFilter === f.key ? `${f.color ?? '#fff'}18` : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${markerFilter === f.key ? (f.color ?? '#fff') : 'rgba(255,255,255,0.08)'}`,
+                color: markerFilter === f.key ? (f.color ?? '#fff') : '#666',
+              }}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Sidebar + Map */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Full-width map */}
+      <div
+        className="flex-1 relative overflow-hidden"
+        onDragOver={handleMapDragOver}
+        onDragEnter={handleMapDragEnter}
+        onDragLeave={handleMapDragLeave}
+        onDrop={handleMapDrop}
+      >
+        {/* Map canvas */}
+        <div ref={mapContainer} style={{ position: 'absolute', inset: 0 }} />
 
-        {/* Sidebar */}
-        <div className="w-64 flex-shrink-0 flex flex-col border-r border-neutral-800 overflow-hidden">
-
-          {/* Search */}
-          <div className="px-3 py-2 border-b border-neutral-800 flex-shrink-0">
-            <input
-              type="text"
-              placeholder="Search drivers…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full bg-neutral-900 border border-neutral-700 rounded-md px-2.5 py-1.5 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
-            />
+        {/* Drop overlay */}
+        {isDragOverMap && draggingDriver && (
+          <div
+            className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none"
+            style={{ background: 'rgba(59,130,246,0.07)', border: '3px dashed rgba(59,130,246,0.45)' }}
+          >
+            <div
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold"
+              style={{ background: 'rgba(12,12,12,0.92)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.4)', backdropFilter: 'blur(8px)' }}
+            >
+              📍 Drop to set home base for <strong className="text-white ml-1">{draggingDriver.name}</strong>
+            </div>
           </div>
+        )}
 
-          {/* Filter pills */}
-          <div className="flex gap-1 flex-wrap px-3 py-2 border-b border-neutral-800 flex-shrink-0">
-            {FILTERS.map(f => (
-              <button
-                key={f.key}
-                onClick={() => setFilter(f.key)}
-                className="text-[10px] font-medium px-2 py-0.5 rounded-full transition-all"
+        {/* Legend — top right */}
+        <div className="absolute top-3 right-3 z-10 bg-neutral-900/90 backdrop-blur rounded-lg p-2.5 text-[10px] space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: READY_COLOR }} />
+            <span className="text-neutral-400">Pay Ready</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: PENDING_COLOR }} />
+            <span className="text-neutral-400">Stripe Pending</span>
+          </div>
+          <div className="text-neutral-600 pt-1 border-t border-neutral-800">
+            {placed.length} driver{placed.length !== 1 ? 's' : ''} on map
+          </div>
+          {placed.length > 0 && (
+            <div className="text-neutral-600">Drag pin to move</div>
+          )}
+        </div>
+
+        {/* Unplaced drivers drawer — bottom left */}
+        <div
+          className="absolute bottom-4 left-4 z-20 rounded-xl overflow-hidden shadow-2xl"
+          style={{
+            width: 240,
+            background: 'rgba(12,12,12,0.95)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            backdropFilter: 'blur(12px)',
+          }}
+        >
+          {/* Drawer header */}
+          <button
+            onClick={() => setDrawerOpen(o => !o)}
+            className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-neutral-800/40 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                 style={{
-                  background: filter === f.key ? `${f.color ?? '#fff'}22` : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${filter === f.key ? (f.color ?? '#fff') : 'rgba(255,255,255,0.08)'}`,
-                  color: filter === f.key ? (f.color ?? '#fff') : '#777',
+                  background: unplaced.length > 0 ? '#ef444420' : '#22c55e20',
+                  color: unplaced.length > 0 ? '#ef4444' : READY_COLOR,
+                  border: `1px solid ${unplaced.length > 0 ? '#ef444440' : '#22c55e40'}`,
                 }}
               >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Drag hint */}
-          <div className="px-3 py-2 border-b border-neutral-800 flex-shrink-0">
-            <p className="text-[10px] text-neutral-600 leading-relaxed">
-              Drag a driver onto the map to set their home base.
-              Drag existing pins to move them.
-            </p>
-          </div>
-
-          {/* Driver list */}
-          <div className="flex-1 overflow-y-auto">
-            {loading && (
-              <div className="px-4 py-6 text-center text-neutral-600 text-xs">Loading drivers…</div>
-            )}
-            {!loading && filteredDrivers.length === 0 && (
-              <div className="px-4 py-6 text-center text-neutral-600 text-xs">No drivers match</div>
-            )}
-            {!loading && filteredDrivers.map(driver => (
-              <div
-                key={driver.userId}
-                draggable
-                onDragStart={e => handleDragStart(e, driver)}
-                onDragEnd={handleDragEnd}
-                onClick={() => focusDriver(driver)}
-                className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-800/60 hover:bg-neutral-800/40 transition-colors select-none"
-                style={{ cursor: driver.homeLat != null ? 'grab' : 'grab', opacity: draggingDriver?.userId === driver.userId ? 0.4 : 1 }}
-              >
-                {/* Drag handle */}
-                <span className="text-neutral-600 text-xs flex-shrink-0" style={{ cursor: 'grab' }}>⠿</span>
-
-                {/* Payment dot */}
-                <span
-                  className="w-2 h-2 rounded-full flex-shrink-0"
-                  style={{ background: driver.paymentReady ? READY_COLOR : PENDING_COLOR }}
-                  title={driver.paymentReady ? 'Payment ready' : 'Stripe pending'}
-                />
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1 min-w-0">
-                    <span className="text-xs font-medium text-white truncate">{driver.name}</span>
-                    {driver.handle && (
-                      <span className="text-[10px] text-neutral-500 truncate">@{driver.handle}</span>
-                    )}
-                  </div>
-                  {driver.homeLat != null ? (
-                    <div className="text-[10px] text-neutral-500 truncate mt-0.5">
-                      📍 {driver.homeLabel ?? `${driver.homeLat.toFixed(3)}, ${driver.homeLng!.toFixed(3)}`}
-                    </div>
-                  ) : (
-                    <div className="text-[10px] text-neutral-700 mt-0.5">No home — drag to set</div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Map */}
-        <div
-          className="flex-1 relative overflow-hidden"
-          onDragOver={handleMapDragOver}
-          onDragEnter={handleMapDragEnter}
-          onDragLeave={handleMapDragLeave}
-          onDrop={handleMapDrop}
-        >
-          <div ref={mapContainer} style={{ position: 'absolute', inset: 0 }} />
-
-          {/* Drop zone overlay */}
-          {isDragOverMap && draggingDriver && (
-            <div
-              className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none"
-              style={{
-                background: 'rgba(59,130,246,0.08)',
-                border: '3px dashed rgba(59,130,246,0.5)',
-                borderRadius: 2,
-              }}
-            >
-              <div
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold"
-                style={{ background: 'rgba(15,15,15,0.9)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.4)', backdropFilter: 'blur(8px)' }}
-              >
-                <span>📍</span>
-                <span>Drop to set home base for {draggingDriver.name}</span>
-              </div>
+                {unplaced.length}
+              </span>
+              <span className="text-xs font-semibold text-white">
+                {unplaced.length === 0 ? 'All drivers placed' : 'Need placement'}
+              </span>
             </div>
-          )}
+            <span className="text-neutral-500 text-xs">{drawerOpen ? '▼' : '▲'}</span>
+          </button>
 
-          {/* Legend */}
-          {!isDragOverMap && (
-            <div className="absolute top-3 right-3 z-10 bg-neutral-900/90 backdrop-blur rounded-lg p-2.5 text-[10px] space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ background: READY_COLOR }} />
-                <span className="text-neutral-400">Pay Ready</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ background: PENDING_COLOR }} />
-                <span className="text-neutral-400">Stripe Pending</span>
-              </div>
-              <div className="text-neutral-600 pt-0.5 border-t border-neutral-800">Drag pin to update</div>
-            </div>
-          )}
-
-          {/* Confirm panel */}
-          {pendingSave && (
-            <div className="absolute bottom-4 left-4 right-4 z-20 bg-neutral-900/97 backdrop-blur border border-neutral-700 rounded-xl p-4 shadow-2xl">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: pendingSave.paymentReady ? READY_COLOR : PENDING_COLOR }} />
-                    <span className="text-sm font-semibold text-white">{pendingSave.name}</span>
-                  </div>
-                  <div className="text-[10px] text-neutral-500 mt-0.5 ml-4">
-                    {pendingSave.lat.toFixed(5)}, {pendingSave.lng.toFixed(5)}
-                  </div>
+          {/* Drawer body */}
+          {drawerOpen && (
+            <>
+              {unplaced.length > 0 && (
+                <div className="px-2 py-1.5 border-t border-neutral-800/60">
+                  <input
+                    type="text"
+                    placeholder="Search…"
+                    value={drawerSearch}
+                    onChange={e => setDrawerSearch(e.target.value)}
+                    className="w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-[10px] text-white placeholder-neutral-600 focus:outline-none"
+                  />
                 </div>
-                <button onClick={() => setPendingSave(null)} className="text-neutral-600 hover:text-white text-sm ml-2">✕</button>
-              </div>
-
-              {/* Label */}
-              <div className="mb-3">
-                <label className="text-[10px] text-neutral-500 block mb-1">Area label (editable)</label>
-                <input
-                  type="text"
-                  value={savingLabel}
-                  onChange={e => setSavingLabel(e.target.value)}
-                  placeholder="e.g. East Atlanta, Midtown, College Park"
-                  maxLength={50}
-                  className="w-full bg-neutral-800 border border-neutral-700 rounded-md px-2.5 py-1.5 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
-                  autoFocus
-                />
-              </div>
-
-              {/* SMS preview */}
-              {pendingSave.phone ? (
-                <div className="mb-3 bg-neutral-800/60 rounded-lg p-2.5">
-                  <div className="text-[9px] text-neutral-500 mb-1 uppercase tracking-wide">SMS to {pendingSave.phone}</div>
-                  <div className="text-[11px] text-neutral-300 leading-relaxed">{smsPreview}</div>
-                  <div className="text-[9px] text-neutral-600 mt-1">{smsPreview.length} / 155 chars</div>
-                </div>
-              ) : (
-                <div className="mb-3 text-[10px] text-neutral-600 italic">No phone on file — SMS unavailable</div>
               )}
 
-              {/* Actions */}
-              <div className="flex gap-2">
-                {pendingSave.phone && (
-                  <button
-                    onClick={() => handleSave(true)}
-                    disabled={saving}
-                    className="flex-1 py-2 rounded-lg text-xs font-semibold disabled:opacity-50"
-                    style={{ background: '#22c55e18', border: '1px solid #22c55e55', color: READY_COLOR }}
-                  >
-                    {saving ? 'Saving…' : 'Save & Text Driver'}
-                  </button>
+              <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                {loading && (
+                  <div className="px-3 py-3 text-center text-neutral-600 text-[10px]">Loading…</div>
                 )}
-                <button
-                  onClick={() => handleSave(false)}
-                  disabled={saving}
-                  className="flex-1 py-2 rounded-lg text-xs font-semibold disabled:opacity-50"
-                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#ccc' }}
-                >
-                  {saving ? 'Saving…' : 'Save Only'}
-                </button>
+                {!loading && unplaced.length === 0 && (
+                  <div className="px-3 py-3 text-center text-neutral-600 text-[10px]">
+                    Every driver has a home base set 🎉
+                  </div>
+                )}
+                {!loading && drawerDrivers.map(driver => (
+                  <div
+                    key={driver.userId}
+                    draggable
+                    onDragStart={e => handleDragStart(e, driver)}
+                    onDragEnd={handleDragEnd}
+                    className="flex items-center gap-2 px-3 py-2 border-t border-neutral-800/40 hover:bg-neutral-800/40 transition-colors select-none"
+                    style={{ cursor: 'grab', opacity: draggingDriver?.userId === driver.userId ? 0.35 : 1 }}
+                  >
+                    <span className="text-neutral-600 text-[10px] flex-shrink-0">⠿</span>
+                    <span
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ background: driver.paymentReady ? READY_COLOR : PENDING_COLOR }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] font-medium text-white truncate">{driver.name}</div>
+                      {driver.handle && (
+                        <div className="text-[9px] text-neutral-600 truncate">@{driver.handle}</div>
+                      )}
+                    </div>
+                    <span className="text-[9px] text-neutral-600 flex-shrink-0">drag →</span>
+                  </div>
+                ))}
               </div>
-            </div>
-          )}
 
-          {/* Toast */}
-          {toast && (
-            <div
-              className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-xl text-xs font-medium shadow-lg"
-              style={{
-                background: toast.kind === 'ok' ? '#22c55e18' : '#ef444418',
-                border: `1px solid ${toast.kind === 'ok' ? '#22c55e55' : '#ef444455'}`,
-                color: toast.kind === 'ok' ? READY_COLOR : '#ef4444',
-                backdropFilter: 'blur(8px)',
-              }}
-            >
-              {toast.text}
-            </div>
+              {!loading && unplaced.length > 0 && (
+                <div className="px-3 py-2 border-t border-neutral-800/60">
+                  <p className="text-[9px] text-neutral-600 leading-relaxed">
+                    Drag a driver onto the map to set their home base
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </div>
+
+        {/* Save / confirm panel */}
+        {pendingSave && (
+          <div className="absolute bottom-4 left-64 right-4 z-30 bg-neutral-900/97 backdrop-blur border border-neutral-700 rounded-xl p-4 shadow-2xl" style={{ maxWidth: 480 }}>
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full" style={{ background: pendingSave.paymentReady ? READY_COLOR : PENDING_COLOR }} />
+                  <span className="text-sm font-semibold text-white">{pendingSave.name}</span>
+                </div>
+                <div className="text-[10px] text-neutral-500 mt-0.5 ml-4">
+                  {pendingSave.lat.toFixed(5)}, {pendingSave.lng.toFixed(5)}
+                </div>
+              </div>
+              <button onClick={() => setPendingSave(null)} className="text-neutral-600 hover:text-white text-sm ml-2">✕</button>
+            </div>
+
+            <div className="mb-3">
+              <label className="text-[10px] text-neutral-500 block mb-1">Area label</label>
+              <input
+                type="text"
+                value={savingLabel}
+                onChange={e => setSavingLabel(e.target.value)}
+                placeholder="e.g. East Atlanta, Midtown, College Park"
+                maxLength={50}
+                autoFocus
+                className="w-full bg-neutral-800 border border-neutral-700 rounded-md px-2.5 py-1.5 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
+              />
+            </div>
+
+            {pendingSave.phone ? (
+              <div className="mb-3 bg-neutral-800/60 rounded-lg p-2.5">
+                <div className="text-[9px] text-neutral-500 mb-1 uppercase tracking-wide">SMS to {pendingSave.phone}</div>
+                <div className="text-[11px] text-neutral-300 leading-relaxed">{smsPreview}</div>
+                <div className="text-[9px] text-neutral-600 mt-1">{smsPreview.length}/155 chars</div>
+              </div>
+            ) : (
+              <div className="mb-3 text-[10px] text-neutral-600 italic">No phone on file — SMS unavailable</div>
+            )}
+
+            <div className="flex gap-2">
+              {pendingSave.phone && (
+                <button
+                  onClick={() => handleSave(true)}
+                  disabled={saving}
+                  className="flex-1 py-2 rounded-lg text-xs font-semibold disabled:opacity-50"
+                  style={{ background: '#22c55e18', border: '1px solid #22c55e55', color: READY_COLOR }}
+                >
+                  {saving ? 'Saving…' : 'Save & Text Driver'}
+                </button>
+              )}
+              <button
+                onClick={() => handleSave(false)}
+                disabled={saving}
+                className="flex-1 py-2 rounded-lg text-xs font-semibold disabled:opacity-50"
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#ccc' }}
+              >
+                {saving ? 'Saving…' : 'Save Only'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Toast */}
+        {toast && (
+          <div
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-xl text-xs font-medium shadow-lg whitespace-nowrap"
+            style={{
+              background: toast.kind === 'ok' ? '#22c55e18' : '#ef444418',
+              border: `1px solid ${toast.kind === 'ok' ? '#22c55e55' : '#ef444455'}`,
+              color: toast.kind === 'ok' ? READY_COLOR : '#ef4444',
+              backdropFilter: 'blur(8px)',
+            }}
+          >
+            {toast.text}
+          </div>
+        )}
       </div>
 
       <style jsx global>{`
-        .mapboxgl-ctrl-logo { width: 60px !important; height: 16px !important; opacity: 0.1 !important; }
+        .mapboxgl-ctrl-logo { width: 60px !important; opacity: 0.1 !important; }
         .mapboxgl-ctrl-attrib { font-size: 8px !important; opacity: 0.1 !important; background: transparent !important; }
       `}</style>
     </div>
   );
 }
 
-function createMarkerEl(color: string, paymentReady: boolean): HTMLDivElement {
-  const el = document.createElement('div');
-  el.style.cssText = `
-    width: 28px; height: 28px; border-radius: 50%;
-    background: ${color}; border: 2.5px solid rgba(255,255,255,0.8);
-    cursor: grab; box-shadow: 0 0 10px ${color}55;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 13px; line-height: 1;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-    will-change: transform;
-  `;
-  el.textContent = paymentReady ? '✓' : '🚗';
-  el.setAttribute('data-color', color);
-  return el;
-}
-
-function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
+function Chip({ label, value, color }: { label: string; value: number; color?: string }) {
   return (
     <div className="flex items-center gap-1.5 bg-neutral-900 rounded-lg px-2.5 py-1.5 text-xs">
       {color && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />}
