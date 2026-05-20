@@ -34,9 +34,8 @@ interface PendingSave {
   paymentReady: boolean;
 }
 
-const READY_COLOR  = '#22c55e';
+const READY_COLOR   = '#22c55e';
 const PENDING_COLOR = '#f59e0b';
-const PLACE_COLOR  = '#3b82f6';
 
 async function reverseGeocode(lng: number, lat: number): Promise<string> {
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -52,70 +51,12 @@ async function reverseGeocode(lng: number, lat: number): Promise<string> {
   }
 }
 
-function DriverRow({
-  driver,
-  isPlacing,
-  onPlace,
-  onFocus,
-}: {
-  driver: DriverCoverage;
-  isPlacing: boolean;
-  onPlace: () => void;
-  onFocus: () => void;
-}) {
-  const hasHome = driver.homeLat != null;
-  return (
-    <div
-      className="flex items-start gap-2 px-3 py-2.5 border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors cursor-pointer"
-      onClick={hasHome ? onFocus : undefined}
-    >
-      {/* Payment badge */}
-      <div
-        className="mt-0.5 w-2 h-2 rounded-full flex-shrink-0"
-        style={{ background: driver.paymentReady ? READY_COLOR : PENDING_COLOR }}
-        title={driver.paymentReady ? 'Payment ready' : 'Stripe not complete'}
-      />
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs font-medium text-white truncate">{driver.name}</span>
-          {driver.handle && (
-            <span className="text-[10px] text-neutral-500 truncate">@{driver.handle}</span>
-          )}
-        </div>
-        {hasHome ? (
-          <div className="text-[10px] text-neutral-400 mt-0.5 truncate">
-            📍 {driver.homeLabel ?? `${driver.homeLat!.toFixed(3)}, ${driver.homeLng!.toFixed(3)}`}
-          </div>
-        ) : (
-          <div className="text-[10px] text-neutral-600 mt-0.5">No home set</div>
-        )}
-      </div>
-
-      {!hasHome && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onPlace(); }}
-          className="flex-shrink-0 text-[10px] font-semibold px-2 py-1 rounded transition-colors"
-          style={{
-            background: isPlacing ? `${PLACE_COLOR}25` : 'rgba(255,255,255,0.06)',
-            border: `1px solid ${isPlacing ? PLACE_COLOR : 'rgba(255,255,255,0.1)'}`,
-            color: isPlacing ? PLACE_COLOR : '#aaa',
-          }}
-        >
-          {isPlacing ? 'Placing…' : 'Place'}
-        </button>
-      )}
-    </div>
-  );
-}
-
 export default function CoverageClient() {
   const { selectedMarket } = useMarket();
 
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<unknown>(null);
   const markersRef = useRef<Map<string, unknown>>(new Map());
-  const ghostMarkerRef = useRef<unknown>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState(false);
 
@@ -125,23 +66,19 @@ export default function CoverageClient() {
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
 
-  const [placeMode, setPlaceMode] = useState<{
-    userId: string;
-    name: string;
-    phone: string | null;
-    paymentReady: boolean;
-  } | null>(null);
-  const placeModeRef = useRef(placeMode);
-  placeModeRef.current = placeMode;
+  // Drag state
+  const [draggingDriver, setDraggingDriver] = useState<DriverCoverage | null>(null);
+  const [isDragOverMap, setIsDragOverMap] = useState(false);
 
   const marketSlugRef = useRef<string>('atl');
+  marketSlugRef.current = (selectedMarket as { slug?: string } | null)?.slug ?? 'atl';
 
   const [pendingSave, setPendingSave] = useState<PendingSave | null>(null);
   const [savingLabel, setSavingLabel] = useState('');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
-  // Load drivers when market changes
+  // Load drivers
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -218,7 +155,7 @@ export default function CoverageClient() {
     }).flyTo({ center: [Number(m.centerLng), Number(m.centerLat)], zoom: 11, duration: 1200 });
   }, [selectedMarket, mapLoaded]);
 
-  // Sync home-location markers whenever drivers list or map changes
+  // Sync home-location markers
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -226,7 +163,7 @@ export default function CoverageClient() {
     if (!mapboxgl) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const map = mapRef.current as any;
-    const marketSlug = (selectedMarket as { slug?: string } | null)?.slug ?? 'atl';
+    const marketSlug = marketSlugRef.current;
 
     const activeIds = new Set<string>();
 
@@ -235,7 +172,6 @@ export default function CoverageClient() {
       activeIds.add(driver.userId);
 
       const color = driver.paymentReady ? READY_COLOR : PENDING_COLOR;
-      const icon = driver.paymentReady ? '✓' : '🚗';
       const existing = markersRef.current.get(driver.userId);
 
       if (existing) {
@@ -243,18 +179,9 @@ export default function CoverageClient() {
         const el = (existing as { getElement(): HTMLDivElement }).getElement();
         el.style.background = color;
         el.style.boxShadow = `0 0 10px ${color}55`;
-        el.textContent = icon;
+        el.setAttribute('data-color', color);
       } else {
-        const el = document.createElement('div');
-        el.style.cssText = `
-          width: 30px; height: 30px; border-radius: 50%;
-          background: ${color}; border: 2.5px solid rgba(255,255,255,0.8);
-          cursor: grab; box-shadow: 0 0 10px ${color}55;
-          display: flex; align-items: center; justify-content: center;
-          font-size: 14px; line-height: 1;
-          transition: transform 0.15s ease, box-shadow 0.15s ease;
-        `;
-        el.textContent = icon;
+        const el = createMarkerEl(color, driver.paymentReady);
         el.title = `${driver.name}${driver.homeLabel ? ` — ${driver.homeLabel}` : ''}`;
 
         const marker = new mapboxgl.Marker({ element: el, draggable: true })
@@ -273,10 +200,9 @@ export default function CoverageClient() {
           setSavingLabel(label);
         });
 
-        // Animate hover
         el.addEventListener('mouseenter', () => {
-          el.style.transform = 'scale(1.15)';
-          el.style.boxShadow = `0 0 18px ${color}90`;
+          el.style.transform = 'scale(1.2)';
+          el.style.boxShadow = `0 0 20px ${color}90`;
         });
         el.addEventListener('mouseleave', () => {
           el.style.transform = 'scale(1)';
@@ -287,7 +213,6 @@ export default function CoverageClient() {
       }
     }
 
-    // Remove markers for drivers no longer in the list or who lost their home
     for (const [id, marker] of markersRef.current) {
       if (!activeIds.has(id)) {
         (marker as { remove(): void }).remove();
@@ -296,77 +221,87 @@ export default function CoverageClient() {
     }
   }, [drivers, mapLoaded, selectedMarket]);
 
-  // Map click handler for place-mode (stable — only depends on mapLoaded)
-  useEffect(() => {
-    if (!mapRef.current || !mapLoaded) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const map = mapRef.current as any;
+  // ── Drag handlers ──
 
-    const handleClick = async (e: { lngLat: { lat: number; lng: number } }) => {
-      const mode = placeModeRef.current;
-      if (!mode) return;
+  function handleDragStart(e: React.DragEvent, driver: DriverCoverage) {
+    setDraggingDriver(driver);
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('text/plain', driver.userId);
 
-      const { lat, lng } = e.lngLat;
+    // Custom drag image: a small pill showing the driver name
+    const ghost = document.createElement('div');
+    ghost.style.cssText = `
+      position: fixed; top: -200px; left: 0;
+      background: #18181b; border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 20px; padding: 6px 12px 6px 8px;
+      color: #fff; font-size: 12px; font-weight: 600;
+      white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+    `;
+    const dot = document.createElement('span');
+    dot.style.cssText = `width:8px;height:8px;border-radius:50%;background:${driver.paymentReady ? READY_COLOR : PENDING_COLOR};flex-shrink:0;`;
+    ghost.appendChild(dot);
+    ghost.appendChild(document.createTextNode(driver.name));
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, 20);
+    requestAnimationFrame(() => { if (ghost.parentNode) ghost.parentNode.removeChild(ghost); });
+  }
 
-      if (ghostMarkerRef.current) {
-        (ghostMarkerRef.current as { remove(): void }).remove();
-        ghostMarkerRef.current = null;
-      }
+  function handleDragEnd() {
+    setDraggingDriver(null);
+    setIsDragOverMap(false);
+  }
 
-      const label = await reverseGeocode(lng, lat);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (map as any).getCanvas().style.cursor = '';
-      setPlaceMode(null);
+  function handleMapDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }
 
-      setPendingSave({ userId: mode.userId, name: mode.name, phone: mode.phone, lat, lng, label, market: marketSlugRef.current, paymentReady: mode.paymentReady });
-      setSavingLabel(label);
-    };
+  function handleMapDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    if (draggingDriver) setIsDragOverMap(true);
+  }
 
-    map.on('click', handleClick);
-    return () => map.off('click', handleClick);
-  }, [mapLoaded]);
-
-  // Keep marketSlugRef current so the stable map click handler always reads latest market
-  marketSlugRef.current = (selectedMarket as { slug?: string } | null)?.slug ?? 'atl';
-
-  // Cursor + ghost marker when placeMode changes
-  useEffect(() => {
-    if (!mapRef.current || !mapLoaded) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const map = mapRef.current as any;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mapboxgl = (window as any).mapboxgl;
-
-    if (placeMode && mapboxgl) {
-      map.getCanvas().style.cursor = 'crosshair';
-      if (!ghostMarkerRef.current) {
-        const el = document.createElement('div');
-        el.style.cssText = `
-          width: 30px; height: 30px; border-radius: 50%;
-          background: ${PLACE_COLOR}; border: 2.5px solid rgba(255,255,255,0.9);
-          display: flex; align-items: center; justify-content: center;
-          font-size: 14px; opacity: 0.75; pointer-events: none;
-          box-shadow: 0 0 16px ${PLACE_COLOR}80;
-        `;
-        el.textContent = '📍';
-        const center = map.getCenter();
-        ghostMarkerRef.current = new mapboxgl.Marker({ element: el })
-          .setLngLat([center.lng, center.lat])
-          .addTo(map);
-      }
-    } else {
-      map.getCanvas().style.cursor = '';
-      if (ghostMarkerRef.current) {
-        (ghostMarkerRef.current as { remove(): void }).remove();
-        ghostMarkerRef.current = null;
-      }
+  function handleMapDragLeave(e: React.DragEvent) {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragOverMap(false);
     }
-  }, [placeMode, mapLoaded]);
+  }
+
+  async function handleMapDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragOverMap(false);
+
+    const driver = draggingDriver;
+    if (!driver || !mapRef.current) return;
+    setDraggingDriver(null);
+
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lngLat = (mapRef.current as any).unproject([x, y]) as { lat: number; lng: number };
+    const label = await reverseGeocode(lngLat.lng, lngLat.lat);
+
+    setPendingSave({
+      userId: driver.userId,
+      name: driver.name,
+      phone: driver.phone,
+      lat: lngLat.lat,
+      lng: lngLat.lng,
+      label,
+      market: marketSlugRef.current,
+      paymentReady: driver.paymentReady,
+    });
+    setSavingLabel(label);
+  }
+
+  // ── Save ──
 
   const handleSave = useCallback(async (sendText: boolean) => {
     if (!pendingSave) return;
     setSaving(true);
-
     try {
       const label = savingLabel.trim() || pendingSave.label;
       const res = await fetch(`/api/admin/coverage/drivers/${pendingSave.userId}/home`, {
@@ -374,11 +309,9 @@ export default function CoverageClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lat: pendingSave.lat, lng: pendingSave.lng, label, sendText, market: pendingSave.market }),
       });
-
       if (!res.ok) throw new Error('Save failed');
       const data = await res.json() as { smsSent?: boolean };
 
-      // Update local state so markers effect re-runs
       setDrivers(prev => prev.map(d =>
         d.userId === pendingSave.userId
           ? { ...d, homeLat: pendingSave.lat, homeLng: pendingSave.lng, homeLabel: label }
@@ -387,7 +320,7 @@ export default function CoverageClient() {
 
       const msg = sendText && data.smsSent
         ? `Saved + texted ${pendingSave.name}`
-        : `Home location saved for ${pendingSave.name}`;
+        : `Home set for ${pendingSave.name}`;
       setToast({ kind: 'ok', text: msg });
       setPendingSave(null);
     } catch {
@@ -397,7 +330,6 @@ export default function CoverageClient() {
     }
   }, [pendingSave, savingLabel]);
 
-  // Auto-dismiss toast
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 3500);
@@ -411,7 +343,7 @@ export default function CoverageClient() {
     }).flyTo({ center: [driver.homeLng, driver.homeLat], zoom: 14, duration: 800 });
   }
 
-  // Filtered driver list
+  // Filtered list
   const filteredDrivers = drivers.filter(d => {
     if (search) {
       const q = search.toLowerCase();
@@ -437,72 +369,57 @@ export default function CoverageClient() {
     ? `What area you drive in? You'll get rides around ${(savingLabel || pendingSave.label).slice(0, 30)}. Change it: atl.hmucashride.com/driver/home fmoig @hmucashrides`
     : '';
 
-  const FILTER_OPTIONS: { key: Filter; label: string; count: number; color?: string }[] = [
-    { key: 'all',           label: 'All',         count: drivers.length },
-    { key: 'no_home',       label: 'No Home',     count: stats.noHome,       color: '#ef4444' },
-    { key: 'home_set',      label: 'Home Set',    count: stats.homeSet,      color: '#8b5cf6' },
-    { key: 'payment_ready', label: 'Pay Ready',   count: stats.paymentReady, color: READY_COLOR },
-    { key: 'not_ready',     label: 'Not Ready',   count: stats.total - stats.paymentReady, color: PENDING_COLOR },
+  const FILTERS: { key: Filter; label: string; color?: string }[] = [
+    { key: 'all',           label: 'All' },
+    { key: 'no_home',       label: 'No Home',   color: '#ef4444' },
+    { key: 'home_set',      label: 'Home Set',  color: '#8b5cf6' },
+    { key: 'payment_ready', label: 'Pay Ready', color: READY_COLOR },
+    { key: 'not_ready',     label: 'Pending',   color: PENDING_COLOR },
   ];
 
   if (mapError) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-neutral-500 text-sm">Map unavailable — check NEXT_PUBLIC_MAPBOX_TOKEN</p>
+      <div className="flex items-center justify-center h-64 text-neutral-500 text-sm">
+        Map unavailable — check NEXT_PUBLIC_MAPBOX_TOKEN
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 180px)', minHeight: '560px' }}>
 
       {/* Stats bar */}
-      <div className="flex gap-3 px-4 py-3 border-b border-neutral-800 flex-wrap">
-        <div className="flex items-center gap-2 bg-neutral-900 rounded-lg px-3 py-1.5 text-xs">
-          <span className="text-neutral-400">Total Drivers</span>
-          <span className="font-bold text-white">{stats.total}</span>
-        </div>
-        <div className="flex items-center gap-2 bg-neutral-900 rounded-lg px-3 py-1.5 text-xs">
-          <span className="w-2 h-2 rounded-full" style={{ background: '#8b5cf6' }} />
-          <span className="text-neutral-400">Home Set</span>
-          <span className="font-bold text-white">{stats.homeSet}</span>
-        </div>
-        <div className="flex items-center gap-2 bg-neutral-900 rounded-lg px-3 py-1.5 text-xs">
-          <span className="w-2 h-2 rounded-full" style={{ background: '#ef4444' }} />
-          <span className="text-neutral-400">No Home</span>
-          <span className="font-bold text-white">{stats.noHome}</span>
-        </div>
-        <div className="flex items-center gap-2 bg-neutral-900 rounded-lg px-3 py-1.5 text-xs">
-          <span className="w-2 h-2 rounded-full" style={{ background: READY_COLOR }} />
-          <span className="text-neutral-400">Pay Ready</span>
-          <span className="font-bold text-white">{stats.paymentReady}</span>
-        </div>
-        {/* Coverage bar */}
-        <div className="flex items-center gap-2 flex-1 min-w-[160px]">
-          <span className="text-[10px] text-neutral-500 whitespace-nowrap">Coverage</span>
-          <div className="flex-1 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+      <div className="flex gap-3 px-4 py-2.5 border-b border-neutral-800 flex-shrink-0 flex-wrap items-center">
+        <Stat label="Total" value={stats.total} />
+        <Stat label="Home Set" value={stats.homeSet} color="#8b5cf6" />
+        <Stat label="No Home" value={stats.noHome} color="#ef4444" />
+        <Stat label="Pay Ready" value={stats.paymentReady} color={READY_COLOR} />
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="text-[10px] text-neutral-500">Coverage</span>
+          <div className="w-24 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
             <div
-              className="h-full rounded-full transition-all duration-500"
+              className="h-full rounded-full"
               style={{
                 width: stats.total > 0 ? `${Math.round((stats.homeSet / stats.total) * 100)}%` : '0%',
                 background: 'linear-gradient(90deg, #8b5cf6, #22c55e)',
+                transition: 'width 0.5s ease',
               }}
             />
           </div>
-          <span className="text-[10px] text-neutral-400">
+          <span className="text-[10px] text-neutral-400 w-7">
             {stats.total > 0 ? Math.round((stats.homeSet / stats.total) * 100) : 0}%
           </span>
         </div>
       </div>
 
-      {/* Main area: sidebar + map */}
+      {/* Sidebar + Map */}
       <div className="flex flex-1 overflow-hidden">
 
         {/* Sidebar */}
-        <div className="w-72 flex-shrink-0 flex flex-col border-r border-neutral-800 bg-neutral-950">
+        <div className="w-64 flex-shrink-0 flex flex-col border-r border-neutral-800 overflow-hidden">
 
           {/* Search */}
-          <div className="px-3 py-2 border-b border-neutral-800">
+          <div className="px-3 py-2 border-b border-neutral-800 flex-shrink-0">
             <input
               type="text"
               placeholder="Search drivers…"
@@ -513,23 +430,29 @@ export default function CoverageClient() {
           </div>
 
           {/* Filter pills */}
-          <div className="flex gap-1 flex-wrap px-3 py-2 border-b border-neutral-800">
-            {FILTER_OPTIONS.map(opt => (
+          <div className="flex gap-1 flex-wrap px-3 py-2 border-b border-neutral-800 flex-shrink-0">
+            {FILTERS.map(f => (
               <button
-                key={opt.key}
-                onClick={() => setFilter(opt.key)}
+                key={f.key}
+                onClick={() => setFilter(f.key)}
                 className="text-[10px] font-medium px-2 py-0.5 rounded-full transition-all"
                 style={{
-                  background: filter === opt.key
-                    ? `${opt.color ?? '#ffffff'}20`
-                    : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${filter === opt.key ? (opt.color ?? '#fff') : 'rgba(255,255,255,0.08)'}`,
-                  color: filter === opt.key ? (opt.color ?? '#fff') : '#666',
+                  background: filter === f.key ? `${f.color ?? '#fff'}22` : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${filter === f.key ? (f.color ?? '#fff') : 'rgba(255,255,255,0.08)'}`,
+                  color: filter === f.key ? (f.color ?? '#fff') : '#777',
                 }}
               >
-                {opt.label} {opt.count > 0 && `(${opt.count})`}
+                {f.label}
               </button>
             ))}
+          </div>
+
+          {/* Drag hint */}
+          <div className="px-3 py-2 border-b border-neutral-800 flex-shrink-0">
+            <p className="text-[10px] text-neutral-600 leading-relaxed">
+              Drag a driver onto the map to set their home base.
+              Drag existing pins to move them.
+            </p>
           </div>
 
           {/* Driver list */}
@@ -538,104 +461,131 @@ export default function CoverageClient() {
               <div className="px-4 py-6 text-center text-neutral-600 text-xs">Loading drivers…</div>
             )}
             {!loading && filteredDrivers.length === 0 && (
-              <div className="px-4 py-6 text-center text-neutral-600 text-xs">No drivers match this filter</div>
+              <div className="px-4 py-6 text-center text-neutral-600 text-xs">No drivers match</div>
             )}
             {!loading && filteredDrivers.map(driver => (
-              <DriverRow
+              <div
                 key={driver.userId}
-                driver={driver}
-                isPlacing={placeMode?.userId === driver.userId}
-                onPlace={() => {
-                  if (placeMode?.userId === driver.userId) {
-                    setPlaceMode(null);
-                  } else {
-                    setPlaceMode({ userId: driver.userId, name: driver.name, phone: driver.phone, paymentReady: driver.paymentReady });
-                    setPendingSave(null);
-                  }
-                }}
-                onFocus={() => focusDriver(driver)}
-              />
+                draggable
+                onDragStart={e => handleDragStart(e, driver)}
+                onDragEnd={handleDragEnd}
+                onClick={() => focusDriver(driver)}
+                className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-800/60 hover:bg-neutral-800/40 transition-colors select-none"
+                style={{ cursor: driver.homeLat != null ? 'grab' : 'grab', opacity: draggingDriver?.userId === driver.userId ? 0.4 : 1 }}
+              >
+                {/* Drag handle */}
+                <span className="text-neutral-600 text-xs flex-shrink-0" style={{ cursor: 'grab' }}>⠿</span>
+
+                {/* Payment dot */}
+                <span
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ background: driver.paymentReady ? READY_COLOR : PENDING_COLOR }}
+                  title={driver.paymentReady ? 'Payment ready' : 'Stripe pending'}
+                />
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1 min-w-0">
+                    <span className="text-xs font-medium text-white truncate">{driver.name}</span>
+                    {driver.handle && (
+                      <span className="text-[10px] text-neutral-500 truncate">@{driver.handle}</span>
+                    )}
+                  </div>
+                  {driver.homeLat != null ? (
+                    <div className="text-[10px] text-neutral-500 truncate mt-0.5">
+                      📍 {driver.homeLabel ?? `${driver.homeLat.toFixed(3)}, ${driver.homeLng!.toFixed(3)}`}
+                    </div>
+                  ) : (
+                    <div className="text-[10px] text-neutral-700 mt-0.5">No home — drag to set</div>
+                  )}
+                </div>
+              </div>
             ))}
           </div>
         </div>
 
-        {/* Map area */}
-        <div className="flex-1 relative">
-          <div ref={mapContainer} className="absolute inset-0" />
+        {/* Map */}
+        <div
+          className="flex-1 relative overflow-hidden"
+          onDragOver={handleMapDragOver}
+          onDragEnter={handleMapDragEnter}
+          onDragLeave={handleMapDragLeave}
+          onDrop={handleMapDrop}
+        >
+          <div ref={mapContainer} style={{ position: 'absolute', inset: 0 }} />
 
-          {/* Place mode instruction overlay */}
-          {placeMode && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 bg-neutral-900/95 backdrop-blur border border-blue-500/40 rounded-xl px-4 py-2.5 shadow-lg">
-              <span className="text-[11px] text-blue-300 font-medium">
-                Click the map to set <span className="text-white font-bold">{placeMode.name}</span>&#39;s home base
-              </span>
-              <button
-                onClick={() => setPlaceMode(null)}
-                className="text-neutral-500 hover:text-white text-xs ml-1"
+          {/* Drop zone overlay */}
+          {isDragOverMap && draggingDriver && (
+            <div
+              className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none"
+              style={{
+                background: 'rgba(59,130,246,0.08)',
+                border: '3px dashed rgba(59,130,246,0.5)',
+                borderRadius: 2,
+              }}
+            >
+              <div
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold"
+                style={{ background: 'rgba(15,15,15,0.9)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.4)', backdropFilter: 'blur(8px)' }}
               >
-                ✕
-              </button>
+                <span>📍</span>
+                <span>Drop to set home base for {draggingDriver.name}</span>
+              </div>
             </div>
           )}
 
           {/* Legend */}
-          <div className="absolute top-4 right-4 bg-neutral-900/90 backdrop-blur rounded-lg p-2.5 text-[10px] space-y-1.5 z-10">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full border-2" style={{ background: READY_COLOR, borderColor: 'rgba(255,255,255,0.5)' }} />
-              <span className="text-neutral-400">Pay Ready</span>
+          {!isDragOverMap && (
+            <div className="absolute top-3 right-3 z-10 bg-neutral-900/90 backdrop-blur rounded-lg p-2.5 text-[10px] space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: READY_COLOR }} />
+                <span className="text-neutral-400">Pay Ready</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: PENDING_COLOR }} />
+                <span className="text-neutral-400">Stripe Pending</span>
+              </div>
+              <div className="text-neutral-600 pt-0.5 border-t border-neutral-800">Drag pin to update</div>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full border-2" style={{ background: PENDING_COLOR, borderColor: 'rgba(255,255,255,0.5)' }} />
-              <span className="text-neutral-400">Stripe Pending</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-neutral-500 italic">Drag</span>
-              <span className="text-neutral-400">to update</span>
-            </div>
-          </div>
+          )}
 
-          {/* Confirm / save panel */}
+          {/* Confirm panel */}
           {pendingSave && (
             <div className="absolute bottom-4 left-4 right-4 z-20 bg-neutral-900/97 backdrop-blur border border-neutral-700 rounded-xl p-4 shadow-2xl">
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <div className="text-sm font-semibold text-white">{pendingSave.name}</div>
-                  <div className="text-[10px] text-neutral-500 mt-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: pendingSave.paymentReady ? READY_COLOR : PENDING_COLOR }} />
+                    <span className="text-sm font-semibold text-white">{pendingSave.name}</span>
+                  </div>
+                  <div className="text-[10px] text-neutral-500 mt-0.5 ml-4">
                     {pendingSave.lat.toFixed(5)}, {pendingSave.lng.toFixed(5)}
                   </div>
                 </div>
-                <button
-                  onClick={() => { setPendingSave(null); setPlaceMode(null); }}
-                  className="text-neutral-600 hover:text-white text-sm"
-                >
-                  ✕
-                </button>
+                <button onClick={() => setPendingSave(null)} className="text-neutral-600 hover:text-white text-sm ml-2">✕</button>
               </div>
 
-              {/* Label input */}
+              {/* Label */}
               <div className="mb-3">
-                <label className="text-[10px] text-neutral-500 block mb-1">Neighborhood / area label</label>
+                <label className="text-[10px] text-neutral-500 block mb-1">Area label (editable)</label>
                 <input
                   type="text"
                   value={savingLabel}
                   onChange={e => setSavingLabel(e.target.value)}
-                  placeholder="e.g. East Atlanta, Midtown"
+                  placeholder="e.g. East Atlanta, Midtown, College Park"
                   maxLength={50}
                   className="w-full bg-neutral-800 border border-neutral-700 rounded-md px-2.5 py-1.5 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
+                  autoFocus
                 />
               </div>
 
               {/* SMS preview */}
-              {pendingSave.phone && (
+              {pendingSave.phone ? (
                 <div className="mb-3 bg-neutral-800/60 rounded-lg p-2.5">
-                  <div className="text-[9px] text-neutral-500 mb-1 uppercase tracking-wide">SMS preview</div>
-                  <div className="text-[10px] text-neutral-300 leading-relaxed">{smsPreview}</div>
-                  <div className="text-[9px] text-neutral-600 mt-1">
-                    {smsPreview.length}/155 chars · to {pendingSave.phone}
-                  </div>
+                  <div className="text-[9px] text-neutral-500 mb-1 uppercase tracking-wide">SMS to {pendingSave.phone}</div>
+                  <div className="text-[11px] text-neutral-300 leading-relaxed">{smsPreview}</div>
+                  <div className="text-[9px] text-neutral-600 mt-1">{smsPreview.length} / 155 chars</div>
                 </div>
-              )}
-              {!pendingSave.phone && (
+              ) : (
                 <div className="mb-3 text-[10px] text-neutral-600 italic">No phone on file — SMS unavailable</div>
               )}
 
@@ -645,8 +595,8 @@ export default function CoverageClient() {
                   <button
                     onClick={() => handleSave(true)}
                     disabled={saving}
-                    className="flex-1 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
-                    style={{ background: '#22c55e20', border: '1px solid #22c55e60', color: '#22c55e' }}
+                    className="flex-1 py-2 rounded-lg text-xs font-semibold disabled:opacity-50"
+                    style={{ background: '#22c55e18', border: '1px solid #22c55e55', color: READY_COLOR }}
                   >
                     {saving ? 'Saving…' : 'Save & Text Driver'}
                   </button>
@@ -654,8 +604,8 @@ export default function CoverageClient() {
                 <button
                   onClick={() => handleSave(false)}
                   disabled={saving}
-                  className="flex-1 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
-                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#ccc' }}
+                  className="flex-1 py-2 rounded-lg text-xs font-semibold disabled:opacity-50"
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#ccc' }}
                 >
                   {saving ? 'Saving…' : 'Save Only'}
                 </button>
@@ -666,11 +616,11 @@ export default function CoverageClient() {
           {/* Toast */}
           {toast && (
             <div
-              className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-xl text-xs font-medium shadow-lg transition-all"
+              className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-xl text-xs font-medium shadow-lg"
               style={{
-                background: toast.kind === 'ok' ? '#22c55e20' : '#ef444420',
-                border: `1px solid ${toast.kind === 'ok' ? '#22c55e60' : '#ef444460'}`,
-                color: toast.kind === 'ok' ? '#22c55e' : '#ef4444',
+                background: toast.kind === 'ok' ? '#22c55e18' : '#ef444418',
+                border: `1px solid ${toast.kind === 'ok' ? '#22c55e55' : '#ef444455'}`,
+                color: toast.kind === 'ok' ? READY_COLOR : '#ef4444',
                 backdropFilter: 'blur(8px)',
               }}
             >
@@ -680,12 +630,36 @@ export default function CoverageClient() {
         </div>
       </div>
 
-      {/* Mapbox attribution scaling */}
       <style jsx global>{`
-        .mapboxgl-ctrl-logo { width: 60px !important; height: 16px !important; opacity: 0.12 !important; }
-        .mapboxgl-ctrl-attrib { font-size: 8px !important; opacity: 0.12 !important; background: transparent !important; }
-        .mapboxgl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-left { opacity: 0.2 !important; }
+        .mapboxgl-ctrl-logo { width: 60px !important; height: 16px !important; opacity: 0.1 !important; }
+        .mapboxgl-ctrl-attrib { font-size: 8px !important; opacity: 0.1 !important; background: transparent !important; }
       `}</style>
+    </div>
+  );
+}
+
+function createMarkerEl(color: string, paymentReady: boolean): HTMLDivElement {
+  const el = document.createElement('div');
+  el.style.cssText = `
+    width: 28px; height: 28px; border-radius: 50%;
+    background: ${color}; border: 2.5px solid rgba(255,255,255,0.8);
+    cursor: grab; box-shadow: 0 0 10px ${color}55;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; line-height: 1;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    will-change: transform;
+  `;
+  el.textContent = paymentReady ? '✓' : '🚗';
+  el.setAttribute('data-color', color);
+  return el;
+}
+
+function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
+  return (
+    <div className="flex items-center gap-1.5 bg-neutral-900 rounded-lg px-2.5 py-1.5 text-xs">
+      {color && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />}
+      <span className="text-neutral-500">{label}</span>
+      <span className="font-bold text-white">{value}</span>
     </div>
   );
 }
