@@ -159,6 +159,11 @@ export default function BlastFormClient() {
   // Set once the draft is persisted server-side; passed through the auth URL chain
   // so blast-handoff-client can fetch the draft even when localStorage is empty.
   const [serverDraftId, setServerDraftId] = useState<string | undefined>(undefined);
+  // In-app browser: after a successful server POST, show a "take this URL to
+  // Safari" screen instead of navigating away (which drops params).
+  const [inAppSwitchUrl, setInAppSwitchUrl] = useState<string | null>(null);
+  const [inAppSwitchCopied, setInAppSwitchCopied] = useState(false);
+  const [inAppPostFailed, setInAppPostFailed] = useState(false);
   const [draft, setDraft] = useState<FormDraft>(EMPTY_DRAFT);
   const [submitting, setSubmitting] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
@@ -337,6 +342,8 @@ export default function BlastFormClient() {
       return;
     }
     setSubmitting(true);
+    setInAppPostFailed(false);
+
     const blastDraft: BlastDraft = {
       pickup: {
         lat: draft.pickup.latitude,
@@ -363,9 +370,50 @@ export default function BlastFormClient() {
     };
     saveBlastDraft(blastDraft);
 
-    // Persist server-side so the draft survives a browser switch
-    // (in-app browser → Safari/Chrome). Best-effort: localStorage is the
-    // fallback if this fails.
+    // ─── In-app browser + not signed in: special path ──────────────────────
+    // Don't navigate to sign-up from inside the in-app browser — params can be
+    // silently dropped during the browser-switch. Instead:
+    //   1. Save draft server-side (retry up to 3x so we're sure it's there)
+    //   2. Build the full sign-up URL with blastDraftId baked in
+    //   3. Show a "take this to Safari" screen in-situ so the user copies a URL
+    //      that is guaranteed to carry the draft ID through to blast-handoff-client
+    if (inApp && isLoaded && !isSignedIn) {
+      let remoteDraftId: string | undefined;
+      for (let attempt = 0; attempt < 3 && !remoteDraftId; attempt++) {
+        try {
+          if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 500));
+          const res = await fetch('/api/public/blast-draft', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(blastDraft),
+          });
+          if (res.ok) {
+            const data = await res.json() as { draftId: string };
+            remoteDraftId = data.draftId;
+            setServerDraftId(remoteDraftId);
+          }
+        } catch { /* retry */ }
+      }
+      if (!remoteDraftId) {
+        setInAppPostFailed(true);
+        setSubmitting(false);
+        return;
+      }
+      const params = new URLSearchParams({
+        type: 'rider',
+        draft: 'blast',
+        blastDraftId: remoteDraftId,
+        returnTo: '/auth-callback/blast',
+      });
+      setInAppSwitchUrl(`${window.location.origin}/sign-up?${params}`);
+      setSubmitting(false);
+      return;
+    }
+
+    // ─── Standard path (direct browser or signed-in) ───────────────────────
+    // Persist server-side best-effort so blast-handoff has a fallback even if
+    // the user ends up on a different device. Failure is non-fatal here because
+    // localStorage (saved above) is available in the same browser session.
     let remoteDraftId: string | undefined;
     try {
       const res = await fetch('/api/public/blast-draft', {
@@ -400,7 +448,7 @@ export default function BlastFormClient() {
     }
 
     navigateToHandoff(remoteDraftId);
-  }, [draft, isLoaded, isSignedIn, navigateToHandoff, submitting]);
+  }, [draft, inApp, isLoaded, isSignedIn, navigateToHandoff, submitting]);
 
   // ─── Render step body ─────────────────────────────────────────────────────
 
@@ -666,6 +714,14 @@ export default function BlastFormClient() {
 
         {/* Footer CTA */}
         <div style={{ paddingTop: 16 }}>
+          {inAppPostFailed && (
+            <p style={{
+              fontSize: 13, color: '#FF6B6B', textAlign: 'center',
+              margin: '0 0 10px', lineHeight: 1.4,
+            }}>
+              Couldn&apos;t save your ride details. Check your connection and try again.
+            </p>
+          )}
           <PrimaryCta
             onClick={advance}
             disabled={!stepValid}
@@ -676,6 +732,86 @@ export default function BlastFormClient() {
           </PrimaryCta>
         </div>
       </div>
+
+      {/* In-app browser handoff — slides up after server draft is confirmed saved.
+          The URL baked into this screen is guaranteed to carry blastDraftId so
+          blast-handoff-client can restore the draft in Safari/Chrome. */}
+      <AnimatePresence>
+        {inAppSwitchUrl && (
+          <motion.div
+            initial={{ y: '100%', opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: '100%', opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+            style={{
+              position: 'absolute', inset: 0,
+              background: '#101010',
+              borderRadius: 'inherit',
+              padding: '32px 24px 28px',
+              display: 'flex', flexDirection: 'column', gap: 20,
+              zIndex: 10,
+            }}
+          >
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>🔗</div>
+              <div style={{ fontSize: 28, fontFamily: "var(--font-display,'Bebas Neue',sans-serif)", lineHeight: 1, marginBottom: 8 }}>
+                ONE MORE STEP
+              </div>
+              <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', margin: 0, lineHeight: 1.5 }}>
+                Your ride details are saved. Open this link in Safari or Chrome to sign up and send your blast — it&apos;ll have everything ready.
+              </p>
+            </div>
+
+            <div style={{
+              background: '#1a1a1a', borderRadius: 12,
+              border: '1px solid rgba(255,255,255,0.08)',
+              padding: '10px 14px',
+              fontSize: 11, color: '#555',
+              fontFamily: "var(--font-mono,'Space Mono',monospace)",
+              wordBreak: 'break-all', lineHeight: 1.4,
+            }}>
+              {inAppSwitchUrl.replace(/^https?:\/\//, '')}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 'auto' }}>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.97 }}
+                onClick={() => {
+                  const isAndroid = /Android/i.test(navigator.userAgent);
+                  if (isAndroid) {
+                    try {
+                      const u = new URL(inAppSwitchUrl);
+                      window.location.href = `intent://${u.host}${u.pathname}${u.search}#Intent;scheme=https;end`;
+                    } catch { /* fallback to copy */ }
+                  }
+                  navigator.clipboard.writeText(inAppSwitchUrl).catch(() => {
+                    const el = document.createElement('input');
+                    el.value = inAppSwitchUrl;
+                    document.body.appendChild(el);
+                    el.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(el);
+                  });
+                  setInAppSwitchCopied(true);
+                  setTimeout(() => setInAppSwitchCopied(false), 4000);
+                }}
+                style={{
+                  width: '100%', padding: '16px 24px', borderRadius: 100,
+                  background: '#00E676', color: '#080808',
+                  fontSize: 16, fontWeight: 700, border: 'none', cursor: 'pointer',
+                  fontFamily: "var(--font-body,'DM Sans',sans-serif)",
+                }}
+              >
+                {inAppSwitchCopied ? '✓ Link copied — paste in your browser' : 'Open in Safari / Chrome'}
+              </motion.button>
+              <p style={{ fontSize: 12, color: '#555', textAlign: 'center', margin: 0, lineHeight: 1.5 }}>
+                Tap ⋯ in the top right → &ldquo;Open in Browser&rdquo; — or paste the link above in Safari
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Cancel-existing-blast confirmation — slides up over the form */}
       <AnimatePresence>
