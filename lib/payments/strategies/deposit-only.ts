@@ -214,14 +214,18 @@ export class DepositOnlyStrategy implements PricingStrategy {
     // ── Money-conservation math ──────────────────────────────────────
     // Rider pays = visibleDeposit + sum(succeeded extra subtotals) + cash
     //            = agreedPrice + sum(succeeded extra subtotals)
-    // Of which:
-    //   - depositReceived: driver's Connect from the deposit capture
-    //   - extrasPaid:      driver's Connect from per-extra captures
-    //   - cashReceived:    driver's cash on arrival
-    //   - hmuSplit (NET):  platform's app fee minus Stripe processing
-    //   - stripeFee:       Stripe's slice (carved out of the app fee)
-    // Identity:
-    //   depositReceived + extrasPaid + cashReceived + hmuSplit + stripeFee = total
+    //
+    // Driver receives:
+    //   depositNet   = visibleDeposit − platformFeeAmount   (Stripe Connect payout)
+    //   extrasNet    = extrasDriverAmount                   (extras already net of fees)
+    //   cashReceived = agreedPrice − visibleDeposit         (0-fee Pull Up Cash)
+    //   youEarned    = depositNet + extrasNet + cashReceived
+    //
+    // Fee display (deposit-only; extras fees are baked into extrasDriverAmount):
+    //   hmuFeePaid    = platformFeeAmount − stripeFeeAmount  (HMU's net cut)
+    //   stripeFeePaid = stripeFeeAmount                     (Stripe's processing slice)
+    //   hmuFeePaid + stripeFeePaid = platformFeeAmount
+    //   → visibleDeposit − hmuFeePaid − stripeFeePaid = depositNet ✓
     // ─────────────────────────────────────────────────────────────────
     const succeededExtrasSubtotal = round2(
       input.extras
@@ -229,33 +233,34 @@ export class DepositOnlyStrategy implements PricingStrategy {
         .reduce((s, e) => s + e.subtotal, 0)
     );
 
-    const depositReceived = round2(input.driverPayoutAmount);
-    const extrasPaid = round2(input.extrasDriverAmount);
-    const hmuSplitGross = round2(input.platformFeeAmount + input.extrasPlatformFee);
-    const stripeFee = round2(input.stripeFeeAmount + input.extrasStripeFee);
-    const hmuSplitNet = round2(Math.max(0, hmuSplitGross - stripeFee));
+    const depositNet = round2(input.driverPayoutAmount);
+    const extrasNet = round2(input.extrasDriverAmount);
+    const hmuFeePaid = round2(Math.max(0, input.platformFeeAmount - input.stripeFeeAmount));
+    const stripeFeePaid = round2(input.stripeFeeAmount);
     const cashReceived = round2(Math.max(0, input.agreedPrice - input.visibleDeposit));
 
-    const youEarned = round2(depositReceived + extrasPaid + cashReceived);
+    const youEarned = round2(depositNet + extrasNet + cashReceived);
     const total = round2(input.agreedPrice + succeededExtrasSubtotal);
+
+    const driverRows: BreakdownResult['driverRows'] = [
+      { label: 'Deposit', value: round2(input.visibleDeposit), role: 'amount' },
+      { label: 'Pull Up Cash', value: cashReceived, role: 'amount' },
+      ...(extrasNet > 0 ? [{ label: 'HMU Extras', value: extrasNet, role: 'amount' as const }] : []),
+      { label: 'HMU Fees Paid', value: hmuFeePaid, role: 'fee' },
+      { label: 'Stripe Fees Paid', value: stripeFeePaid, role: 'fee' },
+      { label: 'Total Earnings', value: youEarned, role: 'total' },
+    ];
 
     return {
       modeKey: this.modeKey,
       isCash: false,
       youEarned,
       total,
-      driverRows: [
-        { label: 'Deposit Received', value: depositReceived, role: 'amount' },
-        { label: 'Extras Paid', value: extrasPaid, role: 'amount' },
-        { label: 'HMU Split', value: hmuSplitNet, role: 'muted' },
-        { label: 'Stripe Fee', value: stripeFee, role: 'muted' },
-        { label: 'Cash Received', value: cashReceived, role: 'amount' },
-        { label: 'Total', value: total, role: 'total' },
-      ],
+      driverRows,
       riderRows: [
-        { label: 'Deposit Paid', value: round2(input.visibleDeposit), role: 'amount' },
-        { label: 'Extras Paid', value: succeededExtrasSubtotal, role: 'amount' },
-        { label: 'Cash Paid', value: cashReceived, role: 'amount' },
+        { label: 'Deposit', value: round2(input.visibleDeposit), role: 'amount' },
+        { label: 'HMU Extras', value: succeededExtrasSubtotal, role: 'amount' },
+        { label: 'Cash to Driver', value: cashReceived, role: 'amount' },
         { label: 'Total', value: total, role: 'total' },
       ],
       extras: input.extras,

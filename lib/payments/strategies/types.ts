@@ -76,8 +76,14 @@ export interface BreakdownInput {
 export interface BreakdownRow {
   label: string;
   value: number; // dollars
-  /** Visual treatment. 'total' = grand total at the bottom. */
-  role: 'amount' | 'muted' | 'total';
+  /**
+   * Visual treatment.
+   * 'amount' = positive earnings line (white)
+   * 'muted'  = informational/secondary line (gray)
+   * 'fee'    = cost/deduction line — rendered with −$ prefix in orange
+   * 'total'  = grand total at the bottom (bold)
+   */
+  role: 'amount' | 'muted' | 'fee' | 'total';
 }
 
 export interface BreakdownResult {

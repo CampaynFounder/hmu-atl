@@ -88,8 +88,8 @@ interface RideData {
     isCash: boolean;
     youEarned: number;
     total: number;
-    driverRows: { label: string; value: number; role: 'amount' | 'muted' | 'total' }[];
-    riderRows: { label: string; value: number; role: 'amount' | 'muted' | 'total' }[];
+    driverRows: { label: string; value: number; role: 'amount' | 'muted' | 'fee' | 'total' }[];
+    riderRows: { label: string; value: number; role: 'amount' | 'muted' | 'fee' | 'total' }[];
     extras: { id: string; name: string; subtotal: number; driverAmount: number; platformFee: number; status: string; chargeStatus: string | null }[];
   } | null;
   // ── Cancel-request flow (rider-cancel-after-OTW) ──
@@ -101,6 +101,9 @@ interface RideData {
   cancelRequestReason: string | null;
   cancelResolution: string | null;
   visibleDeposit: number;
+  pricingModeKey: string;
+  riderPaymentBrand: string | null;
+  riderPaymentLast4: string | null;
   // Linked broadcast/direct-booking post id. Used after cancel so the
   // rider can opt to re-broadcast to other drivers without recreating
   // the request from scratch.
@@ -3886,8 +3889,10 @@ export default function ActiveRideClient({
                 <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.white }}>${Number(ride.agreedPrice || 0).toFixed(2)}</span>
               </div>
 
-              {/* Extras with remove buttons */}
-              {confirmGrouped.length > 0 && (
+              {/* Extras list — deposit_only hides this here since extras are already
+                  Stripe-charged and shown struck-through in the card section below.
+                  Legacy full-fare keeps the remove buttons (capture not yet taken). */}
+              {confirmGrouped.length > 0 && ride.pricingModeKey !== 'deposit_only' && (
                 <>
                   <div style={{ fontSize: 10, color: COLORS.orange, textTransform: 'uppercase', letterSpacing: 1.5, fontFamily: FONTS.mono, marginTop: 8, marginBottom: 4 }}>
                     Extras — tap to remove
@@ -3903,27 +3908,83 @@ export default function ActiveRideClient({
                 </>
               )}
 
-              {/* Total line */}
-              <div style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                paddingTop: 10, marginTop: 10,
-                borderTop: '1px solid rgba(255,255,255,0.1)',
-              }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: COLORS.white }}>
-                  Total charged
-                </span>
-                <span style={{
-                  fontFamily: FONTS.mono, fontSize: 22, fontWeight: 700, color: COLORS.green,
+              {ride.pricingModeKey === 'deposit_only' ? (() => {
+                const depositAmt = Number(ride.visibleDeposit || 0);
+                const cashDue = Math.max(0, Number(ride.agreedPrice || 0) - depositAmt);
+                const brand = ride.riderPaymentBrand;
+                const last4 = ride.riderPaymentLast4;
+                const pmLabel = brand
+                  ? brand === 'cashapp' ? 'Cash App Pay'
+                  : brand === 'visa' ? `Visa ••••${last4 || ''}`
+                  : brand === 'mastercard' ? `Mastercard ••••${last4 || ''}`
+                  : brand === 'amex' ? `Amex ••••${last4 || ''}`
+                  : brand === 'discover' ? `Discover ••••${last4 || ''}`
+                  : last4 ? `Card ••••${last4}` : 'Card'
+                  : last4 ? `Card ••••${last4}` : 'Card';
+                const totalCardCharged = depositAmt + confirmExtras;
+                return (
+                  <>
+                    <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '10px 0' }} />
+                    {/* Section header: already charged to card */}
+                    <div style={{ fontSize: 10, color: COLORS.gray, textTransform: 'uppercase', letterSpacing: 1.2, fontFamily: FONTS.mono, marginBottom: 4 }}>
+                      Paid via {pmLabel}
+                    </div>
+                    {/* Deposit Paid — struck through (already captured) */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' }}>
+                      <span style={{ fontSize: 13, color: COLORS.gray }}>Deposit Paid</span>
+                      <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.gray, textDecoration: 'line-through' }}>${depositAmt.toFixed(2)}</span>
+                    </div>
+                    {/* Extras Paid — each confirmed extra, struck through */}
+                    {confirmGrouped.map(g => (
+                      <div key={g.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' }}>
+                        <span style={{ fontSize: 13, color: COLORS.gray }}>{g.name}{g.qty > 1 ? ` ×${g.qty}` : ''} Paid</span>
+                        <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.gray, textDecoration: 'line-through' }}>${g.total.toFixed(2)}</span>
+                      </div>
+                    ))}
+                    {/* Cash Due Now — what they hand the driver */}
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '8px 10px', marginTop: 8,
+                      background: 'rgba(255,193,7,0.10)', borderRadius: 10,
+                      border: '1px solid rgba(255,193,7,0.25)',
+                    }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#FFC107' }}>
+                        💵 Cash Due Now
+                      </span>
+                      <span style={{ fontFamily: FONTS.mono, fontSize: 20, fontWeight: 800, color: '#FFC107' }}>${cashDue.toFixed(2)}</span>
+                    </div>
+                  </>
+                );
+              })() : (
+                /* Legacy full-fare: full amount captured on card. */
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  paddingTop: 10, marginTop: 10,
+                  borderTop: '1px solid rgba(255,255,255,0.1)',
                 }}>
-                  ${confirmTotal.toFixed(2)}
-                </span>
-              </div>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: COLORS.white }}>
+                    Total charged
+                  </span>
+                  <span style={{
+                    fontFamily: FONTS.mono, fontSize: 22, fontWeight: 700, color: COLORS.green,
+                  }}>
+                    ${confirmTotal.toFixed(2)}
+                  </span>
+                </div>
+              )}
             </div>
 
-            {/* Confirm button — shows amount. GPS is required at tap to
-                supplement the rider's explicit consent for chargeback defense. */}
+            {/* Confirm button — for deposit_only the label shows the CASH amount
+                the rider is handing the driver, not the deposit (already secured).
+                Subtitle reminds them the deposit will be captured on their card.
+                GPS required at tap for chargeback defense. */}
             <ActionButton
-              label={`I'm In — Pay $${confirmTotal.toFixed(2)}`}
+              label={ride.pricingModeKey === 'deposit_only'
+                ? `I'm In — $${Math.max(0, Number(ride.agreedPrice || 0) - Number(ride.visibleDeposit || 0)).toFixed(2)} Cash Paid`
+                : `I'm In — Pay $${confirmTotal.toFixed(2)}`}
+              subtitle={ride.pricingModeKey === 'deposit_only'
+                ? `$${(Number(ride.visibleDeposit || 0) + confirmExtras).toFixed(2)} total charged to card`
+                : undefined}
               color={COLORS.green}
               onPress={async () => {
                 setLoading(true);
@@ -4082,10 +4143,25 @@ export default function ActiveRideClient({
 
         {/* Driver's breakdown — driverRows from the ride's PricingStrategy. */}
         {b && (
-          <BreakdownCard
-            rows={b.driverRows}
-            extrasFailed={b.extras.filter(e => e.chargeStatus === 'failed').length}
-          />
+          <>
+            <BreakdownCard
+              rows={b.driverRows}
+              extrasFailed={b.extras.filter(e => e.chargeStatus === 'failed').length}
+            />
+            {b.modeKey === 'deposit_only' && !ride.isCash && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '10px 14px', borderRadius: 12,
+                background: 'rgba(255,193,7,0.08)',
+                border: '1px solid rgba(255,193,7,0.2)',
+              }}>
+                <span style={{ fontSize: 18 }}>💵</span>
+                <span style={{ fontSize: 12, color: '#FFC107', lineHeight: 1.4 }}>
+                  <strong>Pull Up Cash is 0-fee</strong> — you keep every dollar. Fees only apply to the deposit.
+                </span>
+              </div>
+            )}
+          </>
         )}
 
         {/* Ride analytics summary */}
@@ -4350,19 +4426,20 @@ export default function ActiveRideClient({
           {reviewSubmitting ? 'Confirming...' : hasDisputes ? 'CONFIRM & SUBMIT DISPUTES' : 'CONFIRM & PAY'}
         </button>
 
-        {/* Dispute entire ride link */}
+        {/* Dispute entire ride — low-prominence to reduce frivolous disputes */}
         {disputeWindowRemaining !== null && disputeWindowRemaining > 0 && (
           <button
             onClick={handleDispute}
             disabled={loading}
             style={{
-              width: '100%', padding: 12, borderRadius: 12,
-              border: `1px solid ${COLORS.red}`, backgroundColor: 'transparent',
-              color: COLORS.red, fontFamily: FONTS.body, fontSize: 14, fontWeight: 600,
-              cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1,
+              background: 'none', border: 'none', padding: '4px 0',
+              color: '#666', fontFamily: FONTS.body, fontSize: 12,
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.4 : 0.7,
+              textDecoration: 'underline', width: '100%', textAlign: 'center',
             }}
           >
-            Nah fam, that&apos;s not right
+            Report an issue
           </button>
         )}
       </div>
@@ -4404,26 +4481,20 @@ export default function ActiveRideClient({
 
         {renderRatingCards()}
 
-        {/* Dispute button */}
+        {/* Dispute link — intentionally low-prominence to reduce frivolous disputes */}
         {disputeWindowRemaining !== null && disputeWindowRemaining > 0 && (
           <button
             onClick={handleDispute}
             disabled={loading}
             style={{
-              width: '100%',
-              padding: '12px 16px',
-              borderRadius: 12,
-              border: '1px solid ' + COLORS.red,
-              backgroundColor: 'transparent',
-              color: COLORS.red,
-              fontFamily: FONTS.body,
-              fontSize: 14,
-              fontWeight: 600,
+              background: 'none', border: 'none', padding: '4px 0',
+              color: '#666', fontFamily: FONTS.body, fontSize: 12,
               cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.5 : 1,
+              opacity: loading ? 0.4 : 0.7,
+              textDecoration: 'underline', width: '100%', textAlign: 'center',
             }}
           >
-            Nah fam, that&apos;s not right
+            Report an issue
           </button>
         )}
       </div>
@@ -4520,12 +4591,12 @@ function BreakdownCard({
   audience = 'driver',
   extrasFailed,
 }: {
-  rows: { label: string; value: number; role: 'amount' | 'muted' | 'total' }[];
+  rows: { label: string; value: number; role: 'amount' | 'muted' | 'fee' | 'total' }[];
   audience?: 'driver' | 'rider';
   extrasFailed: number;
 }) {
   const visible = rows;
-  const heading = audience === 'driver' ? 'BREAKDOWN' : 'WHAT YOU PAID';
+  const heading = audience === 'driver' ? 'WHAT YOU EARNED' : 'WHAT YOU PAID';
 
   return (
     <div style={{
@@ -4545,10 +4616,12 @@ function BreakdownCard({
 
       {visible.map((row, idx) => {
         const isTotal = row.role === 'total';
-        const muted = row.role === 'muted';
-        // Divider before the total row.
-        const prevWasTotal = idx > 0 && visible[idx - 1].role === 'total';
-        const showDivider = isTotal && !prevWasTotal;
+        const isMuted = row.role === 'muted';
+        const isFee = row.role === 'fee';
+        // Divider before the total row, and before the first fee row.
+        const prevRole = idx > 0 ? visible[idx - 1].role : null;
+        const showDivider = (isTotal && prevRole !== 'total') ||
+          (isFee && prevRole !== 'fee' && prevRole !== null);
 
         return (
           <div key={`${row.label}-${idx}`}>
@@ -4567,7 +4640,7 @@ function BreakdownCard({
             }}>
               <span style={{
                 fontSize: isTotal ? 15 : 13,
-                color: muted ? COLORS.gray : COLORS.grayLight,
+                color: isMuted ? COLORS.gray : isFee ? COLORS.orange : COLORS.grayLight,
                 fontWeight: isTotal ? 600 : 400,
               }}>
                 {row.label}
@@ -4575,10 +4648,10 @@ function BreakdownCard({
               <span style={{
                 fontFamily: FONTS.mono,
                 fontSize: isTotal ? 18 : 14,
-                color: muted ? COLORS.gray : '#fff',
+                color: isMuted ? COLORS.gray : isFee ? COLORS.orange : '#fff',
                 fontWeight: isTotal ? 700 : 500,
               }}>
-                ${Number(row.value || 0).toFixed(2)}
+                {isFee ? `−$${Number(row.value || 0).toFixed(2)}` : `$${Number(row.value || 0).toFixed(2)}`}
               </span>
             </div>
           </div>
