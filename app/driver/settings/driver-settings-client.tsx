@@ -227,7 +227,7 @@ function SecurityTab() {
 
       {/* Sign out */}
       <button
-        onClick={() => signOut({ redirectUrl: '/driver' })}
+        onClick={() => signOut({ redirectUrl: '/sign-in' })}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           width: '100%', padding: '14px 20px',
