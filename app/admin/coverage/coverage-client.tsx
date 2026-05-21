@@ -22,6 +22,7 @@ interface DriverCoverage {
 }
 
 type MarkerFilter = 'all' | 'payment_ready' | 'not_ready';
+type DrawerTab = 'unplaced' | 'placed';
 
 interface PendingSave {
   userId: string;
@@ -32,6 +33,14 @@ interface PendingSave {
   label: string;
   market: string;
   paymentReady: boolean;
+}
+
+interface MapTooltip {
+  name: string;
+  handle: string | null;
+  label: string | null;
+  x: number;
+  y: number;
 }
 
 const READY_COLOR   = '#22c55e';
@@ -51,8 +60,9 @@ async function reverseGeocode(lng: number, lat: number): Promise<string> {
   }
 }
 
-function createMarkerEl(color: string, paymentReady: boolean): HTMLDivElement {
+function createMarkerEl(color: string, paymentReady: boolean, userId: string): HTMLDivElement {
   const el = document.createElement('div');
+  el.setAttribute('data-driverid', userId);
   el.style.cssText = `
     width: 28px; height: 28px; border-radius: 50%;
     background: ${color}; border: 2.5px solid rgba(255,255,255,0.8);
@@ -81,11 +91,12 @@ export default function CoverageClient() {
 
   const [markerFilter, setMarkerFilter] = useState<MarkerFilter>('all');
 
-  // Unplaced drawer
   const [drawerOpen, setDrawerOpen] = useState(true);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>('unplaced');
   const [drawerSearch, setDrawerSearch] = useState('');
 
-  // Drag state
+  const [mapTooltip, setMapTooltip] = useState<MapTooltip | null>(null);
+
   const [draggingDriver, setDraggingDriver] = useState<DriverCoverage | null>(null);
   const [isDragOverMap, setIsDragOverMap] = useState(false);
 
@@ -174,7 +185,7 @@ export default function CoverageClient() {
     }).flyTo({ center: [Number(m.centerLng), Number(m.centerLat)], zoom: 11, duration: 1200 });
   }, [selectedMarket, mapLoaded]);
 
-  // Sync markers — always all placed drivers, filtered by markerFilter
+  // Sync markers — all placed drivers, filtered by markerFilter
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -188,7 +199,6 @@ export default function CoverageClient() {
 
     for (const driver of drivers) {
       if (driver.homeLat == null || driver.homeLng == null) continue;
-      // Apply marker filter
       if (markerFilter === 'payment_ready' && !driver.paymentReady) continue;
       if (markerFilter === 'not_ready' && driver.paymentReady) continue;
       visibleIds.add(driver.userId);
@@ -201,23 +211,24 @@ export default function CoverageClient() {
         const el = (existing as { getElement(): HTMLDivElement }).getElement();
         el.style.background = color;
         el.style.boxShadow = `0 0 10px ${color}55`;
+        el.title = '';
+        if (!el.getAttribute('data-driverid')) el.setAttribute('data-driverid', driver.userId);
       } else {
-        const el = createMarkerEl(color, driver.paymentReady);
-        el.title = `${driver.name}${driver.homeLabel ? ` — ${driver.homeLabel}` : ''}`;
+        const el = createMarkerEl(color, driver.paymentReady, driver.userId);
 
         const marker = new mapboxgl.Marker({ element: el, draggable: true })
           .setLngLat([driver.homeLng, driver.homeLat])
           .addTo(map);
 
-        const driverId   = driver.userId;
-        const driverName = driver.name;
-        const driverPhone = driver.phone;
-        const driverPaymentReady = driver.paymentReady;
+        const driverId       = driver.userId;
+        const driverName     = driver.name;
+        const driverPhone    = driver.phone;
+        const driverPayReady = driver.paymentReady;
 
         marker.on('dragend', async () => {
           const pos = (marker as { getLngLat(): { lat: number; lng: number } }).getLngLat();
           const label = await reverseGeocode(pos.lng, pos.lat);
-          setPendingSave({ userId: driverId, name: driverName, phone: driverPhone, lat: pos.lat, lng: pos.lng, label, market: marketSlug, paymentReady: driverPaymentReady });
+          setPendingSave({ userId: driverId, name: driverName, phone: driverPhone, lat: pos.lat, lng: pos.lng, label, market: marketSlug, paymentReady: driverPayReady });
           setSavingLabel(label);
         });
 
@@ -236,7 +247,6 @@ export default function CoverageClient() {
       }
     }
 
-    // Hide markers for drivers filtered out or that lost their home
     for (const [id, marker] of markersRef.current) {
       if (!visibleIds.has(id)) {
         (marker as { remove(): void }).remove();
@@ -244,6 +254,21 @@ export default function CoverageClient() {
       }
     }
   }, [drivers, mapLoaded, markerFilter, selectedMarket]);
+
+  // Fly to and pulse a placed driver's marker
+  const focusDriver = useCallback((driver: DriverCoverage) => {
+    if (!mapRef.current || driver.homeLat == null || driver.homeLng == null) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (mapRef.current as any).flyTo({ center: [driver.homeLng, driver.homeLat], zoom: 14, duration: 800 });
+    const marker = markersRef.current.get(driver.userId);
+    if (marker) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const el = (marker as any).getElement() as HTMLDivElement;
+      el.style.transition = 'transform 0.2s cubic-bezier(0.34,1.56,0.64,1)';
+      el.style.transform = 'scale(1.9)';
+      setTimeout(() => { el.style.transform = 'scale(1)'; }, 700);
+    }
+  }, []);
 
   // ── Drag from drawer ──
 
@@ -341,15 +366,19 @@ export default function CoverageClient() {
   }, [toast]);
 
   // Stats
-  const placed    = drivers.filter(d => d.homeLat != null);
-  const unplaced  = drivers.filter(d => d.homeLat == null);
+  const placed     = drivers.filter(d => d.homeLat != null);
+  const unplaced   = drivers.filter(d => d.homeLat == null);
   const readyCount = drivers.filter(d => d.paymentReady).length;
 
-  // Filtered unplaced list for drawer
-  const drawerDrivers = unplaced.filter(d => {
+  const tabDrivers    = drawerTab === 'unplaced' ? unplaced : placed;
+  const drawerDrivers = tabDrivers.filter(d => {
     if (!drawerSearch) return true;
     const q = drawerSearch.toLowerCase();
-    return d.name.toLowerCase().includes(q) || (d.handle?.toLowerCase().includes(q) ?? false);
+    return (
+      d.name.toLowerCase().includes(q) ||
+      (d.handle?.toLowerCase().includes(q) ?? false) ||
+      (d.homeLabel?.toLowerCase().includes(q) ?? false)
+    );
   });
 
   const smsPreview = pendingSave
@@ -376,7 +405,6 @@ export default function CoverageClient() {
           <Chip label="Pay Ready" value={readyCount} color={READY_COLOR} />
         </div>
 
-        {/* Coverage bar */}
         <div className="flex items-center gap-2">
           <div className="w-20 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
             <div
@@ -393,7 +421,6 @@ export default function CoverageClient() {
           </span>
         </div>
 
-        {/* Marker filter */}
         <div className="flex gap-1 ml-auto">
           {([
             { key: 'all',           label: 'All drivers' },
@@ -423,9 +450,66 @@ export default function CoverageClient() {
         onDragEnter={handleMapDragEnter}
         onDragLeave={handleMapDragLeave}
         onDrop={handleMapDrop}
+        onMouseMove={(e) => {
+          const target = e.target as HTMLElement;
+          const markerEl = target.closest('[data-driverid]') as HTMLDivElement | null;
+          if (markerEl) {
+            const userId = markerEl.getAttribute('data-driverid')!;
+            const driver = drivers.find(d => d.userId === userId);
+            if (driver) {
+              const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+              setMapTooltip({
+                name: driver.name,
+                handle: driver.handle,
+                label: driver.homeLabel,
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top,
+              });
+              return;
+            }
+          }
+          if (mapTooltip !== null) setMapTooltip(null);
+        }}
+        onMouseLeave={() => setMapTooltip(null)}
       >
         {/* Map canvas */}
         <div ref={mapContainer} style={{ position: 'absolute', inset: 0 }} />
+
+        {/* Driver hover tooltip */}
+        {mapTooltip && (
+          <div
+            className="absolute z-30 pointer-events-none"
+            style={{ left: mapTooltip.x, top: mapTooltip.y - 56, transform: 'translateX(-50%)' }}
+          >
+            <div
+              className="px-2.5 py-1.5 rounded-lg text-xs"
+              style={{
+                background: 'rgba(10,10,10,0.97)',
+                border: '1px solid rgba(255,255,255,0.14)',
+                backdropFilter: 'blur(8px)',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.55)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <div className="font-semibold text-white leading-snug">{mapTooltip.name}</div>
+              {mapTooltip.handle && (
+                <div className="text-[10px] text-neutral-500">@{mapTooltip.handle}</div>
+              )}
+              {mapTooltip.label && (
+                <div className="text-[10px] text-neutral-400 mt-0.5">{mapTooltip.label}</div>
+              )}
+              <div className="text-[9px] text-neutral-600 mt-0.5">Drag to reposition</div>
+            </div>
+            <div style={{
+              position: 'absolute', left: '50%', bottom: -5,
+              transform: 'translateX(-50%) rotate(45deg)',
+              width: 8, height: 8,
+              background: 'rgba(10,10,10,0.97)',
+              border: '1px solid rgba(255,255,255,0.14)',
+              borderTop: 'none', borderLeft: 'none',
+            }} />
+          </div>
+        )}
 
         {/* Drop overlay */}
         {isDragOverMap && draggingDriver && (
@@ -460,7 +544,7 @@ export default function CoverageClient() {
           )}
         </div>
 
-        {/* Unplaced drivers drawer — bottom left */}
+        {/* Driver drawer — bottom left */}
         <div
           className="absolute bottom-4 left-4 z-20 rounded-xl overflow-hidden shadow-2xl"
           style={{
@@ -470,7 +554,7 @@ export default function CoverageClient() {
             backdropFilter: 'blur(12px)',
           }}
         >
-          {/* Drawer header */}
+          {/* Header */}
           <button
             onClick={() => setDrawerOpen(o => !o)}
             className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-neutral-800/40 transition-colors"
@@ -486,38 +570,58 @@ export default function CoverageClient() {
               >
                 {unplaced.length}
               </span>
-              <span className="text-xs font-semibold text-white">
-                {unplaced.length === 0 ? 'All drivers placed' : 'Need placement'}
-              </span>
+              <span className="text-xs font-semibold text-white">Driver Locations</span>
             </div>
             <span className="text-neutral-500 text-xs">{drawerOpen ? '▼' : '▲'}</span>
           </button>
 
-          {/* Drawer body */}
           {drawerOpen && (
             <>
-              {unplaced.length > 0 && (
-                <div className="px-2 py-1.5 border-t border-neutral-800/60">
-                  <input
-                    type="text"
-                    placeholder="Search…"
-                    value={drawerSearch}
-                    onChange={e => setDrawerSearch(e.target.value)}
-                    className="w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-[10px] text-white placeholder-neutral-600 focus:outline-none"
-                  />
-                </div>
-              )}
+              {/* Tabs */}
+              <div className="flex border-t border-neutral-800/60">
+                {(['unplaced', 'placed'] as DrawerTab[]).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => { setDrawerTab(tab); setDrawerSearch(''); }}
+                    className="flex-1 py-1.5 text-[10px] font-medium transition-colors"
+                    style={{
+                      background: drawerTab === tab ? 'rgba(255,255,255,0.06)' : 'transparent',
+                      color: drawerTab === tab ? '#e5e5e5' : '#555',
+                      borderBottom: `1px solid ${drawerTab === tab ? 'rgba(255,255,255,0.18)' : 'transparent'}`,
+                    }}
+                  >
+                    {tab === 'unplaced' ? `Unplaced · ${unplaced.length}` : `Placed · ${placed.length}`}
+                  </button>
+                ))}
+              </div>
 
+              {/* Search */}
+              <div className="px-2 py-1.5 border-t border-neutral-800/60">
+                <input
+                  type="text"
+                  placeholder={drawerTab === 'unplaced' ? 'Search unplaced…' : 'Search by name or area…'}
+                  value={drawerSearch}
+                  onChange={e => setDrawerSearch(e.target.value)}
+                  className="w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-[10px] text-white placeholder-neutral-600 focus:outline-none"
+                />
+              </div>
+
+              {/* List */}
               <div style={{ maxHeight: 220, overflowY: 'auto' }}>
                 {loading && (
                   <div className="px-3 py-3 text-center text-neutral-600 text-[10px]">Loading…</div>
                 )}
-                {!loading && unplaced.length === 0 && (
+                {!loading && drawerDrivers.length === 0 && (
                   <div className="px-3 py-3 text-center text-neutral-600 text-[10px]">
-                    Every driver has a home base set 🎉
+                    {drawerSearch
+                      ? 'No match'
+                      : drawerTab === 'unplaced'
+                        ? 'Every driver has a home base set 🎉'
+                        : 'No drivers placed yet'}
                   </div>
                 )}
-                {!loading && drawerDrivers.map(driver => (
+
+                {!loading && drawerTab === 'unplaced' && drawerDrivers.map(driver => (
                   <div
                     key={driver.userId}
                     draggable
@@ -540,12 +644,45 @@ export default function CoverageClient() {
                     <span className="text-[9px] text-neutral-600 flex-shrink-0">drag →</span>
                   </div>
                 ))}
+
+                {!loading && drawerTab === 'placed' && drawerDrivers.map(driver => (
+                  <div
+                    key={driver.userId}
+                    draggable
+                    onDragStart={e => handleDragStart(e, driver)}
+                    onDragEnd={handleDragEnd}
+                    className="flex items-center gap-2 px-3 py-2 border-t border-neutral-800/40 hover:bg-neutral-800/40 transition-colors select-none"
+                    style={{ cursor: 'grab', opacity: draggingDriver?.userId === driver.userId ? 0.35 : 1 }}
+                  >
+                    <span className="text-neutral-600 text-[10px] flex-shrink-0">⠿</span>
+                    <span
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ background: driver.paymentReady ? READY_COLOR : PENDING_COLOR }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] font-medium text-white truncate">{driver.name}</div>
+                      <div className="text-[9px] text-neutral-500 truncate">
+                        {driver.homeLabel ?? `${driver.homeLat?.toFixed(3)}, ${driver.homeLng?.toFixed(3)}`}
+                      </div>
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); focusDriver(driver); }}
+                      className="text-neutral-500 hover:text-blue-400 transition-colors flex-shrink-0 text-sm leading-none px-0.5"
+                      title="Locate on map"
+                    >
+                      ⊙
+                    </button>
+                  </div>
+                ))}
               </div>
 
-              {!loading && unplaced.length > 0 && (
+              {/* Footer hint */}
+              {!loading && (
                 <div className="px-3 py-2 border-t border-neutral-800/60">
                   <p className="text-[9px] text-neutral-600 leading-relaxed">
-                    Drag a driver onto the map to set their home base
+                    {drawerTab === 'unplaced'
+                      ? 'Drag a driver onto the map to set their home base'
+                      : 'Drag to reposition · ⊙ to locate on map'}
                   </p>
                 </div>
               )}
