@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { stripe } from '@/lib/stripe/connect';
+import { resolveMarketBySlug, MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver';
 
 export const runtime = 'nodejs';
 
@@ -53,16 +54,32 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Resolve market from the subdomain the rider is on. The middleware stamps
+    // x-market-slug for known market subdomains; fall back to the default ATL
+    // market so staging (workers.dev) and local dev still get a valid market.
+    let marketId: string | null = null;
+    try {
+      const slug = req.headers.get(MARKET_SLUG_HEADER) || DEFAULT_MARKET_SLUG;
+      const market = await resolveMarketBySlug(slug);
+      marketId = market?.market_id ?? null;
+    } catch (e) {
+      console.error('[blast/onboard] market resolution failed:', e);
+    }
+
     // Ensure user row exists (Clerk webhook usually creates it; if not, we
     // do it here so the blast send doesn't 404).
-    let userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    let userRows = await sql`SELECT id, market_id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     if (!userRows.length) {
       await sql`
-        INSERT INTO users (clerk_id, profile_type, account_status)
-        VALUES (${clerkId}, 'rider', 'active')
+        INSERT INTO users (clerk_id, profile_type, account_status, market_id)
+        VALUES (${clerkId}, 'rider', 'active', ${marketId})
         ON CONFLICT (clerk_id) DO NOTHING
       `;
-      userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+      userRows = await sql`SELECT id, market_id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    } else if (marketId && !(userRows[0] as { market_id: string | null }).market_id) {
+      // Patch market_id when the webhook created the row before we did but
+      // didn't assign a market (e.g. race where unsafeMetadata was empty).
+      await sql`UPDATE users SET market_id = ${marketId} WHERE clerk_id = ${clerkId} AND market_id IS NULL`;
     }
     const userId = (userRows[0] as { id: string }).id;
 

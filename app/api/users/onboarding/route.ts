@@ -16,7 +16,7 @@ import { renderTemplate } from '@/lib/sms/templates';
 import { publishAdminEvent } from '@/lib/ably/server';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 import { afterResponse } from '@/lib/runtime/after-response';
-import { resolveMarketBySlug, MARKET_SLUG_HEADER } from '@/lib/markets/resolver';
+import { resolveMarketBySlug, MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver';
 import { cookies } from 'next/headers';
 import { ATTRIB_COOKIE, attachAttributionToUser } from '@/lib/attribution';
 
@@ -123,11 +123,17 @@ export async function POST(request: NextRequest) {
         for (const p of clerkUser.phoneNumbers || []) {
           if (p.verification?.status === 'verified') { verifiedPhone = p.phoneNumber; break; }
         }
-        // Market — set by sign-up page from the subdomain Host header.
-        const marketSlug = (meta.market as string) || null;
-        if (marketSlug) {
+        // Market — read from Clerk unsafeMetadata (set by sign-up page) with
+        // the request header as a fallback for cases where unsafeMetadata was
+        // empty (e.g. sign-up via a path that bypassed our custom /sign-up page).
+        const metaMarketSlug = (meta.market as string) || null;
+        const headerMarketSlug = request.headers.get(MARKET_SLUG_HEADER);
+        const marketSlug = metaMarketSlug || headerMarketSlug || DEFAULT_MARKET_SLUG;
+        try {
           const market = await resolveMarketBySlug(marketSlug);
           marketId = market?.market_id || null;
+        } catch {
+          console.warn('[ONBOARDING] market resolution failed for slug:', marketSlug);
         }
       } catch (metaErr) {
         console.warn('[ONBOARDING] Could not read Clerk unsafeMetadata for attribution:', metaErr);
