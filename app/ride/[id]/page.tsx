@@ -59,6 +59,25 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
       .reduce((sum, a) => sum + Number(a.subtotal ?? 0), 0);
   } catch { /* non-critical */ }
 
+  // Rider's default payment method — shown in the "confirming" state receipt
+  // so the rider knows which card/wallet the deposit was secured against.
+  // Driver view never needs this, so skip the query for drivers.
+  let riderPaymentBrand: string | null = null;
+  let riderPaymentLast4: string | null = null;
+  if (!isDriver) {
+    try {
+      const pmRows = await sql`
+        SELECT brand, last4 FROM rider_payment_methods
+        WHERE rider_id = ${user.id} AND is_default = true
+        LIMIT 1
+      `;
+      if (pmRows.length) {
+        riderPaymentBrand = (pmRows[0] as Record<string, unknown>).brand as string | null;
+        riderPaymentLast4 = (pmRows[0] as Record<string, unknown>).last4 as string | null;
+      }
+    } catch { /* non-critical */ }
+  }
+
   // Ride breakdown — only fetched once the ride has ended so we don't
   // pay for the extra query on every in-flight render.
   const endedStatuses = ['ended', 'completed', 'disputed'];
@@ -134,6 +153,9 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
         cancelRequestReason: (ride.cancel_request_reason as string) || null,
         cancelResolution: (ride.cancel_resolution as string) || null,
         visibleDeposit: Number(ride.visible_deposit ?? 0),
+        pricingModeKey: (ride.pricing_mode_key as string) || 'legacy_full_fare',
+        riderPaymentBrand,
+        riderPaymentLast4,
         hmuPostId: (ride.hmu_post_id as string) || null,
       }}
       mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''}

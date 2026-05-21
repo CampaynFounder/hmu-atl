@@ -35,7 +35,7 @@ function getTotal(rows: BreakdownRow[]): number {
 }
 
 describe('DepositOnlyStrategy.buildBreakdownRows', () => {
-  it('digital ride: driverRows sum === total === riderRows sum === rider charge', () => {
+  it('digital ride: riderRows sum === total; youEarned = depositNet + cash + extrasNet', () => {
     const out = depositOnlyStrategy.buildBreakdownRows({
       ...baseInput,
       addOnTotal: 6,
@@ -50,17 +50,15 @@ describe('DepositOnlyStrategy.buildBreakdownRows', () => {
 
     expect(out.modeKey).toBe('deposit_only');
     expect(out.total).toBeCloseTo(31, 2); // $25 fare + $6 extras
-    // Identity: driver-side sum reconciles to total
-    expect(sumNonTotal(out.driverRows)).toBeCloseTo(out.total, 2);
-    // Identity: rider-side sum reconciles to total
+    // Rider-side identity: Deposit + Extras + Cash = total rider paid
     expect(sumNonTotal(out.riderRows)).toBeCloseTo(out.total, 2);
-    // Driver headline = deposit + extras + cash
+    // Driver headline = depositNet + extrasNet + pull-up cash
     expect(out.youEarned).toBeCloseTo(10 + 4.8 + 12.5, 2);
   });
 
-  it('rider rows use rider-POV values (Deposit Paid = visibleDeposit, not driver share)', () => {
+  it('rider rows use rider-POV values (Deposit = visibleDeposit, not driver share)', () => {
     const out = depositOnlyStrategy.buildBreakdownRows(baseInput);
-    const depositPaid = out.riderRows.find(r => r.label === 'Deposit Paid')?.value;
+    const depositPaid = out.riderRows.find(r => r.label === 'Deposit')?.value;
     // Rider paid $12.50 deposit; driver received $10 net. Label + value
     // must be from rider's POV.
     expect(depositPaid).toBe(12.5);
@@ -90,18 +88,18 @@ describe('DepositOnlyStrategy.buildBreakdownRows', () => {
     expect(getTotal(out.riderRows)).toBeCloseTo(28, 2);
   });
 
-  it('hmuSplit on driver rows is NET of Stripe fee, not gross', () => {
+  it('HMU Fees Paid on driver rows is NET of Stripe fee, not gross', () => {
     const out = depositOnlyStrategy.buildBreakdownRows({
       ...baseInput,
       platformFeeAmount: 2.5,
       stripeFeeAmount: 0.66,
     });
-    const hmu = out.driverRows.find(r => r.label === 'HMU Split')?.value ?? 0;
-    const stripe = out.driverRows.find(r => r.label === 'Stripe Fee')?.value ?? 0;
-    // gross = 2.50, stripe = 0.66 → net = 1.84
+    const hmu = out.driverRows.find(r => r.label === 'HMU Fees Paid')?.value ?? 0;
+    const stripe = out.driverRows.find(r => r.label === 'Stripe Fees Paid')?.value ?? 0;
+    // gross = 2.50, stripe = 0.66 → hmu net = 1.84
     expect(hmu).toBeCloseTo(1.84, 2);
     expect(stripe).toBeCloseTo(0.66, 2);
-    // And gross is conserved: net + stripe = original app fee
+    // And gross is conserved: hmu net + stripe = original app fee
     expect(hmu + stripe).toBeCloseTo(2.5, 2);
   });
 
