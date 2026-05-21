@@ -77,6 +77,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/feature-flags', label: 'Feature Flags', icon: '🚩' },
       { href: '/admin/hmu-config', label: 'HMU Config', icon: '📣' },
       { href: '/admin/blast-config', label: 'Blast Config', icon: '💥' },
+      { href: '/admin/direct-booking-config', label: 'Direct Booking', icon: '🎯' },
       { href: '/admin/onboarding-config', label: 'Onboarding Config', icon: '🛂' },
       { href: '/admin/realtime-notifications', label: 'Realtime Banners', icon: '⚡' },
       { href: '/admin/rider-browse-banner', label: 'Browse Banner', icon: '📣' },

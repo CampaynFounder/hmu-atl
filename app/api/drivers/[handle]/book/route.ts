@@ -20,6 +20,7 @@ import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { driverAllowsCashOnly } from '@/lib/payments/strategies';
 import { parseRoute, resolveProvidedSlugs } from '@/lib/markets/parse-areas';
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
+import { getPlatformConfig } from '@/lib/platform-config/get';
 
 // Cap total booking submissions per rider per hour. The structural
 // getActiveDirectBooking() check already prevents duplicate active bookings
@@ -250,6 +251,9 @@ export async function POST(
     }
   }
 
+  const directBookingCfg = await getPlatformConfig('direct_booking.config', { expiry_minutes: 15 });
+  const expiryMinutes = Math.max(1, Math.min(60, Number(directBookingCfg.expiry_minutes) || 15));
+
   const post = await createDirectBookingPost({
     riderId: rider.id,
     driverUserId,
@@ -261,6 +265,7 @@ export async function POST(
     dropoffInMarket: route.dropoff_in_market,
     timeWindow: resolvedTimeWindow,
     isCash: resolvedIsCash,
+    expiryMinutes,
   });
 
   // Always create a tentative hold — "now" bookings need the same
@@ -333,7 +338,7 @@ export async function POST(
       if (!payoutSetup) {
         smsMsg = `HMU: ${riderName} wants a ride. $${price}${dest ? ' ' + dest : ''}${cashSuffix}. Link payout: atl.hmucashride.com/driver/payout-setup`;
       } else {
-        smsMsg = `HMU: ${riderName} wants a ride. $${price}${dest ? ' ' + dest : ''}${cashSuffix}. 15min. atl.hmucashride.com/driver/home`;
+        smsMsg = `HMU: ${riderName} wants a ride. $${price}${dest ? ' ' + dest : ''}${cashSuffix}. ${expiryMinutes}min. atl.hmucashride.com/driver/home`;
       }
       // Truncate to 160 if still too long
       if (smsMsg.length > 160) smsMsg = smsMsg.slice(0, 157) + '...';
@@ -365,7 +370,7 @@ export async function POST(
     console.error('[BOOK-SMS] Error:', e);
   }
 
-  return NextResponse.json({ postId: post.id, expiresAt: post.booking_expires_at }, { status: 201 });
+  return NextResponse.json({ postId: post.id, expiresAt: post.booking_expires_at, expiryMinutes }, { status: 201 });
 }
 
 // DELETE — rider cancels their active booking request

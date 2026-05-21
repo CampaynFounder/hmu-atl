@@ -19,7 +19,6 @@ export interface EligibilityResult {
 
 const HOURLY_BOOKING_LIMIT = 5;
 const DAILY_BOOKING_LIMIT = 15;
-const BOOKING_EXPIRY_MINUTES = 15;
 
 export async function checkRiderEligibility(
   riderId: string,
@@ -167,7 +166,9 @@ export async function createDirectBookingPost(params: {
   dropoffInMarket: boolean;
   timeWindow: Record<string, unknown>;
   isCash?: boolean;
+  expiryMinutes?: number;
 }): Promise<HmuPost> {
+  const expiry = params.expiryMinutes ?? 15;
   const result = await sql`
     INSERT INTO hmu_posts (
       user_id,
@@ -196,8 +197,8 @@ export async function createDirectBookingPost(params: {
       ${JSON.stringify(params.timeWindow)},
       'active',
       ${params.driverUserId},
-      NOW() + INTERVAL '15 minutes',
-      NOW() + INTERVAL '15 minutes',
+      NOW() + make_interval(mins := ${expiry}),
+      NOW() + make_interval(mins := ${expiry}),
       ${params.isCash || false}
     )
     RETURNING *
