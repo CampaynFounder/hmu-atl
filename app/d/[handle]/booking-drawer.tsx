@@ -42,8 +42,6 @@ interface Props {
 
 type DrawerState = 'form' | 'pending' | 'accepted' | 'expired' | 'error';
 
-const EXPIRY_MINUTES = 15;
-
 export default function BookingDrawer({ driver, open, onClose, prefill, isSignedIn = true }: Props) {
   const [state, setState] = useState<DrawerState>('form');
   const [price, setPrice] = useState(
@@ -66,6 +64,7 @@ export default function BookingDrawer({ driver, open, onClose, prefill, isSigned
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
+  const [expiryMinutes, setExpiryMinutes] = useState(15);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -206,6 +205,7 @@ export default function BookingDrawer({ driver, open, onClose, prefill, isSigned
         return;
       }
       setExpiresAt(new Date(data.expiresAt));
+      if (data.expiryMinutes) setExpiryMinutes(data.expiryMinutes);
       setState('pending');
 
       // Booking submitted successfully — NOW clear localStorage and server draft
@@ -424,12 +424,12 @@ export default function BookingDrawer({ driver, open, onClose, prefill, isSigned
 
         {state === 'pending' && (
           <div className="pending-state">
-            <div className="drawer-title">{driver.displayName} has {EXPIRY_MINUTES} min to respond</div>
+            <div className="drawer-title">{driver.displayName} has {expiryMinutes} min to respond</div>
             <div className="pending-timer">{countdownStr}</div>
             <div className="timer-bar-track">
               <div
                 className="timer-bar-fill"
-                style={{ width: `${(secondsLeft / (EXPIRY_MINUTES * 60)) * 100}%` }}
+                style={{ width: `${(secondsLeft / (expiryMinutes * 60)) * 100}%` }}
               />
             </div>
             <p className="pending-label">waiting on {driver.displayName}...</p>
