@@ -78,7 +78,7 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
     const redirectUrl = onBlastPage
       ? '/rider/browse/blast'
       : profileType === 'rider' ? '/rider/home'
-      : profileType === 'driver' ? '/driver'
+      : profileType === 'driver' ? '/sign-in'
       : '/';
     // Defer to the next tick so the close() state update (isMenuOpen → false)
     // finishes its render cycle before Clerk's signOut triggers its own
