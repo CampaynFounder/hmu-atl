@@ -11,7 +11,7 @@ import { notifyAdminSms } from '@/lib/admin/notify';
 import { createActionItem } from '@/lib/admin/action-items';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 import { scheduleFirstMessageForUser } from '@/lib/conversation/scheduler';
-import { resolveMarketBySlug } from '@/lib/markets/resolver';
+import { resolveMarketBySlug, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver';
 import type { ProfileType } from '@/lib/db/types';
 
 // Extract the first verified phone number from a Clerk user payload.
@@ -130,7 +130,9 @@ export async function POST(req: Request) {
       const refHandle = (meta.ref_handle as string) || null;
       const personaSlug = (meta.persona as string) || null;
       const funnelStageAtSignup = (meta.funnel_stage as string) || null;
-      const marketSlug = (meta.market as string) || null;
+      // Fall back to DEFAULT_MARKET_SLUG so every signup always gets a market,
+      // even when unsafeMetadata.market is missing (OAuth bypass, edge cases).
+      const marketSlug = (meta.market as string) || DEFAULT_MARKET_SLUG;
 
       // Resolve referring driver from handle, if provided.
       let referredByDriverId: string | null = null;
@@ -141,16 +143,12 @@ export async function POST(req: Request) {
         }
       }
 
-      // Resolve market from the subdomain the user signed up on. Unknown slug
-      // → null → falls through to ATL via the resolver's DEFAULT_MARKET_SLUG.
       let marketId: string | null = null;
-      if (marketSlug) {
-        try {
-          const market = await resolveMarketBySlug(marketSlug);
-          marketId = market?.market_id || null;
-        } catch (e) {
-          console.warn('[WEBHOOK] Failed to resolve market slug:', marketSlug, e);
-        }
+      try {
+        const market = await resolveMarketBySlug(marketSlug);
+        marketId = market?.market_id || null;
+      } catch (e) {
+        console.warn('[WEBHOOK] Failed to resolve market slug:', marketSlug, e);
       }
 
       const { user: newUser, created } = await createUser({

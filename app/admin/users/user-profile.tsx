@@ -899,10 +899,10 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
         </div>
       )}
 
-      {/* Market & Area Assignment */}
-      {(user.profileType === 'driver' || user.profileType === 'both') && (
+      {/* Market Assignment — all profile types; Areas only for drivers */}
+      {(user.profileType === 'rider' || user.profileType === 'driver' || user.profileType === 'both') && (
         <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-4">
-          <h3 className="text-sm font-semibold">Market &amp; Areas</h3>
+          <h3 className="text-sm font-semibold">Market{(user.profileType === 'driver' || user.profileType === 'both') ? ' & Areas' : ''}</h3>
 
           {/* Market dropdown */}
           <div>
@@ -924,8 +924,8 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             </select>
           </div>
 
-          {/* Areas checkboxes — only shown when a market is selected and has areas */}
-          {selectedMarketId && areas.length > 0 && (
+          {/* Areas checkboxes — drivers only */}
+          {(user.profileType === 'driver' || user.profileType === 'both') && selectedMarketId && areas.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-[11px] text-neutral-400">Service areas</label>
@@ -977,13 +977,16 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
                 setMarketSaving(true);
                 setMarketMsg(null);
                 try {
+                  const isDriver = user.profileType === 'driver' || user.profileType === 'both';
                   const res = await fetch(`/api/admin/users/${userId}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       marketId: selectedMarketId,
-                      areaSlugs: servicesEntireMarket ? [] : selectedSlugs,
-                      servicesEntireMarket,
+                      ...(isDriver && {
+                        areaSlugs: servicesEntireMarket ? [] : selectedSlugs,
+                        servicesEntireMarket,
+                      }),
                     }),
                   });
                   setMarketMsg(res.ok ? 'Saved' : 'Failed');
