@@ -172,6 +172,7 @@ export default function BlastFormClient() {
     suggestedPriceDollars: number;
   } | null>(null);
   const priceTouchedRef = useRef(false);
+  const prevTripTypeRef = useRef<'one_way' | 'round_trip'>('one_way');
   const startedAt = useRef<number>(Date.now());
   const startedRef = useRef(false);
 
@@ -240,7 +241,12 @@ export default function BlastFormClient() {
           suggestedPriceDollars: body.suggested_price_dollars,
         });
         if (!priceTouchedRef.current) {
-          setDraft((cur) => ({ ...cur, priceDollars: body.suggested_price_dollars }));
+          setDraft((cur) => ({
+            ...cur,
+            priceDollars: cur.tripType === 'round_trip'
+              ? body.suggested_price_dollars * 2
+              : body.suggested_price_dollars,
+          }));
         }
       } catch {
         // Estimate is best-effort — failure leaves the default $25 in place
@@ -251,6 +257,24 @@ export default function BlastFormClient() {
       cancelled = true;
     };
   }, [draft.pickup, draft.dropoff]);
+
+  // When the rider changes trip type (and hasn't manually adjusted price),
+  // double or halve the current price to match the leg count.
+  useEffect(() => {
+    const prev = prevTripTypeRef.current;
+    const next = draft.tripType;
+    prevTripTypeRef.current = next;
+    if (prev === next || priceTouchedRef.current) return;
+    setDraft((d) => {
+      if (prev === 'one_way' && next === 'round_trip') {
+        return { ...d, priceDollars: d.priceDollars * 2 };
+      }
+      if (prev === 'round_trip' && next === 'one_way') {
+        return { ...d, priceDollars: Math.round(d.priceDollars / 2) };
+      }
+      return d;
+    });
+  }, [draft.tripType]);
 
   // Closing the sheet returns the user to /blast — there's no half-state we
   // want to keep them on.
@@ -460,6 +484,9 @@ export default function BlastFormClient() {
             value={draft.priceDollars}
             distanceMi={estimate?.distanceMi ?? null}
             estimatedMinutes={estimate?.estimatedMinutes ?? null}
+            tripType={draft.tripType}
+            pickupAddress={draft.pickup ? (draft.pickup.address || draft.pickup.name) : null}
+            dropoffAddress={draft.dropoff ? (draft.dropoff.address || draft.dropoff.name) : null}
             onChange={(next) => {
               priceTouchedRef.current = true;
               setDraft((d) => ({ ...d, priceDollars: next }));
@@ -1001,9 +1028,9 @@ function DatetimeStep({
             onChange={(e) => {
               const t = new Date(e.target.value);
               if (Number.isFinite(t.getTime())) {
-                // Don't clear the text input — calling setText('') triggers the
-                // NLP debounce effect which resets parserStatus back to 'idle',
-                // erasing the 'picked' state before the next render.
+                // Clear text so the NLP debounce doesn't fire and overwrite
+                // 'picked' status. The effect preserves 'picked' when text=''.
+                setText('');
                 setParserStatus('picked');
                 onChange(t.toISOString(), '', null);
               }
@@ -1035,11 +1062,17 @@ function PriceStep({
   value,
   distanceMi,
   estimatedMinutes,
+  tripType,
+  pickupAddress,
+  dropoffAddress,
   onChange,
 }: {
   value: number;
   distanceMi: number | null;
   estimatedMinutes: number | null;
+  tripType: 'one_way' | 'round_trip';
+  pickupAddress: string | null;
+  dropoffAddress: string | null;
   onChange: (v: number) => void;
 }) {
   const milesLabel =
@@ -1047,36 +1080,73 @@ function PriceStep({
       ? `${distanceMi.toFixed(1)} mi · ~${estimatedMinutes} min`
       : null;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-      <PriceStepperButton direction="-" onClick={() => onChange(Math.max(1, value - 5))} />
-      <div style={{ flex: 1, textAlign: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Ride summary */}
+      {(pickupAddress || dropoffAddress) && (
         <div
           style={{
-            fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-            fontSize: 56,
-            color: '#fff',
-            lineHeight: 1,
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 14,
+            padding: '12px 14px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
           }}
         >
-          $<CountUpNumber value={value} />
+          {pickupAddress && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 11, color: '#00E676', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', flexShrink: 0, paddingTop: 2 }}>From</span>
+              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.78)', lineHeight: 1.35 }}>{pickupAddress}</span>
+            </div>
+          )}
+          {dropoffAddress && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 11, color: '#888', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', flexShrink: 0, paddingTop: 2 }}>To</span>
+              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.78)', lineHeight: 1.35 }}>{dropoffAddress}</span>
+            </div>
+          )}
+          {tripType === 'round_trip' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <span style={{ fontSize: 11, color: '#FFB300', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase' }}>↩ Round trip</span>
+              <span style={{ fontSize: 11, color: '#888' }}>· price covers both legs</span>
+            </div>
+          )}
         </div>
-        {milesLabel && (
+      )}
+
+      {/* Price stepper */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <PriceStepperButton direction="-" onClick={() => onChange(Math.max(1, value - 5))} />
+        <div style={{ flex: 1, textAlign: 'center' }}>
           <div
             style={{
-              fontSize: 13,
-              color: 'rgba(255,255,255,0.6)',
-              marginTop: 6,
-              fontVariantNumeric: 'tabular-nums',
+              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+              fontSize: 56,
+              color: '#fff',
+              lineHeight: 1,
             }}
           >
-            {milesLabel}
+            $<CountUpNumber value={value} />
           </div>
-        )}
-        <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
-          Drivers see this. They can counter.
+          {milesLabel && (
+            <div
+              style={{
+                fontSize: 13,
+                color: 'rgba(255,255,255,0.6)',
+                marginTop: 6,
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {milesLabel}
+            </div>
+          )}
+          <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+            Drivers see this. They can counter.
+          </div>
         </div>
+        <PriceStepperButton direction="+" onClick={() => onChange(value + 5)} />
       </div>
-      <PriceStepperButton direction="+" onClick={() => onChange(value + 5)} />
     </div>
   );
 }

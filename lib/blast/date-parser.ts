@@ -178,4 +178,4 @@ export function getDateParser(market?: DateParserMarketHints): DateParserProvide
 // Convenience: the canonical confidence cutoff the contract names. Caller is
 // free to override but most surfaces should use the same threshold so the
 // fallback behavior is consistent.
-export const NLP_CONFIDENCE_CUTOFF = 0.9;
+export const NLP_CONFIDENCE_CUTOFF = 0.75;

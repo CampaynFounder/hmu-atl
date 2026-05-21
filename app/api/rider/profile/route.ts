@@ -20,7 +20,21 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
 
   // Build a partial patch — anything `undefined` is ignored downstream.
-  const patch: { handle?: string; ride_types?: string[]; home_area_slug?: string | null } = {};
+  const patch: {
+    handle?: string;
+    ride_types?: string[];
+    home_area_slug?: string | null;
+    avatar_url?: string;
+    gender?: string;
+  } = {};
+
+  if (typeof body.avatar_url === 'string' && body.avatar_url.startsWith('https://')) {
+    patch.avatar_url = body.avatar_url;
+  }
+
+  if (typeof body.gender === 'string' && ['man', 'woman', 'nonbinary'].includes(body.gender)) {
+    patch.gender = body.gender;
+  }
 
   if (typeof body.handle === 'string') {
     const normalized = body.handle.trim().toLowerCase().replace(/\s+/g, '');
