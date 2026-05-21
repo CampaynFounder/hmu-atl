@@ -74,6 +74,14 @@ export default function BlastHandoffClient() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoUploaded, setPhotoUploaded] = useState(false);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+
+  // Gender state (signup only) — pre-populate from blast draft if available
+  const [gender, setGender] = useState<'man' | 'woman' | null>(() => {
+    const saved = loadBlastDraft();
+    const g = saved?.riderGender;
+    return g === 'man' || g === 'woman' ? g : null;
+  });
 
   // Send state
   const [sendError, setSendError] = useState<string | null>(null);
@@ -223,6 +231,8 @@ export default function BlastHandoffClient() {
       fd.append('save_to_profile', 'true');
       const res = await fetch('/api/upload/video', { method: 'POST', body: fd });
       if (!res.ok) throw new Error('upload failed');
+      const data = await res.json().catch(() => ({}));
+      if (data.url) setPhotoUrl(data.url);
       setPhotoUploaded(true);
       posthog.capture('blast_photo_uploaded', {
         sizeBytes: file.size,
@@ -239,7 +249,7 @@ export default function BlastHandoffClient() {
   // Persists the chosen handle, fires confetti, then auto-sends. Disabled
   // until both handle is 'available' and photo upload finished.
   const accountSetupReady =
-    handleStatus.state === 'available' && photoUploaded && !photoUploading;
+    handleStatus.state === 'available' && photoUploaded && !photoUploading && gender !== null;
 
   const commitAndSend = useCallback(async () => {
     if (!accountSetupReady) return;
@@ -250,13 +260,17 @@ export default function BlastHandoffClient() {
     fetch('/api/rider/profile', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ handle }),
+      body: JSON.stringify({
+        handle,
+        ...(photoUrl && { avatar_url: photoUrl }),
+        ...(gender && { gender }),
+      }),
     }).catch(() => { /* non-fatal — see comment above */ });
 
     setConfettiArmed(true);
     posthog.capture('blast_account_setup_committed', { handle });
     void sendBlastRef.current?.();
-  }, [accountSetupReady, handle]);
+  }, [accountSetupReady, handle, photoUrl, gender]);
 
   // ─── Send Blast ───────────────────────────────────────────────────────────
   const sendBlast = useCallback(async () => {
@@ -383,6 +397,40 @@ export default function BlastHandoffClient() {
                 uploaded={photoUploaded}
                 onSelect={onPhotoSelected}
               />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={FIELD_LABEL_STYLE}>You are <span style={{ color: '#FF4444' }}>*</span></label>
+              <div style={{ display: 'flex', gap: 10 }}>
+                {(['man', 'woman'] as const).map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => setGender(g)}
+                    style={{
+                      flex: 1,
+                      padding: '14px 0',
+                      borderRadius: 14,
+                      border: `1.5px solid ${gender === g ? '#00E676' : 'rgba(255,255,255,0.12)'}`,
+                      background: gender === g ? 'rgba(0,230,118,0.1)' : 'rgba(255,255,255,0.04)',
+                      color: gender === g ? '#00E676' : 'rgba(255,255,255,0.78)',
+                      fontSize: 15,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                      textTransform: 'capitalize',
+                      transition: 'border-color 150ms, background 150ms, color 150ms',
+                    }}
+                  >
+                    {g === 'man' ? 'Man' : 'Woman'}
+                  </button>
+                ))}
+              </div>
+              {gender === null && (
+                <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', margin: 0 }}>
+                  Required — drivers use this for matching.
+                </p>
+              )}
             </div>
 
             <PrimaryButton
