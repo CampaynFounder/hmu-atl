@@ -76,17 +76,31 @@ export async function PATCH(req: NextRequest) {
   // Blast funnel signups reach this endpoint before the full onboarding flow
   // runs, so rider_profiles may not exist yet. Upsert a minimal row using
   // Clerk name data so updateRiderProfile never throws "not found".
+  // Use the handle as display_name so blast riders don't end up with "Rider".
   try {
-    const existing = await sql`SELECT id FROM rider_profiles WHERE user_id = ${userId} LIMIT 1`;
-    if (!existing.length) {
+    const existingRows = await sql`
+      SELECT id, display_name FROM rider_profiles WHERE user_id = ${userId} LIMIT 1
+    `;
+    if (!existingRows.length) {
       const clerk = await clerkClient();
       const clerkUser = await clerk.users.getUser(clerkId);
-      const firstName = clerkUser.firstName || 'Rider';
-      const lastName = clerkUser.lastName || '';
+      // Don't fall back to 'Rider' — use null so the handle becomes the identity.
+      const firstName = clerkUser.firstName || null;
+      const lastName = clerkUser.lastName || null;
+      // For blast riders who only have a handle, surface it as display_name.
+      const displayName = patch.handle || firstName || null;
       await sql`
-        INSERT INTO rider_profiles (user_id, first_name, last_name, safety_preferences)
-        VALUES (${userId}, ${firstName}, ${lastName}, '{}')
+        INSERT INTO rider_profiles (user_id, first_name, last_name, display_name, safety_preferences)
+        VALUES (${userId}, ${firstName ?? ''}, ${lastName ?? ''}, ${displayName}, '{}')
         ON CONFLICT (user_id) DO NOTHING
+      `;
+    } else if (!existingRows[0].display_name && patch.handle) {
+      // Row exists but display_name was never set — backfill with handle so the
+      // profile page doesn't fall through to the 'Rider' default.
+      await sql`
+        UPDATE rider_profiles
+        SET display_name = COALESCE(display_name, ${patch.handle})
+        WHERE user_id = ${userId}
       `;
     }
   } catch {
