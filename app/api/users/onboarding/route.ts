@@ -195,17 +195,13 @@ export async function POST(request: NextRequest) {
     } else {
       userId = userResult[0].id;
 
-      // Stamp market_id if the webhook missed it (silent resolution failure).
-      // Reads x-market-slug from the request — stamped by middleware from the
-      // domain the user is on, so this is market-agnostic and works for every
-      // market without any hardcoded fallback.
+      // Stamp market_id if the webhook missed it. Use DEFAULT_MARKET_SLUG as
+      // fallback so riders always get a market even when the header is absent.
       let marketIdPatch: string | null = null;
       try {
-        const slug = request.headers.get(MARKET_SLUG_HEADER);
-        if (slug) {
-          const market = await resolveMarketBySlug(slug);
-          marketIdPatch = market?.market_id ?? null;
-        }
+        const slug = request.headers.get(MARKET_SLUG_HEADER) || DEFAULT_MARKET_SLUG;
+        const market = await resolveMarketBySlug(slug);
+        marketIdPatch = market?.market_id ?? null;
       } catch { /* non-fatal */ }
 
       await sql`
