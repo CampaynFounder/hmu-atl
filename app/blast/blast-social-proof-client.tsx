@@ -28,7 +28,10 @@ export default function BlastSocialProofClient({ initialDrivers }: Props) {
   const [done, setDone] = useState(initialDrivers.length === 0);
   const offsetRef = useRef(initialDrivers.length);
   const inFlightRef = useRef(false);
-  const [riderCoords, setRiderCoords] = useState<{ lat: number; lng: number } | null>(null);
+  // Seed with Atlanta center so SSR-computed distances render as minutes on
+  // first paint. Geolocation upgrades this to the rider's real location.
+  const ATL_CENTER = { lat: 33.749, lng: -84.388 };
+  const [riderCoords, setRiderCoords] = useState<{ lat: number; lng: number }>(ATL_CENTER);
 
   // PageView event for funnel attribution.
   useEffect(() => {
@@ -71,7 +74,7 @@ export default function BlastSocialProofClient({ initialDrivers }: Props) {
       if (window.innerHeight + window.scrollY < document.body.offsetHeight - 800) return;
       inFlightRef.current = true;
       setLoadingMore(true);
-      const coordsQuery = riderCoords ? `&lat=${riderCoords.lat}&lng=${riderCoords.lng}` : '';
+      const coordsQuery = `&lat=${riderCoords.lat}&lng=${riderCoords.lng}`;
       fetch(`/api/rider/browse/list?offset=${offsetRef.current}&limit=${PAGE_SIZE}${coordsQuery}`)
         .then((r) => (r.ok ? r.json() : { drivers: [] }))
         .then((data: { drivers?: BrowseDriverRow[] }) => {
