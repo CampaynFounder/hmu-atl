@@ -28,49 +28,37 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
+import { getPlatformConfig } from '@/lib/platform-config/get';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// ── Source-IP allowlist + per-DID secret ─────────────────────────────────────
-//
-// voip.ms publishes a small set of public IPs that originate webhook callbacks.
-// We hardcode a permissive default and let an env var widen/narrow it without
-// a code deploy. Format: comma-separated IPv4/IPv6 addresses (no CIDR yet —
-// the published voip.ms set is a handful of /32s).
-//
-// VOIPMS_WEBHOOK_ALLOWLIST = "1.2.3.4,5.6.7.8" (env var; '*' disables check)
-// VOIPMS_WEBHOOK_SECRET    = shared secret expected as ?secret=... query param.
-//                            If unset, secret check is skipped (dev/legacy).
-//
-// Both checks degrade open in dev (no env vars set) so existing local testing
-// keeps working. Production sets both env vars.
-const VOIPMS_DEFAULT_IPS: string[] = [
-  // voip.ms publishes these for outbound callbacks (refer to portal docs).
-  // Kept loose by default; tighten via env var when the ops list is firmed up.
-];
+// Security settings are read from platform_config key 'voipms.webhook' so
+// admins can update them without a Worker redeploy. Env vars are the fallback
+// for backwards compat and local dev (no DB row yet).
+async function getWebhookConfig(): Promise<{ secret: string; allowlist: string }> {
+  const cfg = await getPlatformConfig('voipms.webhook', { webhook_secret: '', ip_allowlist: '' });
+  return {
+    secret:    (cfg.webhook_secret as string)  || process.env.VOIPMS_WEBHOOK_SECRET    || '',
+    allowlist: (cfg.ip_allowlist   as string)  || process.env.VOIPMS_WEBHOOK_ALLOWLIST || '',
+  };
+}
 
-function isAllowedSource(ip: string | null): boolean {
-  const allowlist = process.env.VOIPMS_WEBHOOK_ALLOWLIST;
-  if (!allowlist) return true; // No env var → degrade open (dev/staging).
+const VOIPMS_DEFAULT_IPS: string[] = [];
+
+function isAllowedSource(ip: string | null, allowlist: string): boolean {
+  if (!allowlist) return true;
   if (allowlist === '*') return true;
   if (!ip) return false;
   const set = new Set(
-    allowlist
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .concat(VOIPMS_DEFAULT_IPS),
+    allowlist.split(',').map((s) => s.trim()).filter(Boolean).concat(VOIPMS_DEFAULT_IPS),
   );
   return set.has(ip);
 }
 
-function isSecretValid(req: NextRequest): boolean {
-  const expected = process.env.VOIPMS_WEBHOOK_SECRET;
-  if (!expected) return true; // No secret configured → skip check (dev/legacy).
+function isSecretValid(req: NextRequest, expected: string): boolean {
+  if (!expected) return true;
   const got = req.nextUrl.searchParams.get('secret') ?? '';
-  // Constant-time compare. Length-mismatch short-circuit is fine here — the
-  // secret length isn't itself confidential.
   if (got.length !== expected.length) return false;
   let mismatch = 0;
   for (let i = 0; i < got.length; i += 1) {
@@ -267,14 +255,15 @@ async function handle(params: Record<string, string>, ctx: ReturnType<typeof bui
   return NextResponse.json({ ok: true, matched: true, eventType });
 }
 
-function gateRequest(req: NextRequest, ctx: ReturnType<typeof buildContext>): NextResponse | null {
+async function gateRequest(req: NextRequest, ctx: ReturnType<typeof buildContext>): Promise<NextResponse | null> {
+  const { secret, allowlist } = await getWebhookConfig();
   const ip = clientIp(req);
-  if (!isAllowedSource(ip)) {
+  if (!isAllowedSource(ip, allowlist)) {
     // Log the rejected hit for forensic auditing then 401 — no body parsing.
     void logRaw(ctx, 'parse_failed', null, null, `ip_not_allowed:${ip ?? 'unknown'}`);
     return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 401 });
   }
-  if (!isSecretValid(req)) {
+  if (!isSecretValid(req, secret)) {
     void logRaw(ctx, 'parse_failed', null, null, 'secret_mismatch');
     return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 401 });
   }

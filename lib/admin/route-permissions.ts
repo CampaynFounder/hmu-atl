@@ -93,6 +93,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/rider-browse-banner',  rule: { kind: 'permission', slug: 'admin.browsebanner' } },
   { pattern: '/admin/maintenance',         rule: { kind: 'permission', slug: 'admin.maintenance' } },
   { pattern: '/admin/voip-debug',          rule: { kind: 'permission', slug: 'admin.voip' } },
+  { pattern: '/admin/voip-config',         rule: { kind: 'permission', slug: 'admin.voip' } },
   { pattern: '/admin/sms-templates',       rule: { kind: 'permission', slug: 'admin.smstemplates' } },
   { pattern: '/admin/chill-config',        rule: { kind: 'super' } },
 
