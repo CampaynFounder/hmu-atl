@@ -42,9 +42,8 @@ export interface FallbackDriverCardData {
   driverId: string;
   matchScore: number;
   distanceFromPickupMi: number | null;
-  distanceFromHomeMi: number | null;
-  locationIsLive: boolean;
-  homeLabel: string | null;
+  /** Which location tier produced distanceFromPickupMi. */
+  distanceTier: 'live' | 'last_known' | 'home' | null;
   driver: {
     handle: string | null;
     displayName: string | null;
@@ -495,12 +494,8 @@ function DriverCardBody({
   const toMinutes = (mi: number) => Math.max(1, Math.round(mi / 20 * 60));
 
   const distanceLabel = card.distanceFromPickupMi != null
-    ? `${card.distanceFromPickupMi}mi · ~${toMinutes(card.distanceFromPickupMi)} min away${card.locationIsLive ? ' · live' : ''}`
-    : card.distanceFromHomeMi != null
-      ? `~${card.distanceFromHomeMi}mi · ~${toMinutes(card.distanceFromHomeMi)} min · ${card.homeLabel ?? 'home base'}`
-      : areaLabels.length > 0
-        ? `Serves ${areaLabels.slice(0, 2).join(', ')}`
-        : 'Distance unknown';
+    ? `~${toMinutes(card.distanceFromPickupMi)} min away`
+    : '📍 Distance unknown';
 
   return (
     // Overlay layout: media fills the full card, details panel anchored to bottom.
@@ -548,7 +543,7 @@ function DriverCardBody({
       {/* ── Top badges (LIVE, tier, video) ── */}
       <div style={{ position: 'absolute', top: 12, left: 12, right: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', zIndex: 2 }}>
         <div style={{ display: 'flex', gap: 6 }}>
-          {card.locationIsLive && (
+          {card.distanceTier === 'live' && (
             <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.8, color: '#00E676', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', border: '1px solid rgba(0,230,118,0.4)', borderRadius: 20, padding: '3px 9px' }}>
               ● LIVE
             </span>
@@ -604,7 +599,7 @@ function DriverCardBody({
           display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6,
           background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '7px 11px',
         }}>
-          {card.locationIsLive
+          {card.distanceTier === 'live'
             ? <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#00E676', boxShadow: '0 0 6px #00E676', flexShrink: 0 }} />
             : <span style={{ fontSize: 13 }}>📍</span>
           }

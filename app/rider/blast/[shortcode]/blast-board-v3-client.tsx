@@ -41,9 +41,7 @@ interface FallbackDriver {
   driverId: string;
   matchScore: number;
   distanceFromPickupMi: number | null;
-  distanceFromHomeMi: number | null;
-  locationIsLive: boolean;
-  homeLabel: string | null;
+  distanceTier: 'live' | 'last_known' | 'home' | null;
   driver: DriverInfo;
 }
 

@@ -28,11 +28,37 @@ export default function BlastSocialProofClient({ initialDrivers }: Props) {
   const [done, setDone] = useState(initialDrivers.length === 0);
   const offsetRef = useRef(initialDrivers.length);
   const inFlightRef = useRef(false);
+  const [riderCoords, setRiderCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   // PageView event for funnel attribution.
   useEffect(() => {
     try { posthog.capture('blast_landing_viewed', { driverCount: initialDrivers.length }); } catch { /* ignore */ }
   }, [initialDrivers.length]);
+
+  // Request geolocation once, non-blocking. When coords arrive, refetch the
+  // first page with distance so cards show minutes away instead of area labels.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setRiderCoords(coords);
+        fetch(`/api/rider/browse/list?offset=0&limit=${PAGE_SIZE}&lat=${coords.lat}&lng=${coords.lng}`)
+          .then((r) => (r.ok ? r.json() : { drivers: [] }))
+          .then((data: { drivers?: BrowseDriverRow[] }) => {
+            const fresh = data.drivers ?? [];
+            if (fresh.length > 0) {
+              setDrivers(fresh);
+              offsetRef.current = fresh.length;
+              setDone(fresh.length < PAGE_SIZE);
+            }
+          })
+          .catch(() => { /* silent */ });
+      },
+      () => { /* denied or unavailable — proceed without coords */ },
+      { timeout: 5000, maximumAge: 60_000 },
+    );
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Infinite scroll using IntersectionObserver-flavored scroll handler. The
   // existing /rider/browse uses useInfiniteList; we're not pulling that in
@@ -45,7 +71,8 @@ export default function BlastSocialProofClient({ initialDrivers }: Props) {
       if (window.innerHeight + window.scrollY < document.body.offsetHeight - 800) return;
       inFlightRef.current = true;
       setLoadingMore(true);
-      fetch(`/api/rider/browse/list?offset=${offsetRef.current}&limit=${PAGE_SIZE}`)
+      const coordsQuery = riderCoords ? `&lat=${riderCoords.lat}&lng=${riderCoords.lng}` : '';
+      fetch(`/api/rider/browse/list?offset=${offsetRef.current}&limit=${PAGE_SIZE}${coordsQuery}`)
         .then((r) => (r.ok ? r.json() : { drivers: [] }))
         .then((data: { drivers?: BrowseDriverRow[] }) => {
           const fresh = data.drivers ?? [];
@@ -64,7 +91,7 @@ export default function BlastSocialProofClient({ initialDrivers }: Props) {
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
-  }, [done]);
+  }, [done, riderCoords]);
 
   const handleCtaClick = useCallback(() => {
     try { posthog.capture('blast_cta_clicked', { source: 'landing' }); } catch { /* ignore */ }
@@ -270,7 +297,7 @@ function DriverCard({ driver }: { driver: BrowseDriverRow }) {
           {driver.locationSource && (
             <>
               <span style={{ color: '#444' }}>·</span>
-              <LocationBadge source={driver.locationSource} area={driver.areas?.[0] ?? null} />
+              <LocationBadge source={driver.locationSource} distanceMi={driver.distanceMi} />
             </>
           )}
         </div>
@@ -279,8 +306,32 @@ function DriverCard({ driver }: { driver: BrowseDriverRow }) {
   );
 }
 
-function LocationBadge({ source, area }: { source: 'live' | 'home' | 'pinned'; area: string | null }) {
-  if (source === 'live') {
+function LocationBadge({
+  source,
+  distanceMi,
+}: {
+  source: 'live' | 'home' | 'pinned' | null;
+  distanceMi: number | null;
+}) {
+  const isLive = source === 'live';
+
+  if (distanceMi != null && Number.isFinite(distanceMi)) {
+    const mins = Math.max(1, Math.round(distanceMi / 20 * 60));
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: isLive ? '#00E676' : '#aaa', fontWeight: isLive ? 600 : 400 }}>
+        {isLive && (
+          <span style={{
+            width: 6, height: 6, borderRadius: '50%', background: '#00E676', flexShrink: 0,
+            animation: 'hmuBrowsePulse 1.5s ease-in-out infinite',
+          }} />
+        )}
+        {isLive ? `~${mins} min away · live` : `~${mins} min away`}
+      </span>
+    );
+  }
+
+  // No rider coords yet — show status only for live drivers
+  if (isLive) {
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#00E676', fontWeight: 600 }}>
         <span style={{
@@ -291,12 +342,6 @@ function LocationBadge({ source, area }: { source: 'live' | 'home' | 'pinned'; a
       </span>
     );
   }
-  if (source === 'home') {
-    return (
-      <span style={{ color: '#aaa' }}>
-        🏠{area ? ` ${area}` : ' home base'}
-      </span>
-    );
-  }
-  return <span style={{ color: '#666' }}>📍 last active</span>;
+
+  return null;
 }
