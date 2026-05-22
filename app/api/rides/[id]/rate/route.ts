@@ -74,10 +74,10 @@ export async function POST(
       try {
         await sql`
           UPDATE users SET chill_score = COALESCE((
-            SELECT ROUND(
+            SELECT ROUND(LEAST(100,
               ((COUNT(*) FILTER (WHERE rating_type = 'chill') + COUNT(*) FILTER (WHERE rating_type = 'cool_af') * 1.5)
               / GREATEST(COUNT(*), 1)) * 100
-            , 2)
+            ), 2)
             FROM ratings WHERE rated_id = ${ratedUserId}
           ), 0)
           WHERE id = ${ratedUserId}

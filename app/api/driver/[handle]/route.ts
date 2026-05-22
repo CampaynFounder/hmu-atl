@@ -88,6 +88,7 @@ export async function GET(
     const pricing = d.pricing as Record<string, unknown> | null;
 
     return NextResponse.json({
+      userId: d.user_id,
       displayName: d.display_name || 'Driver',
       handle: d.handle,
       avatarUrl: d.thumbnail_url || null,
