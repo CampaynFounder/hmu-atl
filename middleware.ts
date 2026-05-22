@@ -128,7 +128,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/maintenance(.*)',
   '/api/health',
   '/d/(.*)',
-  '/api/drivers/:handle',
+  '/api/driver/:handle',
   '/api/chat/booking',
   '/api/chat/support',
   '/api/og/(.*)',
