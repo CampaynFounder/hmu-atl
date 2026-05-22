@@ -6,6 +6,7 @@ import { auth } from '@clerk/nextjs/server';
 import { clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { updateRiderProfile } from '@/lib/db/profiles';
+import { createUser } from '@/lib/db/users';
 
 export async function GET(_req: NextRequest) {
   const { userId: clerkId } = await auth();
@@ -83,9 +84,32 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
   }
 
-  const userRows = await sql`
+  let userRows = await sql`
     SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1
   `;
+
+  // Blast signup race: the Clerk user.updated webhook fires asynchronously and
+  // may not have created the Neon users row yet by the time this PATCH arrives.
+  // Create a minimal row here so the profile upsert + blast POST can proceed.
+  if (userRows.length === 0) {
+    try {
+      const cc = await clerkClient();
+      const clerkUser = await cc.users.getUser(clerkId);
+      const verifiedPhone = clerkUser.phoneNumbers.find(p => p.verification?.status === 'verified')?.phoneNumber ?? null;
+      await createUser({
+        clerk_id: clerkId,
+        profile_type: 'rider',
+        phone: verifiedPhone ?? '',
+        signup_source: 'direct',
+        referred_by_driver_id: null,
+        market_id: null,
+      });
+      userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    } catch (e) {
+      console.error('[rider/profile] failed to bootstrap users row:', e);
+    }
+  }
+
   if (userRows.length === 0) return NextResponse.json({ error: 'User not found' }, { status: 404 });
   const userId = userRows[0].id as string;
 

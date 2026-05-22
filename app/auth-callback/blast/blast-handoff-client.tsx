@@ -253,19 +253,24 @@ export default function BlastHandoffClient() {
 
   const commitAndSend = useCallback(async () => {
     if (!accountSetupReady) return;
-    // Persist the handle non-blocking — uniqueness was already validated by
-    // /api/riders/check-handle so a race-loss here is extremely unlikely;
-    // if it happens, the rider lands on the offer board with their previous
-    // (possibly null) handle, which the offer board surfaces gracefully.
-    fetch('/api/rider/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        handle,
-        ...(photoUrl && { avatar_url: photoUrl }),
-        ...(gender && { gender }),
-      }),
-    }).catch(() => { /* non-fatal — see comment above */ });
+    // Await the profile PATCH before firing the blast — the blast POST needs
+    // rider_profiles.avatar_url to pass the photo gate, and the PATCH is what
+    // creates the rider_profiles row. Fire-and-forget caused a race where the
+    // blast 404'd on photo_required before the profile landed.
+    try {
+      await fetch('/api/rider/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          handle,
+          ...(photoUrl && { avatar_url: photoUrl }),
+          ...(gender && { gender }),
+        }),
+      });
+    } catch {
+      // Non-fatal — blast route has its own Clerk image fallback if avatar_url
+      // is missing, so we proceed even if the PATCH failed.
+    }
 
     setConfettiArmed(true);
     posthog.capture('blast_account_setup_committed', { handle });
