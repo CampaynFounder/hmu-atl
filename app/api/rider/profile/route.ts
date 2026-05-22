@@ -7,6 +7,7 @@ import { clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { updateRiderProfile } from '@/lib/db/profiles';
 import { createUser } from '@/lib/db/users';
+import { resolveMarketBySlug, MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver';
 
 export async function GET(_req: NextRequest) {
   const { userId: clerkId } = await auth();
@@ -84,8 +85,18 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
   }
 
+  // Resolve market from subdomain header — same pattern as blast/onboard.
+  let marketId: string | null = null;
+  try {
+    const slug = req.headers.get(MARKET_SLUG_HEADER) || DEFAULT_MARKET_SLUG;
+    const market = await resolveMarketBySlug(slug);
+    marketId = market?.market_id ?? null;
+  } catch (e) {
+    console.error('[rider/profile] market resolution failed:', e);
+  }
+
   let userRows = await sql`
-    SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1
+    SELECT id, market_id FROM users WHERE clerk_id = ${clerkId} LIMIT 1
   `;
 
   // Blast signup race: the Clerk user.updated webhook fires asynchronously and
@@ -102,12 +113,15 @@ export async function PATCH(req: NextRequest) {
         phone: verifiedPhone ?? '',
         signup_source: 'direct',
         referred_by_driver_id: null,
-        market_id: null,
+        market_id: marketId,
       });
-      userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+      userRows = await sql`SELECT id, market_id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     } catch (e) {
       console.error('[rider/profile] failed to bootstrap users row:', e);
     }
+  } else if (marketId && !(userRows[0] as { market_id: string | null }).market_id) {
+    // Row exists but market was never assigned (webhook created it before market resolved).
+    await sql`UPDATE users SET market_id = ${marketId} WHERE clerk_id = ${clerkId} AND market_id IS NULL`;
   }
 
   if (userRows.length === 0) return NextResponse.json({ error: 'User not found' }, { status: 404 });
