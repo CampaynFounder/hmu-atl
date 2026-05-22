@@ -135,7 +135,7 @@ export default function BlastSocialProofClient({ initialDrivers }: Props) {
             }}
           >
             {drivers.map((d) => (
-              <DriverCard key={d.handle} driver={d} />
+              <DriverCard key={d.handle} driver={d} riderHasCoords={riderCoords !== null} />
             ))}
           </div>
         </StaggeredList>
@@ -199,8 +199,9 @@ export default function BlastSocialProofClient({ initialDrivers }: Props) {
 }
 
 // ─── DriverCard — read-only ────────────────────────────────────────────────
-function DriverCard({ driver }: { driver: BrowseDriverRow }) {
+function DriverCard({ driver, riderHasCoords }: { driver: BrowseDriverRow; riderHasCoords: boolean }) {
   const heroSrc = driver.photoUrl;
+  const proximity = formatProximity(driver.distanceMi, riderHasCoords);
   return (
     <article
       style={{
@@ -294,10 +295,13 @@ function DriverCard({ driver }: { driver: BrowseDriverRow }) {
               <span>from ${driver.minPrice}</span>
             </>
           )}
-          {driver.locationSource && (
+          {proximity && (
             <>
               <span style={{ color: '#444' }}>·</span>
-              <LocationBadge source={driver.locationSource} distanceMi={driver.distanceMi} />
+              <span style={{ color: '#00E676', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                <LocationSourceIcon source={driver.locationSource} />
+                {proximity}
+              </span>
             </>
           )}
         </div>
@@ -306,42 +310,29 @@ function DriverCard({ driver }: { driver: BrowseDriverRow }) {
   );
 }
 
-function LocationBadge({
-  source,
-  distanceMi,
-}: {
-  source: 'live' | 'home' | 'pinned' | null;
-  distanceMi: number | null;
-}) {
-  const isLive = source === 'live';
-
-  if (distanceMi != null && Number.isFinite(distanceMi)) {
-    const mins = Math.max(1, Math.round(distanceMi / 20 * 60));
-    return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: isLive ? '#00E676' : '#aaa', fontWeight: isLive ? 600 : 400 }}>
-        {isLive && (
-          <span style={{
-            width: 6, height: 6, borderRadius: '50%', background: '#00E676', flexShrink: 0,
-            animation: 'hmuBrowsePulse 1.5s ease-in-out infinite',
-          }} />
-        )}
-        {isLive ? `~${mins} min away · live` : `~${mins} min away`}
-      </span>
-    );
+// Same logic as /rider/browse — ~20 mph Atlanta city speed estimate.
+function formatProximity(mi: number | null | undefined, riderHasCoords: boolean): string | null {
+  if (mi == null || !Number.isFinite(mi)) return null;
+  if (riderHasCoords) {
+    const mins = Math.max(1, Math.round(mi * 60 / 20));
+    if (mins === 1 && mi < 0.15) return 'right here';
+    return `~${mins} min away`;
   }
+  if (mi < 0.1) return 'right here';
+  if (mi < 0.5) return '<½ mi away';
+  if (mi < 10) return `${mi.toFixed(1)} mi away`;
+  return `${Math.round(mi)} mi away`;
+}
 
-  // No rider coords yet — show status only for live drivers
-  if (isLive) {
-    return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#00E676', fontWeight: 600 }}>
-        <span style={{
-          width: 6, height: 6, borderRadius: '50%', background: '#00E676', flexShrink: 0,
-          animation: 'hmuBrowsePulse 1.5s ease-in-out infinite',
-        }} />
-        Live
-      </span>
-    );
-  }
-
-  return null;
+function LocationSourceIcon({ source }: { source: BrowseDriverRow['locationSource'] }) {
+  if (source === 'live') return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+      <span style={{
+        width: 6, height: 6, borderRadius: '50%', background: '#00E676', flexShrink: 0,
+        animation: 'hmuBrowsePulse 1.5s ease-in-out infinite',
+      }} />
+    </span>
+  );
+  if (source === 'home') return <span>🏠</span>;
+  return <span>📍</span>;
 }
