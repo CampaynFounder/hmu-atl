@@ -470,6 +470,7 @@ export default function RiderBrowseClient({
           handle={profileHandle}
           open={true}
           onClose={() => setProfileHandle(null)}
+          isAuthenticated={isAuthenticated}
         />
       )}
       {showBlocker && <FirstTimePaymentBlocker onSuccess={handleBlockerSuccess} />}
