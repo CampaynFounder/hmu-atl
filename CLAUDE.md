@@ -20,6 +20,7 @@
 - [Fraud Prevention](./docs/FRAUD.md) — Multi-layer security
 - [UI Components](./docs/UI-COMPONENTS.md) — 21st.dev registry, design system
 - [Agent Build Plan](./docs/AGENT-BUILD-PLAN.md) — Development roadmap, Definition of Done
+- [SMS & SMPP](./docs/SMS-SMPP.md) — VoIP.ms HTTP API architecture, SMPP migration guide
 
 ### 🔧 Quick Reference
 4. [Environment Variables](#environment-variables) — Never hardcode keys

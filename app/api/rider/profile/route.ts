@@ -1,12 +1,28 @@
-// Minimal rider profile update endpoint. Scoped to fields the rider
-// onboarding flows need (handle, ride_types, home_area_slug); broaden as
-// new flows ship rather than upfront — keeps the surface area honest.
+// Rider profile endpoint. GET returns basic profile fields (gender, handle)
+// for pre-populating flows. PATCH updates the profile.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { updateRiderProfile } from '@/lib/db/profiles';
+
+export async function GET(_req: NextRequest) {
+  const { userId: clerkId } = await auth();
+  if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const rows = await sql`
+    SELECT rp.gender, rp.handle
+    FROM rider_profiles rp
+    JOIN users u ON u.id = rp.user_id
+    WHERE u.clerk_id = ${clerkId}
+    LIMIT 1
+  `;
+
+  if (!rows.length) return NextResponse.json({ gender: null, handle: null });
+  const row = rows[0] as { gender: string | null; handle: string | null };
+  return NextResponse.json({ gender: row.gender ?? null, handle: row.handle ?? null });
+}
 
 const SLUG_RE = /^[a-z0-9_]{1,32}$/;
 const HANDLE_RE = /^[a-z0-9_-]+$/;

@@ -91,10 +91,10 @@ export default function BlastSocialProofClient({ initialDrivers }: Props) {
             letterSpacing: 0.5,
           }}
         >
-          Get a Ride
+          Post a Ride on the HMU Network
         </h1>
         <p style={{ margin: '6px 0 0', fontSize: 14, color: '#aaa', maxWidth: 480 }}>
-          Tell us where you&rsquo;re headed. Drivers HMU back. You pick.
+          You Ride You Decide
         </p>
       </header>
 
@@ -255,7 +255,7 @@ function DriverCard({ driver }: { driver: BrowseDriverRow }) {
         >
           {driver.displayName || `@${driver.handle}`}
         </div>
-        <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+        <div style={{ fontSize: 11, color: '#888', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
           {Number.isFinite(driver.chillScore) && driver.chillScore > 0 && (
             <span style={{ color: '#00E676', fontWeight: 600 }}>
               {Math.round(driver.chillScore)}% chill
@@ -263,12 +263,40 @@ function DriverCard({ driver }: { driver: BrowseDriverRow }) {
           )}
           {driver.minPrice > 0 && (
             <>
-              <span style={{ color: '#444', margin: '0 6px' }}>·</span>
+              <span style={{ color: '#444' }}>·</span>
               <span>from ${driver.minPrice}</span>
+            </>
+          )}
+          {driver.locationSource && (
+            <>
+              <span style={{ color: '#444' }}>·</span>
+              <LocationBadge source={driver.locationSource} area={driver.areas?.[0] ?? null} />
             </>
           )}
         </div>
       </div>
     </article>
   );
+}
+
+function LocationBadge({ source, area }: { source: 'live' | 'home' | 'pinned'; area: string | null }) {
+  if (source === 'live') {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#00E676', fontWeight: 600 }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: '50%', background: '#00E676', flexShrink: 0,
+          animation: 'hmuBrowsePulse 1.5s ease-in-out infinite',
+        }} />
+        Live
+      </span>
+    );
+  }
+  if (source === 'home') {
+    return (
+      <span style={{ color: '#aaa' }}>
+        🏠{area ? ` ${area}` : ' home base'}
+      </span>
+    );
+  }
+  return <span style={{ color: '#666' }}>📍 last active</span>;
 }

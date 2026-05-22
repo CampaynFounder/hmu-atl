@@ -8,6 +8,22 @@ interface Props {
   initialDrivers: BrowseDriverRow[];
 }
 
+function LocationBadge({ source, area }: { source: 'live' | 'home' | 'pinned' | null; area: string | null }) {
+  if (!source) return null;
+  if (source === 'live') {
+    return (
+      <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+        Live
+      </span>
+    );
+  }
+  if (source === 'home') {
+    return <span className="text-neutral-400">🏠{area ? ` ${area}` : ' home'}</span>;
+  }
+  return <span className="text-neutral-600">📍 last active</span>;
+}
+
 // Read-only social-proof grid. No booking drawer, no per-card HMU button.
 // The single CTA — sticky bottom — routes to /rider/blast/new.
 export default function BlastBrowseClient({ initialDrivers }: Props) {
@@ -77,11 +93,17 @@ export default function BlastBrowseClient({ initialDrivers }: Props) {
                 <div className="text-sm font-semibold truncate">
                   {d.displayName || d.handle}
                 </div>
-                <div className="text-[11px] text-neutral-500 mt-0.5 flex gap-1.5">
+                <div className="text-[11px] text-neutral-500 mt-0.5 flex items-center gap-1 flex-wrap">
                   {Number.isFinite(d.chillScore) && d.chillScore > 0 && (
-                    <span>✅ {Math.round(d.chillScore)}%</span>
+                    <span className="text-emerald-500">✅ {Math.round(d.chillScore)}%</span>
                   )}
                   {d.minPrice > 0 && <span>· from ${d.minPrice}</span>}
+                  {d.locationSource && (
+                    <>
+                      <span className="text-neutral-700">·</span>
+                      <LocationBadge source={d.locationSource} area={d.areas?.[0] ?? null} />
+                    </>
+                  )}
                 </div>
               </div>
             </article>

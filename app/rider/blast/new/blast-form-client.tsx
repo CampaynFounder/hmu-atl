@@ -47,6 +47,7 @@ import type { BlastDraft, GenderOption, GenderPreference } from '@/lib/blast/typ
 type StepId =
   | 'pickup'
   | 'dropoff'
+  | 'stops'
   | 'trip_type'
   | 'datetime'
   | 'storage'
@@ -58,6 +59,7 @@ type StepId =
 const STEPS: ReadonlyArray<StepId> = [
   'pickup',
   'dropoff',
+  'stops',
   'trip_type',
   'datetime',
   'storage',
@@ -70,6 +72,7 @@ const STEPS: ReadonlyArray<StepId> = [
 const STEP_TITLES: Record<StepId, string> = {
   pickup: 'Where you at?',
   dropoff: 'Where to?',
+  stops: 'Any stops?',
   trip_type: 'One way or round trip?',
   datetime: 'When you trying to roll?',
   storage: 'Bringing bags?',
@@ -86,6 +89,7 @@ const DEFAULT_PRICE_DOLLARS = 25;
 interface FormDraft {
   pickup: ValidatedAddress | null;
   dropoff: ValidatedAddress | null;
+  stops: ValidatedAddress[];
   tripType: 'one_way' | 'round_trip';
   scheduledFor: string | null;
   scheduledFreeText: string;
@@ -100,6 +104,7 @@ interface FormDraft {
 const EMPTY_DRAFT: FormDraft = {
   pickup: null,
   dropoff: null,
+  stops: [],
   tripType: 'one_way',
   scheduledFor: null,
   scheduledFreeText: '',
@@ -164,19 +169,26 @@ export default function BlastFormClient() {
   const [shakeKey, setShakeKey] = useState(0);
   const [existingBlast, setExistingBlast] = useState<ActiveBlast | null>(null);
   // Pricing estimate fetched once both addresses are set. distanceMi feeds the
-  // price-step sublabel ("~3.2 mi · ~3 min"); suggestedPriceDollars replaces
-  // the static $25 default if the rider hasn't manually adjusted yet.
+  // price-step sublabel; suggestedPriceDollars replaces the static $25 default.
   const [estimate, setEstimate] = useState<{
     distanceMi: number;
     estimatedMinutes: number;
     suggestedPriceDollars: number;
   } | null>(null);
+  // When the signed-in rider already has gender on file we skip the last step.
+  const [genderKnown, setGenderKnown] = useState(false);
   const priceTouchedRef = useRef(false);
   const prevTripTypeRef = useRef<'one_way' | 'round_trip'>('one_way');
   const startedAt = useRef<number>(Date.now());
   const startedRef = useRef(false);
 
-  const step: StepId = STEPS[stepIdx];
+  // Steps list — drop rider_gender when the signed-in user already has it.
+  const effectiveSteps = useMemo<ReadonlyArray<StepId>>(
+    () => genderKnown ? STEPS.filter(s => s !== 'rider_gender') : STEPS,
+    [genderKnown],
+  );
+
+  const step: StepId = effectiveSteps[stepIdx];
 
   // Fire blast_form_started exactly once on mount.
   useEffect(() => {
@@ -189,13 +201,31 @@ export default function BlastFormClient() {
 
   useEffect(() => { setInApp(isInAppBrowser()); }, []);
 
+  // If the rider is already signed in, fetch their profile and pre-fill gender
+  // so they skip the rider_gender step entirely.
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    (async () => {
+      try {
+        const res = await fetch('/api/rider/profile');
+        if (!res.ok) return;
+        const data = await res.json() as { gender: string | null };
+        const g = data.gender;
+        if (g === 'woman' || g === 'man' || g === 'nonbinary') {
+          setDraft(d => ({ ...d, riderGender: g as GenderOption }));
+          setGenderKnown(true);
+        }
+      } catch { /* non-fatal — gender step still shows as fallback */ }
+    })();
+  }, [isLoaded, isSignedIn]);
+
   // Abandonment beacon if the user navigates away without completing.
   useEffect(() => {
     const handler = () => {
       if (submitting) return; // they did finish
       try {
         posthog.capture('blast_form_abandoned', {
-          lastStep: STEPS[stepIdx],
+          lastStep: effectiveSteps[stepIdx],
           durationMs: Date.now() - startedAt.current,
         });
       } catch { /* ignore */ }
@@ -206,10 +236,9 @@ export default function BlastFormClient() {
   }, [stepIdx, submitting]);
 
   // Fetch the pricing estimate once both addresses are set. Re-fires whenever
-  // either coordinate changes so a rider who edits an address gets a fresh
-  // quote. If the rider hasn't moved the +/- stepper yet, we adopt the
-  // suggested fare as the new default — otherwise we leave their choice alone
-  // and only refresh the distance/duration sublabel.
+  // pickup, dropoff, or stops change so the price reflects the full route.
+  // If the rider hasn't touched the stepper we adopt the suggested fare;
+  // otherwise we only refresh the distance/duration label.
   useEffect(() => {
     const p = draft.pickup;
     const d = draft.dropoff;
@@ -226,6 +255,7 @@ export default function BlastFormClient() {
           body: JSON.stringify({
             pickup: { lat: p.latitude, lng: p.longitude },
             dropoff: { lat: d.latitude, lng: d.longitude },
+            stops: draft.stops.map(s => ({ lat: s.latitude, lng: s.longitude })),
           }),
         });
         if (!res.ok || cancelled) return;
@@ -249,14 +279,14 @@ export default function BlastFormClient() {
           }));
         }
       } catch {
-        // Estimate is best-effort — failure leaves the default $25 in place
-        // and the sublabel hidden. Rider can still complete the form.
+        // Estimate is best-effort — failure leaves the default $25 in place.
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [draft.pickup, draft.dropoff]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.pickup, draft.dropoff, draft.stops]);
 
   // When the rider changes trip type (and hasn't manually adjusted price),
   // double or halve the current price to match the leg count.
@@ -290,6 +320,7 @@ export default function BlastFormClient() {
     switch (id) {
       case 'pickup': return !!d.pickup;
       case 'dropoff': return !!d.dropoff;
+      case 'stops': return true; // optional — always continue
       case 'trip_type': return d.tripType === 'one_way' || d.tripType === 'round_trip';
       case 'datetime': return true; // null means "ASAP" — always valid
       case 'storage': return true;  // boolean is always valid
@@ -314,7 +345,7 @@ export default function BlastFormClient() {
         stepIndex: stepIdx,
       });
     } catch { /* ignore */ }
-    if (stepIdx < STEPS.length - 1) {
+    if (stepIdx < effectiveSteps.length - 1) {
       setStepIdx(stepIdx + 1);
     } else {
       void submit();
@@ -361,6 +392,12 @@ export default function BlastFormClient() {
         address: draft.dropoff.address || draft.dropoff.name,
         mapboxId: draft.dropoff.mapbox_id,
       },
+      stops: draft.stops.length > 0 ? draft.stops.map(s => ({
+        lat: s.latitude,
+        lng: s.longitude,
+        address: s.address || s.name,
+        mapboxId: s.mapbox_id,
+      })) : undefined,
       tripType: draft.tripType,
       scheduledFor: draft.scheduledFor,
       storage: draft.storage,
@@ -436,8 +473,15 @@ export default function BlastFormClient() {
             value={draft.dropoff}
             onSelect={(addr) => {
               setDraft((d) => ({ ...d, dropoff: addr }));
-              window.setTimeout(() => setStepIdx((i) => Math.max(i, 2)), 350);
+              window.setTimeout(() => setStepIdx((i) => Math.max(i, effectiveSteps.indexOf('stops'))), 350);
             }}
+          />
+        );
+      case 'stops':
+        return (
+          <StopsStep
+            stops={draft.stops}
+            onChange={(stops) => setDraft((d) => ({ ...d, stops }))}
           />
         );
       case 'trip_type':
@@ -485,8 +529,9 @@ export default function BlastFormClient() {
             distanceMi={estimate?.distanceMi ?? null}
             estimatedMinutes={estimate?.estimatedMinutes ?? null}
             tripType={draft.tripType}
-            pickupAddress={draft.pickup ? (draft.pickup.address || draft.pickup.name) : null}
-            dropoffAddress={draft.dropoff ? (draft.dropoff.address || draft.dropoff.name) : null}
+            pickup={draft.pickup}
+            dropoff={draft.dropoff}
+            stops={draft.stops}
             onChange={(next) => {
               priceTouchedRef.current = true;
               setDraft((d) => ({ ...d, priceDollars: next }));
@@ -531,7 +576,8 @@ export default function BlastFormClient() {
     }
   };
 
-  const ctaLabel = step === 'rider_gender' ? (submitting ? 'Notifying…' : 'Notify Drivers') : 'Continue';
+  const isLastStep = stepIdx === effectiveSteps.length - 1;
+  const ctaLabel = isLastStep ? (submitting ? 'Notifying…' : 'Notify Drivers') : 'Continue';
   const stepValid = isStepValid(step, draft);
 
   // Reduced motion: skip the slide variant.
@@ -634,7 +680,7 @@ export default function BlastFormClient() {
             >
               {stepIdx === 0 ? '×' : '←'}
             </button>
-            <ProgressDots count={STEPS.length} active={stepIdx} />
+            <ProgressDots count={effectiveSteps.length} active={stepIdx} />
           </div>
           <h2
             style={{
@@ -684,7 +730,7 @@ export default function BlastFormClient() {
             onClick={advance}
             disabled={!stepValid}
             loading={submitting}
-            pulse={step === 'rider_gender' && stepValid}
+            pulse={isLastStep && stepValid}
           >
             {ctaLabel}
           </PrimaryCta>
@@ -1056,6 +1102,18 @@ function DatetimeStep({
   );
 }
 
+// ─── Haversine helper (client-side leg distances) ───────────────────────────
+
+function legMi(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }): number {
+  const R = 3958.8;
+  const lat1 = a.latitude * Math.PI / 180;
+  const lat2 = b.latitude * Math.PI / 180;
+  const dLat = (b.latitude - a.latitude) * Math.PI / 180;
+  const dLon = (b.longitude - a.longitude) * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
 // ─── Price step ─────────────────────────────────────────────────────────────
 
 function PriceStep({
@@ -1063,53 +1121,130 @@ function PriceStep({
   distanceMi,
   estimatedMinutes,
   tripType,
-  pickupAddress,
-  dropoffAddress,
+  pickup,
+  dropoff,
+  stops,
   onChange,
 }: {
   value: number;
   distanceMi: number | null;
   estimatedMinutes: number | null;
   tripType: 'one_way' | 'round_trip';
-  pickupAddress: string | null;
-  dropoffAddress: string | null;
+  pickup: ValidatedAddress | null;
+  dropoff: ValidatedAddress | null;
+  stops: ValidatedAddress[];
   onChange: (v: number) => void;
 }) {
-  const milesLabel =
-    distanceMi != null && estimatedMinutes != null
-      ? `${distanceMi.toFixed(1)} mi · ~${estimatedMinutes} min`
-      : null;
+  // Build ordered waypoints for the route display.
+  type WaypointKind = 'pickup' | 'stop' | 'dropoff' | 'return';
+  interface Waypoint {
+    kind: WaypointKind;
+    label: string;
+    address: string;
+    lat: number;
+    lng: number;
+  }
+  const waypoints: Waypoint[] = [];
+  if (pickup) {
+    waypoints.push({ kind: 'pickup', label: 'Pickup', address: pickup.address || pickup.name, lat: pickup.latitude, lng: pickup.longitude });
+  }
+  stops.forEach((s, i) => {
+    waypoints.push({ kind: 'stop', label: `Stop ${i + 1}`, address: s.address || s.name, lat: s.latitude, lng: s.longitude });
+  });
+  if (dropoff) {
+    waypoints.push({ kind: 'dropoff', label: 'Dropoff', address: dropoff.address || dropoff.name, lat: dropoff.latitude, lng: dropoff.longitude });
+  }
+  if (tripType === 'round_trip' && pickup) {
+    waypoints.push({ kind: 'return', label: 'Return', address: pickup.address || pickup.name, lat: pickup.latitude, lng: pickup.longitude });
+  }
+
+  // Per-leg distances for the connector lines.
+  const legDistances: (number | null)[] = waypoints.slice(0, -1).map((wp, i) => {
+    const next = waypoints[i + 1];
+    return (wp && next) ? legMi({ latitude: wp.lat, longitude: wp.lng }, { latitude: next.lat, longitude: next.lng }) : null;
+  });
+
+  // Total one-way mileage (from API — already sums all legs including stops).
+  // For round trip, distanceMi is one-way; we double it for the total display.
+  const onewayMi = distanceMi;
+  const totalMi = onewayMi != null ? (tripType === 'round_trip' ? onewayMi * 2 : onewayMi) : null;
+  const totalMins = estimatedMinutes != null ? (tripType === 'round_trip' ? estimatedMinutes * 2 : estimatedMinutes) : null;
+
+  const dotColor: Record<WaypointKind, string> = {
+    pickup: '#00E676',
+    stop: '#888',
+    dropoff: '#FF5252',
+    return: '#00E676',
+  };
+  const labelColor: Record<WaypointKind, string> = {
+    pickup: '#00E676',
+    stop: '#aaa',
+    dropoff: '#FF5252',
+    return: '#FFB300',
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Ride summary */}
-      {(pickupAddress || dropoffAddress) && (
+      {/* Full route card */}
+      {waypoints.length >= 2 && (
         <div
           style={{
             background: 'rgba(255,255,255,0.04)',
             border: '1px solid rgba(255,255,255,0.08)',
             borderRadius: 14,
             padding: '12px 14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
           }}
         >
-          {pickupAddress && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-              <span style={{ fontSize: 11, color: '#00E676', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', flexShrink: 0, paddingTop: 2 }}>From</span>
-              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.78)', lineHeight: 1.35 }}>{pickupAddress}</span>
+          {waypoints.map((wp, i) => (
+            <div key={`${wp.kind}-${i}`}>
+              {/* Waypoint row */}
+              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                {/* Dot + connector */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 3 }}>
+                  <div style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: dotColor[wp.kind], flexShrink: 0,
+                  }} />
+                  {i < waypoints.length - 1 && (
+                    <div style={{ width: 1, flex: 1, background: 'rgba(255,255,255,0.1)', minHeight: 18, marginTop: 3 }} />
+                  )}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 10, color: labelColor[wp.kind], fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 1 }}>
+                    {wp.kind === 'return' ? '↩ Return' : wp.label}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {wp.address}
+                  </div>
+                </div>
+              </div>
+              {/* Leg distance connector label */}
+              {i < waypoints.length - 1 && legDistances[i] != null && (
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <div style={{ width: 8, flexShrink: 0 }} />
+                  <div style={{ fontSize: 11, color: '#555', padding: '3px 0', fontVariantNumeric: 'tabular-nums' }}>
+                    {legDistances[i]!.toFixed(1)} mi
+                    {estimatedMinutes != null && onewayMi != null && onewayMi > 0
+                      ? ` · ~${Math.max(1, Math.round(legDistances[i]! / onewayMi * estimatedMinutes))} min`
+                      : ''}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-          {dropoffAddress && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-              <span style={{ fontSize: 11, color: '#888', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', flexShrink: 0, paddingTop: 2 }}>To</span>
-              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.78)', lineHeight: 1.35 }}>{dropoffAddress}</span>
-            </div>
-          )}
-          {tripType === 'round_trip' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-              <span style={{ fontSize: 11, color: '#FFB300', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase' }}>↩ Round trip</span>
-              <span style={{ fontSize: 11, color: '#888' }}>· price covers both legs</span>
+          ))}
+
+          {/* Total mileage footer */}
+          {totalMi != null && (
+            <div style={{
+              marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <span style={{ fontSize: 11, color: '#666', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}>
+                {tripType === 'round_trip' ? 'Round trip total' : 'Total'}
+              </span>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontVariantNumeric: 'tabular-nums' }}>
+                {totalMi.toFixed(1)} mi{totalMins != null ? ` · ~${totalMins} min` : ''}
+              </span>
             </div>
           )}
         </div>
@@ -1129,24 +1264,116 @@ function PriceStep({
           >
             $<CountUpNumber value={value} />
           </div>
-          {milesLabel && (
-            <div
-              style={{
-                fontSize: 13,
-                color: 'rgba(255,255,255,0.6)',
-                marginTop: 6,
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            >
-              {milesLabel}
-            </div>
-          )}
-          <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>
             Drivers see this. They can counter.
           </div>
         </div>
         <PriceStepperButton direction="+" onClick={() => onChange(value + 5)} />
       </div>
+    </div>
+  );
+}
+
+// ─── Stops step ─────────────────────────────────────────────────────────────
+// Optional intermediate stops between pickup and dropoff. Riders can add up
+// to 3. Each slot starts null (empty autocomplete) and becomes a ValidatedAddress
+// on selection. Null slots are filtered out before saving to the draft.
+
+function StopsStep({
+  stops,
+  onChange,
+}: {
+  stops: ValidatedAddress[];
+  onChange: (stops: ValidatedAddress[]) => void;
+}) {
+  // slots is a mix of validated addresses and null (pending input slots)
+  const [slots, setSlots] = useState<Array<ValidatedAddress | null>>(() =>
+    stops.length > 0 ? [...stops] : [],
+  );
+
+  const updateSlot = (i: number, addr: ValidatedAddress) => {
+    const next = slots.map((s, j) => (j === i ? addr : s));
+    setSlots(next);
+    onChange(next.filter((s): s is ValidatedAddress => s !== null));
+  };
+
+  const removeSlot = (i: number) => {
+    const next = slots.filter((_, j) => j !== i);
+    setSlots(next);
+    onChange(next.filter((s): s is ValidatedAddress => s !== null));
+  };
+
+  const addSlot = () => {
+    if (slots.length >= 3) return;
+    setSlots(s => [...s, null]);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <p style={{ fontSize: 13, color: '#888', margin: '0 0 4px', lineHeight: 1.5 }}>
+        Optional — need the driver to swing by anywhere? Add up to 3 stops.
+      </p>
+
+      {slots.length === 0 ? (
+        <div style={{
+          padding: '16px 14px',
+          borderRadius: 12,
+          border: '1px dashed rgba(255,255,255,0.12)',
+          color: '#555',
+          fontSize: 13,
+          textAlign: 'center',
+        }}>
+          No stops — going straight through.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {slots.map((slot, i) => (
+            <div key={i} style={{ position: 'relative' }}>
+              <AddressAutocomplete
+                label={`Stop ${i + 1}`}
+                value={slot}
+                onSelect={(addr) => updateSlot(i, addr)}
+              />
+              <button
+                type="button"
+                aria-label={`Remove stop ${i + 1}`}
+                onClick={() => removeSlot(i)}
+                style={{
+                  position: 'absolute', top: 10, right: 10,
+                  width: 24, height: 24, borderRadius: 12,
+                  background: 'rgba(255,255,255,0.08)', border: 'none',
+                  color: '#888', fontSize: 14, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  lineHeight: 1,
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {slots.length < 3 && (
+        <button
+          type="button"
+          onClick={addSlot}
+          style={{
+            alignSelf: 'flex-start',
+            padding: '10px 16px',
+            borderRadius: 100,
+            border: '1.5px solid rgba(0,230,118,0.35)',
+            background: 'transparent',
+            color: '#00E676',
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: 'pointer',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          }}
+        >
+          + Add a stop
+        </button>
+      )}
     </div>
   );
 }
