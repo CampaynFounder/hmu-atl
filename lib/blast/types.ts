@@ -16,6 +16,7 @@ export interface GenderPreference {
 export interface BlastDraft {
   pickup: { lat: number; lng: number; address: string; mapboxId?: string };
   dropoff: { lat: number; lng: number; address: string; mapboxId?: string };
+  stops?: Array<{ lat: number; lng: number; address: string; mapboxId?: string }>;
   tripType: 'one_way' | 'round_trip';
   scheduledFor: string | null;       // ISO timestamp; null = ASAP
   storage: boolean;

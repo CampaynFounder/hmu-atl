@@ -17,6 +17,7 @@ export const runtime = 'nodejs';
 interface EstimateBody {
   pickup?: { lat?: unknown; lng?: unknown };
   dropoff?: { lat?: unknown; lng?: unknown };
+  stops?: Array<{ lat?: unknown; lng?: unknown }>;
   market_slug?: unknown;
 }
 
@@ -72,13 +73,25 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Build waypoint list: pickup → stops → dropoff. Sum all leg distances.
+  const validStops = Array.isArray(body.stops)
+    ? body.stops
+        .filter((s): s is { lat: number; lng: number } =>
+          typeof s?.lat === 'number' && typeof s?.lng === 'number')
+        .map(s => ({ latitude: s.lat, longitude: s.lng }))
+        .filter(isValidCoordinates)
+    : [];
+  const waypoints = [pickupCoords, ...validStops, dropoffCoords];
+  let distanceMi = 0;
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    distanceMi += calculateDistance(waypoints[i], waypoints[i + 1]);
+  }
+
   const marketSlug =
     typeof body.market_slug === 'string' && body.market_slug.length > 0
       ? body.market_slug.toLowerCase()
       : null;
   const config = await getMatchingConfig(marketSlug);
-
-  const distanceMi = calculateDistance(pickupCoords, dropoffCoords);
   const fare = computeBlastFare({ distanceMi, config });
   const depositCents = computeBlastDepositCents({
     fareCents: fare.suggestedPriceCents,
