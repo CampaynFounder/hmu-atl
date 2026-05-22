@@ -78,7 +78,12 @@ ALTER TABLE sms_templates ADD CONSTRAINT sms_templates_event_key_check
     'quick_driver_5min',
     'quick_driver_here',
     'quick_driver_cantfind',
-    'quick_driver_pulling_up'
+    'quick_driver_pulling_up',
+    -- blast notifications
+    'blast_notify',
+    'blast_taken',
+    -- admin coverage map
+    'coverage_home'
   ));
 
 -- Seed every event_key currently emitted by lib/sms/textbee.ts notifier helpers.
@@ -393,5 +398,30 @@ INSERT INTO sms_templates (event_key, audience, trigger_description, body, varia
     'Driver taps "Pulling up now" — rider should be ready.',
     'HMU ATL: {{name}} is pulling up now — be ready!',
     ARRAY['name']
+  )
+ON CONFLICT (event_key) DO NOTHING;
+
+-- Blast notification templates (added 2026-05-22)
+INSERT INTO sms_templates (event_key, audience, trigger_description, body, variables) VALUES
+  (
+    'blast_notify',
+    'driver',
+    'Blast broadcast — sent to every targeted driver when a rider posts a ride request.',
+    'New ride blast 🚨 ${{price}} {{pickup}}→{{dropoff}}. {{n_drivers}} other drivers got this. First to HMU wins: {{link}}',
+    ARRAY['price','pickup','dropoff','n_drivers','link','when']
+  ),
+  (
+    'blast_taken',
+    'driver',
+    'Blast no longer available — sent to remaining targeted drivers when a ride is accepted, cancelled, or their response window expires.',
+    'That HMU ride is no longer available. Stay ready — more coming: {{app_link}}',
+    ARRAY['pickup','dropoff','price','app_link']
+  ),
+  (
+    'coverage_home',
+    'driver',
+    'Admin sets driver home base from coverage map — tells driver which area they are assigned to.',
+    'What area you drive in? You''ll get rides around {{area}}. Change it: atl.hmucashride.com/driver/home fmoig @hmucashrides',
+    ARRAY['area']
   )
 ON CONFLICT (event_key) DO NOTHING;

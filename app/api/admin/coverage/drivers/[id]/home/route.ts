@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
 import { requireAdmin } from '@/lib/admin/helpers';
 import { sendSms } from '@/lib/sms/textbee';
+import { renderTemplate } from '@/lib/sms/templates';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,13 +43,12 @@ export async function PATCH(
   let smsSent = false;
 
   if (sendText && driver.phone) {
-    // "What area you drive in? You'll get rides around {label}. Change it: atl.hmucashride.com/driver/home fmoig @hmucashrides"
-    // Max 155 chars — label truncated at 30 to stay under limit
-    const homebase = ((label as string | null) ?? 'your area').slice(0, 30);
-    const msg = `What area you drive in? You'll get rides around ${homebase}. Change it: atl.hmucashride.com/driver/home fmoig @hmucashrides`;
+    const area = ((label as string | null) ?? 'your area').slice(0, 30);
+    const FALLBACK = `What area you drive in? You'll get rides around ${area}. Change it: atl.hmucashride.com/driver/home fmoig @hmucashrides`;
+    const msg = await renderTemplate('coverage_home', { area }).catch(() => null) ?? FALLBACK;
     const result = await sendSms(driver.phone as string, msg, {
       userId,
-      eventType: 'admin_home_location_set',
+      eventType: 'coverage_home',
       market: (market as string) || 'atl',
     });
     smsSent = result.success;

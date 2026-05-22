@@ -27,7 +27,7 @@ import {
   writeBlastEvent,
   releaseScheduleBlocks,
 } from '@/lib/blast/lifecycle';
-import { broadcastBlastEvent } from '@/lib/blast/notify';
+import { broadcastBlastEvent, sendBlastTakenSms } from '@/lib/blast/notify';
 import {
   cascadeRideCancel,
   type CancellableRide,
@@ -50,7 +50,8 @@ export async function POST(
 
   // Look up blast + check for an active ride spawned via /select.
   const blastRows = await sql`
-    SELECT id, user_id, status, deposit_payment_intent_id
+    SELECT id, user_id, status, deposit_payment_intent_id,
+           pickup_address, dropoff_address, price
       FROM hmu_posts
      WHERE id = ${blastId} AND post_type = 'blast'
      LIMIT 1
@@ -63,6 +64,9 @@ export async function POST(
     user_id: string;
     status: string;
     deposit_payment_intent_id: string | null;
+    pickup_address: string;
+    dropoff_address: string;
+    price: string;
   };
   if (blast.user_id !== riderId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -178,6 +182,7 @@ export async function POST(
      WHERE blast_id = ${blastId}
        AND (hmu_at IS NOT NULL OR selected_at IS NOT NULL)
   `;
+  const interestedIds: string[] = [];
   for (const r of interestedRows) {
     const driverId = (r as { driver_id: string }).driver_id;
     notifyUser(driverId, 'blast_cancelled', { blastId }).catch(() => {});
@@ -188,7 +193,15 @@ export async function POST(
       source: 'rider_action',
       data: { reason: 'rider_cancel_pre_pull_up' },
     });
+    interestedIds.push(driverId);
   }
+  void sendBlastTakenSms({
+    driverIds: interestedIds,
+    pickup: blast.pickup_address,
+    dropoff: blast.dropoff_address,
+    priceDollars: Number(blast.price),
+    marketSlug: 'atl',
+  });
 
   return NextResponse.json({
     cancelledAt: new Date().toISOString(),

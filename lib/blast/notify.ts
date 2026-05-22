@@ -16,6 +16,7 @@
 
 import { sql } from '@/lib/db/client';
 import { sendSms } from '@/lib/sms/textbee';
+import { renderTemplate } from '@/lib/sms/templates';
 import { notifyUser, publishToChannel } from '@/lib/ably/server';
 import { getKnob } from './config';
 import { writeBlastEvent } from './lifecycle';
@@ -115,10 +116,57 @@ async function loadDriverPrefs(driverIds: string[]): Promise<Map<string, DriverP
   return map;
 }
 
-function buildSmsBody(ctx: BlastNotificationContext): string {
-  // Stay under 155 chars. Single market voice — no timezone abbreviations.
+async function buildSmsBody(ctx: BlastNotificationContext, nDrivers: number): Promise<string> {
   const link = `atl.hmucashride.com/d/b/${ctx.shortcode}`;
-  return `HMU ride request — $${ctx.priceDollars}, ${ctx.pickupLabel} → ${ctx.dropoffLabel} ${ctx.scheduledForLabel}. ${link} Reply STOP to opt out.`;
+  const FALLBACK = `New ride blast 🚨 $${ctx.priceDollars} ${ctx.pickupLabel}→${ctx.dropoffLabel}. ${nDrivers} other drivers got this. First to HMU wins: ${link}`;
+  const rendered = await renderTemplate('blast_notify', {
+    price: String(ctx.priceDollars),
+    pickup: ctx.pickupLabel,
+    dropoff: ctx.dropoffLabel,
+    n_drivers: String(nDrivers),
+    link,
+    when: ctx.scheduledForLabel,
+  }).catch(() => null);
+  return rendered ?? FALLBACK;
+}
+
+/**
+ * Send "blast no longer available" SMS to a set of driver IDs.
+ * Called by select, pull-up, cancel, and the expiry cron.
+ */
+export async function sendBlastTakenSms(params: {
+  driverIds: string[];
+  pickup: string;
+  dropoff: string;
+  priceDollars: number;
+  marketSlug: string;
+}): Promise<void> {
+  if (params.driverIds.length === 0) return;
+  const appLink = 'atl.hmucashride.com/driver/home';
+  const FALLBACK = `That HMU ride is no longer available. Stay ready — more coming: ${appLink}`;
+  const body = await renderTemplate('blast_taken', {
+    pickup: params.pickup,
+    dropoff: params.dropoff,
+    price: String(params.priceDollars),
+    app_link: appLink,
+  }).catch(() => null) ?? FALLBACK;
+
+  const phoneRows = await sql`
+    SELECT u.id, COALESCE(dp.phone, u.phone) AS phone
+      FROM users u
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+     WHERE u.id = ANY(${params.driverIds}::uuid[])
+       AND COALESCE(dp.phone, u.phone) IS NOT NULL
+  `.catch(() => []);
+
+  for (const r of phoneRows) {
+    const row = r as { id: string; phone: string };
+    sendSms(row.phone, body, {
+      userId: row.id,
+      eventType: 'blast_taken',
+      market: params.marketSlug,
+    }).catch(() => {});
+  }
 }
 
 function pushPayload(target: BlastTarget, ctx: BlastNotificationContext) {
@@ -169,6 +217,10 @@ export async function fanoutBlast(
     getKnob<boolean>('blast.sms_kill_switch', false),
     getKnob<number>('blast.max_sms_per_blast', 10),
   ]);
+
+  // n_drivers always shows at least actual + 2 so the number feels competitive.
+  const nDrivers = targets.length + 2;
+  const smsBody = await buildSmsBody(ctx, nDrivers);
 
   const prefs = await loadDriverPrefs(targets.map((t) => t.driverId));
   const now = new Date();
@@ -249,7 +301,7 @@ export async function fanoutBlast(
         data: { reason: canSms[0], channel: 'sms' },
       });
     } else {
-      const send = await sendSms(pref.phone!, buildSmsBody(ctx), {
+      const send = await sendSms(pref.phone!, smsBody, {
         userId: target.driverId,
         eventType: 'blast_notification',
         market: ctx.marketSlug,

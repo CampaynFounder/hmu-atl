@@ -12,6 +12,8 @@
 // BANNED here per ESLint rule: sql.unsafe (see eslint.config.mjs).
 
 import { sql } from '@/lib/db/client';
+import { sendSms } from '@/lib/sms/textbee';
+import { renderTemplate } from '@/lib/sms/templates';
 import type { BlastEventSource, BlastEventType } from './types';
 
 // ============================================================================
@@ -310,8 +312,13 @@ export async function expireStaleTargets(opts: {
   const limit = opts.limit ?? 200;
 
   const rows = await sql`
-    SELECT bdt.id AS target_id, bdt.blast_id, bdt.driver_id
+    SELECT bdt.id AS target_id, bdt.blast_id, bdt.driver_id,
+           COALESCE(dp.phone, u.phone) AS driver_phone,
+           hp.pickup_address, hp.dropoff_address, hp.price
       FROM blast_driver_targets bdt
+      JOIN hmu_posts hp ON hp.id = bdt.blast_id
+      JOIN users u ON u.id = bdt.driver_id
+      LEFT JOIN driver_profiles dp ON dp.user_id = bdt.driver_id
      WHERE bdt.notified_at IS NOT NULL
        AND bdt.notified_at < NOW() - (${win} * INTERVAL '1 minute')
        AND bdt.hmu_at IS NULL
@@ -326,9 +333,21 @@ export async function expireStaleTargets(opts: {
        )
      LIMIT ${limit}
   `;
+
+  const appLink = 'atl.hmucashride.com/driver/home';
+  const FALLBACK_SMS = `That HMU ride is no longer available. Stay ready — more coming: ${appLink}`;
+
   const result: Array<{ blastId: string; driverId: string; targetId: string }> = [];
   for (const r of rows) {
-    const row = r as { target_id: string; blast_id: string; driver_id: string };
+    const row = r as {
+      target_id: string;
+      blast_id: string;
+      driver_id: string;
+      driver_phone: string | null;
+      pickup_address: string;
+      dropoff_address: string;
+      price: string;
+    };
     await writeBlastEvent({
       blastId: row.blast_id,
       driverId: row.driver_id,
@@ -337,6 +356,22 @@ export async function expireStaleTargets(opts: {
       data: { reason: 'per_target_window_elapsed', windowMinutes: win },
     });
     result.push({ blastId: row.blast_id, driverId: row.driver_id, targetId: row.target_id });
+
+    // SMS: tell the driver their window closed on this ride.
+    if (row.driver_phone) {
+      renderTemplate('blast_taken', {
+        pickup: row.pickup_address,
+        dropoff: row.dropoff_address,
+        price: String(Math.round(Number(row.price))),
+        app_link: appLink,
+      }).then((body) => {
+        sendSms(row.driver_phone!, body ?? FALLBACK_SMS, {
+          userId: row.driver_id,
+          eventType: 'blast_taken',
+          market: 'atl',
+        }).catch(() => {});
+      }).catch(() => {});
+    }
   }
   return result;
 }
