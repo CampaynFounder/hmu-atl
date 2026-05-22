@@ -31,6 +31,12 @@ export const metadata: Metadata = {
 
 const INITIAL_BATCH = 24;
 
+// Atlanta downtown as a reference point for distance computation on the
+// pre-auth social-proof grid. Gives riders a real sense of driver proximity
+// even before geolocation is granted. Client refetches with real coords once
+// permission arrives, upgrading the distances in-place.
+const ATL_CENTER = { lat: 33.749, lng: -84.388 };
+
 export default async function BlastLandingPage() {
   // Feature flag the surface; same flag gates the form on submit.
   if (!(await isFeatureEnabled('blast_booking'))) notFound();
@@ -38,7 +44,11 @@ export default async function BlastLandingPage() {
   // Public, unscoped — anyone can see the social-proof grid before auth.
   // No driver_preference filter at this stage; the personalization happens
   // post-auth on /rider/browse.
-  const drivers = await queryBrowseDrivers({ driverPreference: null }, 0, INITIAL_BATCH);
+  const drivers = await queryBrowseDrivers(
+    { driverPreference: null, riderLat: ATL_CENTER.lat, riderLng: ATL_CENTER.lng },
+    0,
+    INITIAL_BATCH,
+  );
 
   return <BlastSocialProofClient initialDrivers={drivers} />;
 }
