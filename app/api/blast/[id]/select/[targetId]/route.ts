@@ -27,6 +27,7 @@ import { generateRefCode } from '@/lib/rides/ref-code';
 import { getMatchingConfig } from '@/lib/blast/config';
 import { insertScheduleBlock } from '@/lib/blast/lifecycle';
 import { estimateTripBlockMinutes } from '@/lib/geo/distance';
+import { sendBlastTakenSms } from '@/lib/blast/notify';
 
 export const runtime = 'nodejs';
 
@@ -263,15 +264,24 @@ export async function POST(
     message: 'You got the blast! Heading to OTW soon.',
   }).catch(() => {});
 
-  // Notify losers.
+  // Notify losers (push + SMS).
   const loserRows = await sql`
     SELECT driver_id FROM blast_driver_targets
     WHERE blast_id = ${blastId} AND id != ${targetId}
   `;
+  const loserIds: string[] = [];
   for (const r of loserRows) {
     const losDriverId = (r as { driver_id: string }).driver_id;
     notifyUser(losDriverId, 'blast_taken', { blastId }).catch(() => {});
+    loserIds.push(losDriverId);
   }
+  void sendBlastTakenSms({
+    driverIds: loserIds,
+    pickup: post.pickup_address as string,
+    dropoff: post.dropoff_address as string,
+    priceDollars: finalPrice,
+    marketSlug: 'atl',
+  });
 
   return NextResponse.json({ rideId, refCode, driverId, finalPrice });
 }

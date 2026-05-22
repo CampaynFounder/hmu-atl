@@ -70,6 +70,11 @@ export const SMS_EVENT_KEYS = [
   'quick_driver_here',
   'quick_driver_cantfind',
   'quick_driver_pulling_up',
+  // ── Blast notifications ──
+  'blast_notify',
+  'blast_taken',
+  // ── Admin coverage map ──
+  'coverage_home',
 ] as const;
 export type SmsEventKey = (typeof SMS_EVENT_KEYS)[number];
 

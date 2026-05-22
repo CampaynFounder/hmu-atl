@@ -23,6 +23,7 @@ import { writeBlastEvent, insertScheduleBlock } from '@/lib/blast/lifecycle';
 import { generateRefCode } from '@/lib/rides/ref-code';
 import { getMatchingConfig } from '@/lib/blast/config';
 import { estimateTripBlockMinutes } from '@/lib/geo/distance';
+import { sendBlastTakenSms } from '@/lib/blast/notify';
 
 export const runtime = 'nodejs';
 
@@ -294,19 +295,29 @@ async function handlePost(
     url: `/ride/${rideId}`,
   }).catch(() => {});
 
-  // ── Notify all other HMU'd drivers ──
+  // ── Notify all other HMU'd drivers (push + SMS) ──
   const losersRows = await sql`
     SELECT driver_id FROM blast_driver_targets
      WHERE blast_id = ${blastId}
        AND id != ${targetId}
        AND hmu_at IS NOT NULL
   `;
+  const loserIds: string[] = [];
   for (const r of losersRows) {
-    notifyUser((r as { driver_id: string }).driver_id, 'blast_taken', {
+    const loserId = (r as { driver_id: string }).driver_id;
+    notifyUser(loserId, 'blast_taken', {
       blastId,
       message: 'Rider went with someone else on this one.',
     }).catch(() => {});
+    loserIds.push(loserId);
   }
+  void sendBlastTakenSms({
+    driverIds: loserIds,
+    pickup: row.pickup_address as string,
+    dropoff: row.dropoff_address as string,
+    priceDollars: finalPrice,
+    marketSlug: 'atl',
+  });
 
   // ── Broadcast on blast channel (status board + any other listeners) ──
   publishToChannel(`blast:${blastId}`, 'pull_up_started', {
