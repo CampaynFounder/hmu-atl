@@ -20,6 +20,12 @@ export interface BrowseRiderContext {
    * render on the browse card, so they don't count here (otherwise drivers
    * with only a vibe video pass the filter and then show a fallback letter). */
   hasMediaOnly?: boolean;
+  /** Only return FWU (For Women/Us) drivers. */
+  fwuOnly?: boolean;
+  /** Exact area match — must appear in driver's areas array. Null = no filter. */
+  areaFilter?: string | null;
+  /** Only return drivers whose minimum price is ≤ this value. Null = no filter. */
+  maxPrice?: number | null;
   /** Optional rider coords for distance computation. When both are present,
    * each row gets a scalar distance_mi (driver's coords NEVER leak — only the
    * computed scalar). Stale rule: driver location older than 5min → null. */
@@ -163,6 +169,9 @@ export async function queryBrowseDrivers(
             AND dp.vehicle_info->>'photo_url' IS NOT NULL
             AND dp.vehicle_info->>'photo_url' <> '')
       )
+      AND (NOT ${rider.fwuOnly === true}::boolean OR dp.fwu = true)
+      AND (${rider.areaFilter ?? null}::text IS NULL OR ${rider.areaFilter ?? null} = ANY(dp.areas))
+      AND (${rider.maxPrice ?? null}::numeric IS NULL OR COALESCE((dp.pricing->>'minimum')::numeric, 0) <= ${rider.maxPrice ?? null}::numeric)
     ORDER BY
       -- 1. Drivers with a photo OR video on top — bare profiles read as
       --    low-effort/spam and tank rider trust. Pushed to the bottom so

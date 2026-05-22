@@ -40,6 +40,10 @@ export async function GET(req: NextRequest) {
   const genderFilter: 'female' | 'male' | null =
     rawGender === 'female' || rawGender === 'male' ? rawGender : null;
   const hasMediaOnly = req.nextUrl.searchParams.get('hasMedia') === '1';
+  const fwuOnly = req.nextUrl.searchParams.get('fwu') === '1';
+  const areaFilter = req.nextUrl.searchParams.get('area') || null;
+  const rawMaxPrice = req.nextUrl.searchParams.get('maxPrice');
+  const maxPrice = rawMaxPrice ? Math.max(0, Number(rawMaxPrice)) : null;
 
   let driverPreference: string | null = null;
   if (clerkId) {
@@ -54,7 +58,7 @@ export async function GET(req: NextRequest) {
   }
 
   const drivers = await queryBrowseDrivers(
-    { driverPreference, genderFilter, hasMediaOnly, riderLat, riderLng },
+    { driverPreference, genderFilter, hasMediaOnly, fwuOnly, areaFilter, maxPrice, riderLat, riderLng },
     offset,
     limit,
   );
