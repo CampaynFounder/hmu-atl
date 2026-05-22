@@ -175,9 +175,8 @@ export async function GET(
     fallbackDrivers: fallbackTargets.map((r: unknown) => {
       const row = r as Record<string, unknown>;
 
-      // distanceFromPickupMi = "how far the driver is from the rider RIGHT NOW".
-      // Prefer fresh GPS; fall back to home_* if GPS is stale or missing.
-      // null when the driver has neither — rider card just hides that pill.
+      // distanceFromPickupMi — distance from rider's pickup to the best available
+      // driver location. Priority: live GPS → last known GPS → homebase → null.
       const locationUpdatedAt = row.location_updated_at
         ? new Date(row.location_updated_at as string).getTime()
         : null;
@@ -186,24 +185,29 @@ export async function GET(
         && Date.now() - locationUpdatedAt < CURRENT_LOCATION_FRESH_MS
         && row.current_lat != null
         && row.current_lng != null;
+      const hasGpsCoords = row.current_lat != null && row.current_lng != null;
 
+      // Tier 1: active GPS shared by driver (fresh)
       const liveCoord = isGpsFresh
         ? { latitude: Number(row.current_lat), longitude: Number(row.current_lng) }
-        : row.home_lat != null && row.home_lng != null
-          ? { latitude: Number(row.home_lat), longitude: Number(row.home_lng) }
-          : null;
-
-      const distanceFromPickupMi = liveCoord
-        ? Math.round(calculateDistance(riderPickup, liveCoord) * 10) / 10
         : null;
-
-      // distanceFromHomeMi = pickup → driver's home base. Null when the driver
-      // hasn't set a home. Surfaces "X mi from their home" on the rider card.
+      // Tier 2: last known GPS location (stale but better than homebase)
+      const lastKnownCoord = !isGpsFresh && hasGpsCoords
+        ? { latitude: Number(row.current_lat), longitude: Number(row.current_lng) }
+        : null;
+      // Tier 3: admin-configured homebase
       const homeCoord = row.home_lat != null && row.home_lng != null
         ? { latitude: Number(row.home_lat), longitude: Number(row.home_lng) }
         : null;
-      const distanceFromHomeMi = homeCoord
-        ? Math.round(calculateDistance(riderPickup, homeCoord) * 10) / 10
+
+      const primaryCoord = liveCoord ?? lastKnownCoord ?? homeCoord ?? null;
+      const distanceFromPickupMi = primaryCoord
+        ? Math.round(calculateDistance(riderPickup, primaryCoord) * 10) / 10
+        : null;
+
+      const distanceTier = liveCoord ? 'live' as const
+        : lastKnownCoord ? 'last_known' as const
+        : homeCoord ? 'home' as const
         : null;
 
       return {
@@ -211,18 +215,13 @@ export async function GET(
         driverId: row.driver_id,
         matchScore: Number(row.match_score),
         distanceFromPickupMi,
-        distanceFromHomeMi,
-        locationIsLive: isGpsFresh,
-        homeLabel: (row.home_label as string | null) ?? null,
+        distanceTier,
         driver: buildDriverInfo(row),
       };
-    // Sort by proximity to pickup (nearest first, nulls last) so the rider
-    // sees the most reachable driver at the top of the swipe deck.
-    // Admin can influence relative ordering via the proximity_to_pickup weight
-    // in the blast matching config, but card ORDER defaults to raw distance.
-    }).sort((a: { distanceFromPickupMi: number | null; distanceFromHomeMi: number | null }, b: { distanceFromPickupMi: number | null; distanceFromHomeMi: number | null }) => {
-      const da = a.distanceFromPickupMi ?? a.distanceFromHomeMi ?? Infinity;
-      const db = b.distanceFromPickupMi ?? b.distanceFromHomeMi ?? Infinity;
+    // Sort by proximity to pickup (nearest first, nulls last).
+    }).sort((a: { distanceFromPickupMi: number | null }, b: { distanceFromPickupMi: number | null }) => {
+      const da = a.distanceFromPickupMi ?? Infinity;
+      const db = b.distanceFromPickupMi ?? Infinity;
       return da - db;
     }),
   });
