@@ -169,13 +169,6 @@ export async function queryBrowseDrivers(
             AND dp.vehicle_info->>'photo_url' IS NOT NULL
             AND dp.vehicle_info->>'photo_url' <> '')
       )
-      AND (NOT ${rider.fwuOnly === true}::boolean OR dp.fwu = true)
-      AND (${rider.areaFilter ?? null}::text IS NULL OR ${rider.areaFilter ?? null} = ANY(dp.areas))
-      AND (${rider.maxPrice ?? null}::numeric IS NULL OR COALESCE(
-             CASE WHEN dp.pricing->>'minimum' ~ '^[0-9]+(\.[0-9]+)?$'
-                  THEN (dp.pricing->>'minimum')::numeric
-             END, 0
-           ) <= ${rider.maxPrice ?? null}::numeric)
     ORDER BY
       -- 1. Drivers with a photo OR video on top — bare profiles read as
       --    low-effort/spam and tank rider trust. Pushed to the bottom so
