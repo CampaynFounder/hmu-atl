@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 
 export async function GET(
@@ -7,9 +6,6 @@ export async function GET(
   { params }: { params: Promise<{ handle: string }> }
 ) {
   try {
-    const { userId: clerkId } = await auth();
-    if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
     const { handle } = await params;
 
     const rows = await sql`

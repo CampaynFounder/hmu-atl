@@ -42,6 +42,7 @@ const RATING_DISPLAY: Record<string, { label: string; emoji: string; color: stri
 export default function DriverProfileOverlay({ handle, open, onClose, isAuthenticated = false }: Props) {
   const [profile, setProfile] = useState<DriverProfileData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [videoMuted, setVideoMuted] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -49,14 +50,15 @@ export default function DriverProfileOverlay({ handle, open, onClose, isAuthenti
     if (!open || !handle) return;
     setLoading(true);
     setProfile(null);
+    setLoadError(false);
     setVideoMuted(true);
     fetch(`/api/driver/${handle}`)
       .then(r => r.json())
       .then(data => {
         if (data.displayName) setProfile(data);
-        else onClose();
+        else setLoadError(true);
       })
-      .catch(() => onClose())
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, [open, handle]);
 
@@ -108,6 +110,25 @@ export default function DriverProfileOverlay({ handle, open, onClose, isAuthenti
         {loading && (
           <div style={{ textAlign: 'center', padding: '60px 0', color: '#888', fontSize: 14 }}>
             Loading...
+          </div>
+        )}
+
+        {loadError && !loading && (
+          <div style={{ padding: '40px 20px 32px', textAlign: 'center' }}>
+            <div style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
+              Couldn't load this driver's profile.
+            </div>
+            <button
+              onClick={onClose}
+              style={{
+                padding: '10px 28px', borderRadius: 100,
+                border: '1px solid rgba(255,255,255,0.1)', background: 'transparent',
+                color: '#bbb', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Close
+            </button>
           </div>
         )}
 
