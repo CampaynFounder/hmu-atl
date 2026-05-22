@@ -273,7 +273,7 @@ async function gateRequest(req: NextRequest, ctx: ReturnType<typeof buildContext
 export async function GET(req: NextRequest) {
   // voip.ms is known to send GET callbacks with query params for some accounts.
   const ctx = buildContext(req, null);
-  const denied = gateRequest(req, ctx);
+  const denied = await gateRequest(req, ctx);
   if (denied) return denied;
   const params = paramsFromSearch(req.nextUrl.searchParams);
   return handle(params, ctx);
@@ -283,7 +283,7 @@ export async function POST(req: NextRequest) {
   let rawBody: string | null = null;
   try { rawBody = await req.text(); } catch { rawBody = null; }
   const ctx = buildContext(req, rawBody);
-  const denied = gateRequest(req, ctx);
+  const denied = await gateRequest(req, ctx);
   if (denied) return denied;
 
   // Query-string variant first
