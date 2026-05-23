@@ -145,6 +145,9 @@ export interface CaptureInput {
   agreedPrice: number;
   /** Confirmed add-ons at capture time (dollars). Used by legacy_full_fare. */
   addOnTotal: number;
+  /** Add-on reserve set at authorization time (dollars). legacy_full_fare uses this
+   *  to cap captureAmountCents so it never exceeds the authorized PI amount. */
+  addOnReserve?: number;
   /** Deposit set at hold time (rides.visible_deposit). Used by deposit_only. */
   visibleDeposit: number;
   driverTier: 'free' | 'hmu_first';

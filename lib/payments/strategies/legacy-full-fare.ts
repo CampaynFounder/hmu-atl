@@ -40,7 +40,13 @@ export class LegacyFullFareStrategy implements PricingStrategy {
   }
 
   async calculateCapture(input: CaptureInput): Promise<CaptureDecision> {
-    const totalRideAmount = input.agreedPrice + input.addOnTotal;
+    // Never capture more than what was authorized. If confirmed add-ons exceed
+    // the add_on_reserve set at hold time, Stripe rejects the capture with
+    // "requested capture amount is greater than amount you can capture".
+    const cappedAddOnTotal = input.addOnReserve != null
+      ? Math.min(input.addOnTotal, input.addOnReserve)
+      : input.addOnTotal;
+    const totalRideAmount = input.agreedPrice + cappedAddOnTotal;
 
     const breakdown = calculateFullBreakdown(
       totalRideAmount,
