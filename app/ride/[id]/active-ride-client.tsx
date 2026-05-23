@@ -108,6 +108,11 @@ interface RideData {
   // rider can opt to re-broadcast to other drivers without recreating
   // the request from scratch.
   hmuPostId: string | null;
+  // Last known driver GPS at page-load time — seeds driverLocation so the
+  // map shows the driver marker immediately on refresh instead of waiting
+  // for the next Ably ping.
+  initialDriverLat: number | null;
+  initialDriverLng: number | null;
 }
 
 interface ActiveRideClientProps {
@@ -173,7 +178,11 @@ export default function ActiveRideClient({
   const [error, setError] = useState<string | null>(null);
   const [rated, setRated] = useState(false);
   const [disputeWindowRemaining, setDisputeWindowRemaining] = useState<number | null>(null);
-  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(
+    initialRide.initialDriverLat && initialRide.initialDriverLng
+      ? { lat: initialRide.initialDriverLat, lng: initialRide.initialDriverLng }
+      : null
+  );
   const [eta, setEta] = useState<{ minutes: number; miles: number } | null>(null);
   const [lastLocationUpdate, setLastLocationUpdate] = useState<number>(Date.now());
   const [etaStale, setEtaStale] = useState(false);
@@ -232,6 +241,9 @@ export default function ActiveRideClient({
   // Location request: driver asks rider for live GPS
   const [locationRequested, setLocationRequested] = useState(false);
   const [locationRequestPending, setLocationRequestPending] = useState(false); // rider sees this
+  // Rider asks driver for live location/ETA
+  const [etaPingPending, setEtaPingPending] = useState(false); // rider is waiting for driver response
+  const [driverLocationRequested, setDriverLocationRequested] = useState(false); // driver received rider ping
   const [priceEditorOpen, setPriceEditorOpen] = useState(false);
   const [priceEditorValue, setPriceEditorValue] = useState('');
   // Address update flow — rider can edit addresses post-COO before OTW
@@ -690,6 +702,21 @@ export default function ActiveRideClient({
         setLocationRequestPending(false);
         if (isDriver) {
           showNotification('Rider didn\'t share location', '📍', COLORS.gray);
+        }
+        break;
+      }
+      case 'driver_location_requested': {
+        // Rider asked driver for their live location/ETA
+        if (isDriver) {
+          setDriverLocationRequested(true);
+          showNotification('Rider wants your ETA', '📍', COLORS.orange, 'Your GPS is being shared');
+          if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
+          // Auto-clear after 8 seconds — driver doesn't need to take action since
+          // GPS is already streaming via the location posting interval.
+          setTimeout(() => setDriverLocationRequested(false), 8000);
+        } else {
+          // Rider's own ping came back confirmed — clear pending state
+          setEtaPingPending(false);
         }
         break;
       }
@@ -2982,6 +3009,31 @@ export default function ActiveRideClient({
                   Waiting for rider to accept ${ride.proposedPrice}...
                 </div>
               )}
+              {/* Driver: request rider's exact pickup location before going OTW */}
+              {!locationRequested ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setLocationRequested(true);
+                    await fetch(`/api/rides/${rideId}/request-location`, { method: 'POST' }).catch(() => {});
+                  }}
+                  style={{
+                    width: '100%', padding: 9, borderRadius: 100, marginBottom: 8,
+                    border: '1px solid rgba(68,138,255,0.25)', background: 'rgba(68,138,255,0.06)',
+                    color: COLORS.blue, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    fontFamily: FONTS.body, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  }}
+                >
+                  <span>📍</span> Where&apos;s my rider?
+                </button>
+              ) : (
+                <div style={{
+                  textAlign: 'center', padding: '6px 0', marginBottom: 8,
+                  fontSize: 11, color: COLORS.gray,
+                }}>
+                  Waiting for rider to share location...
+                </div>
+              )}
               <ActionButton
                 label="OTW"
                 color={COLORS.green}
@@ -3083,6 +3135,19 @@ export default function ActiveRideClient({
               )}
               <StatusMessage text="Heading to rider..." />
               {renderDriverAddOnPanel()}
+              {/* Rider pinged for ETA — pulse banner for driver */}
+              {driverLocationRequested && (
+                <div style={{
+                  padding: '8px 14px', borderRadius: 12, marginBottom: 8,
+                  background: 'rgba(255,145,0,0.1)', border: '1px solid rgba(255,145,0,0.25)',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <span style={{ fontSize: 14 }}>📍</span>
+                  <span style={{ fontSize: 12, color: COLORS.orange, fontWeight: 600 }}>
+                    Rider wants your ETA — GPS is broadcasting
+                  </span>
+                </div>
+              )}
               {/* Request rider's live GPS */}
               {!locationRequested ? (
                 <button
@@ -3679,7 +3744,35 @@ export default function ActiveRideClient({
                 </div>
               </div>
             ) : (
-              <StatusMessage text="Pull Up sent — waiting for driver to go OTW..." />
+              <>
+                <StatusMessage text="Pull Up sent — waiting for driver to go OTW..." />
+                {/* Rider: ask driver when they're heading out */}
+                {!etaPingPending ? (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setEtaPingPending(true);
+                      await fetch(`/api/rides/${rideId}/request-driver-location`, { method: 'POST' }).catch(() => {});
+                      setTimeout(() => setEtaPingPending(false), 20000);
+                    }}
+                    style={{
+                      width: '100%', padding: 9, borderRadius: 100, marginBottom: 6,
+                      border: '1px solid rgba(255,145,0,0.2)', background: 'rgba(255,145,0,0.06)',
+                      color: COLORS.orange, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      fontFamily: FONTS.body, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    }}
+                  >
+                    <span>📍</span> HMU — when are you heading out?
+                  </button>
+                ) : (
+                  <div style={{
+                    textAlign: 'center', padding: '6px 0', marginBottom: 6,
+                    fontSize: 11, color: COLORS.gray,
+                  }}>
+                    Pinged driver — waiting...
+                  </div>
+                )}
+              </>
             )}
             {ride.addOns && ride.addOns.length > 0 && renderAddOnSummary()}
             {renderAddServicesButton()}
@@ -3749,6 +3842,33 @@ export default function ActiveRideClient({
               </div>
             )}
             <StatusMessage text="Driver is on the way" />
+            {/* Rider: ping driver for live location when ETA isn't showing or page just refreshed */}
+            {!etaPingPending ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  setEtaPingPending(true);
+                  await fetch(`/api/rides/${rideId}/request-driver-location`, { method: 'POST' }).catch(() => {});
+                  // Auto-reset after 15s so rider can ping again if needed
+                  setTimeout(() => setEtaPingPending(false), 15000);
+                }}
+                style={{
+                  width: '100%', padding: 9, borderRadius: 100, marginBottom: 6,
+                  border: '1px solid rgba(255,145,0,0.3)', background: 'rgba(255,145,0,0.08)',
+                  color: COLORS.orange, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  fontFamily: FONTS.body, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}
+              >
+                <span>📍</span> Where&apos;s my driver?
+              </button>
+            ) : (
+              <div style={{
+                textAlign: 'center', padding: '6px 0', marginBottom: 6,
+                fontSize: 11, color: COLORS.gray,
+              }}>
+                Pinging driver location...
+              </div>
+            )}
             {ride.addOns.length > 0 && renderAddOnSummary()}
             {renderAddServicesButton()}
             <CancelButton label="Request Cancel" needsApproval onClick={openCancelConfirm} busy={cancelConfirmSubmitting} />

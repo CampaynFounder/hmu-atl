@@ -318,14 +318,18 @@ export function LiveMap({ rides, onRidesRefresh }: LiveMapProps) {
       const color = STATUS_COLORS[ride.status] ?? '#ffffff';
       const hasPickup = !!(ride.pickupLat && ride.pickupLng);
       const hasDropoff = !!(ride.dropoffLat && ride.dropoffLng);
-      if (!hasPickup && !hasDropoff) return;
 
-      activeIds.add(ride.id);
-
+      // Compute driver position BEFORE the early-return guard so rides that
+      // only have live GPS (e.g. OTW with no confirmed pickup coords yet)
+      // still render a driver marker and route line.
       const live = livePositions.current.get(ride.id);
       const driverLat = live?.lat ?? (ride.hasLiveGps ? ride.lastLat : null);
       const driverLng = live?.lng ?? (ride.hasLiveGps ? ride.lastLng : null);
       const hasDriver = !!(driverLat && driverLng);
+
+      if (!hasPickup && !hasDropoff && !hasDriver) return;
+
+      activeIds.add(ride.id);
       const isStale = ride.hasLiveGps && ride.lastGpsAt
         ? Date.now() - new Date(ride.lastGpsAt).getTime() > STALE_THRESHOLD_MS
         : false;
