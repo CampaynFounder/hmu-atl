@@ -88,13 +88,17 @@ export default function RideCommentThread({ rideId, role }: Props) {
   const hasThread = (data?.thread?.length ?? 0) > 0;
   const showCta = !open && (hasThread || data?.canPost);
 
-  const ctaLabel = !hasThread
-    ? (role === 'rider' ? 'Leave a comment' : 'No comment yet')
-    : (data?.canPost
-        ? (role === 'driver' ? 'Leave a response' : 'Add a comment')
-        : 'View comments');
+  const ctaLabel = !data
+    ? (role === 'rider' ? 'Leave a comment' : 'Leave a response')
+    : !hasThread
+      ? (role === 'rider' ? 'Leave a comment' : data.canPost ? 'Leave a response' : 'No comments yet')
+      : (data.canPost
+          ? (role === 'driver' ? 'Leave a response' : 'Add a comment')
+          : 'View comments');
 
-  const ctaDisabled = !hasThread && !data?.canPost;
+  // Only disable after data has loaded and we've confirmed the user can't post.
+  // While data === null we don't know yet — keep the button active so clicking opens the thread.
+  const ctaDisabled = data !== null && !hasThread && !data.canPost;
 
   return (
     <div style={{ marginTop: 10 }}>
