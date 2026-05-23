@@ -19,7 +19,7 @@ export async function GET() {
 
     // Check DB first
     const dbMethods = await sql`
-      SELECT id, stripe_payment_method_id, type, brand, last4, exp_month, exp_year, is_default
+      SELECT id, stripe_payment_method_id, type, brand, last4, exp_month, exp_year, is_default, apple_pay, google_pay, cash_app_pay
       FROM rider_payment_methods
       WHERE rider_id = ${userId}
       ORDER BY is_default DESC, created_at DESC
@@ -30,10 +30,13 @@ export async function GET() {
         methods: dbMethods.map((m: Record<string, unknown>) => ({
           id: m.id,
           brand: m.brand,
-          last4: m.last4,
+          last4: m.last4 === '????' ? null : m.last4,
           expMonth: m.exp_month,
           expYear: m.exp_year,
           isDefault: m.is_default,
+          isApplePay: m.apple_pay,
+          isGooglePay: m.google_pay,
+          isCashAppPay: m.cash_app_pay,
         })),
       });
     }
@@ -57,18 +60,25 @@ export async function GET() {
     const methods: Array<Record<string, unknown>> = [];
     for (const pm of stripeMethods.data) {
       const isFirst: boolean = methods.length === 0;
+      const walletType = pm.card?.wallet?.type;
+      const isApplePay = walletType === 'apple_pay';
+      const isGooglePay = walletType === 'google_pay';
+      const isCashAppPay = pm.type === 'cashapp';
       await sql`
-        INSERT INTO rider_payment_methods (rider_id, stripe_payment_method_id, type, brand, last4, exp_month, exp_year, is_default)
-        VALUES (${userId}, ${pm.id}, ${pm.type}, ${pm.card?.brand || null}, ${pm.card?.last4 || '????'}, ${pm.card?.exp_month || null}, ${pm.card?.exp_year || null}, ${isFirst})
+        INSERT INTO rider_payment_methods (rider_id, stripe_payment_method_id, type, brand, last4, exp_month, exp_year, is_default, apple_pay, google_pay, cash_app_pay)
+        VALUES (${userId}, ${pm.id}, ${pm.type}, ${pm.card?.brand || null}, ${pm.card?.last4 || null}, ${pm.card?.exp_month || null}, ${pm.card?.exp_year || null}, ${isFirst}, ${isApplePay}, ${isGooglePay}, ${isCashAppPay})
         ON CONFLICT DO NOTHING
       `;
       methods.push({
         id: pm.id,
         brand: pm.card?.brand || null,
-        last4: pm.card?.last4 || '????',
+        last4: pm.card?.last4 || null,
         expMonth: pm.card?.exp_month || null,
         expYear: pm.card?.exp_year || null,
         isDefault: isFirst,
+        isApplePay,
+        isGooglePay,
+        isCashAppPay,
       });
     }
 
