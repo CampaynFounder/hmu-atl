@@ -220,18 +220,22 @@ export async function captureRiderPayment(rideId: string, options?: { strategy?:
       amount_to_capture: captureAmountCents,
       application_fee_amount: applicationFeeCents,
     };
+    // Include captureAmountCents in the key so a retry with a corrected amount
+    // (e.g. after an add-on reserve cap fix) gets a fresh Stripe slot instead
+    // of replaying a cached 400 from a prior over-capture attempt.
+    const captureIdempotencyKey = `capture_${rideId}_${captureAmountCents}`;
     try {
       await stripe.paymentIntents.capture(
         ride.payment_intent_id as string,
         args,
-        { idempotencyKey: `capture_${rideId}` },
+        { idempotencyKey: captureIdempotencyKey },
       );
     } catch (err) {
       if (isLegacyDirectChargeError(err)) {
         await stripe.paymentIntents.capture(
           ride.payment_intent_id as string,
           args,
-          { stripeAccount: driverStripeAccountId, idempotencyKey: `capture_${rideId}` },
+          { stripeAccount: driverStripeAccountId, idempotencyKey: captureIdempotencyKey },
         );
       } else {
         throw err;
