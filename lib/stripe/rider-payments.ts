@@ -37,7 +37,7 @@ export async function createSetupIntent(stripeCustomerId: string): Promise<strin
   const setupIntent = await stripe.setupIntents.create({
     customer: stripeCustomerId,
     automatic_payment_methods: { enabled: true },
-    usage: 'on_session',
+    usage: 'off_session',
   });
   return setupIntent.client_secret!;
 }
@@ -55,14 +55,19 @@ export async function savePaymentMethod(
   }
 
   // Get PM details
-  let type = 'card', brand: string | null = 'Visa', last4 = '4242', expMonth: number | null = 12, expYear: number | null = 2030;
+  let type = 'card', brand: string | null = 'Visa', last4: string | null = '4242', expMonth: number | null = 12, expYear: number | null = 2030;
+  let isApplePay = false, isGooglePay = false, isCashAppPay = false;
   if (!isMock) {
     const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
     type = pm.type;
     brand = pm.card?.brand || null;
-    last4 = pm.card?.last4 || '????';
+    last4 = pm.card?.last4 || null;
     expMonth = pm.card?.exp_month || null;
     expYear = pm.card?.exp_year || null;
+    const walletType = pm.card?.wallet?.type;
+    isApplePay = walletType === 'apple_pay';
+    isGooglePay = walletType === 'google_pay';
+    isCashAppPay = pm.type === 'cashapp';
   }
 
   // Check if first method
@@ -70,8 +75,8 @@ export async function savePaymentMethod(
   const isFirst = Number((existing[0] as Record<string, unknown>).count) === 0;
 
   await sql`
-    INSERT INTO rider_payment_methods (rider_id, stripe_payment_method_id, type, brand, last4, exp_month, exp_year, is_default)
-    VALUES (${riderId}, ${paymentMethodId}, ${type}, ${brand}, ${last4}, ${expMonth}, ${expYear}, ${isFirst})
+    INSERT INTO rider_payment_methods (rider_id, stripe_payment_method_id, type, brand, last4, exp_month, exp_year, is_default, apple_pay, google_pay, cash_app_pay)
+    VALUES (${riderId}, ${paymentMethodId}, ${type}, ${brand}, ${last4}, ${expMonth}, ${expYear}, ${isFirst}, ${isApplePay}, ${isGooglePay}, ${isCashAppPay})
   `;
 }
 

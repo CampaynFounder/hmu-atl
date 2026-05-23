@@ -46,6 +46,7 @@ export async function GET(req: NextRequest) {
     JOIN users s ON s.id = c.subject_id
     LEFT JOIN driver_profiles sdp ON sdp.user_id = s.id
     WHERE (NOT ${flaggedOnly}::boolean OR c.flagged_for_review = true)
+      AND c.deleted_at IS NULL
     ORDER BY c.flagged_for_review DESC, c.created_at DESC
     LIMIT 50 OFFSET ${offset}
   `;

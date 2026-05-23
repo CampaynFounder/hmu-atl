@@ -149,7 +149,7 @@ function SecurityTab() {
 
 function PaymentTab() {
   const [methods, setMethods] = useState<Array<{
-    id: string; brand: string | null; last4: string; expMonth: number | null; expYear: number | null; isDefault: boolean;
+    id: string; brand: string | null; last4: string | null; expMonth: number | null; expYear: number | null; isDefault: boolean; isApplePay?: boolean; isGooglePay?: boolean; isCashAppPay?: boolean;
   }>>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -187,9 +187,23 @@ function PaymentTab() {
   }
 
   const brandIcons: Record<string, string> = {
-    visa: '💳', mastercard: '💳', amex: '💳', discover: '💳',
-    apple_pay: '🍎', google_pay: '📱', cashapp: '💸',
+    visa: '💳', mastercard: '💳', amex: '💳', discover: '💳', cashapp: '💸',
   };
+
+  function getMethodIcon(m: typeof methods[0]) {
+    if (m.isApplePay) return '🍎';
+    if (m.isGooglePay) return '📱';
+    if (m.isCashAppPay) return '💸';
+    return brandIcons[m.brand || ''] || '💳';
+  }
+
+  function getMethodLabel(m: typeof methods[0]) {
+    if (m.isApplePay) return m.last4 ? `Apple Pay ••••${m.last4}` : 'Apple Pay';
+    if (m.isGooglePay) return m.last4 ? `Google Pay ••••${m.last4}` : 'Google Pay';
+    if (m.isCashAppPay) return 'Cash App Pay';
+    const brandLabel = (m.brand || 'Card').charAt(0).toUpperCase() + (m.brand || 'card').slice(1);
+    return m.last4 ? `${brandLabel} ••••${m.last4}` : brandLabel;
+  }
 
   return (
     <div>
@@ -222,12 +236,12 @@ function PaymentTab() {
                 background: '#1a1a1a', border: m.isDefault ? '1px solid rgba(0,230,118,0.3)' : '1px solid rgba(255,255,255,0.06)',
                 borderRadius: '14px', padding: '14px 16px',
               }}>
-                <span style={{ fontSize: '20px' }}>{brandIcons[m.brand || ''] || '💳'}</span>
+                <span style={{ fontSize: '20px' }}>{getMethodIcon(m)}</span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: '14px', fontWeight: 600 }}>
-                    {(m.brand || 'Card').charAt(0).toUpperCase() + (m.brand || 'card').slice(1)} ending in {m.last4}
+                    {getMethodLabel(m)}
                   </div>
-                  {m.expMonth && m.expYear && (
+                  {!m.isApplePay && !m.isGooglePay && !m.isCashAppPay && m.expMonth && m.expYear && (
                     <div style={{ fontSize: '12px', color: '#888', fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
                       Expires {m.expMonth}/{m.expYear}
                     </div>

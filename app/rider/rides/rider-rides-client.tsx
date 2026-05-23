@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
+import RideCommentThread from '@/components/shared/ride-comment-thread';
 
 interface Ride {
   id: string;
@@ -41,7 +42,7 @@ const RATING_EMOJI: Record<string, string> = {
 
 const ACTIVE_STATUSES = ['matched', 'otw', 'here', 'confirming', 'active'];
 
-export default function RiderRidesClient({ rides }: { rides: Ride[] }) {
+export default function RiderRidesClient({ rides, currentUserId }: { rides: Ride[]; currentUserId?: string }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -230,6 +231,11 @@ export default function RiderRidesClient({ rides }: { rides: Ride[] }) {
             </div>
             {cancelError && cancellingId === ride.id && (
               <div style={{ fontSize: 12, color: '#FF5252', marginTop: 6, textAlign: 'center' }}>{cancelError}</div>
+            )}
+
+            {/* Post-ride comment thread — only for completed/ended rides */}
+            {(ride.status === 'completed' || ride.status === 'ended') && currentUserId && (
+              <RideCommentThread rideId={ride.id} role="rider" />
             )}
           </div>
         )}
