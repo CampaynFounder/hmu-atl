@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 import DealPill from '@/components/driver/deal-pill';
+import RideCommentThread from '@/components/shared/ride-comment-thread';
 
 interface Ride {
   id: string;
@@ -34,6 +35,7 @@ interface Ride {
 
 interface Props {
   rides: Ride[];
+  currentUserId?: string;
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
@@ -55,7 +57,7 @@ const RATING_EMOJI: Record<string, string> = {
   chill: '\u2705', cool_af: '\uD83D\uDE0E', kinda_creepy: '\uD83D\uDC40', weirdo: '\uD83D\uDEA9',
 };
 
-export default function MyRidesClient({ rides }: Props) {
+export default function MyRidesClient({ rides, currentUserId }: Props) {
   const [filter, setFilter] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -144,6 +146,7 @@ export default function MyRidesClient({ rides }: Props) {
               ride={ride}
               expanded={expandedId === ride.id}
               onToggle={() => setExpandedId(expandedId === ride.id ? null : ride.id)}
+              showComments={!!currentUserId}
             />
           ))
         )}
@@ -233,7 +236,7 @@ function ActiveRideCard({ ride }: { ride: Ride }) {
   );
 }
 
-function RideCard({ ride, expanded, onToggle }: { ride: Ride; expanded: boolean; onToggle: () => void }) {
+function RideCard({ ride, expanded, onToggle, showComments }: { ride: Ride; expanded: boolean; onToggle: () => void; showComments?: boolean }) {
   const st = STATUS_LABELS[ride.status] || { label: ride.status, color: '#888', bg: 'rgba(255,255,255,0.05)' };
   const rideTotal = ride.price + ride.addOnTotal;
   const date = new Date(ride.createdAt);
@@ -373,6 +376,13 @@ function RideCard({ ride, expanded, onToggle }: { ride: Ride; expanded: boolean;
           >
             View Ride
           </Link>
+
+          {/* Post-ride comment thread — completed/ended only */}
+          {showComments && (ride.status === 'completed' || ride.status === 'ended') && (
+            <div onClick={(e) => e.stopPropagation()}>
+              <RideCommentThread rideId={ride.id} role="driver" />
+            </div>
+          )}
         </div>
       )}
     </div>

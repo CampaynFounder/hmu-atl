@@ -18,6 +18,12 @@ interface CommentRow {
   subject_name: string | null;
 }
 
+interface CommentConfig {
+  maxChars: number;
+  maxInitialPerRide: number;
+  maxRepliesPerRide: number;
+}
+
 type Tab = 'flagged' | 'all';
 
 export default function CommentsModeration() {
@@ -29,6 +35,13 @@ export default function CommentsModeration() {
   const [redactText, setRedactText] = useState('');
   const [adminNote, setAdminNote] = useState('');
 
+  // Config panel
+  const [config, setConfig] = useState<CommentConfig | null>(null);
+  const [configDraft, setConfigDraft] = useState<CommentConfig | null>(null);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [configSaved, setConfigSaved] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -39,6 +52,16 @@ export default function CommentsModeration() {
   }, [tab]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    fetch('/api/admin/comment-config')
+      .then(r => r.json())
+      .then(d => {
+        setConfig(d.config);
+        setConfigDraft(d.config);
+      })
+      .catch(() => {});
+  }, []);
 
   async function action(id: string, act: string, extra?: Record<string, string>) {
     setActioning(id);
@@ -60,11 +83,106 @@ export default function CommentsModeration() {
     setAdminNote('');
   }
 
+  async function saveConfig() {
+    if (!configDraft) return;
+    setSavingConfig(true);
+    try {
+      const res = await fetch('/api/admin/comment-config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(configDraft),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setConfig(d.config);
+        setConfigDraft(d.config);
+        setConfigSaved(true);
+        setTimeout(() => setConfigSaved(false), 2000);
+      }
+    } finally { setSavingConfig(false); }
+  }
+
+  const configChanged = config && configDraft && (
+    config.maxChars !== configDraft.maxChars ||
+    config.maxInitialPerRide !== configDraft.maxInitialPerRide ||
+    config.maxRepliesPerRide !== configDraft.maxRepliesPerRide
+  );
+
   return (
     <div style={{ padding: '24px 20px', maxWidth: 860, margin: '0 auto', fontFamily: "'DM Sans', sans-serif", color: '#fff' }}>
       <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Comments</div>
       <div style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
         Moderate rider/driver comments before or after publishing.
+      </div>
+
+      {/* Settings panel */}
+      <div style={{
+        background: '#141414', border: '1px solid rgba(255,255,255,0.07)',
+        borderRadius: 14, marginBottom: 20, overflow: 'hidden',
+      }}>
+        <button
+          onClick={() => setConfigOpen(o => !o)}
+          style={{
+            width: '100%', padding: '14px 18px', background: 'none', border: 'none',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}
+        >
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>⚙️ Comment Settings</span>
+          <span style={{ fontSize: 12, color: '#555', transform: configOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+        </button>
+
+        {configOpen && configDraft && (
+          <div style={{ padding: '0 18px 18px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 14 }}>
+              <ConfigStepper
+                label="Max characters"
+                value={configDraft.maxChars}
+                min={10} max={2000} step={10}
+                onChange={v => setConfigDraft(d => d ? { ...d, maxChars: v } : d)}
+              />
+              <ConfigStepper
+                label="Rider comments/ride"
+                value={configDraft.maxInitialPerRide}
+                min={1} max={20} step={1}
+                onChange={v => setConfigDraft(d => d ? { ...d, maxInitialPerRide: v } : d)}
+              />
+              <ConfigStepper
+                label="Driver replies/ride"
+                value={configDraft.maxRepliesPerRide}
+                min={0} max={20} step={1}
+                onChange={v => setConfigDraft(d => d ? { ...d, maxRepliesPerRide: v } : d)}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
+              <button
+                onClick={saveConfig}
+                disabled={savingConfig || !configChanged}
+                style={{
+                  padding: '8px 20px', borderRadius: 100, border: 'none',
+                  background: configChanged ? '#00E676' : 'rgba(255,255,255,0.06)',
+                  color: configChanged ? '#000' : '#555',
+                  fontSize: 12, fontWeight: 700, cursor: configChanged ? 'pointer' : 'default',
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+              >
+                {savingConfig ? 'Saving…' : configSaved ? 'Saved ✓' : 'Save settings'}
+              </button>
+              {configChanged && (
+                <button
+                  onClick={() => setConfigDraft(config)}
+                  style={{
+                    padding: '8px 16px', borderRadius: 100,
+                    background: 'none', border: '1px solid rgba(255,255,255,0.1)',
+                    color: '#888', fontSize: 12, cursor: 'pointer',
+                    fontFamily: "'DM Sans', sans-serif",
+                  }}
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tab toggle */}
@@ -159,6 +277,13 @@ export default function CommentsModeration() {
             ) : (
               <ActionBtn label="Flag" color="#FF9100" loading={actioning === c.id} onClick={() => action(c.id, 'flag')} />
             )}
+            <ActionBtn label="Delete" color="#FF5252" loading={actioning === c.id}
+              onClick={() => {
+                if (confirm('Permanently delete this comment? This cannot be undone.')) {
+                  action(c.id, 'delete');
+                }
+              }}
+            />
           </div>
         </div>
       ))}
@@ -220,6 +345,40 @@ export default function CommentsModeration() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function ConfigStepper({
+  label, value, min, max, step, onChange,
+}: {
+  label: string; value: number; min: number; max: number; step: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: '12px' }}>
+      <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          onClick={() => onChange(Math.max(min, value - step))}
+          style={{
+            width: 28, height: 28, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.1)',
+            background: 'none', color: '#aaa', fontSize: 16, cursor: 'pointer', lineHeight: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >−</button>
+        <div style={{ flex: 1, textAlign: 'center', fontFamily: "'Space Mono', monospace", fontSize: 18, fontWeight: 700, color: '#fff' }}>
+          {value}
+        </div>
+        <button
+          onClick={() => onChange(Math.min(max, value + step))}
+          style={{
+            width: 28, height: 28, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.1)',
+            background: 'none', color: '#aaa', fontSize: 16, cursor: 'pointer', lineHeight: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >+</button>
+      </div>
     </div>
   );
 }
