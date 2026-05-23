@@ -126,6 +126,47 @@ export async function GET(req: NextRequest) {
     `,
   ]);
 
+  // Ledger aggregates — shortfalls, refunds, cancel revenue, extras revenue
+  const [shortfallsAgg, refundsAgg, cancelAgg, extrasAgg] = await Promise.all([
+    isAllTime ? sql`
+      SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total
+      FROM transaction_ledger WHERE event_type = 'capture_shortfall'
+    ` : sql`
+      SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total
+      FROM transaction_ledger WHERE event_type = 'capture_shortfall'
+        AND created_at > NOW() - ${interval}::interval
+    `,
+    isAllTime ? sql`
+      SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total
+      FROM transaction_ledger WHERE event_type = 'refund'
+    ` : sql`
+      SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total
+      FROM transaction_ledger WHERE event_type = 'refund'
+        AND created_at > NOW() - ${interval}::interval
+    `,
+    isAllTime ? sql`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM transaction_ledger WHERE event_type IN ('cancel_platform_fee', 'no_show_platform_fee')
+    ` : sql`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM transaction_ledger WHERE event_type IN ('cancel_platform_fee', 'no_show_platform_fee')
+        AND created_at > NOW() - ${interval}::interval
+    `,
+    isAllTime ? sql`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM transaction_ledger WHERE event_type = 'extra_platform_fee'
+    ` : sql`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM transaction_ledger WHERE event_type = 'extra_platform_fee'
+        AND created_at > NOW() - ${interval}::interval
+    `,
+  ]);
+
+  const sfAgg = shortfallsAgg[0] ?? {};
+  const rfAgg = refundsAgg[0] ?? {};
+  const cancelRevenue = Number((cancelAgg[0] ?? {}).total ?? 0);
+  const extrasRevenue = Number((extrasAgg[0] ?? {}).total ?? 0);
+
   // Revenue streams + fee audit (non-blocking — don't fail the whole response)
   let revenueStreams = null;
   let feeAudit = null;
@@ -205,8 +246,14 @@ export async function GET(req: NextRequest) {
       failedCaptures: Number(m.failed_captures ?? 0),
       cashRides: Number(m.cash_rides ?? 0),
       cashGmv: Number(m.cash_gmv ?? 0),
-      refundsCount: 0,
-      refundsSum: 0,
+      refundsCount: Number(rfAgg.count ?? 0),
+      refundsSum: Number(rfAgg.total ?? 0),
+      captureShortfalls: {
+        count: Number(sfAgg.count ?? 0),
+        total: Number(sfAgg.total ?? 0),
+      },
+      cancelRevenue,
+      extrasRevenue,
     },
     unitEconomics: {
       avgPrice: Number(ue.avg_price ?? 0),
