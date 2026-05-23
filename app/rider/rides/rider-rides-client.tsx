@@ -107,7 +107,7 @@ export default function RiderRidesClient({ rides, currentUserId }: { rides: Ride
             overflow: 'hidden',
           }}>
             {ride.driverAvatar
-              ? <img src={ride.driverAvatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ? <img src={ride.driverAvatar} alt="" width={36} height={36} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
               : <span style={{ fontSize: 16, color: '#666' }}>🚗</span>
             }
           </div>

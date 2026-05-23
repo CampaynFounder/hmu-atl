@@ -150,10 +150,14 @@ export default function RideCommentThread({ rideId, role }: Props) {
             <div style={{ color: '#555', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>Loading…</div>
           )}
 
-          {/* Thread */}
-          {data?.thread.map(comment => (
-            <CommentBubble key={comment.id} comment={comment} />
-          ))}
+          {/* Thread — scrollable when comments stack up */}
+          {hasThread && (
+            <div style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 8 }}>
+              {data!.thread.map(comment => (
+                <CommentBubble key={comment.id} comment={comment} />
+              ))}
+            </div>
+          )}
 
           {!loading && data && !hasThread && !data.canPost && (
             <div style={{ color: '#555', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>
@@ -174,6 +178,7 @@ export default function RideCommentThread({ rideId, role }: Props) {
                 value={text}
                 onChange={e => setText(e.target.value)}
                 maxLength={maxChars}
+                autoFocus
                 placeholder={
                   data.postType === 'reply'
                     ? 'Leave your response…'
