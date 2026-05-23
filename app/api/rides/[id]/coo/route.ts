@@ -41,6 +41,19 @@ export async function POST(
       return NextResponse.json({ error: `Cannot COO from status: ${ride.status}` }, { status: 400 });
     }
 
+    // Idempotency: if payment was already held (partial success on a prior tap), skip hold
+    if (ride.funds_held && ride.payment_intent_id) {
+      return NextResponse.json({
+        status: 'coo',
+        rideId,
+        paymentHeld: true,
+        visibleDeposit: Number(ride.visible_deposit ?? 0),
+        holdMode: ride.pricing_mode_key ?? null,
+        ridePrice: Number(ride.final_agreed_price || ride.amount || 0),
+        idempotent: true,
+      });
+    }
+
     // ── Skip payment hold for cash rides ──
     // The active pricing strategy gets the final say. When the strategy
     // disallows cash-only (deposit_only), we ignore ride.is_cash so legacy
