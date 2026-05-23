@@ -158,7 +158,7 @@ export async function captureRiderPayment(rideId: string, options?: { strategy?:
   offerJustExhausted: boolean;
 }> {
   const rideRows = await sql`
-    SELECT payment_intent_id, final_agreed_price, visible_deposit, driver_id, rider_id
+    SELECT payment_intent_id, final_agreed_price, visible_deposit, add_on_reserve, driver_id, rider_id
     FROM rides WHERE id = ${rideId} LIMIT 1
   `;
   if (!rideRows.length) throw new Error('Ride not found');
@@ -176,6 +176,7 @@ export async function captureRiderPayment(rideId: string, options?: { strategy?:
 
   // Calculate confirmed add-on total
   const addOnTotal = await calculateAddOnTotal(rideId);
+  const addOnReserve = Number(ride.add_on_reserve ?? 0);
   const totalRideAmount = Number(ride.final_agreed_price) + addOnTotal;
 
   const earnings = await getDailyEarnings(ride.driver_id as string);
@@ -190,6 +191,7 @@ export async function captureRiderPayment(rideId: string, options?: { strategy?:
     rideId,
     agreedPrice: Number(ride.final_agreed_price),
     addOnTotal,
+    addOnReserve,
     visibleDeposit: Number(ride.visible_deposit ?? 0),
     driverTier: tier as 'free' | 'hmu_first',
     driverPayoutMethod: (driver?.payout_method as string) || 'bank',
@@ -295,6 +297,15 @@ export async function captureRiderPayment(rideId: string, options?: { strategy?:
   }
   if (waivedFee > 0) {
     await insertLedger(rideId, ride.driver_id as string, 'platform', 'fee_waived', waivedFee, 'waiver', 'Launch Offer — fee waived', ride.payment_intent_id as string);
+  }
+  // Log shortfall when confirmed add-ons exceeded the reserve — the cap
+  // prevented a Stripe reject but the driver received less than expected.
+  const addOnShortfall = Math.max(0, addOnTotal - addOnReserve);
+  if (addOnShortfall > 0) {
+    await insertLedger(rideId, ride.driver_id as string, 'platform', 'capture_shortfall',
+      addOnShortfall, 'none',
+      `Add-on overage capped: confirmed $${addOnTotal.toFixed(2)} vs reserve $${addOnReserve.toFixed(2)} — $${addOnShortfall.toFixed(2)} uncaptured`,
+      ride.payment_intent_id as string);
   }
 
   return {
