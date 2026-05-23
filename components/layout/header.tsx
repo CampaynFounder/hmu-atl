@@ -35,6 +35,7 @@ const PROFILE_TYPE_KEY = 'hmu_profile_type';
 export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [cachedProfileType, setCachedProfileType] = useState<string | undefined>(undefined);
+  const [fetchedProfileType, setFetchedProfileType] = useState<string | undefined>(undefined);
   const pathname = usePathname();
   const { isSignedIn, user } = useUser();
   const { signOut } = useClerk();
@@ -51,26 +52,41 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
   const tier = user?.publicMetadata?.tier as string | undefined;
   const isHmuFirst = tier === 'hmu_first';
 
-  // Path-based fallback covers /rider* and /driver* routes. localStorage cache
-  // covers everything else (e.g. /ride/[id], /blast/[id]) where the URL gives
-  // no signal. We write the cache whenever Clerk has the real value so it's
-  // always fresh; on paths where Clerk metadata hasn't synced yet the cache
-  // keeps the menu populated without an API call.
+  // Resolution priority (first truthy value wins):
+  //   1. Clerk publicMetadata — authoritative, instant when set
+  //   2. URL prefix — /rider* or /driver* gives an unambiguous signal
+  //   3. localStorage cache — populated on any prior visit where 1 or 4 resolved
+  //   4. /api/me/role fetch — reads Neon, backfills Clerk so subsequent loads skip this
   const profileType: string | undefined = rawProfileType
     || (pathname.startsWith('/rider') ? 'rider'
       : pathname.startsWith('/driver') ? 'driver'
-      : cachedProfileType);
+      : cachedProfileType ?? fetchedProfileType);
 
   useEffect(() => {
     if (rawProfileType) {
       localStorage.setItem(PROFILE_TYPE_KEY, rawProfileType);
-    } else {
-      const stored = localStorage.getItem(PROFILE_TYPE_KEY);
-      if (stored) setCachedProfileType(stored);
-      // Self-heal: ask Clerk to reload so the next render gets real metadata.
-      if (isSignedIn && user) void user.reload();
+      return;
     }
-  }, [isSignedIn, rawProfileType, user]);
+    const stored = localStorage.getItem(PROFILE_TYPE_KEY);
+    if (stored) {
+      setCachedProfileType(stored);
+      return;
+    }
+    // Neither Clerk nor localStorage has the role — fetch from Neon.
+    // The endpoint also backfills Clerk publicMetadata so this only fires once
+    // per account (future loads resolve at step 1).
+    if (isSignedIn) {
+      fetch('/api/me/role')
+        .then(r => r.ok ? r.json() : null)
+        .then((d: { profileType?: string } | null) => {
+          if (d?.profileType) {
+            setFetchedProfileType(d.profileType);
+            localStorage.setItem(PROFILE_TYPE_KEY, d.profileType);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isSignedIn, rawProfileType]);
 
   const logoHref = getLogoHref(pathname, profileType);
   const close = () => setIsMenuOpen(false);
