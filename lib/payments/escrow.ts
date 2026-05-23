@@ -109,7 +109,7 @@ export async function holdRiderPayment(params: {
       pricingMode: holdDecision.holdMode,
     },
   }, {
-    idempotencyKey: `hold_${params.rideId}`,
+    idempotencyKey: `hold_${params.rideId}_${amountInCents}`,
   });
 
   if (paymentIntent.status !== 'requires_capture') {
