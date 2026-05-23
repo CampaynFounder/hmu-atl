@@ -26,6 +26,15 @@ interface Stats {
   drivers: { onRide: number };
 }
 
+interface RideStop {
+  latitude: number;
+  longitude: number;
+  address: string;
+  order: number;
+  reached_at: string | null;
+  verified: boolean;
+}
+
 interface ActiveRide {
   id: string;
   status: string;
@@ -37,6 +46,7 @@ interface ActiveRide {
   pickupLng: number | null;
   dropoffLat: number | null;
   dropoffLng: number | null;
+  stops: RideStop[] | null;
   driverName: string;
   driverHandle: string | null;
   riderName: string;
