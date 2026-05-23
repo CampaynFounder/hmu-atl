@@ -118,7 +118,7 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
               )}
             </div>
             <div className="flex items-center gap-1">
-              {isSignedIn && <FeatureSearch profileType={profileType} />}
+              {isSignedIn && profileType && <FeatureSearch profileType={profileType} />}
               <button
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
                 className="p-2 rounded-lg hover:bg-white/10 transition-colors text-white"
