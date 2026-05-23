@@ -184,19 +184,28 @@ export async function POST(req: Request) {
       }
 
       // Sync profileType to Clerk publicMetadata immediately after user creation.
-      // This ensures the header component (components/layout/header.tsx) can read
-      // the correct profile type and show the appropriate menu before onboarding
-      // completes. Without this, drivers see the rider menu during the race window
-      // between signup and onboarding completion.
-      try {
-        const clerk = await clerkClient();
-        await clerk.users.updateUserMetadata(id, {
-          publicMetadata: { profileType },
-        });
-        console.log('[WEBHOOK] Synced profileType to Clerk metadata:', { clerkId: id, profileType });
-      } catch (metaErr) {
-        console.error('[WEBHOOK] Failed to sync profileType to Clerk metadata:', metaErr);
-        // Non-fatal - the DB profile exists, onboarding will retry this sync
+      // Retry up to 3 times — a transient Clerk API error here is the root cause
+      // of users missing menu items on /ride/[id] and similar non-prefixed paths.
+      // /api/me/role self-heals lazily, but retrying here fixes it at signup time.
+      {
+        let metaSynced = false;
+        for (let attempt = 1; attempt <= 3 && !metaSynced; attempt++) {
+          try {
+            const clerk = await clerkClient();
+            await clerk.users.updateUserMetadata(id, {
+              publicMetadata: { profileType },
+            });
+            metaSynced = true;
+            console.log('[WEBHOOK] Synced profileType to Clerk metadata:', { clerkId: id, profileType, attempt });
+          } catch (metaErr) {
+            console.error(`[WEBHOOK] profileType sync attempt ${attempt}/3 failed:`, metaErr, { clerkId: id, profileType });
+          }
+        }
+        if (!metaSynced) {
+          // All 3 attempts failed. /api/me/role will self-heal on next login, but
+          // log loudly so this shows up in error tracking for follow-up.
+          console.error('[WEBHOOK] CRITICAL: profileType NOT synced to Clerk after 3 attempts — user will self-heal via /api/me/role on next login', { clerkId: id, profileType });
+        }
       }
 
       // Provision Stripe Customer + Connect account now that the user is real.
