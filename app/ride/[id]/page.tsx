@@ -24,10 +24,15 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
     rideRows = await sql`
       SELECT r.*,
         dp.display_name as driver_name, dp.handle as driver_handle, dp.thumbnail_url as driver_avatar_url, dp.vehicle_info as driver_vehicle_info,
-        rp.display_name as rider_display_name, rp.handle as rider_handle, rp.avatar_url as rider_avatar_url
+        rp.display_name as rider_display_name, rp.handle as rider_handle, rp.avatar_url as rider_avatar_url,
+        rl.lat as last_driver_lat, rl.lng as last_driver_lng
       FROM rides r
       LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
       LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
+      LEFT JOIN LATERAL (
+        SELECT lat, lng FROM ride_locations
+        WHERE ride_id = r.id ORDER BY recorded_at DESC LIMIT 1
+      ) rl ON true
       WHERE r.id = ${rideId} AND (r.driver_id = ${user.id} OR r.rider_id = ${user.id})
       LIMIT 1
     `;
@@ -157,6 +162,8 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
         riderPaymentBrand,
         riderPaymentLast4,
         hmuPostId: (ride.hmu_post_id as string) || null,
+        initialDriverLat: ride.last_driver_lat ? Number(ride.last_driver_lat) : null,
+        initialDriverLng: ride.last_driver_lng ? Number(ride.last_driver_lng) : null,
       }}
       mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''}
     />
