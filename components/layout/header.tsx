@@ -30,8 +30,11 @@ function getLogoHref(pathname: string, profileType?: string) {
   return '/';
 }
 
+const PROFILE_TYPE_KEY = 'hmu_profile_type';
+
 export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [cachedProfileType, setCachedProfileType] = useState<string | undefined>(undefined);
   const pathname = usePathname();
   const { isSignedIn, user } = useUser();
   const { signOut } = useClerk();
@@ -48,24 +51,24 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
   const tier = user?.publicMetadata?.tier as string | undefined;
   const isHmuFirst = tier === 'hmu_first';
 
-  // Path-based fallback for the missing profileType case. On the blast funnel
-  // (and other newly-signed-up rider flows on staging), Clerk publicMetadata
-  // can lag behind the Neon row — the metadata is written server-side by
-  // /api/blast/onboard, but the client's `user` object isn't refreshed until
-  // the next Clerk sync. Without this fallback, isSignedIn=true but
-  // profileType=undefined → no menu items render → user sees only Sign Out.
-  // We trust the URL: anything under /rider is a rider, /driver is a driver.
+  // Path-based fallback covers /rider* and /driver* routes. localStorage cache
+  // covers everything else (e.g. /ride/[id], /blast/[id]) where the URL gives
+  // no signal. We write the cache whenever Clerk has the real value so it's
+  // always fresh; on paths where Clerk metadata hasn't synced yet the cache
+  // keeps the menu populated without an API call.
   const profileType: string | undefined = rawProfileType
     || (pathname.startsWith('/rider') ? 'rider'
       : pathname.startsWith('/driver') ? 'driver'
-      : undefined);
+      : cachedProfileType);
 
-  // Self-heal: when we had to fall back to the path, ask Clerk to reload the
-  // user so the next render gets the real metadata. user.reload() is a no-op
-  // if the metadata hasn't changed server-side, so this is safe to call.
   useEffect(() => {
-    if (isSignedIn && !rawProfileType && user) {
-      void user.reload();
+    if (rawProfileType) {
+      localStorage.setItem(PROFILE_TYPE_KEY, rawProfileType);
+    } else {
+      const stored = localStorage.getItem(PROFILE_TYPE_KEY);
+      if (stored) setCachedProfileType(stored);
+      // Self-heal: ask Clerk to reload so the next render gets real metadata.
+      if (isSignedIn && user) void user.reload();
     }
   }, [isSignedIn, rawProfileType, user]);
 
