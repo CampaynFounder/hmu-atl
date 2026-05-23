@@ -242,15 +242,19 @@ function RideCard({ ride, expanded, onToggle, showComments }: { ride: Ride; expa
   const date = new Date(ride.createdAt);
   const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const canShowComments = showComments && expanded && (ride.status === 'completed' || ride.status === 'ended');
 
+  // RideCommentThread is rendered OUTSIDE the onClick div so touch events on
+  // the textarea don't bubble up to the card toggle handler.
   return (
+    <>
     <div
       onClick={onToggle}
       style={{
         background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: 16, padding: 16, marginBottom: 10, cursor: 'pointer',
+        borderRadius: 16, padding: 16, marginBottom: canShowComments ? 0 : 10, cursor: 'pointer',
         transition: 'border-color 0.15s',
-        ...(expanded ? { borderColor: 'rgba(0,230,118,0.2)' } : {}),
+        ...(expanded ? { borderColor: 'rgba(0,230,118,0.2)', borderBottomLeftRadius: canShowComments ? 0 : 16, borderBottomRightRadius: canShowComments ? 0 : 16 } : {}),
       }}
     >
       {/* Top row: rider + status + date */}
@@ -377,15 +381,21 @@ function RideCard({ ride, expanded, onToggle, showComments }: { ride: Ride; expa
             View Ride
           </Link>
 
-          {/* Post-ride comment thread — completed/ended only */}
-          {showComments && (ride.status === 'completed' || ride.status === 'ended') && (
-            <div onClick={(e) => e.stopPropagation()}>
-              <RideCommentThread rideId={ride.id} role="driver" />
-            </div>
-          )}
         </div>
       )}
     </div>
+    {/* Thread lives outside the clickable card so textarea touches don't toggle the card */}
+    {canShowComments && (
+      <div style={{
+        background: '#141414', borderLeft: '1px solid rgba(0,230,118,0.2)',
+        borderRight: '1px solid rgba(0,230,118,0.2)', borderBottom: '1px solid rgba(0,230,118,0.2)',
+        borderBottomLeftRadius: 16, borderBottomRightRadius: 16,
+        padding: '0 16px 16px', marginBottom: 10,
+      }}>
+        <RideCommentThread rideId={ride.id} role="driver" />
+      </div>
+    )}
+    </>
   );
 }
 
