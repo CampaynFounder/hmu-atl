@@ -21,6 +21,7 @@ interface CommentRow {
 interface CommentConfig {
   maxChars: number;
   maxInitialPerRide: number;
+  maxDriverInitialPerRide: number;
   maxRepliesPerRide: number;
 }
 
@@ -105,6 +106,7 @@ export default function CommentsModeration() {
   const configChanged = config && configDraft && (
     config.maxChars !== configDraft.maxChars ||
     config.maxInitialPerRide !== configDraft.maxInitialPerRide ||
+    config.maxDriverInitialPerRide !== configDraft.maxDriverInitialPerRide ||
     config.maxRepliesPerRide !== configDraft.maxRepliesPerRide
   );
 
@@ -133,7 +135,7 @@ export default function CommentsModeration() {
 
         {configOpen && configDraft && (
           <div style={{ padding: '0 18px 18px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
               <ConfigStepper
                 label="Max characters"
                 value={configDraft.maxChars}
@@ -145,6 +147,12 @@ export default function CommentsModeration() {
                 value={configDraft.maxInitialPerRide}
                 min={1} max={20} step={1}
                 onChange={v => setConfigDraft(d => d ? { ...d, maxInitialPerRide: v } : d)}
+              />
+              <ConfigStepper
+                label="Driver comments/ride"
+                value={configDraft.maxDriverInitialPerRide}
+                min={0} max={20} step={1}
+                onChange={v => setConfigDraft(d => d ? { ...d, maxDriverInitialPerRide: v } : d)}
               />
               <ConfigStepper
                 label="Driver replies/ride"

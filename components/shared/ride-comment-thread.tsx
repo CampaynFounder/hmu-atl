@@ -182,7 +182,9 @@ export default function RideCommentThread({ rideId, role }: Props) {
                 placeholder={
                   data.postType === 'reply'
                     ? 'Leave your response…'
-                    : 'Leave a comment for your driver…'
+                    : role === 'driver'
+                      ? 'Leave a comment for your rider…'
+                      : 'Leave a comment for your driver…'
                 }
                 rows={3}
                 style={{
