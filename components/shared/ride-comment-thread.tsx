@@ -63,7 +63,7 @@ export default function RideCommentThread({ rideId, role }: Props) {
         rideId,
         content: text.trim(),
       };
-      if (data.postType === 'reply' && data.replyToId) {
+      if (data?.postType === 'reply' && data.replyToId) {
         body.parentId = data.replyToId;
       }
       const res = await fetch('/api/comments', {
