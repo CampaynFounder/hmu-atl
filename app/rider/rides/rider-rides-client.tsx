@@ -103,12 +103,11 @@ export default function RiderRidesClient({ rides, currentUserId }: { rides: Ride
           {/* Driver avatar */}
           <div style={{
             width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-            background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            overflow: 'hidden',
+            background: '#222', overflow: 'hidden', position: 'relative',
           }}>
             {ride.driverAvatar
-              ? <img src={ride.driverAvatar} alt="" width={36} height={36} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-              : <span style={{ fontSize: 16, color: '#666' }}>🚗</span>
+              ? <img src={ride.driverAvatar} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: '#666' }}>🚗</span>
             }
           </div>
           {/* Info */}
