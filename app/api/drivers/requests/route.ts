@@ -72,7 +72,6 @@ export async function GET() {
         SELECT 1 FROM ride_interests ri
         WHERE ri.post_id = p.id
           AND ri.driver_id = ${driverUserId}
-          AND ri.status = 'passed'
       )
       AND (
         -- Direct booking targeting this driver (not area-gated)

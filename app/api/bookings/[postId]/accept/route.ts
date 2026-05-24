@@ -165,14 +165,15 @@ export async function POST(
 
     // ── OPEN REQUESTS: Register interest (rider picks later) ──
     if (!isDirectBooking) {
-      // Check driver doesn't already have interest or active ride
-      const [existingInterest, driverActiveRides] = await Promise.all([
-        sql`SELECT id FROM ride_interests WHERE post_id = ${postId} AND driver_id = ${driverUserId} LIMIT 1`,
+      // Block only if driver explicitly passed this post (different intent from re-accepting).
+      // A pre-existing 'interested' row is fine — treat accept as idempotent.
+      const [existingPassed, driverActiveRides] = await Promise.all([
+        sql`SELECT id FROM ride_interests WHERE post_id = ${postId} AND driver_id = ${driverUserId} AND status = 'passed' LIMIT 1`,
         sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('otw','here','active') LIMIT 1`,
       ]);
 
-      if (existingInterest.length) {
-        return NextResponse.json({ error: 'You already expressed interest in this ride' }, { status: 409 });
+      if (existingPassed.length) {
+        return NextResponse.json({ error: 'You already passed on this ride' }, { status: 409 });
       }
       if (driverActiveRides.length) {
         return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });
