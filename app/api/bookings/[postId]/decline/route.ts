@@ -29,6 +29,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ postId: string }> }
 ) {
+  try {
   const { userId: clerkId } = await auth();
   if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -145,4 +146,8 @@ export async function POST(
   }
 
   return NextResponse.json({ error: 'This post type cannot be declined' }, { status: 400 });
+  } catch (err) {
+    console.error('[bookings/decline] unhandled error:', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
 }
