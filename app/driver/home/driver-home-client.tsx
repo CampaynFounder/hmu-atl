@@ -251,6 +251,11 @@ export default function DriverHomeClient({
             }
           }, 0);
         }
+      } else if (res.status === 404) {
+        // Ride was already matched or expired — drop the card silently
+        setExitDirs((d) => ({ ...d, [req.id]: 'left' }));
+        setTimeout(() => setRequests((prev) => prev.filter((r) => r.id !== req.id)), 0);
+        showToast('Ride already taken', 2000);
       } else if (data.error === 'PAYOUT_REQUIRED') {
         if (confirm('Set up your payout account to accept rides. Go to payout setup?')) {
           window.location.href = '/driver/payout-setup';
@@ -289,6 +294,11 @@ export default function DriverHomeClient({
         setExitDirs((d) => ({ ...d, [req.id]: 'left' }));
         setTimeout(() => setRequests((prev) => prev.filter((r) => r.id !== req.id)), 0);
         showToast(data.status === 'declined_awaiting_rider' ? 'Passed — rider notified' : 'Passed', 2000);
+      } else if (res.status === 404) {
+        // Ride was already matched or expired — drop the card silently
+        setExitDirs((d) => ({ ...d, [req.id]: 'left' }));
+        setTimeout(() => setRequests((prev) => prev.filter((r) => r.id !== req.id)), 0);
+        showToast('Ride already taken', 2000);
       } else {
         showToast(data.error || `Couldn't pass (${res.status})`, 3000);
       }
