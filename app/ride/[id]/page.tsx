@@ -83,6 +83,30 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
     } catch { /* non-critical */ }
   }
 
+  // Down Bad sum extra — only fetched when the ride came from a down_bad post.
+  // Both parties reference this during the ride to confirm what the rider is bringing.
+  let sumExtra: { text: string; mediaUrl: string; mediaType: 'photo' | 'video' } | null = null;
+  if (ride.hmu_post_id) {
+    try {
+      const postRows = await sql`
+        SELECT sum_extra_text, sum_extra_media_url, sum_extra_media_type
+        FROM hmu_posts
+        WHERE id = ${ride.hmu_post_id as string}
+          AND post_type = 'down_bad'
+          AND sum_extra_media_url IS NOT NULL
+        LIMIT 1
+      `;
+      if (postRows.length) {
+        const p = postRows[0] as Record<string, unknown>;
+        sumExtra = {
+          text: (p.sum_extra_text as string) || '',
+          mediaUrl: (p.sum_extra_media_url as string) || '',
+          mediaType: (p.sum_extra_media_type as 'photo' | 'video') || 'photo',
+        };
+      }
+    } catch { /* non-critical */ }
+  }
+
   // Ride breakdown — only fetched once the ride has ended so we don't
   // pay for the extra query on every in-flight render.
   const endedStatuses = ['ended', 'completed', 'disputed'];
@@ -162,6 +186,7 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
         riderPaymentBrand,
         riderPaymentLast4,
         hmuPostId: (ride.hmu_post_id as string) || null,
+        sumExtra,
         initialDriverLat: ride.last_driver_lat ? Number(ride.last_driver_lat) : null,
         initialDriverLng: ride.last_driver_lng ? Number(ride.last_driver_lng) : null,
       }}

@@ -57,7 +57,7 @@ export async function POST(
   const post = postRows[0] as {
     id: string;
     user_id: string;
-    post_type: 'direct_booking' | 'rider_request' | 'driver_available' | 'blast';
+    post_type: 'direct_booking' | 'rider_request' | 'driver_available' | 'blast' | 'down_bad';
     target_driver_id: string | null;
     status: string;
     price: number;
@@ -142,6 +142,22 @@ export async function POST(
     // unaffected since the broadcast post stays active for them.
     notifyUser(driverUserId, 'pass_committed', { postId }).catch(() => {});
 
+    return NextResponse.json({ status: 'passed', postId });
+  }
+
+  if (post.post_type === 'down_bad') {
+    // Silent pass — same pattern as rider_request. Post stays active for other drivers.
+    // Rider is not notified per-pass (would be noisy).
+    await sql`
+      INSERT INTO ride_interests (post_id, driver_id, status, pass_reason, pass_message)
+      VALUES (${postId}, ${driverUserId}, 'passed', ${reason}, ${messageOrNull})
+      ON CONFLICT (post_id, driver_id) DO UPDATE SET
+        status = 'passed',
+        pass_reason = ${reason},
+        pass_message = ${messageOrNull},
+        updated_at = NOW()
+    `;
+    notifyUser(driverUserId, 'pass_committed', { postId }).catch(() => {});
     return NextResponse.json({ status: 'passed', postId });
   }
 

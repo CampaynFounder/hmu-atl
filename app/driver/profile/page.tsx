@@ -66,6 +66,7 @@ export default async function DriverProfilePage() {
         waitMinutes: Number((p as Record<string, unknown>).wait_minutes ?? 10),
         advanceNoticeHours: Number((p as Record<string, unknown>).advance_notice_hours ?? 0),
         depositFloor: (p as Record<string, unknown>).deposit_floor != null ? Number((p as Record<string, unknown>).deposit_floor) : null,
+        acceptsDownBad: (p.accepts_down_bad as boolean) || false,
         homeLat: p.home_lat != null ? Number(p.home_lat) : null,
         homeLng: p.home_lng != null ? Number(p.home_lng) : null,
         homeLabel: (p.home_label as string) || null,
