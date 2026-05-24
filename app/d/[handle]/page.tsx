@@ -86,7 +86,7 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
     return <DriverOnBreak handle={handle} />;
   }
 
-  // Fetch user-level data + live status + active ride + service menu in parallel
+  // Fetch user-level data + live status + active ride + service menu + down bad flag in parallel
   const [userRows, liveRows, activeRideRows, serviceRows] = await Promise.all([
     sql`
       SELECT tier, chill_score, completed_rides, account_status
@@ -139,6 +139,7 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
   const displayName = (profileAny.display_name as string)
     || profile.handle
     || 'Driver';
+  const acceptsDownBad = (profileAny.accepts_down_bad as boolean) || false;
 
   // Show BRB page if profile is hidden
   if (profileAny.profile_visible === false) {
@@ -185,6 +186,7 @@ export default async function DriverSharePage({ params, searchParams }: Props) {
       lastName: profileAny.last_name as string | null,
       licensePlate: ((profile.vehicle_info as Record<string, unknown>)?.license_plate as string | null) ?? null,
     }),
+    acceptsDownBad,
   };
 
   return (

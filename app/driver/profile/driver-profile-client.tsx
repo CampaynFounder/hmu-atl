@@ -52,6 +52,7 @@ interface ProfileData {
   homeLng: number | null;
   homeLabel: string | null;
   homeMapboxId: string | null;
+  acceptsDownBad: boolean;
 }
 
 type Cardinal = 'westside' | 'eastside' | 'northside' | 'southside' | 'central';
@@ -664,6 +665,8 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               <div className="toggle-thumb" />
             </button>
           </div>
+
+          <DownBadToggleRow initialValue={data.acceptsDownBad} />
 
           <div className="save-status">{saving ? 'Saving...' : saved}</div>
         </Section>
@@ -1531,5 +1534,172 @@ function HomeAreaEditor({
         <div style={{ fontSize: 12, color: '#FF8A8A', marginTop: 8 }}>{error}</div>
       )}
     </div>
+  );
+}
+
+// ── Down Bad opt-in toggle ─────────────────────────────────────────────────────
+// Self-contained: fetches payment status + disclaimer on demand.
+// Payment method is required to opt in; opt-out is unrestricted.
+
+function DownBadToggleRow({ initialValue }: { initialValue: boolean }) {
+  const [accepts, setAccepts] = useState(initialValue);
+  const [hasPaymentMethod, setHasPaymentMethod] = useState<boolean | null>(null);
+  const [disclaimerText, setDisclaimerText] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetch('/api/driver/down-bad-toggle')
+      .then(r => r.json())
+      .then(d => {
+        setAccepts(d.acceptsDownBad ?? false);
+        setHasPaymentMethod(d.hasPaymentMethod ?? false);
+        setDisclaimerText(d.disclaimerText ?? '');
+      })
+      .catch(() => setHasPaymentMethod(false));
+  }, []);
+
+  const handleToggleOn = () => {
+    if (!hasPaymentMethod) {
+      setError('Link a payment method above before enabling Down Bad.');
+      setTimeout(() => setError(''), 4000);
+      return;
+    }
+    setShowModal(true);
+  };
+
+  const handleConfirm = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch('/api/driver/down-bad-toggle', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accepts: true }),
+      });
+      if (res.ok) {
+        setAccepts(true);
+        setShowModal(false);
+      } else {
+        const b = await res.json().catch(() => ({}));
+        setError(b.error || 'Something went wrong. Try again.');
+      }
+    } catch {
+      setError('Network error. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleOff = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch('/api/driver/down-bad-toggle', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accepts: false }),
+      });
+      if (res.ok) setAccepts(false);
+      else setError('Failed to update. Try again.');
+    } catch {
+      setError('Network error. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="dp-row">
+        <div className="dp-row-left">
+          <div className="dp-row-label">Down Bad rides</div>
+          <div className="dp-row-sub">
+            {hasPaymentMethod === false
+              ? 'Link a payment method above to enable'
+              : accepts
+              ? 'You\'re in the Down Bad deck — swipe at /driver/down-bad'
+              : 'Opt in to receive Down Bad posts from riders'}
+          </div>
+          {error && (
+            <div style={{ fontSize: 12, color: '#FFC107', marginTop: 4 }}>{error}</div>
+          )}
+        </div>
+        <button
+          className={`toggle ${accepts ? 'on' : 'off'}`}
+          disabled={saving || hasPaymentMethod === null}
+          style={{ opacity: hasPaymentMethod === false ? 0.4 : 1 }}
+          onClick={accepts ? handleToggleOff : handleToggleOn}
+        >
+          <div className="toggle-thumb" />
+        </button>
+      </div>
+
+      {/* Disclaimer modal */}
+      {showModal && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          }}
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            style={{
+              background: '#111', borderRadius: '20px 20px 0 0',
+              padding: '28px 20px 40px', width: '100%', maxWidth: 520,
+              animation: 'sheetUp 0.25s ease',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ width: 36, height: 4, background: '#333', borderRadius: 2, margin: '0 auto 24px' }} />
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#fff', marginBottom: 4 }}>
+              Down Bad Rides
+            </div>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 20 }}>
+              Read before you opt in
+            </div>
+            {disclaimerText ? (
+              <div style={{
+                fontSize: 14, color: '#bbb', lineHeight: 1.65,
+                whiteSpace: 'pre-wrap', marginBottom: 28,
+                maxHeight: '40vh', overflowY: 'auto',
+              }}>
+                {disclaimerText}
+              </div>
+            ) : (
+              <div style={{ height: 80 }} />
+            )}
+            <button
+              onClick={handleConfirm}
+              disabled={saving}
+              style={{
+                width: '100%', padding: '15px 0',
+                background: saving ? '#333' : '#fff',
+                color: '#000', fontWeight: 800, fontSize: 16,
+                borderRadius: 100, border: 'none', cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                transition: 'background 0.15s',
+              }}
+            >
+              {saving ? 'Saving…' : "I'm Down — Opt In"}
+            </button>
+            <button
+              onClick={() => setShowModal(false)}
+              style={{
+                width: '100%', marginTop: 12, padding: '12px 0',
+                background: 'transparent', color: '#666', fontSize: 14,
+                border: 'none', cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Nah, not yet
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
