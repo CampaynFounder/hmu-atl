@@ -1,11 +1,12 @@
 // POST /api/blast/[id]/targets/[targetId]/pass — driver action: not for me.
-// Stripe gate enforced (§3 D-10) so the driver UI surfaces the inline overlay.
+// No payout gate — passing doesn't move money; any driver can decline regardless
+// of Stripe onboarding status.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { checkRateLimit } from '@/lib/rate-limit/check';
-import { writeBlastEvent, checkDriverPayoutGate } from '@/lib/blast/lifecycle';
+import { writeBlastEvent } from '@/lib/blast/lifecycle';
 import { broadcastBlastEvent } from '@/lib/blast/notify';
 
 export const runtime = 'nodejs';
@@ -33,14 +34,6 @@ export async function POST(
       return NextResponse.json(
         { error: 'Rate limit exceeded', retryAfterSeconds: rl.retryAfterSeconds },
         { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } },
-      );
-    }
-
-    const gate = await checkDriverPayoutGate(driverUserId);
-    if (!gate.approved) {
-      return NextResponse.json(
-        { error: 'PAYOUT_ONBOARDING_REQUIRED', reason: gate.reason, payout_onboarding_url: '/driver/payout-setup' },
-        { status: 402 },
       );
     }
 
