@@ -74,8 +74,8 @@ export async function GET(
       c.created_at,
       c.ride_id,
       u.id AS author_id,
-      dp.handle AS author_handle,
-      dp.display_name AS author_name,
+      COALESCE(dp.handle, rp.handle) AS author_handle,
+      COALESCE(dp.display_name, rp.display_name) AS author_name,
       dp.vehicle_info->>'photo_url' AS author_photo,
       (
         SELECT json_agg(json_build_object(
@@ -97,6 +97,7 @@ export async function GET(
     FROM comments c
     JOIN users u ON u.id = c.author_id
     LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+    LEFT JOIN rider_profiles rp ON rp.user_id = u.id
     WHERE c.subject_id = ${subjectId}
       AND c.parent_id IS NULL
       AND c.is_visible = true
@@ -116,8 +117,8 @@ export async function GET(
         r.redacted_content,
         r.created_at,
         u.id AS author_id,
-        dp.handle AS author_handle,
-        dp.display_name AS author_name,
+        COALESCE(dp.handle, rp.handle) AS author_handle,
+        COALESCE(dp.display_name, rp.display_name) AS author_name,
         dp.vehicle_info->>'photo_url' AS author_photo,
         (
           SELECT json_agg(json_build_object('reaction', cr.reaction, 'count', cr.cnt))
@@ -136,6 +137,7 @@ export async function GET(
       FROM comments r
       JOIN users u ON u.id = r.author_id
       LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      LEFT JOIN rider_profiles rp ON rp.user_id = u.id
       WHERE r.parent_id = ANY(${commentIds}::uuid[])
         AND r.is_visible = true
       ORDER BY r.created_at ASC
