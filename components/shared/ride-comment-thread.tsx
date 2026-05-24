@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 
 interface ThreadComment {
   id: string;
@@ -107,7 +108,10 @@ export default function RideCommentThread({ rideId, role }: Props) {
         <button
           type="button"
           onClick={() => {
-            if (!ctaDisabled) setOpen(true);
+            if (!ctaDisabled) {
+              flushSync(() => setOpen(true));
+              textareaRef.current?.focus();
+            }
           }}
           disabled={!loading && ctaDisabled}
           style={{
@@ -165,10 +169,11 @@ export default function RideCommentThread({ rideId, role }: Props) {
             </div>
           )}
 
-          {/* Compose */}
-          {data?.canPost && (
+          {/* Compose — render immediately on open so focus() fires within the user gesture.
+              Hide once data confirms the user cannot post. */}
+          {(data === null || data.canPost) && (
             <div style={{ marginTop: hasThread ? 10 : 0 }}>
-              {hasThread && data.postType === 'reply' && (
+              {hasThread && data?.postType === 'reply' && (
                 <div style={{ fontSize: 11, color: '#555', marginBottom: 6, paddingLeft: 20 }}>
                   ↳ Your response
                 </div>
@@ -178,9 +183,8 @@ export default function RideCommentThread({ rideId, role }: Props) {
                 value={text}
                 onChange={e => setText(e.target.value)}
                 maxLength={maxChars}
-                autoFocus
                 placeholder={
-                  data.postType === 'reply'
+                  data?.postType === 'reply'
                     ? 'Leave your response…'
                     : role === 'driver'
                       ? 'Leave a comment for your rider…'
@@ -198,23 +202,23 @@ export default function RideCommentThread({ rideId, role }: Props) {
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
                 <span style={{ fontSize: 11, color: remaining < 20 ? (remaining < 0 ? '#FF5252' : '#FFD740') : '#555' }}>
-                  {remaining} left
+                  {data === null ? '' : `${remaining} left`}
                 </span>
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={submitting || !text.trim() || remaining < 0}
+                  disabled={submitting || !text.trim() || remaining < 0 || data === null}
                   style={{
                     padding: '7px 18px', borderRadius: 100,
-                    background: (submitting || !text.trim() || remaining < 0) ? 'rgba(255,255,255,0.08)' : '#00E676',
-                    color: (submitting || !text.trim() || remaining < 0) ? '#555' : '#080808',
+                    background: (submitting || !text.trim() || remaining < 0 || data === null) ? 'rgba(255,255,255,0.08)' : '#00E676',
+                    color: (submitting || !text.trim() || remaining < 0 || data === null) ? '#555' : '#080808',
                     border: 'none', fontSize: 12, fontWeight: 700,
-                    cursor: (submitting || !text.trim() || remaining < 0) ? 'not-allowed' : 'pointer',
+                    cursor: (submitting || !text.trim() || remaining < 0 || data === null) ? 'not-allowed' : 'pointer',
                     fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
                     transition: 'background 0.15s',
                   }}
                 >
-                  {submitting ? 'Posting…' : 'Post'}
+                  {submitting ? 'Posting…' : data === null ? 'Loading…' : 'Post'}
                 </button>
               </div>
               {error && <div style={{ fontSize: 12, color: '#FF5252', marginTop: 4 }}>{error}</div>}
