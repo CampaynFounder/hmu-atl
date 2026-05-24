@@ -5,6 +5,7 @@ import {
   checkRiderEligibility,
   createDirectBookingPost,
   getActiveDirectBooking,
+  checkRiderRequestConflict,
 } from '@/lib/db/direct-bookings';
 import { notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyDriverNewBooking } from '@/lib/sms/textbee';
@@ -216,6 +217,31 @@ export async function POST(
   if (!avail.available && avail.conflict) {
     return NextResponse.json(
       { error: 'This driver already has a booking at that time. Try a different time.', code: 'schedule_conflict' },
+      { status: 409 }
+    );
+  }
+
+  // Prevent duplicate pending requests: a rider cannot have an active blast
+  // or any other direct booking that overlaps this time window.
+  const riderConflict = await checkRiderRequestConflict(rider.id, window.startAt, window.endAt);
+  if (riderConflict) {
+    if (riderConflict.code === 'ACTIVE_BLAST_EXISTS') {
+      return NextResponse.json(
+        {
+          error: 'Cancel your active blast before sending a direct request.',
+          code: 'ACTIVE_BLAST_EXISTS',
+          postId: riderConflict.postId,
+        },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json(
+      {
+        error: 'You already have a pending request for that time. Cancel it before sending another.',
+        code: 'TIME_WINDOW_CONFLICT',
+        postId: riderConflict.postId,
+        expiresAt: riderConflict.expiresAt,
+      },
       { status: 409 }
     );
   }

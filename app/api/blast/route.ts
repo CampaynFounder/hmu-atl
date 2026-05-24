@@ -37,6 +37,7 @@ import { getMatchingProvider, InternalMatcher } from '@/lib/blast/provider';
 import type { BlastConfig as V3BlastConfig, BlastCreateInput } from '@/lib/blast/types';
 import { writeBlastEvent, writeMatchLog, releaseScheduleBlocks } from '@/lib/blast/lifecycle';
 import { stripe } from '@/lib/stripe/connect';
+import { getRiderActiveDirectBooking } from '@/lib/db/direct-bookings';
 
 export const runtime = 'nodejs';
 
@@ -215,6 +216,21 @@ export async function POST(req: NextRequest) {
           message: 'You already have an active blast',
           shortcode: existing.shortcode,
           blastId: existing.id,
+        },
+        { status: 409 },
+      );
+    }
+
+    // Prevent cross-type conflicts: a rider cannot blast while a direct booking
+    // request is in flight. They must cancel the direct request first.
+    const activeDirectBooking = await getRiderActiveDirectBooking(riderId);
+    if (activeDirectBooking) {
+      return NextResponse.json(
+        {
+          error: 'ACTIVE_DIRECT_BOOKING_EXISTS',
+          message: 'Cancel your pending direct request before sending a blast',
+          postId: activeDirectBooking.id,
+          expiresAt: activeDirectBooking.booking_expires_at,
         },
         { status: 409 },
       );
