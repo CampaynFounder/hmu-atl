@@ -55,7 +55,7 @@ export default function RideCommentThread({ rideId, role }: Props) {
   }, [open, data, load]);
 
   async function handleSubmit() {
-    if (!data || !text.trim()) return;
+    if (!text.trim()) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -63,7 +63,7 @@ export default function RideCommentThread({ rideId, role }: Props) {
         rideId,
         content: text.trim(),
       };
-      if (data.postType === 'reply' && data.replyToId) {
+      if (data?.postType === 'reply' && data.replyToId) {
         body.parentId = data.replyToId;
       }
       const res = await fetch('/api/comments', {
@@ -202,23 +202,23 @@ export default function RideCommentThread({ rideId, role }: Props) {
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
                 <span style={{ fontSize: 11, color: remaining < 20 ? (remaining < 0 ? '#FF5252' : '#FFD740') : '#555' }}>
-                  {data === null ? '' : `${remaining} left`}
+                  {`${remaining} left`}
                 </span>
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={submitting || !text.trim() || remaining < 0 || data === null}
+                  disabled={submitting || !text.trim() || remaining < 0}
                   style={{
                     padding: '7px 18px', borderRadius: 100,
-                    background: (submitting || !text.trim() || remaining < 0 || data === null) ? 'rgba(255,255,255,0.08)' : '#00E676',
-                    color: (submitting || !text.trim() || remaining < 0 || data === null) ? '#555' : '#080808',
+                    background: (submitting || !text.trim() || remaining < 0) ? 'rgba(255,255,255,0.08)' : '#00E676',
+                    color: (submitting || !text.trim() || remaining < 0) ? '#555' : '#080808',
                     border: 'none', fontSize: 12, fontWeight: 700,
-                    cursor: (submitting || !text.trim() || remaining < 0 || data === null) ? 'not-allowed' : 'pointer',
+                    cursor: (submitting || !text.trim() || remaining < 0) ? 'not-allowed' : 'pointer',
                     fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
                     transition: 'background 0.15s',
                   }}
                 >
-                  {submitting ? 'Posting…' : data === null ? 'Loading…' : 'Post'}
+                  {submitting ? 'Posting…' : 'Post'}
                 </button>
               </div>
               {error && <div style={{ fontSize: 12, color: '#FF5252', marginTop: 4 }}>{error}</div>}
