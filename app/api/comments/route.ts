@@ -9,7 +9,7 @@ import { sql } from '@/lib/db/client';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const DEFAULT_CONFIG = { maxChars: 160, maxInitialPerRide: 1, maxRepliesPerRide: 1 };
+const DEFAULT_CONFIG = { maxChars: 160, maxInitialPerRide: 1, maxDriverInitialPerRide: 1, maxRepliesPerRide: 1 };
 
 async function getCommentConfig() {
   const rows = await sql`SELECT config_value FROM platform_config WHERE config_key = 'comments.settings' LIMIT 1`;
@@ -18,6 +18,7 @@ async function getCommentConfig() {
   return {
     maxChars: v.maxChars ?? DEFAULT_CONFIG.maxChars,
     maxInitialPerRide: v.maxInitialPerRide ?? DEFAULT_CONFIG.maxInitialPerRide,
+    maxDriverInitialPerRide: v.maxDriverInitialPerRide ?? DEFAULT_CONFIG.maxDriverInitialPerRide,
     maxRepliesPerRide: v.maxRepliesPerRide ?? DEFAULT_CONFIG.maxRepliesPerRide,
   };
 }
@@ -88,20 +89,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Comment limit reached for this ride' }, { status: 429 });
     }
   } else {
-    // Driver must supply a parentId that belongs to this ride
+    // Driver: can post an initial comment (no parentId) or reply to an existing one
     if (!parentId) {
-      return NextResponse.json({ error: 'Drivers must reply to a comment (parentId required)' }, { status: 400 });
-    }
-    const parentRows = await sql`
-      SELECT id FROM comments
-      WHERE id = ${parentId} AND ride_id = ${rideId} AND deleted_at IS NULL
-      LIMIT 1
-    `;
-    if (!parentRows.length) {
-      return NextResponse.json({ error: 'Parent comment not found' }, { status: 404 });
-    }
-    if (replyCount >= config.maxRepliesPerRide) {
-      return NextResponse.json({ error: 'Reply limit reached for this ride' }, { status: 429 });
+      if (initialCount >= config.maxDriverInitialPerRide) {
+        return NextResponse.json({ error: 'Comment limit reached for this ride' }, { status: 429 });
+      }
+    } else {
+      const parentRows = await sql`
+        SELECT id FROM comments
+        WHERE id = ${parentId} AND ride_id = ${rideId} AND deleted_at IS NULL
+        LIMIT 1
+      `;
+      if (!parentRows.length) {
+        return NextResponse.json({ error: 'Parent comment not found' }, { status: 404 });
+      }
+      if (replyCount >= config.maxRepliesPerRide) {
+        return NextResponse.json({ error: 'Reply limit reached for this ride' }, { status: 429 });
+      }
     }
   }
 

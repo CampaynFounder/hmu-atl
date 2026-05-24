@@ -9,7 +9,7 @@ import { sql } from '@/lib/db/client';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const DEFAULT_CONFIG = { maxChars: 160, maxInitialPerRide: 1, maxRepliesPerRide: 1 };
+const DEFAULT_CONFIG = { maxChars: 160, maxInitialPerRide: 1, maxDriverInitialPerRide: 1, maxRepliesPerRide: 1 };
 
 async function getCommentConfig() {
   const rows = await sql`SELECT config_value FROM platform_config WHERE config_key = 'comments.settings' LIMIT 1`;
@@ -18,6 +18,7 @@ async function getCommentConfig() {
   return {
     maxChars: v.maxChars ?? DEFAULT_CONFIG.maxChars,
     maxInitialPerRide: v.maxInitialPerRide ?? DEFAULT_CONFIG.maxInitialPerRide,
+    maxDriverInitialPerRide: v.maxDriverInitialPerRide ?? DEFAULT_CONFIG.maxDriverInitialPerRide,
     maxRepliesPerRide: v.maxRepliesPerRide ?? DEFAULT_CONFIG.maxRepliesPerRide,
   };
 }
@@ -127,10 +128,17 @@ export async function GET(
   if (isRider && myInitialCount < config.maxInitialPerRide) {
     canPost = true;
     postType = 'initial';
-  } else if (isDriver && topLevel.length > 0 && myReplyCount < config.maxRepliesPerRide) {
-    canPost = true;
-    postType = 'reply';
-    replyToId = topLevel[topLevel.length - 1].id;
+  } else if (isDriver) {
+    // Top-level comments made by the other participant (the rider)
+    const otherTopLevel = topLevel.filter(c => c.author_id !== row.id);
+    if (myInitialCount < config.maxDriverInitialPerRide) {
+      canPost = true;
+      postType = 'initial';
+    } else if (otherTopLevel.length > 0 && myReplyCount < config.maxRepliesPerRide) {
+      canPost = true;
+      postType = 'reply';
+      replyToId = otherTopLevel[otherTopLevel.length - 1].id;
+    }
   }
 
   return NextResponse.json({ thread, canPost, postType, replyToId, maxChars: config.maxChars });
