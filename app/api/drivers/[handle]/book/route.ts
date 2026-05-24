@@ -22,10 +22,6 @@ import { parseRoute, resolveProvidedSlugs } from '@/lib/markets/parse-areas';
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
 import { getPlatformConfig } from '@/lib/platform-config/get';
 
-// Cap total booking submissions per rider per hour. The structural
-// getActiveDirectBooking() check already prevents duplicate active bookings
-// to the SAME driver, so this only has to cover aggregate spam across drivers.
-const LIMIT_BOOKINGS_PER_HOUR = 5;
 
 /** Strip city, state, zip, directional prefixes from address for shorter SMS */
 function stripAddress(addr: string): string {
@@ -83,6 +79,14 @@ export async function POST(
   const driverProfile = driverRows[0] as { user_id: string; areas: string[]; enforce_minimum: boolean; accepts_cash: boolean | null; cash_only: boolean | null; min_ride_price: number | null };
   const driverUserId = driverProfile.user_id;
 
+  const bookingCfg = await getPlatformConfig('direct_booking.config', {
+    expiry_minutes: 15,
+    rate_limit_per_rider_hour: 5,
+    rate_limit_per_rider_day: 15,
+  });
+  const bookingRateLimitHour = Math.max(1, Number(bookingCfg.rate_limit_per_rider_hour) || 5);
+  const bookingRateLimitDay = Math.max(1, Number(bookingCfg.rate_limit_per_rider_day) || 15);
+
   // Clamp is_cash to the driver's payment config — never trust the client.
   // Keeps the driver SMS, payment gate, and scheduling policy in sync with
   // what the driver actually offers, regardless of stale chat state.
@@ -117,7 +121,7 @@ export async function POST(
   // "spam one driver" case, so we only cap aggregate spam.
   const bookRate = await checkRateLimit({
     key: `book:rider:${rider.id}`,
-    limit: LIMIT_BOOKINGS_PER_HOUR,
+    limit: bookingRateLimitHour,
     windowSeconds: 3600,
   });
   if (!bookRate.ok) {
@@ -128,7 +132,7 @@ export async function POST(
     });
     return NextResponse.json(
       {
-        error: 'You\'ve submitted a lot of booking requests lately. Give the drivers a chance to respond, then try again in a bit.',
+        error: `You've submitted a lot of booking requests lately. Give the drivers a chance to respond, then try again in a bit.`,
         code: 'booking_rate_limit',
         retryAfter: bookRate.retryAfterSeconds,
       },
@@ -176,7 +180,10 @@ export async function POST(
   }
 
   // Re-run eligibility server-side (never trust client)
-  const eligibility = await checkRiderEligibility(rider.id, driverUserId, resolvedIsCash);
+  const eligibility = await checkRiderEligibility(rider.id, driverUserId, resolvedIsCash, {
+    hourly: bookingRateLimitHour,
+    daily: bookingRateLimitDay,
+  });
   if (!eligibility.eligible) {
     return NextResponse.json({ error: eligibility.reason, code: eligibility.code }, { status: 403 });
   }
@@ -251,8 +258,7 @@ export async function POST(
     }
   }
 
-  const directBookingCfg = await getPlatformConfig('direct_booking.config', { expiry_minutes: 15 });
-  const expiryMinutes = Math.max(1, Math.min(60, Number(directBookingCfg.expiry_minutes) || 15));
+  const expiryMinutes = Math.max(1, Math.min(60, Number(bookingCfg.expiry_minutes) || 15));
 
   const post = await createDirectBookingPost({
     riderId: rider.id,

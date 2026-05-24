@@ -17,14 +17,17 @@ export interface EligibilityResult {
   dailyBookingsUsed: number;
 }
 
-const HOURLY_BOOKING_LIMIT = 5;
-const DAILY_BOOKING_LIMIT = 15;
+const HOURLY_BOOKING_LIMIT_DEFAULT = 5;
+const DAILY_BOOKING_LIMIT_DEFAULT = 15;
 
 export async function checkRiderEligibility(
   riderId: string,
   driverUserId: string,
-  isCash: boolean = false
+  isCash: boolean = false,
+  limits: { hourly?: number; daily?: number } = {}
 ): Promise<EligibilityResult> {
+  const hourlyLimit = limits.hourly ?? HOURLY_BOOKING_LIMIT_DEFAULT;
+  const dailyLimit = limits.daily ?? DAILY_BOOKING_LIMIT_DEFAULT;
   // Fetch rider + driver + payment + daily count in parallel
   const [riderRows, driverRows, dailyCountRows, hourlyCountRows, paymentRows] = await Promise.all([
     sql`
@@ -124,21 +127,21 @@ export async function checkRiderEligibility(
   }
 
   // 5. Rate limit checks — hourly + daily
-  if (hourlyCount >= HOURLY_BOOKING_LIMIT) {
+  if (hourlyCount >= hourlyLimit) {
     return {
       eligible: false,
       code: 'daily_limit_hit',
-      reason: `You've sent ${HOURLY_BOOKING_LIMIT} requests this hour. Try again in a bit.`,
+      reason: `You've sent ${hourlyLimit} requests this hour. Try again in a bit.`,
       riderChillScore,
       riderOgStatus,
       dailyBookingsUsed: dailyCount,
     };
   }
-  if (dailyCount >= DAILY_BOOKING_LIMIT) {
+  if (dailyCount >= dailyLimit) {
     return {
       eligible: false,
       code: 'daily_limit_hit',
-      reason: `You've sent ${DAILY_BOOKING_LIMIT} requests today. Try again tomorrow.`,
+      reason: `You've sent ${dailyLimit} requests today. Try again tomorrow.`,
       riderChillScore,
       riderOgStatus,
       dailyBookingsUsed: dailyCount,
