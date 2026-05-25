@@ -30,7 +30,7 @@ const FLOWS: Array<{
   {
     href: '/admin/flows/rider',
     title: 'Rider — Standard /onboarding',
-    blurb: 'Organic /sign-up?type=rider path. Full RiderOnboarding (welcome → display name → rating intro → location), then FirstTimePaymentBlocker on /rider/browse.',
+    blurb: 'Legacy organic path via /sign-up?type=rider. All entry points now route through /r/express (inline RiderAdFunnelOnboarding with payment linking). This flow kept for reference.',
     status: 'live',
   },
   {

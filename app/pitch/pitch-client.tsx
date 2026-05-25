@@ -648,7 +648,7 @@ export default function PitchClient() {
         <div className={styles.footerLinks}>
           <Link href="/driver">Drivers</Link>
           <span>&middot;</span>
-          <Link href="/rider">Riders</Link>
+          <Link href="/r/express">Riders</Link>
           <span>&middot;</span>
           <Link href="/">Home</Link>
         </div>
