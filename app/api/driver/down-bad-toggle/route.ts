@@ -33,7 +33,6 @@ async function checkPaymentMethod(stripeCustomerId: string | null): Promise<bool
   try {
     const methods = await stripe.paymentMethods.list({
       customer: stripeCustomerId,
-      type: 'card',
       limit: 1,
     });
     return methods.data.length > 0;
