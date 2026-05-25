@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/client';
 import { publishToChannel, notifyUser } from '@/lib/ably/server';
 import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
 import { resolveProvidedSlugs } from '@/lib/markets/parse-areas';
+import { getPlatformConfig } from '@/lib/platform-config/get';
 
 /**
  * Rider re-broadcasts a post into `rider_request` to keep looking for
@@ -95,11 +96,15 @@ export async function POST(
     dropoffInMarket = route.dropoff_in_market;
   }
 
+  const riderReqCfg = await getPlatformConfig('rider_request.config', { expiry_hours: 2 });
+  const expiryHours = Math.max(0.5, Math.min(24, Number(riderReqCfg.expiry_hours) || 2));
+  const expiresAt = new Date(Date.now() + expiryHours * 3_600_000);
+
   await sql`
     UPDATE hmu_posts SET
       post_type = 'rider_request',
       status = 'active',
-      expires_at = NOW() + INTERVAL '2 hours',
+      expires_at = ${expiresAt},
       booking_expires_at = NULL,
       pickup_area_slug = ${pickupSlug},
       dropoff_area_slug = ${dropoffSlug},
