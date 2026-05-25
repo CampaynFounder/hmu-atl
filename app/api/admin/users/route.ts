@@ -200,6 +200,14 @@ export async function DELETE(req: NextRequest) {
       smsSent = result.success;
     }
 
+    // Pre-delete user-owned rows that lack ON DELETE CASCADE.
+    // The migration 2026-05-25-user-delete-fk-cleanup.sql adds CASCADE to
+    // these, but this explicit cleanup ensures the delete works even if the
+    // migration hasn't run yet or a new table is added without cascade.
+    await sql`DELETE FROM search_events WHERE user_id = ${neonId}`;
+    await sql`DELETE FROM rider_payment_methods WHERE rider_id = ${neonId}`;
+    await sql`DELETE FROM subscription_events WHERE user_id = ${neonId}`;
+
     try {
       await sql`DELETE FROM users WHERE id = ${neonId}`;
     } catch (err) {
