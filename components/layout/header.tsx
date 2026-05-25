@@ -190,6 +190,7 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
                     <>
                       <NavItem href="/rider/home" label="Find a Ride" active={pathname === '/rider/home'} accent onClick={close} />
                       <NavItem href="/rider/blast" label="My Blasts" icon="⚡" active={pathname.startsWith('/rider/blast')} onClick={close} />
+                      <NavItem href="/rider/down-bad/new" label="Down Bad" icon="😮‍💨" active={pathname.startsWith('/rider/down-bad')} onClick={close} />
                       <NavItem href="/rider/browse" label="Browse Drivers" active={pathname.startsWith('/rider/browse') || pathname.startsWith('/d/')} onClick={close} />
                       <NavItem href="/rider/rides" label="Your Rides" active={pathname.startsWith('/rider/rides')} onClick={close} />
                       <NavItem href="/rider/profile" label="HMU Profile" active={pathname.startsWith('/rider/profile')} onClick={close} />

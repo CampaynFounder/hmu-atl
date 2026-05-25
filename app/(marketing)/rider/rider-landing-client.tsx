@@ -31,7 +31,7 @@ function RiderLandingInner({ brandLabel, brandCity }: { brandLabel: string; bran
   // CMS zones
   const tickerItems = useZone<string[]>('ticker_items', ['Skip the Surge', 'Save Up to 60%', 'Escrow Protected', 'No Corporate Middleman', 'Real ATL Drivers']);
   const tickerSpeed = useZone('ticker_speed', '22');
-  const heroEyebrow = useZone('hero_eyebrow', 'Peer-to-Peer Rides • Metro Atlanta');
+  const heroEyebrow = useZone('hero_eyebrow', 'Slide There. • Peer-to-Peer Rides • Metro Atlanta');
   const heroLine1 = useZone('hero_headline_line1', 'STOP PAYING');
   const heroLine2 = useZone('hero_headline_line2', 'SURGE PRICES.');
   const heroSub = useZone('hero_subheadline', 'HMU connects you directly with local Atlanta drivers. <strong>Fair prices. Secured payments.</strong> No corporate cut inflating your fare.');
@@ -166,23 +166,14 @@ function RiderLandingInner({ brandLabel, brandCity }: { brandLabel: string; bran
     const signUpParams = new URLSearchParams({ type: 'rider' });
     if (currentPersona) signUpParams.set('persona', currentPersona);
     if (currentStage !== 'awareness') signUpParams.set('funnel_stage', currentStage);
-    setTimeout(() => { window.location.href = `/sign-up?${signUpParams}`; }, 800);
+    setTimeout(() => { window.location.href = '/sign-up?type=rider&returnTo=/r/express'; }, 800);
   };
 
   const testimonials = cmsTestimonials;
 
   // Build sign-up URL that carries persona + funnel stage through
   const { sectionOrder: ctxSectionOrder } = useCmsContext();
-  const [signUpUrl, setSignUpUrl] = useState('/sign-up?type=rider');
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const sp = new URLSearchParams({ type: 'rider' });
-    const p = params.get('utm_persona');
-    const f = params.get('utm_funnel');
-    if (p) sp.set('persona', p);
-    if (f && f !== 'awareness') sp.set('funnel_stage', f);
-    setSignUpUrl(`/sign-up?${sp}`);
-  }, []);
+  const [signUpUrl] = useState('/r/express');
 
   // Dynamic section ordering
   const activeSections = new Set(

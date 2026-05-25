@@ -96,6 +96,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/voip-config',         rule: { kind: 'permission', slug: 'admin.voip' } },
   { pattern: '/admin/sms-templates',       rule: { kind: 'permission', slug: 'admin.smstemplates' } },
   { pattern: '/admin/chill-config',        rule: { kind: 'super' } },
+  { pattern: '/admin/down-bad',            rule: { kind: 'super' } },
 
   // ── TOOLS ───────────────────────────────────────────────────────────
   { pattern: '/admin/flows',               rule: { kind: 'permission', slug: 'tools.flows' } }, // includes all flow subroutes

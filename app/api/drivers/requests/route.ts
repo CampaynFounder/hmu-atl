@@ -14,7 +14,7 @@ export async function GET() {
 
   // Driver routing preferences
   const prefRows = await sql`
-    SELECT accepts_cash, cash_only, area_slugs, services_entire_market, accepts_long_distance
+    SELECT accepts_cash, cash_only, area_slugs, services_entire_market, accepts_long_distance, accepts_down_bad
     FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
   `;
   const driverPrefs = (prefRows[0] || {}) as {
@@ -23,6 +23,7 @@ export async function GET() {
     area_slugs: string[] | null;
     services_entire_market: boolean;
     accepts_long_distance: boolean;
+    accepts_down_bad: boolean;
   };
   const driverAreaSlugs = Array.isArray(driverPrefs.area_slugs) ? driverPrefs.area_slugs : [];
 
@@ -72,7 +73,6 @@ export async function GET() {
         SELECT 1 FROM ride_interests ri
         WHERE ri.post_id = p.id
           AND ri.driver_id = ${driverUserId}
-          AND ri.status = 'passed'
       )
       AND (
         -- Direct booking targeting this driver (not area-gated)
@@ -248,5 +248,26 @@ export async function GET() {
     ];
   }
 
-  return NextResponse.json({ requests: filtered });
+  // Down Bad count — for opted-in drivers, surface how many posts are waiting
+  // in their swipe deck so the home screen can show an entry card.
+  let downBadCount = 0;
+  if (driverPrefs.accepts_down_bad) {
+    const countRows = await sql`
+      SELECT COUNT(*) AS n
+      FROM hmu_posts p
+      WHERE p.post_type = 'down_bad'
+        AND p.status = 'active'
+        AND p.expires_at > NOW()
+        AND p.market_id = ${driverMarketId}
+        AND NOT EXISTS (
+          SELECT 1 FROM ride_interests ri
+          WHERE ri.post_id = p.id
+            AND ri.driver_id = ${driverUserId}
+            AND ri.status = 'passed'
+        )
+    `;
+    downBadCount = Number((countRows[0] as Record<string, unknown>).n ?? 0);
+  }
+
+  return NextResponse.json({ requests: filtered, downBadCount });
 }

@@ -11,13 +11,15 @@ CREATE TABLE IF NOT EXISTS comments (
   content           TEXT NOT NULL CHECK (length(content) <= 500),
   is_visible        BOOLEAN NOT NULL DEFAULT true,
   flagged_for_review BOOLEAN NOT NULL DEFAULT false,
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at        TIMESTAMPTZ
 );
 
 -- Backfill columns that may be missing on DBs where the table already existed
 ALTER TABLE comments ADD COLUMN IF NOT EXISTS is_visible        BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE comments ADD COLUMN IF NOT EXISTS flagged_for_review BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE comments ADD COLUMN IF NOT EXISTS created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS deleted_at        TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_comments_author_id  ON comments(author_id);
 CREATE INDEX IF NOT EXISTS idx_comments_subject_id ON comments(subject_id);

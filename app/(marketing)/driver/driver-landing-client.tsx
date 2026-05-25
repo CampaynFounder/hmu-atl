@@ -28,7 +28,7 @@ function DriverLandingInner({ brandLabel, brandCity }: { brandLabel: string; bra
   // CMS zones
   const tickerItems = useZone<string[]>('ticker_items', ['You set the price', 'The less you make — the less we take', 'Hit your cap — we take zero', 'Cash App • Venmo • Zelle • Bank — always free', 'Payment secured upfront', 'No show — still paid']);
   const tickerSpeed = useZone('ticker_speed', '18');
-  const heroEyebrow = useZone('hero_eyebrow', 'For ATL Driver-Preneurs');
+  const heroEyebrow = useZone('hero_eyebrow', 'Ride Fair. • For ATL Driver-Preneurs');
   const heroLine1 = useZone('hero_headline_line1', 'Keep More.');
   const heroLine2 = useZone('hero_headline_line2', 'Ride<span style="color:var(--green)">Fair</span> &gt; Ride<span style="opacity:0.25">share</span>');
   const heroSub = useZone('hero_subheadline', 'You Drive. You Thrive. Stop Letting Algorithms Determine Your Worth. <strong>Your Pay. Your Way.</strong> HMU.');

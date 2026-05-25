@@ -108,6 +108,10 @@ interface RideData {
   // rider can opt to re-broadcast to other drivers without recreating
   // the request from scratch.
   hmuPostId: string | null;
+  // Down Bad sum extra — only present when the ride came from a down_bad post.
+  sumExtra: { text: string; mediaUrl: string; mediaType: 'photo' | 'video' } | null;
+  // Rider-provided trip details (passengers, car seats, luggage).
+  rideDetails: { additionalPassengers: number; kids: number; luggage: 'none' | 'bag' | 'trunk' } | null;
   // Last known driver GPS at page-load time — seeds driverLocation so the
   // map shows the driver marker immediately on refresh instead of waiting
   // for the next Ably ping.
@@ -2616,6 +2620,47 @@ export default function ActiveRideClient({
             </div>
           );
         })()}
+
+        {/* Ride details pills — Down Bad, driver only, non-default values only */}
+        {isDriver && ride.rideDetails && ride.status !== 'cancelled' && (
+          ride.rideDetails.additionalPassengers > 0 || ride.rideDetails.kids > 0 || ride.rideDetails.luggage !== 'none'
+        ) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '12px 16px', background: 'rgba(255,255,255,0.04)', borderRadius: 12 }}>
+            <div style={{ width: '100%', fontSize: 11, color: '#666', marginBottom: 4, letterSpacing: 1, textTransform: 'uppercase', fontFamily: "'Space Mono', monospace" }}>
+              Ride Details
+            </div>
+            {ride.rideDetails.additionalPassengers > 0 && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.7)', background: 'rgba(255,255,255,0.1)', padding: '3px 10px', borderRadius: 100 }}>
+                +{ride.rideDetails.additionalPassengers} passenger{ride.rideDetails.additionalPassengers > 1 ? 's' : ''}
+              </span>
+            )}
+            {ride.rideDetails.kids > 0 && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(251,191,36,0.9)', background: 'rgba(251,191,36,0.1)', padding: '3px 10px', borderRadius: 100 }}>
+                👶 {ride.rideDetails.kids} car seat{ride.rideDetails.kids > 1 ? 's' : ''}
+              </span>
+            )}
+            {ride.rideDetails.luggage === 'bag' && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.7)', background: 'rgba(255,255,255,0.1)', padding: '3px 10px', borderRadius: 100 }}>
+                🎒 Bag
+              </span>
+            )}
+            {ride.rideDetails.luggage === 'trunk' && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(251,146,60,0.9)', background: 'rgba(251,146,60,0.1)', padding: '3px 10px', borderRadius: 100 }}>
+                📦 Trunk needed
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Sum Extra reference — Down Bad rides only, hidden after cancel */}
+        {ride.sumExtra && ride.status !== 'cancelled' && (
+          <SumExtraBlock
+            text={ride.sumExtra.text}
+            mediaUrl={ride.sumExtra.mediaUrl}
+            mediaType={ride.sumExtra.mediaType}
+            isDriver={isDriver}
+          />
+        )}
 
         {/* Dynamic content based on status and role */}
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', minHeight: 0 }}>
@@ -5862,6 +5907,89 @@ function RideAnalyticsSummary({ rideId, payout }: { rideId: string; payout: numb
           <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>
             avg ${analytics.comparison.areaAvgPerMile.toFixed(2)}/mi
           </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── SumExtraBlock — Down Bad rides only ──────────────────────────────────────
+// Compact collapsible reference card so both parties always know what the
+// rider is bringing. Collapses to a one-liner after first view.
+function SumExtraBlock({
+  text,
+  mediaUrl,
+  mediaType,
+  isDriver,
+}: {
+  text: string;
+  mediaUrl: string;
+  mediaType: 'photo' | 'video';
+  isDriver: boolean;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,255,255,0.1)',
+      borderRadius: 14,
+      marginBottom: 10,
+      overflow: 'hidden',
+    }}>
+      {/* Header row — always visible */}
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer',
+        }}
+      >
+        <span style={{ fontSize: 18, flexShrink: 0 }}>😮‍💨</span>
+        <span style={{
+          flex: 1, textAlign: 'left', fontSize: 13, color: '#ddd', fontWeight: 600,
+          fontFamily: "'DM Sans', sans-serif",
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {isDriver ? 'Sum Extra from rider' : 'Your sum extra'}: {text}
+        </span>
+        <span style={{ fontSize: 11, color: '#666', flexShrink: 0 }}>{expanded ? '▲' : '▼'}</span>
+      </button>
+
+      {/* Expanded body */}
+      {expanded && (
+        <div style={{ padding: '0 14px 14px', display: 'flex', gap: 12 }}>
+          {/* Thumbnail */}
+          <div style={{
+            width: 72, height: 72, borderRadius: 10, overflow: 'hidden', flexShrink: 0,
+            background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.08)',
+          }}>
+            {mediaType === 'video' ? (
+              <video
+                src={mediaUrl}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                autoPlay
+                loop
+                muted
+                playsInline
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={mediaUrl}
+                alt="Sum extra"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            )}
+          </div>
+          {/* Text */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, color: '#888', marginBottom: 4, fontFamily: "'Space Mono', monospace", letterSpacing: 1, textTransform: 'uppercase' }}>
+              {isDriver ? 'Rider Is Offering' : 'What you\'re bringing'}
+            </div>
+            <div style={{ fontSize: 14, color: '#fff', lineHeight: 1.5 }}>{text}</div>
+          </div>
         </div>
       )}
     </div>

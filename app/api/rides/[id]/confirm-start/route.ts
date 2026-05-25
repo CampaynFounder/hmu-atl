@@ -5,6 +5,7 @@ import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { captureRiderPayment } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 import { syncBookingFromRide } from '@/lib/schedule/conflicts';
+import { getPlatformConfig } from '@/lib/platform-config/get';
 
 /**
  * Rider confirms they're in the car → capture payment → ride active.
@@ -101,6 +102,11 @@ export async function POST(
 
     syncBookingFromRide(rideId, 'active').catch(() => {});
 
+    // Down Bad facilitation fee — log at ride activation (non-blocking).
+    // The fee is tracked in transaction_ledger for revenue reporting;
+    // actual collection is handled separately once payments are fully live.
+    recordDownBadFacilitationFee(rideId, ride).catch(() => {});
+
     // Notify both parties
     await publishRideUpdate(rideId, 'status_change', {
       status: 'active',
@@ -133,4 +139,65 @@ export async function POST(
       { status: 500 }
     );
   }
+}
+
+// ── Down Bad facilitation fee ─────────────────────────────────────────────────
+// Logs a `down_bad_facilitation_fee` row in transaction_ledger when the ride
+// originated from a down_bad post. The fee = flat + pct of agreed price.
+// Non-blocking — caller must .catch(() => {}).
+async function recordDownBadFacilitationFee(
+  rideId: string,
+  ride: Record<string, unknown>
+): Promise<void> {
+  if (!ride.hmu_post_id) return;
+
+  // Confirm the post is actually a down_bad post.
+  const postRows = await sql`
+    SELECT id FROM hmu_posts
+    WHERE id = ${ride.hmu_post_id as string} AND post_type = 'down_bad'
+    LIMIT 1
+  `;
+  if (!postRows.length) return;
+
+  // Fetch fee config — default to flat $0.50 + 0% if config not set.
+  const rawConfig = await getPlatformConfig('down_bad.config', {
+    fee_flat_cents: 50,
+    fee_pct: 0,
+  } as Record<string, unknown>);
+  const cfg = rawConfig as { fee_flat_cents: number; fee_pct: number };
+
+  const price = Number(ride.final_agreed_price || ride.amount || 0);
+  const feeCents = Math.round(cfg.fee_flat_cents + (price * 100 * (cfg.fee_pct / 100)));
+  if (feeCents <= 0) return;
+
+  const feeAmount = feeCents / 100;
+  const riderId = ride.rider_id as string;
+  const driverId = ride.driver_id as string;
+
+  await Promise.all([
+    sql`
+      INSERT INTO transaction_ledger (
+        ride_id, user_id, user_role, event_type, amount, direction, description, stripe_reference
+      ) VALUES (
+        ${rideId}, ${riderId}, 'rider',
+        'down_bad_facilitation_fee',
+        ${feeAmount}, 'debit',
+        ${`Down Bad facilitation fee — $${feeAmount.toFixed(2)} (flat $${(cfg.fee_flat_cents / 100).toFixed(2)} + ${cfg.fee_pct}% of $${price.toFixed(2)})`},
+        NULL
+      )
+    `,
+    sql`
+      INSERT INTO transaction_ledger (
+        ride_id, user_id, user_role, event_type, amount, direction, description, stripe_reference
+      ) VALUES (
+        ${rideId}, ${driverId}, 'platform',
+        'down_bad_facilitation_fee',
+        ${feeAmount}, 'credit',
+        ${`Down Bad facilitation fee collected — $${feeAmount.toFixed(2)}`},
+        NULL
+      )
+    `,
+  ]);
+
+  console.log(`[down_bad_fee] ride=${rideId} fee=$${feeAmount.toFixed(2)}`);
 }

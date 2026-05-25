@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 import DealPill from '@/components/driver/deal-pill';
+import RideCommentThread from '@/components/shared/ride-comment-thread';
 
 interface Ride {
   id: string;
@@ -34,6 +35,7 @@ interface Ride {
 
 interface Props {
   rides: Ride[];
+  currentUserId?: string;
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
@@ -55,7 +57,7 @@ const RATING_EMOJI: Record<string, string> = {
   chill: '\u2705', cool_af: '\uD83D\uDE0E', kinda_creepy: '\uD83D\uDC40', weirdo: '\uD83D\uDEA9',
 };
 
-export default function MyRidesClient({ rides }: Props) {
+export default function MyRidesClient({ rides, currentUserId }: Props) {
   const [filter, setFilter] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -144,6 +146,7 @@ export default function MyRidesClient({ rides }: Props) {
               ride={ride}
               expanded={expandedId === ride.id}
               onToggle={() => setExpandedId(expandedId === ride.id ? null : ride.id)}
+              showComments={!!currentUserId}
             />
           ))
         )}
@@ -233,21 +236,25 @@ function ActiveRideCard({ ride }: { ride: Ride }) {
   );
 }
 
-function RideCard({ ride, expanded, onToggle }: { ride: Ride; expanded: boolean; onToggle: () => void }) {
+function RideCard({ ride, expanded, onToggle, showComments }: { ride: Ride; expanded: boolean; onToggle: () => void; showComments?: boolean }) {
   const st = STATUS_LABELS[ride.status] || { label: ride.status, color: '#888', bg: 'rgba(255,255,255,0.05)' };
   const rideTotal = ride.price + ride.addOnTotal;
   const date = new Date(ride.createdAt);
   const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const canShowComments = showComments && expanded && (ride.status === 'completed' || ride.status === 'ended');
 
+  // RideCommentThread is rendered OUTSIDE the onClick div so touch events on
+  // the textarea don't bubble up to the card toggle handler.
   return (
+    <>
     <div
       onClick={onToggle}
       style={{
         background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: 16, padding: 16, marginBottom: 10, cursor: 'pointer',
+        borderRadius: 16, padding: 16, marginBottom: canShowComments ? 0 : 10, cursor: 'pointer',
         transition: 'border-color 0.15s',
-        ...(expanded ? { borderColor: 'rgba(0,230,118,0.2)' } : {}),
+        ...(expanded ? { borderColor: 'rgba(0,230,118,0.2)', borderBottomLeftRadius: canShowComments ? 0 : 16, borderBottomRightRadius: canShowComments ? 0 : 16 } : {}),
       }}
     >
       {/* Top row: rider + status + date */}
@@ -373,9 +380,22 @@ function RideCard({ ride, expanded, onToggle }: { ride: Ride; expanded: boolean;
           >
             View Ride
           </Link>
+
         </div>
       )}
     </div>
+    {/* Thread lives outside the clickable card so textarea touches don't toggle the card */}
+    {canShowComments && (
+      <div style={{
+        background: '#141414', borderLeft: '1px solid rgba(0,230,118,0.2)',
+        borderRight: '1px solid rgba(0,230,118,0.2)', borderBottom: '1px solid rgba(0,230,118,0.2)',
+        borderBottomLeftRadius: 16, borderBottomRightRadius: 16,
+        padding: '0 16px 16px', marginBottom: 10,
+      }}>
+        <RideCommentThread rideId={ride.id} role="driver" />
+      </div>
+    )}
+    </>
   );
 }
 

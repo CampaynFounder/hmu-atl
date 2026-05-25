@@ -100,9 +100,17 @@ export default function BookingDrawer({ driver, onClose, isAuthenticated = true 
         });
         setExpiresAt((data.expiresAt as string) || null);
         setSuccess(true);
-      } else if (res.status === 409 && data.postId) {
-        setActiveBookingId(data.postId);
-        setError('You already have a pending request with this driver');
+      } else if (res.status === 409) {
+        if (data.code === 'ACTIVE_BLAST_EXISTS') {
+          setError('You have an active blast out. Cancel it first, then send a direct request.');
+        } else if (data.code === 'TIME_WINDOW_CONFLICT') {
+          setError('You already have a pending request for that time. Cancel it before sending another.');
+        } else if (data.postId) {
+          setActiveBookingId(data.postId as string);
+          setError('You already have a pending request with this driver.');
+        } else {
+          setError(data.error || 'Request conflict');
+        }
       } else {
         setError(data.error || 'Failed to send');
       }
@@ -490,6 +498,22 @@ export default function BookingDrawer({ driver, onClose, isAuthenticated = true 
                   {submitting ? 'Sending...' : isAuthenticated ? `Send to ${displayName}` : 'Continue'}
                 </button>
               </div>
+
+              {driver.acceptsDownBad && isAuthenticated && (
+                <a
+                  href={`/rider/down-bad/new?driver=${handle}`}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    marginTop: 10, padding: '13px 0', borderRadius: 100,
+                    border: '1.5px solid rgba(255,255,255,0.15)',
+                    background: 'transparent', color: '#ddd',
+                    fontFamily: 'inherit', fontWeight: 700, fontSize: 15,
+                    textDecoration: 'none', width: '100%', textAlign: 'center',
+                  }}
+                >
+                  <span>😮‍💨</span> Send Down Bad Offer
+                </a>
+              )}
             </div>
           </>
         )}
