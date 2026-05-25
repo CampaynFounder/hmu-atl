@@ -31,7 +31,7 @@ function RiderLandingInner({ brandLabel, brandCity }: { brandLabel: string; bran
   // CMS zones
   const tickerItems = useZone<string[]>('ticker_items', ['Skip the Surge', 'Save Up to 60%', 'Escrow Protected', 'No Corporate Middleman', 'Real ATL Drivers']);
   const tickerSpeed = useZone('ticker_speed', '22');
-  const heroEyebrow = useZone('hero_eyebrow', 'Peer-to-Peer Rides • Metro Atlanta');
+  const heroEyebrow = useZone('hero_eyebrow', 'Slide There. • Peer-to-Peer Rides • Metro Atlanta');
   const heroLine1 = useZone('hero_headline_line1', 'STOP PAYING');
   const heroLine2 = useZone('hero_headline_line2', 'SURGE PRICES.');
   const heroSub = useZone('hero_subheadline', 'HMU connects you directly with local Atlanta drivers. <strong>Fair prices. Secured payments.</strong> No corporate cut inflating your fare.');
