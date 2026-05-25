@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
       enabled: false,
       cash_floor_cents: 500,
       cash_ceiling_cents: 3000,
-      sum_extra_max_chars: 120,
+      sum_extra_max_chars: 60,
       require_min_rides: 0,
       require_min_chill_score: 0,
       expiry_hours: 4,
@@ -129,10 +129,22 @@ export async function POST(req: NextRequest) {
       code: 'above_ceiling',
     }, { status: 422 });
   }
-  if (sum_extra_text.trim().length > config.sum_extra_max_chars) {
+  const trimmed = sum_extra_text.trim();
+  // Emoji-safe length: count by Unicode code points, not UTF-16 units.
+  if ([...trimmed].length > config.sum_extra_max_chars) {
     return NextResponse.json({
       error: `Sum extra description max ${config.sum_extra_max_chars} characters`,
       code: 'text_too_long',
+    }, { status: 422 });
+  }
+  // Anti-phone-number gate: strip keycap emoji modifiers, then count all
+  // Unicode numeric characters (\p{N}) — catches 1️⃣, ①, Arabic-Indic, etc.
+  const normalizedForDigits = trimmed.replace(/[️⃣]/g, '');
+  const numericCount = [...normalizedForDigits].filter(ch => /\p{N}/u.test(ch)).length;
+  if (numericCount > 4) {
+    return NextResponse.json({
+      error: 'Sum extra cannot contain more than 4 numbers',
+      code: 'too_many_digits',
     }, { status: 422 });
   }
   if (config.require_min_rides > 0 && rider.completed_rides < config.require_min_rides) {
