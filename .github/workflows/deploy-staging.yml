@@ -144,6 +144,10 @@ jobs:
           node scripts/apply-migration.mjs lib/db/migrations/2026-05-18-driver-location-sharing.sql
           node scripts/apply-migration.mjs lib/db/migrations/2026-05-18-blast-matching-home-fallback.sql
           node scripts/apply-migration.mjs lib/db/migrations/2026-05-20-public-blast-drafts.sql
+          node scripts/apply-migration.mjs sql/007b_comments_base.sql
+          node scripts/apply-migration.mjs sql/008_comments_v2.sql
+          node scripts/apply-migration.mjs sql/009_comments_config.sql
+          node scripts/apply-migration.mjs lib/db/migrations/comments-add-deleted-at.sql
 
       - name: Post-deploy health check
         run: |

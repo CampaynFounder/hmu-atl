@@ -22,7 +22,7 @@ interface DriverProfileData {
   vehicle: { label: string; photoUrl: string | null; maxRiders: number | null } | null;
   pricing: { minimum: number; thirtyMin: number; hourly: number };
   services: { name: string; icon: string; price: number; pricingType: string }[];
-  completionRate: number;
+  acceptanceRate: number | null;
 }
 
 interface Props {
@@ -239,7 +239,16 @@ export default function DriverProfileOverlay({ handle, open, onClose, isAuthenti
                 value={String(profile.disputeCount)}
                 color={profile.disputeCount === 0 ? '#00E676' : profile.disputeCount <= 2 ? '#FFD740' : '#FF5252'}
               />
-              <StatCard label="Rate" value={`${profile.completionRate}%`} color="#448AFF" />
+              <StatCard
+                label="Accepts"
+                value={profile.acceptanceRate === null ? 'New' : `${profile.acceptanceRate}%`}
+                color={
+                  profile.acceptanceRate === null ? '#888' :
+                  profile.acceptanceRate >= 80 ? '#00E676' :
+                  profile.acceptanceRate >= 60 ? '#448AFF' :
+                  '#FFD740'
+                }
+              />
             </div>
 
             {/* Vehicle info */}

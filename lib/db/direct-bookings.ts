@@ -17,14 +17,17 @@ export interface EligibilityResult {
   dailyBookingsUsed: number;
 }
 
-const HOURLY_BOOKING_LIMIT = 5;
-const DAILY_BOOKING_LIMIT = 15;
+const HOURLY_BOOKING_LIMIT_DEFAULT = 5;
+const DAILY_BOOKING_LIMIT_DEFAULT = 15;
 
 export async function checkRiderEligibility(
   riderId: string,
   driverUserId: string,
-  isCash: boolean = false
+  isCash: boolean = false,
+  limits: { hourly?: number; daily?: number } = {}
 ): Promise<EligibilityResult> {
+  const hourlyLimit = limits.hourly ?? HOURLY_BOOKING_LIMIT_DEFAULT;
+  const dailyLimit = limits.daily ?? DAILY_BOOKING_LIMIT_DEFAULT;
   // Fetch rider + driver + payment + daily count in parallel
   const [riderRows, driverRows, dailyCountRows, hourlyCountRows, paymentRows] = await Promise.all([
     sql`
@@ -124,21 +127,21 @@ export async function checkRiderEligibility(
   }
 
   // 5. Rate limit checks — hourly + daily
-  if (hourlyCount >= HOURLY_BOOKING_LIMIT) {
+  if (hourlyCount >= hourlyLimit) {
     return {
       eligible: false,
       code: 'daily_limit_hit',
-      reason: `You've sent ${HOURLY_BOOKING_LIMIT} requests this hour. Try again in a bit.`,
+      reason: `You've sent ${hourlyLimit} requests this hour. Try again in a bit.`,
       riderChillScore,
       riderOgStatus,
       dailyBookingsUsed: dailyCount,
     };
   }
-  if (dailyCount >= DAILY_BOOKING_LIMIT) {
+  if (dailyCount >= dailyLimit) {
     return {
       eligible: false,
       code: 'daily_limit_hit',
-      reason: `You've sent ${DAILY_BOOKING_LIMIT} requests today. Try again tomorrow.`,
+      reason: `You've sent ${dailyLimit} requests today. Try again tomorrow.`,
       riderChillScore,
       riderOgStatus,
       dailyBookingsUsed: dailyCount,
@@ -233,4 +236,91 @@ export async function getActiveDirectBooking(
     LIMIT 1
   `;
   return (result[0] as HmuPost) || null;
+}
+
+export interface RiderConflict {
+  type: 'blast' | 'direct_booking';
+  postId: string;
+  code: 'ACTIVE_BLAST_EXISTS' | 'TIME_WINDOW_CONFLICT';
+  expiresAt: string | null;
+}
+
+/**
+ * Check if a rider has an active blast or a direct booking whose time window
+ * overlaps [startAt, endAt]. Returns the first conflict found or null.
+ *
+ * Called by POST /api/drivers/[handle]/book before inserting a new request.
+ * Overlap formula: existing.start < proposed.end AND existing.end > proposed.start.
+ * ASAP bookings (isNow=true or missing resolvedTime) use NOW() + 4 h so an
+ * in-flight ASAP request blocks any immediate or near-future window.
+ */
+export async function checkRiderRequestConflict(
+  riderId: string,
+  startAt: string,
+  endAt: string
+): Promise<RiderConflict | null> {
+  const [blastRows, directRows] = await Promise.all([
+    sql`
+      SELECT id, expires_at FROM hmu_posts
+      WHERE user_id = ${riderId}
+        AND post_type = 'blast'
+        AND status IN ('active', 'matched')
+        AND expires_at > NOW()
+      LIMIT 1
+    `,
+    sql`
+      SELECT id, booking_expires_at FROM hmu_posts
+      WHERE user_id = ${riderId}
+        AND post_type = 'direct_booking'
+        AND status = 'active'
+        AND booking_expires_at > NOW()
+        AND CASE
+          WHEN (time_window->>'isNow')::boolean = true
+               OR NULLIF(time_window->>'resolvedTime', '') IS NULL
+          THEN
+            NOW() < ${endAt}::timestamptz
+            AND (NOW() + INTERVAL '4 hours') > ${startAt}::timestamptz
+          ELSE
+            (time_window->>'resolvedTime')::timestamptz < ${endAt}::timestamptz
+            AND (
+              (time_window->>'resolvedTime')::timestamptz
+              + make_interval(mins :=
+                  GREATEST(1, COALESCE(
+                    NULLIF((time_window->>'estimated_minutes')::numeric, 0)::int,
+                    45
+                  ))
+                )
+            ) > ${startAt}::timestamptz
+          END
+      LIMIT 1
+    `,
+  ]);
+
+  if (blastRows.length) {
+    const row = blastRows[0] as { id: string; expires_at: string };
+    return { type: 'blast', postId: row.id, code: 'ACTIVE_BLAST_EXISTS', expiresAt: row.expires_at };
+  }
+  if (directRows.length) {
+    const row = directRows[0] as { id: string; booking_expires_at: string };
+    return { type: 'direct_booking', postId: row.id, code: 'TIME_WINDOW_CONFLICT', expiresAt: row.booking_expires_at };
+  }
+  return null;
+}
+
+/**
+ * Returns the first active direct booking for a rider.
+ * Used by POST /api/blast to block blast creation when a direct request is in flight.
+ */
+export async function getRiderActiveDirectBooking(
+  riderId: string
+): Promise<{ id: string; booking_expires_at: string } | null> {
+  const rows = await sql`
+    SELECT id, booking_expires_at FROM hmu_posts
+    WHERE user_id = ${riderId}
+      AND post_type = 'direct_booking'
+      AND status = 'active'
+      AND booking_expires_at > NOW()
+    LIMIT 1
+  `;
+  return rows.length ? (rows[0] as { id: string; booking_expires_at: string }) : null;
 }

@@ -45,6 +45,7 @@ interface Props {
   payoutSetup: boolean;
   cashOnly: boolean;
   marketSlug: string;
+  acceptsDownBad: boolean;
 }
 
 export default function DriverHomeClient({
@@ -58,10 +59,12 @@ export default function DriverHomeClient({
   payoutSetup,
   cashOnly,
   marketSlug,
+  acceptsDownBad,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [requests, setRequests] = useState<BookingRequest[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(true);
+  const [downBadCount, setDownBadCount] = useState(0);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [pendingPassRequest, setPendingPassRequest] = useState<BookingRequest | null>(null);
   const [actionToast, setActionToast] = useState<string | null>(null);
@@ -79,6 +82,7 @@ export default function DriverHomeClient({
       if (res.ok) {
         const data = await res.json();
         const incoming: BookingRequest[] = data.requests ?? [];
+        if (typeof data.downBadCount === 'number') setDownBadCount(data.downBadCount);
 
         // First load: skip the glide-in/glow so we don't fanfare requests that
         // were already sitting there. Subsequent fetches diff against current
@@ -153,6 +157,17 @@ export default function DriverHomeClient({
   useAbly({
     channelName: `market:${marketSlug}:feed`,
     onMessage: handleAblyMessage,
+  });
+
+  // Down Bad channel — new posts bump the count so the entry card appears
+  // without a full refetch. A full refetch still happens via handleAblyMessage
+  // to keep counts accurate.
+  useAbly({
+    channelName: acceptsDownBad ? `market:${marketSlug}:down-bad` : null,
+    onMessage: useCallback(() => {
+      setDownBadCount(c => c + 1);
+      fetchRequests();
+    }, [fetchRequests]),
   });
 
   // Re-fetch when page becomes visible (returning from ride page after cancel)
@@ -251,6 +266,11 @@ export default function DriverHomeClient({
             }
           }, 0);
         }
+      } else if (res.status === 404) {
+        // Ride was already matched or expired — drop the card silently
+        setExitDirs((d) => ({ ...d, [req.id]: 'left' }));
+        setTimeout(() => setRequests((prev) => prev.filter((r) => r.id !== req.id)), 0);
+        showToast('Ride already taken', 2000);
       } else if (data.error === 'PAYOUT_REQUIRED') {
         if (confirm('Set up your payout account to accept rides. Go to payout setup?')) {
           window.location.href = '/driver/payout-setup';
@@ -289,6 +309,11 @@ export default function DriverHomeClient({
         setExitDirs((d) => ({ ...d, [req.id]: 'left' }));
         setTimeout(() => setRequests((prev) => prev.filter((r) => r.id !== req.id)), 0);
         showToast(data.status === 'declined_awaiting_rider' ? 'Passed — rider notified' : 'Passed', 2000);
+      } else if (res.status === 404) {
+        // Ride was already matched or expired — drop the card silently
+        setExitDirs((d) => ({ ...d, [req.id]: 'left' }));
+        setTimeout(() => setRequests((prev) => prev.filter((r) => r.id !== req.id)), 0);
+        showToast('Ride already taken', 2000);
       } else {
         showToast(data.error || `Couldn't pass (${res.status})`, 3000);
       }
@@ -427,6 +452,48 @@ export default function DriverHomeClient({
 
         {/* Active HMUs — self-hides when driver has no pending blast responses */}
         <DriverBlastStatusSection driverId={userId} />
+
+        {/* Down Bad entry card — only for opted-in drivers with active posts */}
+        <AnimatePresence>
+          {acceptsDownBad && downBadCount > 0 && (
+            <motion.a
+              key="down-bad-entry"
+              href="/driver/down-bad"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.35, ease: [0.25, 0.1, 0.25, 1] }}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 16, padding: '14px 18px', marginBottom: 16,
+                textDecoration: 'none', cursor: 'pointer',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 22 }}>😮‍💨</span>
+                <div>
+                  <div style={{ color: '#fff', fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>
+                    Down Bad
+                    <span style={{
+                      display: 'inline-block', background: '#00E676', color: '#080808',
+                      fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 100,
+                      marginLeft: 8, verticalAlign: 'middle',
+                    }}>
+                      {downBadCount}
+                    </span>
+                  </div>
+                  <div style={{ color: '#888', fontSize: 12, marginTop: 2 }}>
+                    {downBadCount === 1 ? '1 post waiting' : `${downBadCount} posts waiting`} — swipe to pick
+                  </div>
+                </div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2.5">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </motion.a>
+          )}
+        </AnimatePresence>
 
         {/* Incoming Requests — collapse the section entirely when empty so the
             cashout card sits above the fold for new drivers. Loading still

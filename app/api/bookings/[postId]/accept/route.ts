@@ -40,16 +40,27 @@ export async function POST(
     const postRows = await sql`
       SELECT * FROM hmu_posts
       WHERE id = ${postId}
-        AND status = 'active'
         AND (
-          (post_type = 'direct_booking' AND target_driver_id = ${driverUserId} AND booking_expires_at > NOW())
+          (post_type = 'direct_booking' AND status = 'active' AND target_driver_id = ${driverUserId} AND booking_expires_at > NOW())
           OR
-          (post_type = 'rider_request' AND expires_at > NOW())
+          (post_type = 'rider_request' AND status = 'active' AND expires_at > NOW())
           OR
-          (post_type = 'blast' AND expires_at > NOW())
+          (post_type = 'blast' AND status = 'active' AND expires_at > NOW())
+          OR
+          (post_type = 'down_bad' AND status IN ('active', 'matched') AND expires_at > NOW())
         )
       LIMIT 1
     `;
+
+    // Down Bad posts require the driver to have explicitly opted in.
+    if (postRows.length && (postRows[0] as Record<string, unknown>).post_type === 'down_bad') {
+      const dpRows = await sql`
+        SELECT accepts_down_bad FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
+      `;
+      if (!dpRows.length || !(dpRows[0] as Record<string, unknown>).accepts_down_bad) {
+        return NextResponse.json({ error: 'Enable Down Bad in your profile settings first', code: 'down_bad_not_enabled' }, { status: 403 });
+      }
+    }
 
     if (!postRows.length) {
       return NextResponse.json({ error: 'Request not found or expired' }, { status: 404 });
@@ -163,16 +174,86 @@ export async function POST(
       return NextResponse.json({ status: 'hmu', blast: true, counterPrice });
     }
 
+    // ── DOWN BAD: First driver to RUN IT wins — instant match ──
+    const isDownBad = post.post_type === 'down_bad';
+
+    if (isDownBad) {
+      const [riderActiveRides, driverActiveRides] = await Promise.all([
+        sql`SELECT id FROM rides WHERE rider_id = ${riderId} AND status IN ('otw','here','active') LIMIT 1`,
+        sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('otw','here','active') LIMIT 1`,
+      ]);
+      if (riderActiveRides.length) {
+        return NextResponse.json({ error: 'This rider already has an active ride' }, { status: 409 });
+      }
+      if (driverActiveRides.length) {
+        return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });
+      }
+
+      // Atomic claim — first driver wins; any concurrent accept gets 409.
+      const claimed = await sql`
+        UPDATE hmu_posts SET status = 'matched'
+        WHERE id = ${postId} AND status = 'active' AND post_type = 'down_bad'
+        RETURNING id
+      `;
+      if (!claimed.length) {
+        return NextResponse.json({ error: 'Someone else already ran it — post is gone', code: 'already_matched' }, { status: 409 });
+      }
+
+      const waitRows = await sql`SELECT wait_minutes FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1`;
+      const waitMinutes = Number((waitRows[0] as Record<string, unknown>)?.wait_minutes ?? 10);
+
+      const refCode = generateRefCode();
+      const rideRows = await sql`
+        INSERT INTO rides (
+          driver_id, rider_id, status, amount, final_agreed_price,
+          price_mode, price_accepted_at, hmu_post_id,
+          pickup_address, pickup_lat, pickup_lng,
+          dropoff_address, dropoff_lat, dropoff_lng,
+          dispute_window_minutes, is_cash, wait_minutes, ref_code,
+          booking_type
+        ) VALUES (
+          ${driverUserId}, ${riderId}, 'matched', ${price}, ${price},
+          'proposed', NOW(), ${postId},
+          ${(post.pickup_address as string) || null},
+          ${post.pickup_lat ? Number(post.pickup_lat) : null},
+          ${post.pickup_lng ? Number(post.pickup_lng) : null},
+          ${(post.dropoff_address as string) || null},
+          ${post.dropoff_lat ? Number(post.dropoff_lat) : null},
+          ${post.dropoff_lng ? Number(post.dropoff_lng) : null},
+          ${parseInt(process.env.DISPUTE_WINDOW_MINUTES || '5')},
+          false, ${waitMinutes}, ${refCode},
+          'down_bad'
+        )
+        RETURNING id
+      `;
+      const rideId = (rideRows[0] as { id: string }).id;
+
+      await notifyUser(riderId, 'booking_accepted', {
+        rideId, postId, driverUserId, driverName, price,
+        message: `${driverName} is running it!`,
+      }).catch(() => {});
+
+      await publishRideUpdate(rideId, 'status_change', {
+        status: 'matched',
+        message: 'Down Bad matched — driver incoming!',
+      }).catch(() => {});
+
+      publishAdminEvent('ride_created', { rideId, driverUserId, riderId, price, status: 'matched', postType: 'down_bad' }).catch(() => {});
+
+      return NextResponse.json({ status: 'matched', rideId });
+    }
+
     // ── OPEN REQUESTS: Register interest (rider picks later) ──
     if (!isDirectBooking) {
-      // Check driver doesn't already have interest or active ride
-      const [existingInterest, driverActiveRides] = await Promise.all([
-        sql`SELECT id FROM ride_interests WHERE post_id = ${postId} AND driver_id = ${driverUserId} LIMIT 1`,
+      // Block only if driver explicitly passed this post (different intent from re-accepting).
+      // A pre-existing 'interested' row is fine — treat accept as idempotent.
+      const [existingPassed, driverActiveRides] = await Promise.all([
+        sql`SELECT id FROM ride_interests WHERE post_id = ${postId} AND driver_id = ${driverUserId} AND status = 'passed' LIMIT 1`,
         sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('otw','here','active') LIMIT 1`,
       ]);
 
-      if (existingInterest.length) {
-        return NextResponse.json({ error: 'You already expressed interest in this ride' }, { status: 409 });
+      if (existingPassed.length) {
+        return NextResponse.json({ error: 'You already passed on this ride' }, { status: 409 });
       }
       if (driverActiveRides.length) {
         return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });

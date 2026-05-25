@@ -58,6 +58,9 @@ export async function PATCH(
     case 'unflag':
       await sql`UPDATE comments SET flagged_for_review = false WHERE id = ${commentId}`;
       break;
+    case 'delete':
+      await sql`UPDATE comments SET deleted_at = NOW() WHERE id = ${commentId}`;
+      break;
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }

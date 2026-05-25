@@ -178,7 +178,7 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
         </p>
 
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }}>
-          <Link href="/rider" className={styles.btnOutline}>I NEED A RIDE</Link>
+          <Link href="/r/express" className={styles.btnOutline}>I NEED A RIDE</Link>
           <Link href="/driver" className={styles.btnPrimary}>I WANT TO DRIVE</Link>
         </div>
 
@@ -221,7 +221,7 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
                 </div>
                 ))}
               </div>
-              <Link href="/rider" className={styles.howLink}>
+              <Link href="/r/express" className={styles.howLink}>
                 Learn more <span>→</span>
               </Link>
             </div>
@@ -399,7 +399,7 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
               <p className={styles.dualCtaDesc}>
                 {riderCtaDesc}
               </p>
-              <a href="/sign-up?type=rider" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnOutline}`}>
+              <a href="/r/express" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnOutline}`}>
                 SIGN UP AS RIDER
               </a>
             </div>

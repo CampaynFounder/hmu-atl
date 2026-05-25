@@ -37,6 +37,7 @@ import { getMatchingProvider, InternalMatcher } from '@/lib/blast/provider';
 import type { BlastConfig as V3BlastConfig, BlastCreateInput } from '@/lib/blast/types';
 import { writeBlastEvent, writeMatchLog, releaseScheduleBlocks } from '@/lib/blast/lifecycle';
 import { stripe } from '@/lib/stripe/connect';
+import { getRiderActiveDirectBooking } from '@/lib/db/direct-bookings';
 
 export const runtime = 'nodejs';
 
@@ -89,8 +90,6 @@ interface BlastBody {
   maxPickupMinutes?: number | null;
 }
 
-const SCHEDULED_FOR_MIN_LEAD_MIN = 5;
-
 function clientIp(req: NextRequest): string {
   return (
     req.headers.get('cf-connecting-ip') ??
@@ -142,7 +141,7 @@ export async function POST(req: NextRequest) {
     }
 
     const userRows = await runQuery('lookup_user_by_clerk_id', () => sql`
-      SELECT u.id, u.gender,
+      SELECT u.id, u.gender, u.account_status,
         COALESCE(rp.thumbnail_url, rp.avatar_url) AS photo_url,
         rp.stripe_customer_id, rp.display_name
       FROM users u
@@ -155,6 +154,10 @@ export async function POST(req: NextRequest) {
     const user = userRows[0] as Record<string, unknown>;
     const riderId = user.id as string;
     const riderGender = (user.gender as string | null) ?? null;
+
+    if (user.account_status !== 'active') {
+      return NextResponse.json({ error: 'Account must be active to send a blast' }, { status: 403 });
+    }
 
     // ── 1a. Feature flag ──
     if (!(await isFeatureEnabled('blast_booking', { userId: riderId }))) {
@@ -218,7 +221,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── 3. Body validation ──
+    // Prevent cross-type conflicts: a rider cannot blast while a direct booking
+    // request is in flight. They must cancel the direct request first.
+    const activeDirectBooking = await getRiderActiveDirectBooking(riderId);
+    if (activeDirectBooking) {
+      return NextResponse.json(
+        {
+          error: 'ACTIVE_DIRECT_BOOKING_EXISTS',
+          message: 'Cancel your pending direct request before sending a blast',
+          postId: activeDirectBooking.id,
+          expiresAt: activeDirectBooking.booking_expires_at,
+        },
+        { status: 409 },
+      );
+    }
+
+    // ── 3. Config + body validation ──
+    // Load config before validation so scheduled_blast_lead_minutes and
+    // price bounds come from platform_config rather than hardcoded constants.
+    const config = await getMatchingConfig();
+
     const body = (await req.json().catch(() => ({}))) as BlastBody;
 
     const pickupLat = body.pickup?.lat;
@@ -259,17 +281,16 @@ export async function POST(req: NextRequest) {
       if (Number.isNaN(parsed.getTime())) {
         return NextResponse.json({ error: 'Invalid scheduled_for' }, { status: 400 });
       }
-      const minLead = Date.now() + SCHEDULED_FOR_MIN_LEAD_MIN * 60_000;
+      const minLeadMin = config.expiry.scheduled_blast_lead_minutes;
+      const minLead = Date.now() + minLeadMin * 60_000;
       if (parsed.getTime() < minLead) {
         return NextResponse.json(
-          { error: `scheduled_for must be at least ${SCHEDULED_FOR_MIN_LEAD_MIN} minutes in the future` },
+          { error: `scheduled_for must be at least ${minLeadMin} minutes in the future` },
           { status: 400 },
         );
       }
       scheduledFor = parsed;
     }
-
-    const config = await getMatchingConfig();
     const priceDollars = Number(body.price_dollars ?? body.priceDollars ?? config.default_price_dollars);
     if (!Number.isFinite(priceDollars) || priceDollars < 1 || priceDollars > config.max_price_dollars) {
       return NextResponse.json(

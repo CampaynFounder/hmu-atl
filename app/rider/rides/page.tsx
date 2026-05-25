@@ -47,5 +47,5 @@ export default async function RiderRidesPage() {
     disputeWindowExpiresAt: (r.dispute_window_expires_at as string) || null,
   }));
 
-  return <RiderRidesClient rides={mapped} />;
+  return <RiderRidesClient rides={mapped} currentUserId={user.id} />;
 }

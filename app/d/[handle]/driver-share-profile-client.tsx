@@ -34,6 +34,7 @@ interface DriverData {
   vehicleInfo: { label: string; maxRiders: number | null } | null;
   services: { name: string; icon: string; price: number; pricingType: string; unitLabel: string | null }[];
   verificationStatus?: 'verified' | 'pending';
+  acceptsDownBad: boolean;
 }
 
 interface Props {
@@ -634,7 +635,25 @@ export default function DriverShareProfileClient({ driver, autoOpenBooking, isLo
         </div>
 
         {/* Sticky CTA */}
-        <div className="cta-sticky">{renderCtaButton()}</div>
+        <div className="cta-sticky">
+          {renderCtaButton()}
+          {driver.acceptsDownBad && viewerProfile?.profileType !== 'driver' && (
+            <a
+              href={`/rider/down-bad/new?driver=${driver.handle}`}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                marginTop: 10, padding: '13px 0', borderRadius: 100,
+                border: '1.5px solid rgba(255,255,255,0.15)',
+                background: 'transparent', color: '#ddd',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                fontWeight: 700, fontSize: 15, textDecoration: 'none',
+                cursor: 'pointer', width: '100%', textAlign: 'center',
+              }}
+            >
+              <span>😮‍💨</span> Send Down Bad Offer
+            </a>
+          )}
+        </div>
       </div>
 
       {/* GPT discovery chat — only rendered when the admin flag is on for

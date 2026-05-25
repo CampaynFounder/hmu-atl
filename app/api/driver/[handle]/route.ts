@@ -39,8 +39,8 @@ export async function GET(
 
     const d = rows[0] as Record<string, unknown>;
 
-    // Fetch ratings, services, response stats, and disputes in parallel
-    const [ratingRows, serviceRows, responseRows, disputeRows] = await Promise.all([
+    // Fetch ratings, services, acceptance stats, and disputes in parallel
+    const [ratingRows, serviceRows, acceptanceRows, disputeRows] = await Promise.all([
       sql`
         SELECT rating_type, COUNT(*)::int as count
         FROM ratings
@@ -57,11 +57,27 @@ export async function GET(
         ORDER BY dsm.sort_order LIMIT 8
       `,
       sql`
+        WITH direct AS (
+          SELECT
+            COUNT(*) FILTER (WHERE status = 'matched')::int            AS accepted,
+            COUNT(*) FILTER (WHERE status = 'declined_awaiting_rider')::int AS declined,
+            COUNT(*) FILTER (WHERE status = 'expired')::int            AS expired
+          FROM hmu_posts
+          WHERE target_driver_id = ${d.user_id}
+            AND post_type = 'direct_booking'
+        ),
+        blast AS (
+          SELECT
+            COUNT(*) FILTER (WHERE bdt.hmu_at IS NOT NULL)::int                                    AS accepted,
+            COUNT(*) FILTER (WHERE bdt.passed_at IS NOT NULL OR bdt.rejected_at IS NOT NULL)::int  AS passed
+          FROM blast_driver_targets bdt
+          WHERE bdt.driver_id = ${d.user_id}
+            AND bdt.notified_at IS NOT NULL
+        )
         SELECT
-          COUNT(*) FILTER (WHERE status = 'completed')::int as completed,
-          COUNT(*) FILTER (WHERE status = 'cancelled' AND driver_id = ${d.user_id})::int as cancelled
-        FROM rides
-        WHERE driver_id = ${d.user_id}
+          (d.accepted + b.accepted)::int                                          AS total_accepted,
+          (d.accepted + d.declined + d.expired + b.accepted + b.passed)::int     AS total_offered
+        FROM direct d, blast b
       `,
       sql`
         SELECT COUNT(*)::int as count FROM disputes
@@ -77,7 +93,7 @@ export async function GET(
       totalRatings += row.count;
     }
 
-    const stats = responseRows[0] as { completed: number; cancelled: number } | undefined;
+    const acceptanceStats = acceptanceRows[0] as { total_accepted: number; total_offered: number } | undefined;
     const disputeCount = Number((disputeRows[0] as Record<string, unknown>)?.count ?? 0);
 
     const vehicleInfo = d.vehicle_info as Record<string, unknown> | null;
@@ -115,9 +131,9 @@ export async function GET(
         price: Number(s.price ?? 0),
         pricingType: (s.pricing_type as string) || 'flat',
       })),
-      completionRate: stats && (stats.completed + stats.cancelled) > 0
-        ? Math.round((stats.completed / (stats.completed + stats.cancelled)) * 100)
-        : 100,
+      acceptanceRate: acceptanceStats && acceptanceStats.total_offered > 0
+        ? Math.round((acceptanceStats.total_accepted / acceptanceStats.total_offered) * 100)
+        : null,
     });
   } catch (error) {
     console.error('Driver profile overlay error:', error);

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
+import RideCommentThread from '@/components/shared/ride-comment-thread';
 
 interface Ride {
   id: string;
@@ -41,7 +42,7 @@ const RATING_EMOJI: Record<string, string> = {
 
 const ACTIVE_STATUSES = ['matched', 'otw', 'here', 'confirming', 'active'];
 
-export default function RiderRidesClient({ rides }: { rides: Ride[] }) {
+export default function RiderRidesClient({ rides, currentUserId }: { rides: Ride[]; currentUserId?: string }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -102,12 +103,11 @@ export default function RiderRidesClient({ rides }: { rides: Ride[] }) {
           {/* Driver avatar */}
           <div style={{
             width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-            background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            overflow: 'hidden',
+            background: '#222', overflow: 'hidden', position: 'relative',
           }}>
             {ride.driverAvatar
-              ? <img src={ride.driverAvatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <span style={{ fontSize: 16, color: '#666' }}>🚗</span>
+              ? <img src={ride.driverAvatar} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: '#666' }}>🚗</span>
             }
           </div>
           {/* Info */}
@@ -230,6 +230,11 @@ export default function RiderRidesClient({ rides }: { rides: Ride[] }) {
             </div>
             {cancelError && cancellingId === ride.id && (
               <div style={{ fontSize: 12, color: '#FF5252', marginTop: 6, textAlign: 'center' }}>{cancelError}</div>
+            )}
+
+            {/* Post-ride comment thread — only for completed/ended rides */}
+            {(ride.status === 'completed' || ride.status === 'ended') && currentUserId && (
+              <RideCommentThread rideId={ride.id} role="rider" />
             )}
           </div>
         )}
