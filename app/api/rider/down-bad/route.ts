@@ -27,6 +27,7 @@ interface DownBadConfig {
   sum_extra_max_chars: number;
   require_min_rides: number;
   require_min_chill_score: number;
+  expiry_hours: number;
 }
 
 export async function POST(req: NextRequest) {
@@ -92,6 +93,7 @@ export async function POST(req: NextRequest) {
       sum_extra_max_chars: 120,
       require_min_rides: 0,
       require_min_chill_score: 0,
+      expiry_hours: 4,
     } as Record<string, unknown>),
   ]);
 
@@ -182,7 +184,7 @@ export async function POST(req: NextRequest) {
       AND status = 'active'
   `;
 
-  const expiresAt = new Date(Date.now() + 4 * 3_600_000); // 4-hour window
+  const expiresAt = new Date(Date.now() + config.expiry_hours * 3_600_000);
 
   // ── Insert ─────────────────────────────────────────────────────────────────
   try {
@@ -192,6 +194,7 @@ export async function POST(req: NextRequest) {
         pickup_lat, pickup_lng, pickup_address,
         dropoff_lat, dropoff_lng, dropoff_address,
         price, scheduled_for, expires_at, areas,
+        time_window,
         sum_extra_text, sum_extra_media_url, sum_extra_media_type,
         target_driver_id
       ) VALUES (
@@ -200,6 +203,7 @@ export async function POST(req: NextRequest) {
         ${dropoff_lat}, ${dropoff_lng}, ${dropoff_address},
         ${price}, ${scheduled_for ?? null}, ${expiresAt},
         ${[market.slug.toUpperCase()]},
+        ${'{}'},
         ${sum_extra_text.trim()},
         ${sum_extra_media_url},
         ${sum_extra_media_type},
