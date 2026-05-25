@@ -359,7 +359,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     alignItems: 'center',
     textAlign: 'center',
-    paddingTop: 48,
+    paddingTop: 56,
     width: '100%',
   },
   stateEmoji: { fontSize: 52 },

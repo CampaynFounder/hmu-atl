@@ -289,7 +289,7 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
       <div style={{
         minHeight: '100dvh', display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
-        background: '#080808', color: '#fff', padding: 32, textAlign: 'center',
+        background: '#080808', color: '#fff', padding: 32, paddingTop: 88, textAlign: 'center',
       }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>😮‍💨</div>
         <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Down Bad Coming Soon</div>
@@ -307,7 +307,7 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
   }
 
   return (
-    <div style={{ minHeight: '100dvh', background: '#080808', color: '#fff', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100dvh', background: '#080808', color: '#fff', display: 'flex', flexDirection: 'column', paddingTop: 56 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px' }}>
         <button
