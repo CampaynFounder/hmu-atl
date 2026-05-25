@@ -220,7 +220,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ postId, expiresAt: expiresAt.toISOString() }, { status: 201 });
   } catch (err) {
-    console.error('down-bad insert failed:', err);
-    return NextResponse.json({ error: 'Failed to create post. Try again.' }, { status: 500 });
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('down-bad insert failed:', msg);
+    return NextResponse.json({ error: `DB error: ${msg}` }, { status: 500 });
   }
 }
