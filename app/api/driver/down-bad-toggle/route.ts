@@ -10,6 +10,7 @@ import { getPlatformConfig } from '@/lib/platform-config/get';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2026-02-25.clover' });
+const isMock = process.env.STRIPE_MOCK === 'true';
 
 async function getDriver(clerkId: string) {
   const rows = await sql`
@@ -29,6 +30,7 @@ async function getDriver(clerkId: string) {
 }
 
 async function checkPaymentMethod(stripeCustomerId: string | null): Promise<boolean> {
+  if (isMock) return true;
   if (!stripeCustomerId) return false;
   try {
     const methods = await stripe.paymentMethods.list({
