@@ -144,6 +144,15 @@ export function LandingClient() {
         </div>
 
         {/* Hero */}
+        <div style={{ textAlign: 'center', marginBottom: 10 }}>
+          <span style={{
+            display: 'inline-block', padding: '4px 14px', borderRadius: 100,
+            background: 'rgba(68,138,255,0.12)', color: '#448AFF',
+            fontSize: 13, fontWeight: 800, letterSpacing: '0.5px',
+          }}>
+            Slide There.
+          </span>
+        </div>
         <h1 style={{
           fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
           fontSize: 42, color: '#fff', lineHeight: 1, textAlign: 'center', marginBottom: 12,
