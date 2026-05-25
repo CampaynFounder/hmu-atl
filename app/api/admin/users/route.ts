@@ -153,76 +153,73 @@ export async function DELETE(req: NextRequest) {
   if (!admin) return unauthorizedResponse();
   if (!admin.is_super) return NextResponse.json({ error: 'Super admin only' }, { status: 403 });
 
-  const { userId, clerkId: inputClerkId, reason, smsMessage } = await req.json() as {
-    userId?: string;
-    clerkId?: string;
-    reason?: DeleteReason;
-    smsMessage?: string;
-  };
-
-  let userRows;
-  if (userId) {
-    userRows = await sql`
-      SELECT id, clerk_id, profile_type,
-             dp.phone AS driver_phone,
-             rp.phone AS rider_phone
-      FROM users u
-      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-      LEFT JOIN rider_profiles  rp ON rp.user_id  = u.id
-      WHERE u.id = ${userId}
-    `;
-  } else if (inputClerkId) {
-    userRows = await sql`
-      SELECT id, clerk_id, profile_type,
-             dp.phone AS driver_phone,
-             rp.phone AS rider_phone
-      FROM users u
-      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-      LEFT JOIN rider_profiles  rp ON rp.user_id  = u.id
-      WHERE u.clerk_id = ${inputClerkId}
-    `;
-  } else {
-    return NextResponse.json({ error: 'userId or clerkId required' }, { status: 400 });
-  }
-
-  if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
-
-  const user    = userRows[0];
-  const neonId  = user.id as string;
-  const clerkId = user.clerk_id as string;
-  const phone   = (user.driver_phone || user.rider_phone) as string | null;
-
-  // Safety: block delete if any ride record exists (as rider or driver)
-  const rideCheck = await sql`
-    SELECT 1 FROM rides
-    WHERE rider_id = ${neonId} OR driver_id = ${neonId}
-    LIMIT 1
-  `;
-  if (rideCheck.length > 0) {
-    return NextResponse.json({ error: 'Cannot delete — user has ride history' }, { status: 409 });
-  }
-
-  // Send SMS before deleting (we need the phone while the record exists)
-  let smsSent = false;
-  if (reason === 'wrong_user_type' && smsMessage && phone) {
-    const result = await sendSms(phone, smsMessage, { userId: neonId, eventType: 'admin_hard_delete_redirect' });
-    smsSent = result.success;
-  }
-
-  await sql`DELETE FROM users WHERE id = ${neonId}`;
-
   try {
-    const clerk = await clerkClient();
-    await clerk.users.deleteUser(clerkId);
-  } catch { /* May already be deleted from Clerk */ }
+    const { userId, clerkId: inputClerkId, reason, smsMessage } = await req.json() as {
+      userId?: string;
+      clerkId?: string;
+      reason?: DeleteReason;
+      smsMessage?: string;
+    };
 
-  await logAdminAction(
-    admin.id,
-    'hard_delete_user',
-    'user',
-    neonId,
-    { reason: reason ?? 'unspecified', smsSent, clerkId },
-  ).catch(() => {});
+    if (!userId && !inputClerkId) {
+      return NextResponse.json({ error: 'userId or clerkId required' }, { status: 400 });
+    }
 
-  return NextResponse.json({ success: true, deleted: { neonId, clerkId }, smsSent });
+    const userRows = await sql`
+      SELECT u.id, u.clerk_id, u.profile_type,
+             dp.phone AS driver_phone,
+             rp.phone AS rider_phone
+      FROM users u
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      LEFT JOIN rider_profiles  rp ON rp.user_id  = u.id
+      WHERE ${userId ? sql`u.id = ${userId}` : sql`u.clerk_id = ${inputClerkId}`}
+      LIMIT 1
+    `;
+
+    if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+    const user    = userRows[0];
+    const neonId  = user.id as string;
+    const clerkId = user.clerk_id as string;
+    const phone   = (user.driver_phone || user.rider_phone) as string | null;
+
+    // Block delete if any ride record exists (as rider or driver)
+    const rideCheck = await sql`
+      SELECT 1 FROM rides
+      WHERE rider_id = ${neonId} OR driver_id = ${neonId}
+      LIMIT 1
+    `;
+    if (rideCheck.length > 0) {
+      return NextResponse.json({ error: 'Cannot delete — user has ride history' }, { status: 409 });
+    }
+
+    // Send SMS before deleting while the user record still exists
+    let smsSent = false;
+    if (reason === 'wrong_user_type' && smsMessage && phone) {
+      const result = await sendSms(phone, smsMessage, { userId: neonId, eventType: 'admin_hard_delete_redirect' });
+      smsSent = result.success;
+    }
+
+    try {
+      await sql`DELETE FROM users WHERE id = ${neonId}`;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[hard-delete] Neon delete failed:', msg);
+      return NextResponse.json({ error: `Database delete failed: ${msg}` }, { status: 500 });
+    }
+
+    try {
+      const clerk = await clerkClient();
+      await clerk.users.deleteUser(clerkId);
+    } catch { /* May already be deleted from Clerk */ }
+
+    logAdminAction(admin.id, 'hard_delete_user', 'user', neonId, {
+      reason: reason ?? 'unspecified', smsSent, clerkId,
+    }).catch(() => {});
+
+    return NextResponse.json({ success: true, deleted: { neonId, clerkId }, smsSent });
+  } catch (err) {
+    console.error('[hard-delete] Unhandled error:', err);
+    return NextResponse.json({ error: 'Unexpected error during delete' }, { status: 500 });
+  }
 }
