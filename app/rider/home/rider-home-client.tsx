@@ -130,6 +130,112 @@ function ActiveBlastCard() {
   );
 }
 
+// ─── ActiveDownBadCard ────────────────────────────────────────────────────────
+// Self-contained: fetches /api/rider/down-bad/active on mount and tab-focus.
+// Renders nothing if the rider has no active Down Bad post.
+
+interface ActiveDownBadData {
+  id: string;
+  price: number;
+  expiresAt: string;
+  pickupAddress: string;
+  dropoffAddress: string;
+  sumExtraText: string;
+  isTargeted: boolean;
+}
+
+function ActiveDownBadCard() {
+  const [post, setPost] = useState<ActiveDownBadData | null | undefined>(undefined);
+  const [countdown, setCountdown] = useState('');
+
+  const load = async () => {
+    try {
+      const res = await fetch('/api/rider/down-bad/active');
+      if (!res.ok) { setPost(null); return; }
+      const body = await res.json() as { post: ActiveDownBadData | null };
+      setPost(body.post);
+    } catch {
+      setPost(null);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') void load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
+
+  useEffect(() => {
+    if (!post) return;
+    const tick = () => {
+      const ms = new Date(post.expiresAt).getTime() - Date.now();
+      if (ms <= 0) { setCountdown('Expired'); setPost(null); return; }
+      const m = Math.floor(ms / 60000);
+      const s = Math.floor((ms % 60000) / 1000);
+      setCountdown(`${m}:${String(s).padStart(2, '0')}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [post]);
+
+  if (post === undefined || post === null) return null;
+
+  return (
+    <div style={{ padding: '12px 20px 0' }}>
+      <a
+        href={`/rider/down-bad/${post.id}/status`}
+        onClick={() => posthog.capture('rider_home_active_down_bad_tapped')}
+        style={{
+          display: 'block', textDecoration: 'none',
+          background: 'rgba(255,160,0,0.06)',
+          border: '1.5px solid rgba(255,160,0,0.35)',
+          borderRadius: 18, padding: '16px 18px',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <span style={{
+            fontSize: 10, fontWeight: 700, letterSpacing: 2,
+            textTransform: 'uppercase', color: '#FFA000',
+            fontFamily: "var(--font-mono,'Space Mono',monospace)",
+          }}>
+            😮‍💨 DOWN BAD LIVE
+          </span>
+          <span style={{
+            fontSize: 13, fontWeight: 700, color: '#FFA000',
+            fontFamily: "var(--font-mono,'Space Mono',monospace)",
+            background: 'rgba(255,160,0,0.1)', padding: '3px 10px', borderRadius: 100,
+          }}>
+            {countdown}
+          </span>
+        </div>
+        <div style={{ fontSize: 14, color: '#fff', fontWeight: 600, marginBottom: 2 }}>
+          {post.pickupAddress} → {post.dropoffAddress}
+        </div>
+        <div style={{ fontSize: 12, color: '#888', marginBottom: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {post.sumExtraText}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{
+            fontSize: 20, fontWeight: 700, color: '#FFA000',
+            fontFamily: "var(--font-mono,'Space Mono',monospace)",
+          }}>
+            ${post.price} cash
+          </span>
+          <span style={{
+            fontSize: 13, fontWeight: 600, color: '#080808',
+            background: '#FFA000', borderRadius: 100, padding: '6px 16px',
+          }}>
+            View Status →
+          </span>
+        </div>
+      </a>
+    </div>
+  );
+}
+
 const COMPARE_RIDES = [
   { label: 'Work commute (10 mi)', uber: 18, hmu: 10 },
   { label: 'Daycare pickup (5 mi)', uber: 14, hmu: 8 },
@@ -246,6 +352,9 @@ export default function RiderHomeClient() {
         {/* Active blast card — only renders when rider has a live blast */}
         {isSignedIn && <ActiveBlastCard />}
 
+        {/* Active Down Bad card — only renders when rider has a live Down Bad post */}
+        {isSignedIn && <ActiveDownBadCard />}
+
         {/* Hero */}
         <div className="hero">
           <h1 className="hero-title">
@@ -262,6 +371,23 @@ export default function RiderHomeClient() {
           >
             {isSignedIn ? 'Browse Drivers' : 'Get Started — Free'}
           </Link>
+          {isSignedIn && (
+            <Link
+              href="/rider/down-bad/new"
+              onClick={() => posthog.capture('rider_home_down_bad_cta_clicked')}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                marginTop: 12, padding: '14px 0', borderRadius: 100,
+                border: '1.5px solid rgba(255,255,255,0.15)',
+                background: 'transparent', color: '#ddd',
+                fontFamily: "var(--font-body,'DM Sans',sans-serif)",
+                fontWeight: 700, fontSize: 16, textDecoration: 'none',
+                width: '100%', textAlign: 'center',
+              }}
+            >
+              <span>😮‍💨</span> Post a Down Bad
+            </Link>
+          )}
         </div>
 
         {/* Price Comparison */}
