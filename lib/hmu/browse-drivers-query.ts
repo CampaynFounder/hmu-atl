@@ -53,6 +53,7 @@ export interface BrowseDriverRow {
   vehicleSummary: { label: string; maxRiders: number | null } | null;
   hasVibeVideo: boolean;
   payoutReady: boolean;
+  acceptsDownBad: boolean;
   verificationStatus: VerificationStatus;
   /** Miles from the rider, computed server-side via Haversine. Null when
    * no usable location exists on either side. NEVER includes raw coords. */
@@ -98,7 +99,7 @@ export async function queryBrowseDrivers(
            dp.show_video_on_link,
            dp.vehicle_info, dp.lgbtq_friendly, dp.enforce_minimum, dp.fwu,
            dp.accepts_cash, dp.cash_only,
-           dp.vibe_video_url, dp.payout_setup_complete,
+           dp.vibe_video_url, dp.payout_setup_complete, dp.accepts_down_bad,
            dp.first_name, dp.last_name,
            dp.home_lat, dp.home_lng,
            u.chill_score, u.tier,
@@ -230,6 +231,7 @@ export async function queryBrowseDrivers(
       cashOnly: (d.cash_only as boolean) || false,
       hasVibeVideo: !!d.vibe_video_url,
       payoutReady: !!d.payout_setup_complete,
+      acceptsDownBad: (d.accepts_down_bad as boolean) || false,
       liveMessage: (livePost?.message as string) || null,
       livePrice: d.live_price ? Number(d.live_price) : null,
       serviceIcons: Array.isArray(d.service_icons)
