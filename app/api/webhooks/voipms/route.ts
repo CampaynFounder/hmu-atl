@@ -6,6 +6,43 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
 import { publishAdminEvent } from '@/lib/ably/server';
 import { handleConversationInbound } from '@/lib/conversation/inbound';
+import { getPlatformConfig } from '@/lib/platform-config/get';
+
+async function getWebhookConfig(): Promise<{ secret: string; allowlist: string }> {
+  const cfg = await getPlatformConfig('voipms.webhook', { webhook_secret: '', ip_allowlist: '' });
+  return {
+    secret:    (cfg.webhook_secret as string)  || process.env.VOIPMS_WEBHOOK_SECRET    || '',
+    allowlist: (cfg.ip_allowlist   as string)  || process.env.VOIPMS_WEBHOOK_ALLOWLIST || '',
+  };
+}
+
+function clientIp(req: NextRequest): string | null {
+  return (
+    req.headers.get('cf-connecting-ip') ??
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    req.headers.get('x-real-ip') ??
+    null
+  );
+}
+
+function isAllowedSource(ip: string | null, allowlist: string): boolean {
+  if (!allowlist) return true;
+  if (allowlist === '*') return true;
+  if (!ip) return false;
+  const set = new Set(allowlist.split(',').map((s) => s.trim()).filter(Boolean));
+  return set.has(ip);
+}
+
+function isSecretValid(req: NextRequest, expected: string): boolean {
+  if (!expected) return true;
+  const got = req.nextUrl.searchParams.get('secret') ?? '';
+  if (got.length !== expected.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < got.length; i += 1) {
+    mismatch |= got.charCodeAt(i) ^ expected.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
 
 interface DebugContext {
   method: string;
@@ -160,6 +197,15 @@ function buildContext(req: NextRequest, rawBody: string | null): DebugContext {
 
 export async function GET(req: NextRequest) {
   const ctx = buildContext(req, null);
+  const { secret, allowlist } = await getWebhookConfig();
+  if (!isAllowedSource(clientIp(req), allowlist)) {
+    void logWebhookHit(ctx, 'GET', 'parse_failed', null, null, null, null, `ip_not_allowed:${clientIp(req) ?? 'unknown'}`);
+    return NextResponse.json({ status: 'ok' }); // 200 to silence voip.ms retry storms
+  }
+  if (!isSecretValid(req, secret)) {
+    void logWebhookHit(ctx, 'GET', 'parse_failed', null, null, null, null, 'secret_mismatch');
+    return NextResponse.json({ status: 'ok' });
+  }
   const params = paramsFromSearchParams(req.nextUrl.searchParams);
   return handleInbound(params, 'GET', ctx);
 }
@@ -173,6 +219,15 @@ export async function POST(req: NextRequest) {
     rawBody = null;
   }
   const ctx = buildContext(req, rawBody);
+  const { secret, allowlist } = await getWebhookConfig();
+  if (!isAllowedSource(clientIp(req), allowlist)) {
+    void logWebhookHit(ctx, 'POST', 'parse_failed', null, null, null, null, `ip_not_allowed:${clientIp(req) ?? 'unknown'}`);
+    return NextResponse.json({ status: 'ok' });
+  }
+  if (!isSecretValid(req, secret)) {
+    void logWebhookHit(ctx, 'POST', 'parse_failed', null, null, null, null, 'secret_mismatch');
+    return NextResponse.json({ status: 'ok' });
+  }
 
   // Try query params first (some providers send POST with query params)
   const qp = paramsFromSearchParams(req.nextUrl.searchParams);

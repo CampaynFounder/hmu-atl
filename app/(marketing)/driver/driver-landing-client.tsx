@@ -28,7 +28,7 @@ function DriverLandingInner({ brandLabel, brandCity }: { brandLabel: string; bra
   // CMS zones
   const tickerItems = useZone<string[]>('ticker_items', ['You set the price', 'The less you make — the less we take', 'Hit your cap — we take zero', 'Cash App • Venmo • Zelle • Bank — always free', 'Payment secured upfront', 'No show — still paid']);
   const tickerSpeed = useZone('ticker_speed', '18');
-  const heroEyebrow = useZone('hero_eyebrow', 'For ATL Driver-Preneurs');
+  const heroEyebrow = useZone('hero_eyebrow', 'Ride Fair. • For ATL Driver-Preneurs');
   const heroLine1 = useZone('hero_headline_line1', 'Keep More.');
   const heroLine2 = useZone('hero_headline_line2', 'Ride<span style="color:var(--green)">Fair</span> &gt; Ride<span style="opacity:0.25">share</span>');
   const heroSub = useZone('hero_subheadline', 'You Drive. You Thrive. Stop Letting Algorithms Determine Your Worth. <strong>Your Pay. Your Way.</strong> HMU.');
@@ -257,7 +257,7 @@ function DriverLandingInner({ brandLabel, brandCity }: { brandLabel: string; bra
     const signUpParams = new URLSearchParams({ type: 'driver' });
     if (currentPersona) signUpParams.set('persona', currentPersona);
     if (currentStage !== 'awareness') signUpParams.set('funnel_stage', currentStage);
-    setTimeout(() => router.push(`/sign-up?${signUpParams}`), 800);
+    setTimeout(() => { window.location.href = `/sign-up?${signUpParams}`; }, 800);
   };
 
   // Build sign-up URL that carries persona + funnel stage through
@@ -288,8 +288,8 @@ function DriverLandingInner({ brandLabel, brandCity }: { brandLabel: string; bra
       <nav className={styles.nav}>
         <Link href="/" className={styles.navLogo}>{brandLabel}</Link>
         <div className={styles.navActions}>
-          <Link href="/sign-in?type=driver" className={styles.navSignIn}>Sign In</Link>
-          <Link href={signUpUrl} className={styles.navCta} onClick={() => { posthog.capture('driver_nav_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'nav' }); }}>{navCtaText}</Link>
+          <a href="/sign-in?type=driver" className={styles.navSignIn}>Sign In</a>
+          <a href={signUpUrl} className={styles.navCta} onClick={() => { posthog.capture('driver_nav_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'nav' }); }}>{navCtaText}</a>
         </div>
       </nav>
 
@@ -321,7 +321,7 @@ function DriverLandingInner({ brandLabel, brandCity }: { brandLabel: string; bra
         </h1>
         <p className={`${styles.heroSub} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }} dangerouslySetInnerHTML={{ __html: heroSub }} />
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.4s' }}>
-          <Link href={signUpUrl} className={styles.btnPrimary} onClick={() => { posthog.capture('driver_hero_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'hero' }); }}>{heroCtaPrimary}</Link>
+          <a href={signUpUrl} className={styles.btnPrimary} onClick={() => { posthog.capture('driver_hero_cta_clicked'); fbCustomEvent('DriverCTAClick', { location: 'hero' }); }}>{heroCtaPrimary}</a>
           <a href="#how" className={styles.btnGhost}>{heroCtaSecondary}</a>
         </div>
         <div className={`${styles.heroTrust} ${styles.fadeUp}`} style={{ animationDelay: '0.5s' }}>

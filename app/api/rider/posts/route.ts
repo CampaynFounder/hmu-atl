@@ -4,6 +4,8 @@ import { sql } from '@/lib/db/client';
 import { publishToChannel, publishAdminEvent } from '@/lib/ably/server';
 import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
 import { parseRoute, resolveProvidedSlugs } from '@/lib/markets/parse-areas';
+import { globalDefaultAllowsCashOnly } from '@/lib/payments/strategies';
+import { getPlatformConfig } from '@/lib/platform-config/get';
 
 // GET — list rider's active posts
 export async function GET() {
@@ -83,9 +85,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Include a message and price ($1 minimum)' }, { status: 400 });
     }
 
-    const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    const userRows = await sql`SELECT id, account_status FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    const userId = (userRows[0] as { id: string }).id;
+    const { id: userId, account_status } = userRows[0] as { id: string; account_status: string };
+
+    if (account_status !== 'active') {
+      return NextResponse.json({ error: 'Account must be active to post a ride request' }, { status: 403 });
+    }
 
     // Block only if a ride is in progress right now. A future 'matched'
     // booking shouldn't stop the rider from broadcasting a different-time
@@ -103,6 +109,18 @@ export async function POST(req: NextRequest) {
       ? await resolveProvidedSlugs(market.market_id, pickup_area_slug, dropoff_area_slug)
       : await parseRoute(message, market.market_id);
 
+    // Active pricing mode gets the final say. When deposit_only is the global
+    // default, every ride must authorize a digital deposit — the legacy
+    // is_cash post option is forced off so the COO/booking flow can't take
+    // the cash short-circuit.
+    const [cashAllowed, riderReqCfg] = await Promise.all([
+      globalDefaultAllowsCashOnly(),
+      getPlatformConfig('rider_request.config', { expiry_hours: 2 }),
+    ]);
+    const resolvedIsCash = cashAllowed ? Boolean(is_cash) : false;
+    const expiryHours = Math.max(0.5, Math.min(24, Number(riderReqCfg.expiry_hours) || 2));
+    const expiresAt = new Date(Date.now() + expiryHours * 3_600_000);
+
     const rows = await sql`
       INSERT INTO hmu_posts (
         user_id, post_type, market_id, pickup_area_slug, dropoff_area_slug, dropoff_in_market,
@@ -112,7 +130,7 @@ export async function POST(req: NextRequest) {
         ${route.pickup_area_slug}, ${route.dropoff_area_slug}, ${route.dropoff_in_market},
         ${[market.slug.toUpperCase()]},
         ${price}, ${JSON.stringify({ message, destination: message })}::jsonb,
-        'active', NOW() + INTERVAL '2 hours', ${is_cash || false}
+        'active', ${expiresAt}, ${resolvedIsCash}
       )
       RETURNING id
     `;

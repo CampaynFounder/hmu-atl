@@ -11,6 +11,7 @@ export const runtime = 'nodejs';
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'admin.hmuconfig.view')) return unauthorizedResponse();
 
   const rows = await sql`
     SELECT config_key, config_value, updated_at
@@ -24,9 +25,7 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
-  // Reuse the pricing-permission bucket since there's no dedicated 'act.hmu' bucket yet.
-  // Super admins bypass. This keeps the config gated until a proper role surfaces.
-  if (!hasPermission(admin, 'monitor.pricing.edit')) return unauthorizedResponse();
+  if (!hasPermission(admin, 'admin.hmuconfig.edit')) return unauthorizedResponse();
 
   const body = await req.json().catch(() => ({})) as { config_key?: string; config_value?: unknown };
   const key = body.config_key;

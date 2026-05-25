@@ -134,11 +134,9 @@ export default function RiderProfileClient({ profile }: Props) {
         />
 
         <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 36, lineHeight: 1 }}>
-          {profile.displayName}
+          {profile.handle ? `@${profile.handle}` : profile.displayName}
         </div>
-        {profile.handle && (
-          <div style={{ fontSize: 13, color: '#888', marginTop: 4 }}>@{profile.handle}</div>
-        )}
+        <div style={{ fontSize: 13, color: '#888', marginTop: 4 }}>Rider</div>
 
         {/* Badges */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 12 }}>

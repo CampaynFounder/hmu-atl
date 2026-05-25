@@ -315,7 +315,7 @@ export default function HoldPolicyClient() {
           <div className="space-y-4">
             {/* Deposit preview */}
             <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3">
-              <p className="text-[10px] text-neutral-500 uppercase tracking-wider mb-2">At booking (COO)</p>
+              <p className="text-[10px] text-neutral-500 uppercase tracking-wider mb-2">At booking (Pull Up)</p>
               <div className="flex gap-6 text-sm">
                 <div>
                   <p className="text-[10px] text-neutral-500">Rider sees held</p>
@@ -463,7 +463,7 @@ function DisplayMode({ policy }: { policy: HoldPolicyData }) {
       <div>
         <SectionHeader
           title="Hold Strategy"
-          subtitle="How much is held on the rider's card when they tap COO."
+          subtitle="How much is held on the rider's card when they tap Pull Up."
         />
         <div className="grid grid-cols-2 gap-3">
           <div>

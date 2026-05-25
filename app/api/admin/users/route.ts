@@ -3,267 +3,112 @@ import { clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 
-/**
- * GET /api/admin/users — list users with optional search
- * ?search=name&type=driver|rider&status=active|suspended
- */
+const PAGE_SIZE = 50;
+
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
 
   const { searchParams } = req.nextUrl;
-  const search = searchParams.get('search');
-  const type = searchParams.get('type');
-  const status = searchParams.get('status');
-  const marketId = searchParams.get('marketId');
-  const visibility = searchParams.get('visibility'); // 'visible' | 'hidden' | null (drivers only)
+  const search     = searchParams.get('search');
+  const type       = searchParams.get('type');
+  const status     = searchParams.get('status');
+  const marketId   = searchParams.get('marketId');
+  const visibility = searchParams.get('visibility');
+  const page       = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);
+  const offset     = (page - 1) * PAGE_SIZE;
+
   const visibilityBool: boolean | null =
     visibility === 'visible' ? true : visibility === 'hidden' ? false : null;
 
   try {
-    // Build filtered query — use separate queries instead of sql.unsafe
-    let rows;
-    if (search && type && status) {
-      const pattern = `%${search}%`;
-      rows = await sql`
-        SELECT u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
-               COALESCE(u.completed_rides, 0) as completed_rides,
-               u.created_at,
-               COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name,
-               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
-               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
-               CASE u.profile_type
-                 WHEN 'driver' THEN dp.profile_visible
-                 WHEN 'rider'  THEN rp.profile_visible
-                 ELSE NULL
-               END AS profile_visible
-        FROM users u
-        LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-        WHERE u.profile_type = ${type}
-          AND u.account_status = ${status}
-          AND (dp.display_name ILIKE ${pattern} OR dp.first_name ILIKE ${pattern}
-               OR rp.display_name ILIKE ${pattern} OR rp.first_name ILIKE ${pattern}
-               OR dp.phone ILIKE ${pattern} OR u.clerk_id ILIKE ${pattern})
-          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
-          AND (${visibilityBool}::boolean IS NULL OR
-               (u.profile_type = 'driver' AND dp.profile_visible = ${visibilityBool}) OR
-               (u.profile_type = 'rider'  AND rp.profile_visible = ${visibilityBool}))
-        ORDER BY u.created_at DESC LIMIT 50
-      `;
-    } else if (search && type) {
-      const pattern = `%${search}%`;
-      rows = await sql`
-        SELECT u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
-               COALESCE(u.completed_rides, 0) as completed_rides,
-               u.created_at,
-               COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name,
-               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
-               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
-               CASE u.profile_type
-                 WHEN 'driver' THEN dp.profile_visible
-                 WHEN 'rider'  THEN rp.profile_visible
-                 ELSE NULL
-               END AS profile_visible
-        FROM users u
-        LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-        WHERE u.profile_type = ${type}
-          AND (dp.display_name ILIKE ${pattern} OR dp.first_name ILIKE ${pattern}
-               OR rp.display_name ILIKE ${pattern} OR rp.first_name ILIKE ${pattern}
-               OR dp.phone ILIKE ${pattern} OR u.clerk_id ILIKE ${pattern})
-          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
-          AND (${visibilityBool}::boolean IS NULL OR
-               (u.profile_type = 'driver' AND dp.profile_visible = ${visibilityBool}) OR
-               (u.profile_type = 'rider'  AND rp.profile_visible = ${visibilityBool}))
-        ORDER BY u.created_at DESC LIMIT 50
-      `;
-    } else if (search && status) {
-      const pattern = `%${search}%`;
-      rows = await sql`
-        SELECT u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
-               COALESCE(u.completed_rides, 0) as completed_rides,
-               u.created_at,
-               COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name,
-               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
-               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
-               CASE u.profile_type
-                 WHEN 'driver' THEN dp.profile_visible
-                 WHEN 'rider'  THEN rp.profile_visible
-                 ELSE NULL
-               END AS profile_visible
-        FROM users u
-        LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-        WHERE u.account_status = ${status}
-          AND (dp.display_name ILIKE ${pattern} OR dp.first_name ILIKE ${pattern}
-               OR rp.display_name ILIKE ${pattern} OR rp.first_name ILIKE ${pattern}
-               OR dp.phone ILIKE ${pattern} OR u.clerk_id ILIKE ${pattern})
-          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
-          AND (${visibilityBool}::boolean IS NULL OR
-               (u.profile_type = 'driver' AND dp.profile_visible = ${visibilityBool}) OR
-               (u.profile_type = 'rider'  AND rp.profile_visible = ${visibilityBool}))
-        ORDER BY u.created_at DESC LIMIT 50
-      `;
-    } else if (type && status) {
-      rows = await sql`
-        SELECT u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
-               COALESCE(u.completed_rides, 0) as completed_rides,
-               u.created_at,
-               COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name,
-               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
-               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
-               CASE u.profile_type
-                 WHEN 'driver' THEN dp.profile_visible
-                 WHEN 'rider'  THEN rp.profile_visible
-                 ELSE NULL
-               END AS profile_visible
-        FROM users u
-        LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-        WHERE u.profile_type = ${type} AND u.account_status = ${status}
-          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
-          AND (${visibilityBool}::boolean IS NULL OR
-               (u.profile_type = 'driver' AND dp.profile_visible = ${visibilityBool}) OR
-               (u.profile_type = 'rider'  AND rp.profile_visible = ${visibilityBool}))
-        ORDER BY u.created_at DESC LIMIT 50
-      `;
-    } else if (search) {
-      const pattern = `%${search}%`;
-      rows = await sql`
-        SELECT u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
-               COALESCE(u.completed_rides, 0) as completed_rides,
-               u.created_at,
-               COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name,
-               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
-               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
-               CASE u.profile_type
-                 WHEN 'driver' THEN dp.profile_visible
-                 WHEN 'rider'  THEN rp.profile_visible
-                 ELSE NULL
-               END AS profile_visible
-        FROM users u
-        LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-        WHERE (dp.display_name ILIKE ${pattern} OR dp.first_name ILIKE ${pattern}
-              OR rp.display_name ILIKE ${pattern} OR rp.first_name ILIKE ${pattern}
-              OR dp.phone ILIKE ${pattern} OR u.clerk_id ILIKE ${pattern})
-          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
-          AND (${visibilityBool}::boolean IS NULL OR
-               (u.profile_type = 'driver' AND dp.profile_visible = ${visibilityBool}) OR
-               (u.profile_type = 'rider'  AND rp.profile_visible = ${visibilityBool}))
-        ORDER BY u.created_at DESC LIMIT 50
-      `;
-    } else if (type) {
-      rows = await sql`
-        SELECT u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
-               COALESCE(u.completed_rides, 0) as completed_rides,
-               u.created_at,
-               COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name,
-               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
-               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
-               CASE u.profile_type
-                 WHEN 'driver' THEN dp.profile_visible
-                 WHEN 'rider'  THEN rp.profile_visible
-                 ELSE NULL
-               END AS profile_visible
-        FROM users u
-        LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-        WHERE u.profile_type = ${type}
-          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
-          AND (${visibilityBool}::boolean IS NULL OR
-               (u.profile_type = 'driver' AND dp.profile_visible = ${visibilityBool}) OR
-               (u.profile_type = 'rider'  AND rp.profile_visible = ${visibilityBool}))
-        ORDER BY u.created_at DESC LIMIT 50
-      `;
-    } else if (status) {
-      rows = await sql`
-        SELECT u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
-               COALESCE(u.completed_rides, 0) as completed_rides,
-               u.created_at,
-               COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name,
-               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
-               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
-               CASE u.profile_type
-                 WHEN 'driver' THEN dp.profile_visible
-                 WHEN 'rider'  THEN rp.profile_visible
-                 ELSE NULL
-               END AS profile_visible
-        FROM users u
-        LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-        WHERE u.account_status = ${status}
-          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
-          AND (${visibilityBool}::boolean IS NULL OR
-               (u.profile_type = 'driver' AND dp.profile_visible = ${visibilityBool}) OR
-               (u.profile_type = 'rider'  AND rp.profile_visible = ${visibilityBool}))
-        ORDER BY u.created_at DESC LIMIT 50
-      `;
-    } else {
-      rows = await sql`
-        SELECT u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
-               COALESCE(u.completed_rides, 0) as completed_rides,
-               u.created_at,
-               COALESCE(dp.display_name, dp.first_name) as driver_name, dp.phone as driver_phone,
-               COALESCE(rp.display_name, rp.first_name) as rider_name,
-               COALESCE(dp.stripe_onboarding_complete, false) as stripe_onboarding_complete,
-               EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) as has_payment_method,
-               CASE u.profile_type
-                 WHEN 'driver' THEN dp.profile_visible
-                 WHEN 'rider'  THEN rp.profile_visible
-                 ELSE NULL
-               END AS profile_visible
-        FROM users u
-        LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-        WHERE (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
-          AND (${visibilityBool}::boolean IS NULL OR
-               (u.profile_type = 'driver' AND dp.profile_visible = ${visibilityBool}) OR
-               (u.profile_type = 'rider'  AND rp.profile_visible = ${visibilityBool}))
-        ORDER BY u.created_at DESC LIMIT 50
-      `;
-    }
+    const pattern = search ? `%${search}%` : null;
+
+    // Single parameterised query — no more 8-branch combinatorial explosion.
+    // NULL market_id = unassigned user (webhook resolved nothing); always shown
+    // regardless of the market filter so new signups never disappear silently.
+    const rows = await sql`
+      SELECT u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
+             COALESCE(u.completed_rides, 0) AS completed_rides,
+             u.created_at,
+             u.last_sign_in_at,
+             u.sign_in_count,
+             u.first_return_at,
+             COALESCE(dp.display_name, dp.first_name) AS driver_name,
+             dp.phone AS driver_phone,
+             COALESCE(rp.display_name, rp.first_name) AS rider_name,
+             rp.handle AS rider_handle,
+             COALESCE(dp.stripe_onboarding_complete, false) AS stripe_onboarding_complete,
+             EXISTS(SELECT 1 FROM rider_payment_methods rpm WHERE rpm.rider_id = u.id) AS has_payment_method,
+             CASE u.profile_type
+               WHEN 'driver' THEN COALESCE(dp.profile_visible, true)
+               WHEN 'rider'  THEN COALESCE(rp.profile_visible, true)
+               ELSE NULL
+             END AS profile_visible,
+             COUNT(*) OVER() AS total_count
+      FROM users u
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      LEFT JOIN rider_profiles  rp ON rp.user_id  = u.id
+      WHERE
+        -- type filter
+        (${type}::text IS NULL OR u.profile_type = ${type})
+        -- status filter
+        AND (${status}::text IS NULL OR u.account_status = ${status})
+        -- market filter: compare as text to safely handle the sentinel "unassigned"
+        AND (
+          ${marketId}::text IS NULL
+          OR (${marketId} = 'unassigned' AND u.market_id IS NULL)
+          OR u.market_id::text = ${marketId}
+        )
+        -- search: name, handle, phone, clerk_id
+        AND (${pattern}::text IS NULL
+             OR dp.display_name ILIKE ${pattern} OR dp.first_name ILIKE ${pattern}
+             OR rp.display_name ILIKE ${pattern} OR rp.first_name ILIKE ${pattern}
+             OR rp.handle ILIKE ${pattern}
+             OR dp.phone ILIKE ${pattern}
+             OR u.clerk_id ILIKE ${pattern})
+        -- visibility filter (drivers only)
+        AND (${visibilityBool}::boolean IS NULL
+             OR (u.profile_type = 'driver' AND COALESCE(dp.profile_visible, true) = ${visibilityBool})
+             OR (u.profile_type = 'rider'  AND COALESCE(rp.profile_visible,  true) = ${visibilityBool}))
+      ORDER BY u.created_at DESC
+      LIMIT ${PAGE_SIZE} OFFSET ${offset}
+    `;
+
+    const total = rows.length > 0 ? Number((rows[0] as Record<string, unknown>).total_count ?? 0) : 0;
 
     const users = rows.map((r: Record<string, unknown>) => {
       const isDriverLike = r.profile_type === 'driver' || r.profile_type === 'both';
-      const isRiderLike = r.profile_type === 'rider' || r.profile_type === 'both';
+      const isRiderLike  = r.profile_type === 'rider'  || r.profile_type === 'both';
       const paymentReady =
         (isDriverLike && Boolean(r.stripe_onboarding_complete)) ||
-        (isRiderLike && Boolean(r.has_payment_method));
+        (isRiderLike  && Boolean(r.has_payment_method));
       return {
-        id: r.id,
-        clerkId: r.clerk_id,
-        profileType: r.profile_type,
+        id:            r.id,
+        clerkId:       r.clerk_id,
+        profileType:   r.profile_type,
         accountStatus: r.account_status,
-        tier: r.tier,
-        displayName: r.driver_name || r.rider_name || 'No name',
-        phone: r.driver_phone || null,
+        tier:          r.tier,
+        displayName:   (r.driver_name || r.rider_name || r.rider_handle || 'No name') as string,
+        phone:         r.driver_phone || null,
         completedRides: Number(r.completed_rides ?? 0),
-        disputeCount: 0,
-        createdAt: r.created_at,
+        disputeCount:  0,
+        createdAt:     r.created_at,
+        lastSignInAt:  r.last_sign_in_at ?? null,
+        signInCount:   Number(r.sign_in_count ?? 0),
+        firstReturnAt: r.first_return_at ?? null,
         profileVisible: r.profile_visible ?? null,
         paymentReady,
       };
     });
 
-    return NextResponse.json({ users });
+    return NextResponse.json({ users, page, total, pageSize: PAGE_SIZE });
   } catch (error) {
     console.error('Admin users GET error:', error);
     return NextResponse.json({ error: 'Internal server error', details: String(error) }, { status: 500 });
   }
 }
 
-/**
- * PATCH /api/admin/users — update user status
- */
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
@@ -274,15 +119,13 @@ export async function PATCH(req: NextRequest) {
   }
 
   const statusMap: Record<string, string> = {
-    suspend: 'suspended',
+    suspend:  'suspended',
     activate: 'active',
-    ban: 'suspended',
+    ban:      'suspended',
   };
 
   const newStatus = statusMap[action];
-  if (!newStatus) {
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
-  }
+  if (!newStatus) return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
 
   const rows = await sql`
     UPDATE users SET account_status = ${newStatus}, updated_at = NOW()
@@ -290,25 +133,18 @@ export async function PATCH(req: NextRequest) {
     RETURNING id, clerk_id, account_status
   `;
 
-  if (!rows.length) {
-    return NextResponse.json({ error: 'User not found' }, { status: 404 });
-  }
+  if (!rows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
   try {
     const clerk = await clerkClient();
     await clerk.users.updateUserMetadata(rows[0].clerk_id as string, {
       publicMetadata: { accountStatus: newStatus },
     });
-  } catch {
-    // Non-critical
-  }
+  } catch { /* Non-critical */ }
 
   return NextResponse.json({ success: true, userId, status: newStatus });
 }
 
-/**
- * DELETE /api/admin/users — fully delete a user
- */
 export async function DELETE(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
@@ -324,22 +160,18 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'userId or clerkId required' }, { status: 400 });
   }
 
-  if (!userRows.length) {
-    return NextResponse.json({ error: 'User not found' }, { status: 404 });
-  }
+  if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-  const user = userRows[0];
-  const neonId = user.id as string;
-  const clerkId = user.clerk_id as string;
+  const user     = userRows[0];
+  const neonId   = user.id as string;
+  const clerkId  = user.clerk_id as string;
 
   await sql`DELETE FROM users WHERE id = ${neonId}`;
 
   try {
     const clerk = await clerkClient();
     await clerk.users.deleteUser(clerkId);
-  } catch {
-    // May already be deleted
-  }
+  } catch { /* May already be deleted */ }
 
   return NextResponse.json({ success: true, deleted: { neonId, clerkId } });
 }

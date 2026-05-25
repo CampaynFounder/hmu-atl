@@ -149,11 +149,23 @@ function SecurityTab() {
 
 function PaymentTab() {
   const [methods, setMethods] = useState<Array<{
-    id: string; brand: string | null; last4: string; expMonth: number | null; expYear: number | null; isDefault: boolean;
+    id: string; brand: string | null; last4: string | null; expMonth: number | null; expYear: number | null; isDefault: boolean; isApplePay?: boolean; isGooglePay?: boolean; isCashAppPay?: boolean;
   }>>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // returnUrl is set by callers that bounce the rider here mid-flow (e.g.
+  // /rider/blast/[id] when the rider taps Match without a saved card). On
+  // successful card-add we redirect there instead of reloading settings.
+  // Auto-open the add form if from=blast so they don't have to tap "Add card".
+  const [returnUrl, setReturnUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ret = params.get('returnUrl');
+    if (ret && ret.startsWith('/')) setReturnUrl(ret);
+    if (params.get('from') === 'blast') setShowAddForm(true);
+  }, []);
 
   // Fetch saved payment methods on mount
   useState(() => {
@@ -175,9 +187,23 @@ function PaymentTab() {
   }
 
   const brandIcons: Record<string, string> = {
-    visa: '💳', mastercard: '💳', amex: '💳', discover: '💳',
-    apple_pay: '🍎', google_pay: '📱', cashapp: '💸',
+    visa: '💳', mastercard: '💳', amex: '💳', discover: '💳', cashapp: '💸',
   };
+
+  function getMethodIcon(m: typeof methods[0]) {
+    if (m.isApplePay) return '🍎';
+    if (m.isGooglePay) return '📱';
+    if (m.isCashAppPay) return '💸';
+    return brandIcons[m.brand || ''] || '💳';
+  }
+
+  function getMethodLabel(m: typeof methods[0]) {
+    if (m.isApplePay) return m.last4 ? `Apple Pay ••••${m.last4}` : 'Apple Pay';
+    if (m.isGooglePay) return m.last4 ? `Google Pay ••••${m.last4}` : 'Google Pay';
+    if (m.isCashAppPay) return 'Cash App Pay';
+    const brandLabel = (m.brand || 'Card').charAt(0).toUpperCase() + (m.brand || 'card').slice(1);
+    return m.last4 ? `${brandLabel} ••••${m.last4}` : brandLabel;
+  }
 
   return (
     <div>
@@ -210,12 +236,12 @@ function PaymentTab() {
                 background: '#1a1a1a', border: m.isDefault ? '1px solid rgba(0,230,118,0.3)' : '1px solid rgba(255,255,255,0.06)',
                 borderRadius: '14px', padding: '14px 16px',
               }}>
-                <span style={{ fontSize: '20px' }}>{brandIcons[m.brand || ''] || '💳'}</span>
+                <span style={{ fontSize: '20px' }}>{getMethodIcon(m)}</span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: '14px', fontWeight: 600 }}>
-                    {(m.brand || 'Card').charAt(0).toUpperCase() + (m.brand || 'card').slice(1)} ending in {m.last4}
+                    {getMethodLabel(m)}
                   </div>
-                  {m.expMonth && m.expYear && (
+                  {!m.isApplePay && !m.isGooglePay && !m.isCashAppPay && m.expMonth && m.expYear && (
                     <div style={{ fontSize: '12px', color: '#888', fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
                       Expires {m.expMonth}/{m.expYear}
                     </div>
@@ -257,7 +283,14 @@ function PaymentTab() {
 
       {showAddForm ? (
         <InlinePaymentForm
-          onSuccess={() => { setShowAddForm(false); window.location.reload(); }}
+          onSuccess={() => {
+            setShowAddForm(false);
+            if (returnUrl) {
+              window.location.assign(returnUrl);
+            } else {
+              window.location.reload();
+            }
+          }}
           onCancel={() => setShowAddForm(false)}
         />
       ) : (

@@ -20,6 +20,12 @@ export interface BrowseRiderContext {
    * render on the browse card, so they don't count here (otherwise drivers
    * with only a vibe video pass the filter and then show a fallback letter). */
   hasMediaOnly?: boolean;
+  /** Only return FWU (For Women/Us) drivers. */
+  fwuOnly?: boolean;
+  /** Exact area match — must appear in driver's areas array. Null = no filter. */
+  areaFilter?: string | null;
+  /** Only return drivers whose minimum price is ≤ this value. Null = no filter. */
+  maxPrice?: number | null;
   /** Optional rider coords for distance computation. When both are present,
    * each row gets a scalar distance_mi (driver's coords NEVER leak — only the
    * computed scalar). Stale rule: driver location older than 5min → null. */
@@ -47,17 +53,24 @@ export interface BrowseDriverRow {
   vehicleSummary: { label: string; maxRiders: number | null } | null;
   hasVibeVideo: boolean;
   payoutReady: boolean;
+  acceptsDownBad: boolean;
   verificationStatus: VerificationStatus;
   /** Miles from the rider, computed server-side via Haversine. Null when
-   * either side is missing a fresh location point. NEVER includes coords. */
+   * no usable location exists on either side. NEVER includes raw coords. */
   distanceMi: number | null;
+  /** Which location tier was used for distanceMi.
+   * live   = GPS shared within the last 15 min
+   * home   = driver's saved homebase
+   * pinned = stale GPS or admin-set coordinates
+   * null   = no location data at all */
+  locationSource: 'live' | 'home' | 'pinned' | null;
 }
 
-// Driver locations older than this are treated as missing. Mirror this
-// in the SQL below — sql tagged template can't parameterize an interval
-// literal, so the value is duplicated. Bump both if you change it.
-const STALE_LOCATION_MINUTES = 5;
-void STALE_LOCATION_MINUTES;
+// Live-location window: GPS fresher than this is shown as "live" on cards.
+// Older GPS falls through to homebase → pinned hierarchy.
+// Mirrored in the SQL INTERVAL literal below — change both together.
+const LIVE_LOCATION_MINUTES = 15;
+void LIVE_LOCATION_MINUTES;
 
 export async function queryBrowseDrivers(
   rider: BrowseRiderContext,
@@ -83,10 +96,12 @@ export async function queryBrowseDrivers(
 
   const rows = await sql`
     SELECT dp.handle, dp.display_name, dp.areas, dp.pricing, dp.video_url,
+           dp.show_video_on_link,
            dp.vehicle_info, dp.lgbtq_friendly, dp.enforce_minimum, dp.fwu,
            dp.accepts_cash, dp.cash_only,
-           dp.vibe_video_url, dp.payout_setup_complete,
+           dp.vibe_video_url, dp.payout_setup_complete, dp.accepts_down_bad,
            dp.first_name, dp.last_name,
+           dp.home_lat, dp.home_lng,
            u.chill_score, u.tier,
            hp.time_window AS live_post,
            hp.price       AS live_price,
@@ -95,13 +110,39 @@ export async function queryBrowseDrivers(
             LEFT JOIN service_menu_items smi ON dsm.item_id = smi.id
             WHERE dsm.driver_id = dp.user_id AND dsm.is_active = true
            ) AS service_icons,
+           -- Location source hierarchy (independent of rider coords):
+           -- live   = GPS shared within 15 min
+           -- home   = saved homebase
+           -- pinned = stale GPS or admin-set coords
+           CASE
+             WHEN dp.current_lat IS NOT NULL
+              AND dp.location_updated_at > NOW() - INTERVAL '15 minutes'
+             THEN 'live'
+             WHEN dp.home_lat IS NOT NULL THEN 'home'
+             WHEN dp.current_lat IS NOT NULL THEN 'pinned'
+             ELSE NULL
+           END AS location_source,
+           -- Distance via the best available location tier.
+           -- Haversine, Earth radius 3959 mi. Driver raw coords never leave the DB.
            CASE
              WHEN ${haveRiderCoords}::boolean
               AND dp.current_lat IS NOT NULL
-              AND dp.current_lng IS NOT NULL
-              AND dp.location_updated_at > NOW() - INTERVAL '5 minutes'
+              AND dp.location_updated_at > NOW() - INTERVAL '15 minutes'
              THEN
-               -- Haversine, miles. Earth radius 3959mi.
+               2 * 3959 * ASIN(SQRT(
+                 POWER(SIN(RADIANS(dp.current_lat - ${riderLat ?? 0}::numeric) / 2), 2)
+                 + COS(RADIANS(${riderLat ?? 0}::numeric)) * COS(RADIANS(dp.current_lat))
+                   * POWER(SIN(RADIANS(dp.current_lng - ${riderLng ?? 0}::numeric) / 2), 2)
+               ))
+             WHEN ${haveRiderCoords}::boolean AND dp.home_lat IS NOT NULL
+             THEN
+               2 * 3959 * ASIN(SQRT(
+                 POWER(SIN(RADIANS(dp.home_lat - ${riderLat ?? 0}::numeric) / 2), 2)
+                 + COS(RADIANS(${riderLat ?? 0}::numeric)) * COS(RADIANS(dp.home_lat))
+                   * POWER(SIN(RADIANS(dp.home_lng - ${riderLng ?? 0}::numeric) / 2), 2)
+               ))
+             WHEN ${haveRiderCoords}::boolean AND dp.current_lat IS NOT NULL
+             THEN
                2 * 3959 * ASIN(SQRT(
                  POWER(SIN(RADIANS(dp.current_lat - ${riderLat ?? 0}::numeric) / 2), 2)
                  + COS(RADIANS(${riderLat ?? 0}::numeric)) * COS(RADIANS(dp.current_lat))
@@ -124,7 +165,7 @@ export async function queryBrowseDrivers(
       )
       AND (
         NOT ${rider.hasMediaOnly === true}::boolean
-        OR (dp.video_url IS NOT NULL AND dp.video_url <> '')
+        OR (dp.video_url IS NOT NULL AND dp.video_url <> '' AND dp.show_video_on_link IS NOT FALSE)
         OR (dp.vehicle_info ? 'photo_url'
             AND dp.vehicle_info->>'photo_url' IS NOT NULL
             AND dp.vehicle_info->>'photo_url' <> '')
@@ -134,7 +175,7 @@ export async function queryBrowseDrivers(
       --    low-effort/spam and tank rider trust. Pushed to the bottom so
       --    they still appear but don't poison the first impression.
       CASE
-        WHEN (dp.video_url IS NOT NULL AND dp.video_url <> '')
+        WHEN (dp.video_url IS NOT NULL AND dp.video_url <> '' AND dp.show_video_on_link IS NOT FALSE)
           OR (dp.vehicle_info ? 'photo_url'
               AND dp.vehicle_info->>'photo_url' IS NOT NULL
               AND dp.vehicle_info->>'photo_url' <> '')
@@ -172,13 +213,14 @@ export async function queryBrowseDrivers(
     const distanceMi = rawDistance !== null && rawDistance !== undefined
       ? Number(rawDistance)
       : null;
+    const src = d.location_source as string | null;
 
     return {
       handle: d.handle as string,
       displayName: (d.display_name as string) || 'Driver',
       areas: Array.isArray(d.areas) ? (d.areas as string[]) : [],
       minPrice: Number((d.pricing as Record<string, unknown>)?.minimum ?? 0),
-      videoUrl: (d.video_url as string) || null,
+      videoUrl: d.show_video_on_link === false ? null : ((d.video_url as string) || null),
       photoUrl: (vi?.photo_url as string) || null,
       lgbtqFriendly: (d.lgbtq_friendly as boolean) || false,
       chillScore: Number(d.chill_score ?? 0),
@@ -189,6 +231,7 @@ export async function queryBrowseDrivers(
       cashOnly: (d.cash_only as boolean) || false,
       hasVibeVideo: !!d.vibe_video_url,
       payoutReady: !!d.payout_setup_complete,
+      acceptsDownBad: (d.accepts_down_bad as boolean) || false,
       liveMessage: (livePost?.message as string) || null,
       livePrice: d.live_price ? Number(d.live_price) : null,
       serviceIcons: Array.isArray(d.service_icons)
@@ -197,6 +240,7 @@ export async function queryBrowseDrivers(
       vehicleSummary,
       verificationStatus,
       distanceMi: distanceMi !== null && Number.isFinite(distanceMi) ? distanceMi : null,
+      locationSource: src === 'live' || src === 'home' || src === 'pinned' ? src : null,
     };
   });
 }

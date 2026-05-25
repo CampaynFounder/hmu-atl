@@ -7,6 +7,9 @@ import { VideoRecorder } from '@/components/onboarding/video-recorder';
 import PayoutSection from './payout-section';
 import DealPill from '@/components/driver/deal-pill';
 import SafetySettings from '@/components/profile/safety-settings';
+import { AddressAutocomplete } from '@/components/ride/address-autocomplete';
+import { posthog } from '@/components/analytics/posthog-provider';
+import type { ValidatedAddress } from '@/lib/db/types';
 
 const DriverPaymentForm = dynamic(() => import('@/components/payments/driver-payment-form'), { ssr: false });
 
@@ -41,6 +44,15 @@ interface ProfileData {
   allowInRouteStops: boolean;
   waitMinutes: number;
   advanceNoticeHours: number;
+  /** Driver-set deposit floor for deposit-only mode. Null = use admin floor. */
+  depositFloor: number | null;
+  /** Driver's curated home base. Null until the driver sets it. Distinct
+   *  from passive GPS (current_lat/lng) which goes stale after 5 minutes. */
+  homeLat: number | null;
+  homeLng: number | null;
+  homeLabel: string | null;
+  homeMapboxId: string | null;
+  acceptsDownBad: boolean;
 }
 
 type Cardinal = 'westside' | 'eastside' | 'northside' | 'southside' | 'central';
@@ -75,6 +87,9 @@ interface Props {
   subscription: SubscriptionData;
   market: { slug: string; name: string };
   marketAreas: MarketAreaChip[];
+  /** False when the active pricing strategy disallows full-cash rides
+   *  (e.g. deposit_only). Hides the Accepts Cash + Cash Only toggles. */
+  cashAllowed: boolean;
 }
 
 const CARDINAL_ORDER: Cardinal[] = ['central', 'northside', 'eastside', 'southside', 'westside'];
@@ -149,7 +164,7 @@ function Section({
   );
 }
 
-export default function DriverProfileClient({ profile, user, payout, subscription, market, marketAreas }: Props) {
+export default function DriverProfileClient({ profile, user, payout, subscription, market, marketAreas, cashAllowed }: Props) {
   const [data, setData] = useState(profile);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState('');
@@ -529,23 +544,25 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             </button>
           </div>
 
-          <div className="dp-row">
-            <div className="dp-row-left">
-              <div className="dp-row-label">Accepts Cash</div>
-              <div className="dp-row-sub">Show riders you take cash payments</div>
+          {cashAllowed && (
+            <div className="dp-row">
+              <div className="dp-row-left">
+                <div className="dp-row-label">Accepts Cash</div>
+                <div className="dp-row-sub">Show riders you take cash payments</div>
+              </div>
+              <button
+                className={`toggle ${data.acceptsCash ? 'on' : 'off'}`}
+                onClick={() => {
+                  const newVal = !data.acceptsCash;
+                  update({ acceptsCash: newVal, ...(newVal ? {} : { cashOnly: false }) });
+                }}
+              >
+                <div className="toggle-thumb" />
+              </button>
             </div>
-            <button
-              className={`toggle ${data.acceptsCash ? 'on' : 'off'}`}
-              onClick={() => {
-                const newVal = !data.acceptsCash;
-                update({ acceptsCash: newVal, ...(newVal ? {} : { cashOnly: false }) });
-              }}
-            >
-              <div className="toggle-thumb" />
-            </button>
-          </div>
+          )}
 
-          {data.acceptsCash && (
+          {cashAllowed && data.acceptsCash && (
             <div className="dp-row">
               <div className="dp-row-left">
                 <div className="dp-row-label">Cash Only</div>
@@ -570,14 +587,22 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               </button>
             </div>
           )}
-          {data.cashOnly && !payout.setupComplete && (
+          {cashAllowed && data.cashOnly && !payout.setupComplete && (
             <div style={{ padding: '0 16px 12px', fontSize: 12, color: '#FFC107' }}>
               💡 Set up your payout account to accept digital rides and earn more
             </div>
           )}
-          {!data.cashOnly && payout.setupComplete && (
+          {cashAllowed && !data.cashOnly && payout.setupComplete && (
             <div style={{ padding: '0 16px 12px', fontSize: 12, color: '#888' }}>
               Stripe typically enables same-day payouts 1-2 days after your first digital ride
+            </div>
+          )}
+          {!cashAllowed && (
+            <div className="dp-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+              <div className="dp-row-label">Payment</div>
+              <div className="dp-row-sub">
+                Every ride authorizes a digital deposit; the rest is collected in cash on arrival. Cash-only rides aren&apos;t available under the current pricing model.
+              </div>
             </div>
           )}
 
@@ -640,6 +665,8 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               <div className="toggle-thumb" />
             </button>
           </div>
+
+          <DownBadToggleRow initialValue={data.acceptsDownBad} />
 
           <div className="save-status">{saving ? 'Saving...' : saved}</div>
         </Section>
@@ -707,6 +734,33 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             </div>
             <input type="number" className="price-input" defaultValue={Number(data.pricing.out_of_town ?? 0)} onBlur={(e) => updatePricing('out_of_town', e.target.value)} placeholder="$" />
           </div>
+          <div className="dp-row">
+            <div className="dp-row-left">
+              <div className="dp-row-label">Deposit floor</div>
+              <div className="dp-row-sub">Minimum deposit you require to start a ride. Rest is collected in cash on arrival. Leave blank to use the platform default.</div>
+            </div>
+            <input
+              type="number"
+              className="price-input"
+              defaultValue={data.depositFloor ?? ''}
+              onBlur={(e) => {
+                const raw = e.target.value.trim();
+                const num = raw === '' ? null : parseFloat(raw);
+                if (raw !== '' && (Number.isNaN(num) || (num as number) < 0)) return;
+                setData((d) => ({ ...d, depositFloor: num }));
+                fetch('/api/drivers/booking-settings', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ deposit_floor: num }),
+                });
+                setSaved('Deposit floor saved');
+                setTimeout(() => setSaved(''), 2000);
+              }}
+              placeholder="$"
+              min={0}
+              step={1}
+            />
+          </div>
           <div className="save-status">{saving ? 'Saving...' : saved}</div>
         </Section>
 
@@ -768,6 +822,29 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
               })}
             </div>
           )}
+        </Section>
+
+        {/* Home base — where the driver usually drives from. Surfaced on
+            rider discovery cards so they see a driver's base even when the
+            driver is offline. Optional — driving works without it. */}
+        <Section id="home_area" title="Where You Drive From">
+          <HomeAreaEditor
+            initial={{
+              homeLat: data.homeLat,
+              homeLng: data.homeLng,
+              homeLabel: data.homeLabel,
+              homeMapboxId: data.homeMapboxId,
+            }}
+            onChange={(next) =>
+              setData((d) => ({
+                ...d,
+                homeLat: next.homeLat,
+                homeLng: next.homeLng,
+                homeLabel: next.homeLabel,
+                homeMapboxId: next.homeMapboxId,
+              }))
+            }
+          />
         </Section>
 
         {/* Schedule */}
@@ -1256,5 +1333,373 @@ function PaymentMethodSection() {
         </>
       )}
     </Section>
+  );
+}
+
+// ─── Home base editor ───────────────────────────────────────────────────────
+// AddressAutocomplete + saved-state pill + clear button. Persists to
+// /api/drivers/home-area; optimistic UI (per the frontend feel-bar rule —
+// no blank state during the save round-trip).
+
+interface HomeAreaState {
+  homeLat: number | null;
+  homeLng: number | null;
+  homeLabel: string | null;
+  homeMapboxId: string | null;
+}
+
+function HomeAreaEditor({
+  initial,
+  onChange,
+}: {
+  initial: HomeAreaState;
+  onChange: (next: HomeAreaState) => void;
+}) {
+  const [state, setState] = useState<HomeAreaState>(initial);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+
+  const hasHome = state.homeLat != null && state.homeLng != null;
+
+  const handleSelect = async (addr: ValidatedAddress) => {
+    setError(null);
+    const next: HomeAreaState = {
+      homeLat: addr.latitude,
+      homeLng: addr.longitude,
+      homeLabel: addr.address || addr.name,
+      homeMapboxId: addr.mapbox_id,
+    };
+    // Optimistic — show the saved state immediately while the request flies.
+    setState(next);
+    onChange(next);
+    setEditing(false);
+    setSaving(true);
+    try {
+      const res = await fetch('/api/drivers/home-area', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lat: addr.latitude,
+          lng: addr.longitude,
+          label: next.homeLabel,
+          mapbox_id: addr.mapbox_id,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(body.error || 'Could not save home base');
+        setState(initial);
+        onChange(initial);
+      } else {
+        try {
+          posthog.capture('driver_home_area_set', { source: 'profile' });
+        } catch { /* ignore */ }
+      }
+    } catch {
+      setError('Network error — try again');
+      setState(initial);
+      onChange(initial);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClear = async () => {
+    if (!window.confirm('Clear your home base?')) return;
+    setError(null);
+    const cleared: HomeAreaState = {
+      homeLat: null,
+      homeLng: null,
+      homeLabel: null,
+      homeMapboxId: null,
+    };
+    setState(cleared);
+    onChange(cleared);
+    setSaving(true);
+    try {
+      const res = await fetch('/api/drivers/home-area', { method: 'DELETE' });
+      if (!res.ok) {
+        setError('Could not clear home base');
+        setState(initial);
+        onChange(initial);
+      } else {
+        try {
+          posthog.capture('driver_home_area_cleared', { source: 'profile' });
+        } catch { /* ignore */ }
+      }
+    } catch {
+      setError('Network error — try again');
+      setState(initial);
+      onChange(initial);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="dp-row-sub" style={{ marginBottom: 12 }}>
+        Drop a pin where you usually drive from. Riders see this as &ldquo;
+        <em>X mi away</em>&rdquo; on your card — even when you&rsquo;re offline.
+        Optional, and you can clear it anytime.
+      </div>
+
+      {hasHome && !editing && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid rgba(0,230,118,0.3)',
+            background: 'rgba(0,230,118,0.06)',
+          }}
+        >
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 10, letterSpacing: 1.4, color: '#00E676', textTransform: 'uppercase', marginBottom: 3 }}>
+              Home base set
+            </div>
+            <div style={{ fontSize: 14, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {state.homeLabel || 'Saved location'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              disabled={saving}
+              style={{
+                fontSize: 12, padding: '6px 12px', borderRadius: 100,
+                border: '1px solid rgba(255,255,255,0.18)', background: 'transparent',
+                color: '#fff', cursor: saving ? 'default' : 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Change
+            </button>
+            <button
+              type="button"
+              onClick={handleClear}
+              disabled={saving}
+              style={{
+                fontSize: 12, padding: '6px 12px', borderRadius: 100,
+                border: '1px solid rgba(255,138,138,0.4)', background: 'transparent',
+                color: '#FF8A8A', cursor: saving ? 'default' : 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
+      {(!hasHome || editing) && (
+        <div>
+          <AddressAutocomplete
+            label="Home base"
+            placeholder="Search a neighborhood, intersection, or address"
+            onSelect={handleSelect}
+            proximity={
+              state.homeLat != null && state.homeLng != null
+                ? { lat: state.homeLat, lng: state.homeLng }
+                : undefined
+            }
+          />
+          {editing && (
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              style={{
+                display: 'block', width: '100%', marginTop: 10,
+                textAlign: 'center', fontSize: 13, color: '#888',
+                padding: 10, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 100,
+                background: 'transparent', cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
+
+      {saving && (
+        <div style={{ fontSize: 11, color: '#888', marginTop: 8 }}>Saving…</div>
+      )}
+      {error && (
+        <div style={{ fontSize: 12, color: '#FF8A8A', marginTop: 8 }}>{error}</div>
+      )}
+    </div>
+  );
+}
+
+// ── Down Bad opt-in toggle ─────────────────────────────────────────────────────
+// Self-contained: fetches payment status + disclaimer on demand.
+// Payment method is required to opt in; opt-out is unrestricted.
+
+function DownBadToggleRow({ initialValue }: { initialValue: boolean }) {
+  const [accepts, setAccepts] = useState(initialValue);
+  const [hasPaymentMethod, setHasPaymentMethod] = useState<boolean | null>(null);
+  const [disclaimerText, setDisclaimerText] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetch('/api/driver/down-bad-toggle')
+      .then(r => r.json())
+      .then(d => {
+        setAccepts(d.acceptsDownBad ?? false);
+        setHasPaymentMethod(d.hasPaymentMethod ?? false);
+        setDisclaimerText(d.disclaimerText ?? '');
+      })
+      .catch(() => setHasPaymentMethod(false));
+  }, []);
+
+  const handleToggleOn = () => {
+    if (!hasPaymentMethod) {
+      setError('Link a payment method above before enabling Down Bad.');
+      setTimeout(() => setError(''), 4000);
+      return;
+    }
+    setShowModal(true);
+  };
+
+  const handleConfirm = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch('/api/driver/down-bad-toggle', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accepts: true }),
+      });
+      if (res.ok) {
+        setAccepts(true);
+        setShowModal(false);
+      } else {
+        const b = await res.json().catch(() => ({}));
+        setError(b.error || 'Something went wrong. Try again.');
+      }
+    } catch {
+      setError('Network error. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleOff = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch('/api/driver/down-bad-toggle', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accepts: false }),
+      });
+      if (res.ok) setAccepts(false);
+      else setError('Failed to update. Try again.');
+    } catch {
+      setError('Network error. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="dp-row">
+        <div className="dp-row-left">
+          <div className="dp-row-label">Down Bad rides</div>
+          <div className="dp-row-sub">
+            {hasPaymentMethod === false
+              ? 'Link a payment method above to enable'
+              : accepts
+              ? 'You\'re in the Down Bad deck — swipe at /driver/down-bad'
+              : 'Opt in to receive Down Bad posts from riders'}
+          </div>
+          {error && (
+            <div style={{ fontSize: 12, color: '#FFC107', marginTop: 4 }}>{error}</div>
+          )}
+        </div>
+        <button
+          className={`toggle ${accepts ? 'on' : 'off'}`}
+          disabled={saving || hasPaymentMethod === null}
+          style={{ opacity: hasPaymentMethod === false ? 0.4 : 1 }}
+          onClick={accepts ? handleToggleOff : handleToggleOn}
+        >
+          <div className="toggle-thumb" />
+        </button>
+      </div>
+
+      {/* Disclaimer modal */}
+      {showModal && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          }}
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            style={{
+              background: '#111', borderRadius: '20px 20px 0 0',
+              padding: '28px 20px 40px', width: '100%', maxWidth: 520,
+              animation: 'sheetUp 0.25s ease',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ width: 36, height: 4, background: '#333', borderRadius: 2, margin: '0 auto 24px' }} />
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#fff', marginBottom: 4 }}>
+              Down Bad Rides
+            </div>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 20 }}>
+              Read before you opt in
+            </div>
+            {disclaimerText ? (
+              <div style={{
+                fontSize: 14, color: '#bbb', lineHeight: 1.65,
+                whiteSpace: 'pre-wrap', marginBottom: 28,
+                maxHeight: '40vh', overflowY: 'auto',
+              }}>
+                {disclaimerText}
+              </div>
+            ) : (
+              <div style={{ height: 80 }} />
+            )}
+            <button
+              onClick={handleConfirm}
+              disabled={saving}
+              style={{
+                width: '100%', padding: '15px 0',
+                background: saving ? '#333' : '#fff',
+                color: '#000', fontWeight: 800, fontSize: 16,
+                borderRadius: 100, border: 'none', cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                transition: 'background 0.15s',
+              }}
+            >
+              {saving ? 'Saving…' : "I'm Down — Opt In"}
+            </button>
+            <button
+              onClick={() => setShowModal(false)}
+              style={{
+                width: '100%', marginTop: 12, padding: '12px 0',
+                background: 'transparent', color: '#666', fontSize: 14,
+                border: 'none', cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Nah, not yet
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

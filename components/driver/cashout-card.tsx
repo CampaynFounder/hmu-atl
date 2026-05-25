@@ -4,7 +4,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { fbCustomEvent } from '@/components/analytics/meta-pixel';
 import { CountUp } from '@/components/shared/count-up';
+import CelebrationConfetti from '@/components/shared/celebration-confetti';
+import { posthog } from '@/components/analytics/posthog-provider';
 import UpgradeOverlay from './upgrade-overlay';
+import DepositsDetailSheet, { type BucketUnit as DepositsBucketUnit } from './deposits-detail-sheet';
 
 interface BalanceData {
   available: number;
@@ -17,6 +20,7 @@ interface BalanceData {
   cashEarnings?: { rides: number; total: number };
   digitalEarnings?: { rides: number; total: number };
   noShowEarnings?: { rides: number; total: number };
+  flags?: { depositsDetailSheet?: boolean };
 }
 
 // Arrival label in the driver's local timezone. Must agree with a live
@@ -109,6 +113,8 @@ export default function CashoutCard() {
   const [selectedMethod, setSelectedMethod] = useState<'standard' | 'instant'>('standard');
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [payoutAmount, setPayoutAmount] = useState<number>(0);
+  const [depositsOpen, setDepositsOpen] = useState(false);
+  const [depositsBucket, setDepositsBucket] = useState<DepositsBucketUnit>('week');
 
   const loadBalance = useCallback(async () => {
     try {
@@ -174,31 +180,22 @@ export default function CashoutCard() {
       setPayoutAmount(Math.min(balance.available, 1));
     } else if (balance.instantAvailable > 0) {
       setSelectedMethod('instant');
-      const floor = isHmuFirst ? 1 : 2;
-      setPayoutAmount(Math.min(balance.instantAvailable, floor));
+      setPayoutAmount(Math.min(balance.instantAvailable, 1));
     }
-  }, [balance, payoutAmount, isHmuFirst]);
+  }, [balance, payoutAmount]);
 
   // Clamp payoutAmount down if the balance shrinks (e.g. after a cashout).
   useEffect(() => {
     if (payoutAmount > cashableAmount) setPayoutAmount(cashableAmount);
   }, [cashableAmount, payoutAmount]);
 
-  // Calculate fee based on selected amount and method
-  const calculateFee = (amount: number, method: 'standard' | 'instant') => {
-    if (method === 'standard') return 0;
-    if (isHmuFirst) return 0;
-    const percentFee = amount * 0.01;
-    return Math.max(1, Math.round(percentFee * 100) / 100);
-  };
+  // Cashout-time fees are 0 — all platform revenue is collected at deposit
+  // capture (see DepositOnlyStrategy). Driver receives the full slider amount.
+  const currentFee = 0;
+  const driverReceives = payoutAmount;
 
-  const currentFee = calculateFee(payoutAmount, selectedMethod);
-  const driverReceives = Math.max(0, payoutAmount - currentFee);
-
-  // Minimum payout: $1 or the fee + $1, whichever lets driver receive something
-  const minPayout = selectedMethod === 'instant' && !isHmuFirst
-    ? Math.min(cashableAmount, 2) // At least $2 so driver gets $1 after fee
-    : Math.min(cashableAmount, 1);
+  // Minimum payout is $1 in both modes — no fee to clear.
+  const minPayout = Math.min(cashableAmount, 1);
 
   const handleMethodSelect = (method: 'standard' | 'instant') => {
     // Mark user intent FIRST so the auto-default effect above can't race us
@@ -211,8 +208,7 @@ export default function CashoutCard() {
     const newCashable = method === 'instant'
       ? (balance?.instantAvailable ?? 0)
       : (balance?.available ?? 0);
-    const floor = (method === 'instant' && !isHmuFirst) ? 2 : 1;
-    setPayoutAmount(Math.min(newCashable, floor));
+    setPayoutAmount(Math.min(newCashable, 1));
   };
 
   async function handleCashout() {
@@ -237,6 +233,10 @@ export default function CashoutCard() {
       }
       fbCustomEvent('CashoutCompleted', { amount: data.amount, method: data.method, fee: data.fee });
       setResult(data);
+      // Match the onboarding celebration — same shared CelebrationConfetti
+      // (canvas-confetti, "cannon" preset). The component fires once per
+      // active=true edge; we keep it active for the same window the
+      // onboarding flows do.
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 4000);
       await loadBalance();
@@ -249,12 +249,6 @@ export default function CashoutCard() {
 
   if (loading) return null;
   if (!balance) return null;
-
-  const confettiColors = ['#00E676', '#FFD600', '#FF4081', '#448AFF', '#E040FB'];
-  const particles = showConfetti ? Array.from({ length: 40 }, (_, i) => ({
-    id: i, x: Math.random() * 100, delay: Math.random() * 1,
-    color: confettiColors[i % confettiColors.length], drift: (Math.random() - 0.5) * 80,
-  })) : [];
 
   const sliderPercent = cashableAmount > 0 ? ((payoutAmount - minPayout) / (cashableAmount - minPayout)) * 100 : 0;
 
@@ -418,12 +412,6 @@ export default function CashoutCard() {
         .co-breakdown-value--yellow { color: #FFB300; }
         .co-breakdown-divider { border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 6px 0; }
         .co-breakdown-total { font-size: 14px; font-weight: 700; }
-        @keyframes coConfetti {
-          0% { transform: translateY(-10px) translateX(0) rotate(0deg); opacity: 0; }
-          10% { opacity: 1; }
-          100% { transform: translateY(300px) translateX(var(--drift)) rotate(540deg); opacity: 0; }
-        }
-        .co-confetti { position: absolute; top: 0; width: 6px; height: 9px; border-radius: 2px; pointer-events: none; }
 
         /* First-load shimmer on the primary cashout button. Sweeps twice then
            stops — cue to tap without being obnoxious. */
@@ -494,22 +482,16 @@ export default function CashoutCard() {
         @keyframes coSpin { to { transform: rotate(360deg); } }
       `}</style>
 
+      {/* Same celebration as the onboarding flows — shared component,
+          canvas-confetti "cannon" preset. */}
+      <CelebrationConfetti active={showConfetti} variant="cannon" />
+
       <motion.div
         className="co-card"
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
       >
-        {/* Confetti */}
-        {particles.map(p => (
-          <div key={p.id} className="co-confetti" style={{
-            left: `${p.x}%`, backgroundColor: p.color,
-            // @ts-expect-error CSS custom property
-            '--drift': `${p.drift}px`,
-            animation: `coConfetti ${1.5 + Math.random()}s ease-in ${p.delay}s forwards`,
-          }} />
-        ))}
-
         {/* Tier badge */}
         <div className={`co-tier ${isHmuFirst ? 'co-tier--first' : 'co-tier--free'}`}>
           {isHmuFirst ? '\uD83E\uDD47 HMU First' : 'Free Tier'}
@@ -571,18 +553,53 @@ export default function CashoutCard() {
                 </div>
               )}
               {balance.digitalEarnings && balance.digitalEarnings.rides > 0 && (
-                <div style={{
-                  flex: 1, background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.12)',
-                  borderRadius: 12, padding: '10px 12px',
-                }}>
-                  <div style={{ fontSize: 10, color: '#00E676', textTransform: 'uppercase', letterSpacing: 1, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
-                    Your Deposits
+                balance.flags?.depositsDetailSheet ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      posthog.capture('deposits_tile_tapped', {
+                        total: balance.digitalEarnings?.total,
+                        rides: balance.digitalEarnings?.rides,
+                      });
+                      setDepositsOpen(true);
+                    }}
+                    aria-label="View deposits detail"
+                    style={{
+                      flex: 1, background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.12)',
+                      borderRadius: 12, padding: '10px 12px',
+                      textAlign: 'left', cursor: 'pointer',
+                      fontFamily: 'inherit',
+                      transition: 'background 0.15s, border-color 0.15s, transform 0.1s',
+                    }}
+                    onMouseDown={(e) => { e.currentTarget.style.transform = 'scale(0.985)'; }}
+                    onMouseUp={(e) => { e.currentTarget.style.transform = ''; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.transform = ''; }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: 10, color: '#00E676', textTransform: 'uppercase', letterSpacing: 1, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
+                        Your Deposits
+                      </div>
+                      <div style={{ fontSize: 10, color: '#00E676', opacity: 0.55 }} aria-hidden>{'›'}</div>
+                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#00E676', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
+                      <CountUp value={balance.digitalEarnings.total} decimals={2} prefix="$" duration={900} animateOnChange />
+                    </div>
+                    <div style={{ fontSize: 10, color: '#888' }}>{balance.digitalEarnings.rides} ride{balance.digitalEarnings.rides !== 1 ? 's' : ''} &middot; tap for detail</div>
+                  </button>
+                ) : (
+                  <div style={{
+                    flex: 1, background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.12)',
+                    borderRadius: 12, padding: '10px 12px',
+                  }}>
+                    <div style={{ fontSize: 10, color: '#00E676', textTransform: 'uppercase', letterSpacing: 1, fontFamily: "var(--font-mono, 'Space Mono', monospace)" }}>
+                      Your Deposits
+                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#00E676', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
+                      <CountUp value={balance.digitalEarnings.total} decimals={2} prefix="$" duration={900} animateOnChange />
+                    </div>
+                    <div style={{ fontSize: 10, color: '#888' }}>{balance.digitalEarnings.rides} ride{balance.digitalEarnings.rides !== 1 ? 's' : ''}</div>
                   </div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: '#00E676', fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)" }}>
-                    <CountUp value={balance.digitalEarnings.total} decimals={2} prefix="$" duration={900} animateOnChange />
-                  </div>
-                  <div style={{ fontSize: 10, color: '#888' }}>{balance.digitalEarnings.rides} ride{balance.digitalEarnings.rides !== 1 ? 's' : ''}</div>
-                </div>
+                )
               )}
             </div>
 
@@ -808,9 +825,7 @@ export default function CashoutCard() {
             <div className={`co-seg-detail ${
               selectedMethod === 'instant' && balance.platformInstantEnabled === false
                 ? 'co-seg-detail--locked'
-                : selectedMethod === 'instant' && !isHmuFirst
-                  ? 'co-seg-detail--fee'
-                  : 'co-seg-detail--perk'
+                : 'co-seg-detail--perk'
             }`}>
               {selectedMethod === 'standard'
                 ? (balance.fundsAvailableOn
@@ -818,9 +833,7 @@ export default function CashoutCard() {
                     : '1–2 business days · FREE')
                 : balance.platformInstantEnabled === false
                   ? `${'⏳'} Settlement in progress · see above`
-                  : isHmuFirst
-                    ? `Arrives in minutes · FREE ${'🥇'}`
-                    : 'Arrives in minutes · $1 or 1%'}
+                  : 'Arrives in minutes · FREE'}
             </div>
 
             {/* Amount Slider — shows after selecting a method */}
@@ -866,19 +879,9 @@ export default function CashoutCard() {
                   />
                 </div>
 
-                {/* Breakdown */}
+                {/* Breakdown — no cashout-time fee, so it's just one line.
+                    All platform revenue is collected at deposit capture. */}
                 <div className="co-breakdown">
-                  <div className="co-breakdown-row">
-                    <span className="co-breakdown-label">Payout amount</span>
-                    <span className="co-breakdown-value">${payoutAmount.toFixed(2)}</span>
-                  </div>
-                  {currentFee > 0 && (
-                    <div className="co-breakdown-row">
-                      <span className="co-breakdown-label">Instant fee ({isHmuFirst ? 'waived' : '$1 or 1%'})</span>
-                      <span className="co-breakdown-value co-breakdown-value--yellow">-${currentFee.toFixed(2)}</span>
-                    </div>
-                  )}
-                  <hr className="co-breakdown-divider" />
                   <div className="co-breakdown-row">
                     <span className="co-breakdown-label co-breakdown-total">You receive</span>
                     <span className="co-breakdown-value co-breakdown-value--green co-breakdown-total">
@@ -921,7 +924,7 @@ export default function CashoutCard() {
                 }}
               >
                 <span>{'⚡'}</span>
-                <span>Cash out ${balance.instantAvailable.toFixed(2)} instantly{isHmuFirst ? ' · free' : ''}</span>
+                <span>Cash out ${balance.instantAvailable.toFixed(2)} instantly</span>
               </button>
             )}
 
@@ -942,6 +945,17 @@ export default function CashoutCard() {
           </>
         )}
       </motion.div>
+
+      {balance.flags?.depositsDetailSheet && (
+        <DepositsDetailSheet
+          open={depositsOpen}
+          onClose={() => setDepositsOpen(false)}
+          totalDeposits={balance.digitalEarnings?.total ?? 0}
+          rides={balance.digitalEarnings?.rides ?? 0}
+          bucket={depositsBucket}
+          onBucketChange={setDepositsBucket}
+        />
+      )}
     </>
   );
 }

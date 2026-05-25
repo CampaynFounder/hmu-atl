@@ -7,11 +7,11 @@ import { MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver'
 import { getMarketBranding } from '@/lib/markets/branding';
 
 interface Props {
-  searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string; mode?: string; draft?: string; handle?: string }>;
+  searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string; mode?: string; draft?: string; handle?: string; blastDraftId?: string }>;
 }
 
 export default async function SignUpPage({ searchParams }: Props) {
-  const [{ type, returnTo, cash, persona, funnel_stage, mode, draft, handle }, h] = await Promise.all([
+  const [{ type, returnTo, cash, persona, funnel_stage, mode, draft, handle, blastDraftId }, h] = await Promise.all([
     searchParams,
     headers(),
   ]);
@@ -20,8 +20,14 @@ export default async function SignUpPage({ searchParams }: Props) {
 
   const callbackParams = new URLSearchParams();
   if (type) callbackParams.set('type', type);
-  // /d/ = chat-funnel from a driver's share link; /r/ = rider ad-funnel landing.
-  if (returnTo && (returnTo.startsWith('/d/') || returnTo.startsWith('/r/'))) {
+  // /d/ = chat-funnel from a driver's share link; /r/ = rider ad-funnel landing;
+  // /auth-callback/blast = blast funnel (URL-param channel so blast is detectable
+  // even when localStorage is unavailable).
+  if (returnTo && (
+    returnTo.startsWith('/d/') ||
+    returnTo.startsWith('/r/') ||
+    returnTo.startsWith('/auth-callback/blast')
+  )) {
     callbackParams.set('returnTo', returnTo);
   }
   // Browse-funnel draft → auth-callback routes through ExpressRiderOnboarding,
@@ -32,6 +38,8 @@ export default async function SignUpPage({ searchParams }: Props) {
   if (isExpressMode) callbackParams.set('mode', 'express');
   if (draft) callbackParams.set('draft', draft);
   if (handle) callbackParams.set('handle', handle);
+  // Blast server-side draft ID — survives the browser switch from in-app to Safari/Chrome.
+  if (blastDraftId) callbackParams.set('blastDraftId', blastDraftId);
   const afterSignUpUrl = `/auth-callback${callbackParams.size ? `?${callbackParams}` : ''}`;
 
   const isDriver = type === 'driver';
@@ -66,6 +74,8 @@ export default async function SignUpPage({ searchParams }: Props) {
   // can recover them even if URL params + localStorage are both wiped.
   if (draft) unsafeMetadata.draft_booking_id = draft;
   if (handle) unsafeMetadata.draft_booking_handle = handle;
+  // Separate key from draft_booking_id so blast and browse-funnel don't collide.
+  if (blastDraftId) unsafeMetadata.blast_draft_id = blastDraftId;
 
   return (
     <InAppBrowserGate>
@@ -115,16 +125,15 @@ export default async function SignUpPage({ searchParams }: Props) {
           <div style={{
             display: 'inline-block',
             marginTop: '12px',
-            padding: '4px 14px',
+            padding: '5px 16px',
             borderRadius: '100px',
             background: isDriver ? 'rgba(0,230,118,0.12)' : 'rgba(68,138,255,0.12)',
             color: isDriver ? '#00E676' : '#448AFF',
-            fontSize: '11px',
-            fontWeight: 700,
-            letterSpacing: '1px',
-            textTransform: 'uppercase',
+            fontSize: '13px',
+            fontWeight: 800,
+            letterSpacing: '0.5px',
           }}>
-            {isDriver ? 'Driver Sign Up' : 'Rider Sign Up'}
+            {isDriver ? 'Ride Fair.' : 'Slide There.'}
           </div>
         )}
       </div>

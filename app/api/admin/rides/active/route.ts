@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
           r.id, r.status, COALESCE(r.final_agreed_price, r.amount) as amount,
           r.pickup_address, r.dropoff_address,
           r.pickup_lat, r.pickup_lng, r.dropoff_lat, r.dropoff_lng,
+          r.stops,
           r.is_cash,
           r.created_at, r.updated_at, r.otw_at, r.here_at, r.started_at,
           COALESCE(dp.display_name, dp.first_name) as driver_name, dp.handle as driver_handle,
@@ -39,6 +40,7 @@ export async function GET(req: NextRequest) {
           r.id, r.status, COALESCE(r.final_agreed_price, r.amount) as amount,
           r.pickup_address, r.dropoff_address,
           r.pickup_lat, r.pickup_lng, r.dropoff_lat, r.dropoff_lng,
+          r.stops,
           r.is_cash,
           r.created_at, r.updated_at, r.otw_at, r.here_at, r.started_at,
           COALESCE(dp.display_name, dp.first_name) as driver_name, dp.handle as driver_handle,
@@ -72,6 +74,7 @@ export async function GET(req: NextRequest) {
       driverHandle: r.driver_handle ?? null,
       riderName: r.rider_name ?? 'Unknown',
       riderHandle: r.rider_handle ?? null,
+      stops: Array.isArray(r.stops) ? r.stops : null,
       // GPS: use ride_locations if available, fall back to pickup coords for matched rides
       lastLat: r.last_lat ? Number(r.last_lat) : (r.pickup_lat ? Number(r.pickup_lat) : null),
       lastLng: r.last_lng ? Number(r.last_lng) : (r.pickup_lng ? Number(r.pickup_lng) : null),

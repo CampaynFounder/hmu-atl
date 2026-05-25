@@ -32,7 +32,7 @@ export async function loadActiveRideParties(): Promise<RideParty[]> {
         -- legacy rows that never got the column populated.
         COALESCE(r.started_at, r.updated_at) AS ride_started_at
       FROM rides r
-      WHERE r.status = 'in_progress'
+      WHERE r.status = 'active'
     ),
     parties AS (
       SELECT ride_id, rider_id AS user_id, 'rider'::text AS party, ride_started_at FROM active

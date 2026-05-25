@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
+import { getDeployVersion } from '@/lib/deploy-version';
 
 // Public, unauthenticated. Returns 200 when the Worker is up and the DB
 // responds. Used by the staging-setup runbook and by future synthetic monitors.
@@ -22,6 +23,7 @@ export async function GET() {
     ok: dbOk,
     env: process.env.NODE_ENV || 'unknown',
     worker: process.env.CF_WORKER_NAME || null,
+    version: getDeployVersion(),
     db: { ok: dbOk, latencyMs: dbLatencyMs },
     elapsedMs: Date.now() - startedAt,
     ts: new Date().toISOString(),

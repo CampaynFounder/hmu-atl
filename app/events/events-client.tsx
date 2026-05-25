@@ -261,7 +261,7 @@ export function EventsPageClient({ city, cityShort, marketSlug }: Props) {
               HMU partners with vetted {cityShort} drivers who already know the city. We coordinate with you on event date, expected attendance, and key pickup zones — then publish a <strong>flat round-trip rate</strong> for your guests. No surge. No bait-and-switch.
             </p>
             <p>
-              Promote it on your event page, your IG story, your ticket confirmation email. Guests <span className={styles.vocab}>HMU</span>, drivers <span className={styles.vocab}>COO</span>, riders <span className={styles.vocab}>BET</span> — and everyone knows the price <strong>before they leave the house.</strong>
+              Promote it on your event page, your IG story, your ticket confirmation email. Guests <span className={styles.vocab}>HMU</span>, drivers <span className={styles.vocab}>Pull Up</span>, riders <span className={styles.vocab}>BET</span> — and everyone knows the price <strong>before they leave the house.</strong>
             </p>
           </div>
 

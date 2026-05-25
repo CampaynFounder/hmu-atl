@@ -10,6 +10,7 @@ import { useSidebar } from './sidebar-context';
 import { useAdminTheme } from './theme-context';
 import { useAdminAuth } from './admin-auth-context';
 import { canAccess } from '@/lib/admin/route-permissions';
+import { DeployBadge } from './deploy-badge';
 
 type BadgeColor = 'green' | 'red' | 'amber';
 // Permissions are NOT declared inline — `canAccess(href, ...)` reads the rule
@@ -22,6 +23,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
     label: 'MONITOR',
     items: [
       { href: '/admin', label: 'Live Ops', icon: '⚡' },
+      { href: '/admin/blast', label: 'Blast Monitor', icon: '📡' },
       { href: '/admin/growth', label: 'Growth', icon: '📈' },
       { href: '/admin/money', label: 'Revenue', icon: '💰' },
       { href: '/admin/pricing', label: 'Pricing', icon: '⚙️' },
@@ -44,6 +46,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
   {
     label: 'GROW',
     items: [
+      { href: '/admin/coverage', label: 'Coverage Map', icon: '🗺️' },
       { href: '/admin/activation', label: 'Activation', icon: '🚀' },
       { href: '/admin/marketing', label: 'Outreach', icon: '📣' },
       { href: '/admin/messages', label: 'Messages', icon: '💬', badgeCategory: 'messages', badgeColor: 'green' },
@@ -73,11 +76,16 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/markets', label: 'Markets', icon: '🌎' },
       { href: '/admin/feature-flags', label: 'Feature Flags', icon: '🚩' },
       { href: '/admin/hmu-config', label: 'HMU Config', icon: '📣' },
+      { href: '/admin/blast-config', label: 'Blast Config', icon: '💥' },
+      { href: '/admin/direct-booking-config', label: 'Direct Booking', icon: '🎯' },
+      { href: '/admin/down-bad', label: 'Down Bad Config', icon: '😮‍💨' },
       { href: '/admin/onboarding-config', label: 'Onboarding Config', icon: '🛂' },
       { href: '/admin/realtime-notifications', label: 'Realtime Banners', icon: '⚡' },
       { href: '/admin/rider-browse-banner', label: 'Browse Banner', icon: '📣' },
       { href: '/admin/maintenance', label: 'Maintenance', icon: '🚧' },
       { href: '/admin/voip-debug', label: 'VoIP Debug', icon: '📡' },
+      { href: '/admin/voip-config', label: 'VoIP Config', icon: '🔧' },
+      { href: '/admin/sms-templates', label: 'SMS Templates', icon: '✉️' },
       { href: '/admin/audit', label: 'Audit Log', icon: '📋' },
     ],
   },
@@ -253,11 +261,13 @@ export function AdminSidebar() {
                   backgroundPosition: 'right 10px center',
                 }}
               >
+                <option value="">All Markets</option>
                 {markets.map(m => (
                   <option key={m.id} value={m.id}>
                     {m.name} ({m.status.toUpperCase()}) — {m.driverCount}D / {m.riderCount}R
                   </option>
                 ))}
+                <option value="unassigned">Unassigned (no market)</option>
               </select>
             )}
           </div>
@@ -391,6 +401,14 @@ export function AdminSidebar() {
             <span className={collapsed ? 'lg:hidden' : ''}>Log Out</span>
             <span className={collapsed ? 'hidden lg:inline' : 'hidden'}>✕</span>
           </button>
+
+          {/* Deploy version + environment indicator. Color-coded so you can't
+              mistake a staging tab for a prod tab at a glance. */}
+          {!collapsed && (
+            <div className="px-3 py-2">
+              <DeployBadge />
+            </div>
+          )}
 
           {/* Collapse toggle — desktop only */}
           <button

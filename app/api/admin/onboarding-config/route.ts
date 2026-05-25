@@ -33,6 +33,7 @@ const FIELD_KEYS: (keyof DriverExpressConfig['fields'])[] = [
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'admin.onboarding.view')) return unauthorizedResponse();
 
   const rows = await sql`
     SELECT config_value, updated_at, updated_by
@@ -120,9 +121,7 @@ function validate(body: unknown): { ok: true; value: DriverExpressConfig } | { o
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
-  // Reuse pricing-edit permission until a dedicated onboarding bucket exists.
-  // Super admins bypass.
-  if (!hasPermission(admin, 'monitor.pricing.edit')) return unauthorizedResponse();
+  if (!hasPermission(admin, 'admin.onboarding.edit')) return unauthorizedResponse();
 
   const raw = await req.json().catch(() => null);
   const result = validate(raw);

@@ -12,10 +12,11 @@ import {
 import { sql } from '@/lib/db/client';
 import { getActiveOffer, enrollDriver, LAUNCH_OFFER_ENABLED } from '@/lib/db/enrollment-offers';
 import { sendSms } from '@/lib/sms/textbee';
+import { renderTemplate } from '@/lib/sms/templates';
 import { publishAdminEvent } from '@/lib/ably/server';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 import { afterResponse } from '@/lib/runtime/after-response';
-import { resolveMarketBySlug } from '@/lib/markets/resolver';
+import { resolveMarketBySlug, MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver';
 import { cookies } from 'next/headers';
 import { ATTRIB_COOKIE, attachAttributionToUser } from '@/lib/attribution';
 
@@ -122,11 +123,17 @@ export async function POST(request: NextRequest) {
         for (const p of clerkUser.phoneNumbers || []) {
           if (p.verification?.status === 'verified') { verifiedPhone = p.phoneNumber; break; }
         }
-        // Market — set by sign-up page from the subdomain Host header.
-        const marketSlug = (meta.market as string) || null;
-        if (marketSlug) {
+        // Market — read from Clerk unsafeMetadata (set by sign-up page) with
+        // the request header as a fallback for cases where unsafeMetadata was
+        // empty (e.g. sign-up via a path that bypassed our custom /sign-up page).
+        const metaMarketSlug = (meta.market as string) || null;
+        const headerMarketSlug = request.headers.get(MARKET_SLUG_HEADER);
+        const marketSlug = metaMarketSlug || headerMarketSlug || DEFAULT_MARKET_SLUG;
+        try {
           const market = await resolveMarketBySlug(marketSlug);
           marketId = market?.market_id || null;
+        } catch {
+          console.warn('[ONBOARDING] market resolution failed for slug:', marketSlug);
         }
       } catch (metaErr) {
         console.warn('[ONBOARDING] Could not read Clerk unsafeMetadata for attribution:', metaErr);
@@ -188,11 +195,20 @@ export async function POST(request: NextRequest) {
     } else {
       userId = userResult[0].id;
 
-      // Update profile type if changing
+      // Stamp market_id if the webhook missed it. Use DEFAULT_MARKET_SLUG as
+      // fallback so riders always get a market even when the header is absent.
+      let marketIdPatch: string | null = null;
+      try {
+        const slug = request.headers.get(MARKET_SLUG_HEADER) || DEFAULT_MARKET_SLUG;
+        const market = await resolveMarketBySlug(slug);
+        marketIdPatch = market?.market_id ?? null;
+      } catch { /* non-fatal */ }
+
       await sql`
         UPDATE users
         SET profile_type = ${profile_type},
-            updated_at = NOW()
+            market_id    = COALESCE(market_id, ${marketIdPatch}),
+            updated_at   = NOW()
         WHERE id = ${userId}
       `;
     }
@@ -285,7 +301,10 @@ export async function POST(request: NextRequest) {
           pronouns,
           lgbtq_friendly,
           video_url,
-          thumbnail_url,
+          // ad_photo_url is the driver's profile photo from onboarding. Use it
+          // as thumbnail_url when no video thumbnail exists so the swipe card
+          // shows the driver's face instead of a blank background.
+          thumbnail_url: thumbnail_url ?? ad_photo_url ?? null,
           areas,
           area_slugs: Array.isArray(area_slugs) ? area_slugs : undefined,
           services_entire_market: typeof services_entire_market === 'boolean' ? services_entire_market : undefined,
@@ -370,18 +389,25 @@ export async function POST(request: NextRequest) {
       // Send welcome SMS with guide link.
       if (phone) {
         try {
+          // Greeting first name — both templates accept `firstName`, fall back
+          // to "Hey" when the user hasn't supplied one (Clerk express signups).
+          const firstName = first_name || 'Hey';
           if (profile_type === 'driver') {
-            await sendSms(
-              phone,
-              `${first_name || 'Hey'}, welcome to HMU ATL! We're Atlanta-based and built this for you. See how drivers get paid: atl.hmucashride.com/guide/driver`,
-              { userId, eventType: 'welcome_driver' }
-            );
+            const welcomeFallback = `${firstName}, welcome to HMU ATL! We're Atlanta-based and built this for you. See how drivers get paid: atl.hmucashride.com/guide/driver`;
+            const welcome = (await renderTemplate('welcome_driver', { firstName })) ?? welcomeFallback;
+            await sendSms(phone, welcome, { userId, eventType: 'welcome_driver' });
+
+            const safetyFallback = `Safety on HMU is non-negotiable. How we keep drivers safe (deposits, GPS, check-ins, women-rider matching): atl.hmucashride.com/safety/driver`;
+            const safety = (await renderTemplate('safety_intro_driver', {})) ?? safetyFallback;
+            await sendSms(phone, safety, { userId, eventType: 'safety_intro_driver' });
           } else {
-            await sendSms(
-              phone,
-              `${first_name || 'Hey'}, welcome to HMU ATL! We're Atlanta-based and value every rider's voice. See how booking works: atl.hmucashride.com/guide/rider`,
-              { userId, eventType: 'welcome_rider' }
-            );
+            const welcomeFallback = `${firstName}, welcome to HMU ATL! We're Atlanta-based and value every rider's voice. See how booking works: atl.hmucashride.com/guide/rider`;
+            const welcome = (await renderTemplate('welcome_rider', { firstName })) ?? welcomeFallback;
+            await sendSms(phone, welcome, { userId, eventType: 'welcome_rider' });
+
+            const safetyFallback = `Safety first. How we keep riders safe (women-driver filter, deposit refunds, GPS, mid-ride check-ins): atl.hmucashride.com/safety/rider`;
+            const safety = (await renderTemplate('safety_intro_rider', {})) ?? safetyFallback;
+            await sendSms(phone, safety, { userId, eventType: 'safety_intro_rider' });
           }
         } catch (smsErr) {
           console.error('[ONBOARDING] Welcome SMS failed:', smsErr);

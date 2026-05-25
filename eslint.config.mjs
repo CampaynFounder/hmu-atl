@@ -20,6 +20,25 @@ const eslintConfig = defineConfig([
     ".wrangler/**",
     "coverage/**",
   ]),
+  // Blast v3 hardening — sql.unsafe is BANNED inside lib/blast/** to prevent
+  // the SQL parameter casting defect class that caused 7+ post-revert fix
+  // commits (PRs #82, #84, #86, #88, #89, #91, #93). Use parameterized
+  // sql`...` template tags or Drizzle. See docs/BLAST-V3-AGENT-CONTRACT.md
+  // §3 D-16.
+  {
+    files: ["lib/blast/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.object.name='sql'][callee.property.name='unsafe']",
+          message:
+            "sql.unsafe is banned in lib/blast/** — use parameterized sql`...` template tags or Drizzle (see docs/BLAST-V3-AGENT-CONTRACT.md §3 D-16)",
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

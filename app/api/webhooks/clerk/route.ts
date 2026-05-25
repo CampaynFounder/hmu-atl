@@ -4,14 +4,14 @@
 
 import { Webhook } from 'svix';
 import { headers } from 'next/headers';
-import { WebhookEvent } from '@clerk/nextjs/server';
+import { WebhookEvent, clerkClient } from '@clerk/nextjs/server';
 import { createUser, updateUser, deleteUser, getUserByClerkId, resolveDriverHandleToUserId } from '@/lib/db/users';
 import { sql } from '@/lib/db/client';
 import { notifyAdminSms } from '@/lib/admin/notify';
 import { createActionItem } from '@/lib/admin/action-items';
 import { createCustomer, createConnectAccount } from '@/lib/stripe/client';
 import { scheduleFirstMessageForUser } from '@/lib/conversation/scheduler';
-import { resolveMarketBySlug } from '@/lib/markets/resolver';
+import { resolveMarketBySlug, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver';
 import type { ProfileType } from '@/lib/db/types';
 
 // Extract the first verified phone number from a Clerk user payload.
@@ -67,6 +67,24 @@ export async function POST(req: Request) {
   // Handle events
   const eventType = evt.type;
 
+  // Idempotency: claim the svix message id for events whose handlers have
+  // counter-style side effects (sign_in_count++, first-return SMS). Svix
+  // retries on 5xx/timeout, so without dedup the same session.created could
+  // double-increment. Mirrors the Stripe webhook pattern. We scope the dedup
+  // to the events that need it — user.created/updated/deleted are already
+  // idempotent on clerk_id.
+  if (eventType === 'session.created') {
+    const claim = await sql`
+      INSERT INTO processed_webhook_events (event_id, source, event_type)
+      VALUES (${`clerk:${svix_id}`}, 'clerk', ${eventType})
+      ON CONFLICT (event_id) DO NOTHING
+      RETURNING event_id
+    `;
+    if (claim.length === 0) {
+      return new Response('Deduped', { status: 200 });
+    }
+  }
+
   // user.created: log only. We DELIBERATELY do not create the Neon row here
   // because phone is not yet verified — unverified signups are treated as bots
   // and excluded from admin analytics. Row creation happens on user.updated
@@ -112,7 +130,9 @@ export async function POST(req: Request) {
       const refHandle = (meta.ref_handle as string) || null;
       const personaSlug = (meta.persona as string) || null;
       const funnelStageAtSignup = (meta.funnel_stage as string) || null;
-      const marketSlug = (meta.market as string) || null;
+      // Fall back to DEFAULT_MARKET_SLUG so every signup always gets a market,
+      // even when unsafeMetadata.market is missing (OAuth bypass, edge cases).
+      const marketSlug = (meta.market as string) || DEFAULT_MARKET_SLUG;
 
       // Resolve referring driver from handle, if provided.
       let referredByDriverId: string | null = null;
@@ -123,16 +143,12 @@ export async function POST(req: Request) {
         }
       }
 
-      // Resolve market from the subdomain the user signed up on. Unknown slug
-      // → null → falls through to ATL via the resolver's DEFAULT_MARKET_SLUG.
       let marketId: string | null = null;
-      if (marketSlug) {
-        try {
-          const market = await resolveMarketBySlug(marketSlug);
-          marketId = market?.market_id || null;
-        } catch (e) {
-          console.warn('[WEBHOOK] Failed to resolve market slug:', marketSlug, e);
-        }
+      try {
+        const market = await resolveMarketBySlug(marketSlug);
+        marketId = market?.market_id || null;
+      } catch (e) {
+        console.warn('[WEBHOOK] Failed to resolve market slug:', marketSlug, e);
       }
 
       const { user: newUser, created } = await createUser({
@@ -165,6 +181,31 @@ export async function POST(req: Request) {
       if (isAdminSignup) {
         console.log('[WEBHOOK] admin signup - skipping Stripe/notifications:', { clerkId: id });
         return new Response('Admin user created', { status: 201 });
+      }
+
+      // Sync profileType to Clerk publicMetadata immediately after user creation.
+      // Retry up to 3 times — a transient Clerk API error here is the root cause
+      // of users missing menu items on /ride/[id] and similar non-prefixed paths.
+      // /api/me/role self-heals lazily, but retrying here fixes it at signup time.
+      {
+        let metaSynced = false;
+        for (let attempt = 1; attempt <= 3 && !metaSynced; attempt++) {
+          try {
+            const clerk = await clerkClient();
+            await clerk.users.updateUserMetadata(id, {
+              publicMetadata: { profileType },
+            });
+            metaSynced = true;
+            console.log('[WEBHOOK] Synced profileType to Clerk metadata:', { clerkId: id, profileType, attempt });
+          } catch (metaErr) {
+            console.error(`[WEBHOOK] profileType sync attempt ${attempt}/3 failed:`, metaErr, { clerkId: id, profileType });
+          }
+        }
+        if (!metaSynced) {
+          // All 3 attempts failed. /api/me/role will self-heal on next login, but
+          // log loudly so this shows up in error tracking for follow-up.
+          console.error('[WEBHOOK] CRITICAL: profileType NOT synced to Clerk after 3 attempts — user will self-heal via /api/me/role on next login', { clerkId: id, profileType });
+        }
       }
 
       // Provision Stripe Customer + Connect account now that the user is real.
@@ -270,25 +311,41 @@ export async function POST(req: Request) {
       const clerkId = data.user_id;
       if (!clerkId) return new Response('No user_id on session', { status: 200 });
 
-      // Update sign-in tracking
+      // Update sign-in tracking. `was_first_return` is true iff this UPDATE
+      // is the one that flipped first_return_at from NULL→NOW(). RETURNING
+      // sees post-UPDATE values, so we capture the prior row in a CTE and
+      // derive the transition flag from that. The previous implementation
+      // checked `sign_in_count === 1`, which can never be true on a
+      // return-day session (signup day already incremented to 1), so the
+      // first-return SMS never fired.
       const rows = await sql`
-        UPDATE users SET
+        WITH prev AS (
+          SELECT id, first_return_at AS prev_first_return_at, created_at
+          FROM users WHERE clerk_id = ${clerkId}
+        )
+        UPDATE users u SET
           last_sign_in_at = NOW(),
-          sign_in_count = COALESCE(sign_in_count, 0) + 1,
+          sign_in_count = COALESCE(u.sign_in_count, 0) + 1,
           first_return_at = CASE
-            WHEN first_return_at IS NULL AND created_at::date < CURRENT_DATE
+            WHEN u.first_return_at IS NULL AND u.created_at::date < CURRENT_DATE
             THEN NOW()
-            ELSE first_return_at
+            ELSE u.first_return_at
           END
-        WHERE clerk_id = ${clerkId}
-        RETURNING id, profile_type, first_return_at, sign_in_count, created_at
+        FROM prev
+        WHERE u.id = prev.id
+        RETURNING
+          u.id,
+          u.profile_type,
+          u.first_return_at,
+          u.sign_in_count,
+          u.created_at,
+          (prev.prev_first_return_at IS NULL AND prev.created_at::date < CURRENT_DATE) AS was_first_return
       `;
 
       if (rows.length > 0) {
-        const user = rows[0] as { id: string; profile_type: string; first_return_at: string | null; sign_in_count: number; created_at: string };
+        const user = rows[0] as { id: string; profile_type: string; first_return_at: string | null; sign_in_count: number; created_at: string; was_first_return: boolean };
 
-        // Fire first-return notification if this is the first return (sign_in_count = 1 after signup day)
-        if (user.sign_in_count === 1 && user.first_return_at) {
+        if (user.was_first_return) {
           const notifType = user.profile_type === 'driver' ? 'driver_first_return' : 'rider_first_return';
           // Get user details for the SMS
           const profileRows = await sql`
@@ -314,6 +371,8 @@ export async function POST(req: Request) {
       return new Response('Session tracked', { status: 200 });
     } catch (error) {
       console.error('[WEBHOOK] session.created error:', error);
+      // Release the dedup claim so a Svix retry can re-process this event.
+      await sql`DELETE FROM processed_webhook_events WHERE event_id = ${`clerk:${svix_id}`}`.catch(() => {});
       return new Response('Internal server error', { status: 500 });
     }
   }

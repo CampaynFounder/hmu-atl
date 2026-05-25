@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/client';
 import { getDriverProfileByUserId } from '@/lib/db/profiles';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { getMarketAreas } from '@/lib/markets/areas';
+import { driverAllowsCashOnly } from '@/lib/payments/strategies';
 import DriverProfileClient from './driver-profile-client';
 
 export default async function DriverProfilePage() {
@@ -29,6 +30,7 @@ export default async function DriverProfilePage() {
   const p = profile as unknown as Record<string, unknown>;
   const market = await resolveMarketForUser(user.id);
   const marketAreas = await getMarketAreas(market.market_id);
+  const cashAllowed = await driverAllowsCashOnly(user.id);
 
   return (
     <DriverProfileClient
@@ -49,7 +51,7 @@ export default async function DriverProfilePage() {
         schedule: (p.schedule as Record<string, unknown>) || {},
         videoUrl: (p.video_url as string) || '',
         vibeVideoUrl: (p.vibe_video_url as string) || '',
-        vehiclePhotoUrl: ((p.vehicle_info as Record<string, unknown>)?.photo_url as string) || '',
+        vehiclePhotoUrl: ((p.vehicle_info as Record<string, unknown>)?.photo_url as string) || (p.thumbnail_url as string) || '',
         licensePlate: ((p.vehicle_info as Record<string, unknown>)?.license_plate as string) || '',
         plateState: ((p.vehicle_info as Record<string, unknown>)?.plate_state as string) || 'GA',
         acceptDirectBookings: (p.accept_direct_bookings as boolean) ?? true,
@@ -63,6 +65,12 @@ export default async function DriverProfilePage() {
         allowInRouteStops: (p.allow_in_route_stops as boolean) ?? true,
         waitMinutes: Number((p as Record<string, unknown>).wait_minutes ?? 10),
         advanceNoticeHours: Number((p as Record<string, unknown>).advance_notice_hours ?? 0),
+        depositFloor: (p as Record<string, unknown>).deposit_floor != null ? Number((p as Record<string, unknown>).deposit_floor) : null,
+        acceptsDownBad: (p.accepts_down_bad as boolean) || false,
+        homeLat: p.home_lat != null ? Number(p.home_lat) : null,
+        homeLng: p.home_lng != null ? Number(p.home_lng) : null,
+        homeLabel: (p.home_label as string) || null,
+        homeMapboxId: (p.home_mapbox_id as string) || null,
       }}
       user={{
         tier: user.tier,
@@ -85,6 +93,7 @@ export default async function DriverProfilePage() {
         name: a.name,
         cardinal: a.cardinal,
       }))}
+      cashAllowed={cashAllowed}
     />
   );
 }

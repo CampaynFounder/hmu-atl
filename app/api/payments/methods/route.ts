@@ -28,8 +28,8 @@ export async function GET() {
     success: true,
     paymentMethods: methods.data.map((pm) => ({
       id: pm.id,
-      brand: pm.card?.brand ?? 'card',
-      last4: pm.card?.last4 ?? '????',
+      brand: pm.card?.brand ?? null,
+      last4: pm.card?.last4 ?? null,
       expMonth: pm.card?.exp_month,
       expYear: pm.card?.exp_year,
     })),

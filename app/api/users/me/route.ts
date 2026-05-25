@@ -16,7 +16,22 @@ export async function GET() {
     WHERE u.clerk_id = ${clerkId}
     LIMIT 1
   `;
-  if (!rows.length) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+  // Staging fallback: if user doesn't exist (webhook didn't fire), create a stub rider record
+  if (!rows.length) {
+    const newUserRows = await sql`
+      INSERT INTO users (clerk_id, profile_type, account_status)
+      VALUES (${clerkId}, 'rider', 'active')
+      RETURNING id, profile_type, account_status
+    `;
+    const newUser = newUserRows[0] as { id: string; profile_type: string; account_status: string };
+    return NextResponse.json({
+      id: newUser.id,
+      profileType: newUser.profile_type,
+      accountStatus: newUser.account_status,
+      driverHandle: null,
+    });
+  }
 
   const user = rows[0] as {
     id: string;

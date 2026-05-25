@@ -23,6 +23,7 @@ const FIELD_KEYS: (keyof RiderAdFunnelConfig['fields'])[] = ['handle', 'media', 
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'admin.onboarding.view')) return unauthorizedResponse();
 
   const rows = await sql`
     SELECT config_value, updated_at, updated_by
@@ -77,9 +78,7 @@ function validate(body: unknown): { ok: true; value: RiderAdFunnelConfig } | { o
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
-  // Reuse the same permission as the driver onboarding config — onboarding
-  // is one editorial surface, even with separate JSON blobs.
-  if (!hasPermission(admin, 'monitor.pricing.edit')) return unauthorizedResponse();
+  if (!hasPermission(admin, 'admin.onboarding.edit')) return unauthorizedResponse();
 
   const raw = await req.json().catch(() => null);
   const result = validate(raw);

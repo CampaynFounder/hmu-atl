@@ -11,6 +11,9 @@ import { PendingActionBanner } from '@/components/pending-action-banner';
 interface Props {
   displayName: string;
   userId: string;
+  /** False when the global default pricing strategy disallows full-cash rides
+   *  (e.g. deposit_only). Hides the rider's "Cash?" post toggle. */
+  cashAllowed: boolean;
 }
 
 interface PostedRequest {
@@ -52,7 +55,7 @@ interface MatchNotification {
 
 const ACTIVE_STATUSES = ['active', 'matched'];
 
-export default function RiderFeedClient({ displayName, userId }: Props) {
+export default function RiderFeedClient({ displayName, userId, cashAllowed }: Props) {
   const [input, setInput] = useState('');
   const [posting, setPosting] = useState(false);
   const [viewingDriverHandle, setViewingDriverHandle] = useState<string | null>(null);
@@ -344,21 +347,23 @@ export default function RiderFeedClient({ displayName, userId }: Props) {
                   {posting ? '...' : '\u2191'}
                 </button>
               </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button
-                  onClick={() => setIsCash(!isCash)}
-                  style={{
-                    padding: '6px 14px', borderRadius: 100, fontSize: 12, fontWeight: 600,
-                    border: 'none', cursor: 'pointer',
-                    background: isCash ? 'rgba(76,175,80,0.15)' : '#1a1a1a',
-                    color: isCash ? '#4CAF50' : '#888',
-                    fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {'\uD83D\uDCB5'} {isCash ? 'Cash Ride' : 'Cash?'}
-                </button>
-              </div>
+              {cashAllowed && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button
+                    onClick={() => setIsCash(!isCash)}
+                    style={{
+                      padding: '6px 14px', borderRadius: 100, fontSize: 12, fontWeight: 600,
+                      border: 'none', cursor: 'pointer',
+                      background: isCash ? 'rgba(76,175,80,0.15)' : '#1a1a1a',
+                      color: isCash ? '#4CAF50' : '#888',
+                      fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {'\uD83D\uDCB5'} {isCash ? 'Cash Ride' : 'Cash?'}
+                  </button>
+                </div>
+              )}
             </>
           )}
           {error && <div className="rf-error">{error}</div>}

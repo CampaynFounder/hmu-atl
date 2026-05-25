@@ -54,6 +54,15 @@ export const PAGE_SECTIONS: Record<string, SectionDefinition[]> = {
     { sectionKey: 'steps', label: 'Guide Steps', icon: '📋', description: '8-step walkthrough', zones: ['guide_steps'] },
     { sectionKey: 'cta', label: 'Guide CTA', icon: '🚀', description: 'Bottom CTA', zones: ['guide_cta_text', 'guide_cta_note'] },
   ],
+  compare: [
+    { sectionKey: 'hero', label: 'Hero', icon: '🎯', description: 'Eyebrow, headline, sub, CTA', zones: ['hero_eyebrow', 'hero_headline_line1', 'hero_headline_line2', 'hero_subheadline', 'hero_cta_label', 'hero_cta_href'] },
+    { sectionKey: 'thesis', label: 'Thesis', icon: '💭', description: 'Why HMU exists', zones: ['thesis_label', 'thesis_headline', 'thesis_paragraph'] },
+    { sectionKey: 'comparison_grid', label: 'Comparison Grid', icon: '📊', description: 'Platform-by-platform table — add competitors here. HMU pricing numbers derive from pricing_modes.config (live)', zones: ['grid_label', 'grid_headline', 'grid_subheadline', 'example_fare_dollars', 'grid_columns', 'grid_rows', 'grid_footnote'] },
+    { sectionKey: 'membership_callout', label: 'Membership Callout', icon: '💸', description: '$25/day = $750/mo reframe', zones: ['membership_callout_label', 'membership_callout_headline', 'membership_callout_body', 'membership_callout_math'] },
+    { sectionKey: 'worked_example', label: 'Worked Example', icon: '🧮', description: 'Concrete dollars on the example ride', zones: ['example_label', 'example_headline', 'example_scenarios'] },
+    { sectionKey: 'faq', label: 'FAQ', icon: '❓', description: 'Honest-answers Q&A', zones: ['faq_label', 'faq_headline', 'faq_items'] },
+    { sectionKey: 'cta', label: 'Final CTA', icon: '🚀', description: 'Primary + secondary buttons', zones: ['cta_eyebrow', 'cta_headline', 'cta_subheadline', 'cta_primary_label', 'cta_primary_href', 'cta_secondary_label', 'cta_secondary_href'] },
+  ],
 };
 
 // Get default section order for a page

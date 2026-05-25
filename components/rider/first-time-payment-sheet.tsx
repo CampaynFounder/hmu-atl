@@ -71,13 +71,9 @@ export function FirstTimePaymentSheet({ open, driverDisplayName, onSuccess, onCa
             ONE QUICK STEP
           </div>
           <div style={{ fontSize: 13, color: '#888', lineHeight: 1.5 }}>
-            {driverDisplayName ? (
-              <>Link a payment to book with <strong style={{ color: '#fff' }}>{driverDisplayName}</strong>.</>
-            ) : (
-              <>Link a payment to book this ride.</>
-            )}
+            Let <strong style={{ color: '#fff' }}>{driverDisplayName ?? 'this driver'}</strong> know you&apos;re payment ready.
             <br />
-            Held safely — only charged when the ride starts.
+            <span style={{ color: '#fff' }}>There is No Charge To Sign Up Now.</span>
           </div>
         </div>
 

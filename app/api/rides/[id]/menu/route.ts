@@ -20,7 +20,7 @@ export async function GET(
 
     // Get ride + verify user is the rider
     const rideRows = await sql`
-      SELECT rider_id, driver_id, status, add_on_reserve, add_on_total, is_cash
+      SELECT rider_id, driver_id, status, add_on_reserve, add_on_total, is_cash, pricing_mode_key
       FROM rides WHERE id = ${rideId} LIMIT 1
     `;
     if (!rideRows.length) return NextResponse.json({ error: 'Ride not found' }, { status: 404 });
@@ -30,7 +30,12 @@ export async function GET(
       return NextResponse.json({ error: 'Only the rider can view the menu' }, { status: 403 });
     }
 
-    const allowedStatuses = ['matched', 'otw', 'here', 'confirming', 'active', 'in_progress'];
+    // Mirror the allowed-status list on the POST add-ons handler. Riders
+    // can browse + queue extras from the moment they're matched (or even
+    // pending/accepted, before authorizing the deposit) — the per-extra
+    // Stripe capture doesn't fire until the driver confirms during the
+    // ride, by which point the rider's saved PM is on file from Pull Up.
+    const allowedStatuses = ['pending', 'accepted', 'matched', 'otw', 'here', 'confirming', 'active', 'in_progress'];
     if (!allowedStatuses.includes(ride.status as string)) {
       return NextResponse.json({ error: 'Menu not available for this ride status' }, { status: 400 });
     }
@@ -39,6 +44,13 @@ export async function GET(
     const reserve = Number(ride.add_on_reserve ?? 0);
     const currentTotal = Number(ride.add_on_total ?? 0);
     const remaining = Math.max(0, reserve - currentTotal);
+    const pricingModeKey = (ride.pricing_mode_key as string) || null;
+    // Reserve gating only applies to modes that pre-authorize an add-on
+    // reserve at hold time (legacy_full_fare). deposit_only charges each
+    // extra as its own destination charge at driver-confirm time, so the
+    // rider can queue items even when reserve === 0. Cash rides bypass
+    // Stripe entirely.
+    const requiresReserve = pricingModeKey === 'legacy_full_fare' && !ride.is_cash;
 
     return NextResponse.json({
       menu,
@@ -46,6 +58,8 @@ export async function GET(
       currentTotal,
       remaining,
       isCash: !!(ride.is_cash),
+      pricingModeKey,
+      requiresReserve,
     });
   } catch (error) {
     console.error('Ride menu error:', error);

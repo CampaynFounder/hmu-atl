@@ -155,6 +155,18 @@ export async function POST(
       WHERE id = ${rideId} AND status IN ('active', 'confirming', 'here')
     `;
 
+    // Clear driver's live GPS so the home-base fallback takes over immediately
+    // for any new blast that comes in while they drive back. DriverPresenceMount
+    // will repopulate current_lat/lng once they're back on the driver screen.
+    sql`
+      UPDATE driver_profiles
+         SET current_lat = NULL,
+             current_lng = NULL,
+             location_accuracy_m = NULL,
+             location_updated_at = NULL
+       WHERE user_id = ${userId}
+    `.catch(() => {});
+
     // Booking row stays 'in_progress' through the dispute window — slot is
     // still occupied until rate flips it to 'completed'.
     syncBookingFromRide(rideId, 'ended').catch(() => {});

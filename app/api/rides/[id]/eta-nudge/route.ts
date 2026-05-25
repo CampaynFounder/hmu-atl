@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { sendSms } from '@/lib/sms/textbee';
+import { renderTemplate } from '@/lib/sms/templates';
 
 /**
  * Rider-triggered SMS nudge to driver when ETA goes stale (90s no location update).
@@ -70,8 +71,9 @@ export async function POST(
       return NextResponse.json({ sent: false, reason: 'no_phone' });
     }
 
-    // Send SMS
-    const message = `HMU ATL: ${riderName} is waiting and can't see your ETA. Open HMU so they can track your pickup. atl.hmucashride.com/ride/${rideId}`;
+    // Send SMS — prefer admin-editable template, fall back to literal
+    const fallback = `HMU ATL: ${riderName} is waiting and can't see your ETA. Open HMU so they can track your pickup. atl.hmucashride.com/ride/${rideId}`;
+    const message = (await renderTemplate('eta_nudge', { riderName, rideId })) ?? fallback;
     await sendSms(driverPhone, message, {
       rideId,
       userId: ride.driver_id as string,

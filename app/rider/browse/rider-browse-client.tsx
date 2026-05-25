@@ -26,6 +26,8 @@ interface Props {
   isAuthenticated?: boolean;
   bannerConfig?: RiderBrowseBannerConfig;
   hideBanner?: boolean;
+  /** False when global default pricing strategy disallows full-cash rides. */
+  cashAllowed?: boolean;
 }
 
 export default function RiderBrowseClient({
@@ -34,11 +36,17 @@ export default function RiderBrowseClient({
   isAuthenticated = true,
   bannerConfig,
   hideBanner = false,
+  cashAllowed = true,
 }: Props) {
   const [filterFwu, setFilterFwu] = useState(false);
   const [filterMaxPrice, setFilterMaxPrice] = useState('');
   const [filterArea, setFilterArea] = useState('');
-  const [filterGender, setFilterGender] = useState<'female' | 'male' | null>(null);
+  const [filterMaxMinutes, setFilterMaxMinutes] = useState('');
+  const [filterGender, setFilterGender] = useState<'female' | 'male' | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const g = new URLSearchParams(window.location.search).get('gender');
+    return g === 'female' || g === 'male' ? g : null;
+  });
   const [filterHasMedia, setFilterHasMedia] = useState(false);
   const [bookingHandle, setBookingHandle] = useState<string | null>(null);
   const [profileHandle, setProfileHandle] = useState<string | null>(null);
@@ -88,17 +96,16 @@ export default function RiderBrowseClient({
       params.set('lat', String(riderCoords.lat));
       params.set('lng', String(riderCoords.lng));
     }
-    if (filterGender) {
-      params.set('gender', filterGender);
-    }
-    if (filterHasMedia) {
-      params.set('hasMedia', '1');
-    }
+    if (filterGender) params.set('gender', filterGender);
+    if (filterHasMedia) params.set('hasMedia', '1');
+    if (filterFwu) params.set('fwu', '1');
+    if (filterArea) params.set('area', filterArea);
+    if (filterMaxPrice) params.set('maxPrice', filterMaxPrice);
     const res = await fetch(`/api/rider/browse/list?${params.toString()}`);
     if (!res.ok) throw new Error('fetch failed');
     const data = await res.json();
     return { items: (data.drivers as BrowseDriverRow[]) ?? [], hasMore: !!data.hasMore };
-  }, [riderCoords, filterGender, filterHasMedia]);
+  }, [riderCoords, filterGender, filterHasMedia, filterFwu, filterArea, filterMaxPrice]);
 
   const {
     items: list,
@@ -183,24 +190,22 @@ export default function RiderBrowseClient({
         }
         if (filterGender) params.set('gender', filterGender);
         if (filterHasMedia) params.set('hasMedia', '1');
+        if (filterFwu) params.set('fwu', '1');
+        if (filterArea) params.set('area', filterArea);
+        if (filterMaxPrice) params.set('maxPrice', filterMaxPrice);
         const res = await fetch(`/api/rider/browse/list?${params.toString()}`);
         if (!res.ok) return;
         const data = await res.json();
         const fresh = (data.drivers as BrowseDriverRow[]) ?? [];
         if (!cancelled) {
-          // Replace the entire list — server-side filters change the result
-          // set, so we can't keep the old tail; the infinite-scroll engine
-          // will re-paginate from where we left off.
           setItems(fresh);
         }
       } catch { /* silent */ }
     })();
     return () => { cancelled = true; };
-    // riderCoords intentionally excluded — the coords-acquired effect above
-    // already handles the first-page replace; we only want this to fire on
-    // server-filter changes.
+    // riderCoords intentionally excluded — coords-acquired effect handles that.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterGender, filterHasMedia]);
+  }, [filterGender, filterHasMedia, filterFwu, filterArea, filterMaxPrice]);
 
   const allAreas = useMemo(
     () => Array.from(new Set(list.flatMap((d) => d.areas))).sort(),
@@ -213,16 +218,21 @@ export default function RiderBrowseClient({
   const filtered = useMemo(() => {
     const seen = new Set<string>();
     const out: BrowseDriverRow[] = [];
+    const maxMins = filterMaxMinutes ? Number(filterMaxMinutes) : null;
     for (const d of list) {
       if (seen.has(d.handle)) continue;
       if (filterFwu && !d.fwu) continue;
       if (filterMaxPrice && d.minPrice > Number(filterMaxPrice)) continue;
       if (filterArea && !d.areas.some((a) => a.toLowerCase().includes(filterArea.toLowerCase()))) continue;
+      if (maxMins !== null && d.distanceMi !== null) {
+        const mins = Math.max(1, Math.round(d.distanceMi * 60 / 20));
+        if (mins > maxMins) continue;
+      }
       seen.add(d.handle);
       out.push(d);
     }
     return out;
-  }, [list, filterFwu, filterMaxPrice, filterArea]);
+  }, [list, filterFwu, filterMaxPrice, filterArea, filterMaxMinutes]);
 
   const bookingDriver = bookingHandle ? list.find((d) => d.handle === bookingHandle) ?? null : null;
 
@@ -262,13 +272,14 @@ export default function RiderBrowseClient({
     fbCustomEvent('FunnelLead_payment_linked', { funnel_stage: 'payment_linked', audience: 'rider_ad_funnel' });
   }, []);
 
-  const filtersActive = filterFwu || filterArea || filterMaxPrice || filterGender || filterHasMedia;
+  const filtersActive = filterFwu || filterArea || filterMaxPrice || filterGender || filterHasMedia || filterMaxMinutes;
   const clearFilters = () => {
     setFilterFwu(false);
     setFilterArea('');
     setFilterMaxPrice('');
     setFilterGender(null);
     setFilterHasMedia(false);
+    setFilterMaxMinutes('');
   };
 
   return (
@@ -305,6 +316,7 @@ export default function RiderBrowseClient({
           <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
             <button
               onClick={() => setFilterGender(filterGender === 'female' ? null : 'female')}
+              className="hmu-pill"
               style={pillStyle(filterGender === 'female')}
               aria-label="Filter to women drivers"
             >
@@ -312,6 +324,7 @@ export default function RiderBrowseClient({
             </button>
             <button
               onClick={() => setFilterGender(filterGender === 'male' ? null : 'male')}
+              className="hmu-pill"
               style={pillStyle(filterGender === 'male')}
               aria-label="Filter to men drivers"
             >
@@ -319,17 +332,19 @@ export default function RiderBrowseClient({
             </button>
             <button
               onClick={() => setFilterHasMedia(!filterHasMedia)}
+              className="hmu-pill"
               style={pillStyle(filterHasMedia)}
               aria-label="Show only drivers with photos or videos"
             >
               Has Photo
             </button>
-            <button onClick={() => setFilterFwu(!filterFwu)} style={pillStyle(filterFwu)}>
+            <button onClick={() => setFilterFwu(!filterFwu)} className="hmu-pill" style={pillStyle(filterFwu)}>
               FWU
             </button>
             <select
               value={filterArea}
               onChange={(e) => setFilterArea(e.target.value)}
+              className="hmu-pill"
               style={{ ...pillStyle(!!filterArea), appearance: 'none' }}
             >
               <option value="">All Areas</option>
@@ -340,11 +355,28 @@ export default function RiderBrowseClient({
               placeholder="Max $"
               value={filterMaxPrice}
               onChange={(e) => setFilterMaxPrice(e.target.value)}
+              className="hmu-pill"
               style={{ ...pillStyle(!!filterMaxPrice), width: 80, outline: 'none' }}
             />
+            {riderCoords !== null && (
+              <select
+                value={filterMaxMinutes}
+                onChange={(e) => setFilterMaxMinutes(e.target.value)}
+                className="hmu-pill"
+                style={{ ...pillStyle(!!filterMaxMinutes), appearance: 'none' }}
+                aria-label="Filter by minutes away"
+              >
+                <option value="">Any Distance</option>
+                <option value="5">≤ 5 min</option>
+                <option value="10">≤ 10 min</option>
+                <option value="20">≤ 20 min</option>
+                <option value="30">≤ 30 min</option>
+              </select>
+            )}
             {filtersActive && (
               <button
                 onClick={clearFilters}
+                className="hmu-pill"
                 style={{
                   padding: '8px 12px', borderRadius: 100, border: 'none', fontSize: 11,
                   background: 'rgba(255,82,82,0.1)', color: '#FF5252', cursor: 'pointer',
@@ -394,6 +426,8 @@ export default function RiderBrowseClient({
                 onBook={() => openBooking(d.handle)}
                 onProfile={() => openProfile(d.handle)}
                 animationDelayMs={i < 4 ? i * 60 : 0}
+                cashAllowed={cashAllowed}
+                riderHasCoords={riderCoords !== null}
               />
             ))}
             {fetchingMore && <FeedSkeleton />}
@@ -413,6 +447,8 @@ export default function RiderBrowseClient({
                   onBook={() => openBooking(d.handle)}
                   onProfile={() => openProfile(d.handle)}
                   animationDelayMs={i < 8 ? i * 40 : 0}
+                  cashAllowed={cashAllowed}
+                  riderHasCoords={riderCoords !== null}
                 />
               ))}
               {fetchingMore && Array.from({ length: 4 }).map((_, i) => <GridSkeleton key={`sk-${i}`} />)}
@@ -434,6 +470,7 @@ export default function RiderBrowseClient({
           handle={profileHandle}
           open={true}
           onClose={() => setProfileHandle(null)}
+          isAuthenticated={isAuthenticated}
         />
       )}
       {showBlocker && <FirstTimePaymentBlocker onSuccess={handleBlockerSuccess} />}
@@ -441,12 +478,36 @@ export default function RiderBrowseClient({
   );
 }
 
-function formatDistance(mi: number | null | undefined): string | null {
+function formatProximity(
+  mi: number | null | undefined,
+  riderHasCoords: boolean,
+): string | null {
   if (mi == null || !Number.isFinite(mi)) return null;
+  if (riderHasCoords) {
+    // ~20 mph average Atlanta city speed
+    const mins = Math.max(1, Math.round(mi * 60 / 20));
+    if (mins === 1 && mi < 0.15) return 'right here';
+    return `~${mins} min away`;
+  }
   if (mi < 0.1) return 'right here';
   if (mi < 0.5) return '<½ mi away';
   if (mi < 10) return `${mi.toFixed(1)} mi away`;
   return `${Math.round(mi)} mi away`;
+}
+
+function LocationSourceIcon({ source }: { source: BrowseDriverRow['locationSource'] }) {
+  if (source === 'live') return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 3,
+    }}>
+      <span style={{
+        width: 7, height: 7, borderRadius: '50%', background: '#00E676', flexShrink: 0,
+        animation: 'hmuBrowsePulse 1.5s ease-in-out infinite',
+      }} />
+    </span>
+  );
+  if (source === 'home') return <span>🏠</span>;
+  return <span>📍</span>;
 }
 
 function pillStyle(active: boolean): React.CSSProperties {
@@ -460,22 +521,34 @@ function pillStyle(active: boolean): React.CSSProperties {
   };
 }
 
-function DriverChips({ driver, compact }: { driver: BrowseDriverRow; compact?: boolean }) {
+function DriverChips({ driver, compact, cashAllowed = true, maxCount }: {
+  driver: BrowseDriverRow;
+  compact?: boolean;
+  cashAllowed?: boolean;
+  maxCount?: number;
+}) {
+  const chips: React.ReactNode[] = [];
+  if (driver.verificationStatus === 'pending')
+    chips.push(<Chip key="new" label={compact ? 'NEW' : 'NEW · Verifying'} tone="warning" compact={compact} />);
+  if (driver.isHmuFirst)
+    chips.push(<Chip key="first" label="🥇 HMU 1ST" tone="first" compact={compact} />);
+  if (driver.fwu)
+    chips.push(<Chip key="fwu" label="FWU" tone="fwu" compact={compact} />);
+  if (cashAllowed && driver.acceptsCash)
+    chips.push(<Chip key="cash" label={driver.cashOnly ? 'CASH ONLY' : 'CASH OK'} tone="cash" compact={compact} />);
+  if (driver.lgbtqFriendly)
+    chips.push(<Chip key="lgbtq" label={compact ? '🏳️‍🌈' : 'LGBTQ+'} tone="lgbtq" compact={compact} />);
+
+  const visible = maxCount ? chips.slice(0, maxCount) : chips;
+  const overflow = chips.length - visible.length;
   return (
     <>
-      {driver.verificationStatus === 'pending' && (
-        <Chip label={compact ? 'NEW' : 'NEW · Verifying'} tone="warning" compact={compact} />
+      {visible.map((chip, i) => (
+        <span key={i} className="hmu-chip">{chip}</span>
+      ))}
+      {overflow > 0 && (
+        <span style={{ fontSize: 10, color: '#666', alignSelf: 'center', lineHeight: 1 }}>+{overflow}</span>
       )}
-      {driver.isHmuFirst && <Chip label={`${'🥇'} HMU 1ST`} tone="first" compact={compact} />}
-      {driver.fwu && <Chip label="FWU" tone="fwu" compact={compact} />}
-      {driver.acceptsCash && (
-        <Chip
-          label={driver.cashOnly ? 'CASH ONLY' : 'CASH OK'}
-          tone="cash"
-          compact={compact}
-        />
-      )}
-      {driver.lgbtqFriendly && <Chip label={compact ? '🏳️‍🌈' : 'LGBTQ+'} tone="lgbtq" compact={compact} />}
     </>
   );
 }
@@ -483,123 +556,102 @@ function DriverChips({ driver, compact }: { driver: BrowseDriverRow; compact?: b
 // ─── Feed (TikTok) card ──────────────────────────────────────────────────────
 
 function FeedDriverCard({
-  driver, onBook, onProfile, animationDelayMs,
+  driver, onBook, onProfile, animationDelayMs, cashAllowed, riderHasCoords,
 }: {
   driver: BrowseDriverRow;
   onBook: () => void;
   onProfile: () => void;
   animationDelayMs: number;
+  cashAllowed: boolean;
+  riderHasCoords: boolean;
 }) {
-  const heroSrc = driver.photoUrl || driver.videoUrl;
-
   return (
-    <div className="hmu-feed-card">
-      {heroSrc ? (
-        <div className="hmu-feed-bg" style={{ backgroundImage: `url("${driver.photoUrl ?? ''}")` }} />
+    <div className="hmu-feed-card" onClick={onProfile} style={{ cursor: 'pointer' }}>
+      {/* Full-bleed media — video takes priority over photo */}
+      {driver.videoUrl ? (
+        <video
+          src={driver.videoUrl}
+          autoPlay muted loop playsInline preload="metadata"
+          className="hmu-feed-media"
+        />
+      ) : driver.photoUrl ? (
+        <img
+          src={driver.photoUrl}
+          alt={driver.displayName}
+          className="hmu-feed-media"
+        />
       ) : (
-        <div className="hmu-feed-bg" style={{ background: 'radial-gradient(circle at 50% 40%, #1a1a1a, #080808)' }} />
-      )}
-      <div className="hmu-feed-overlay" />
-
-      {/* Centerpiece: video → photo → fallback gradient. Sits center-upper so the
-          info card at the bottom doesn't overlap. */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        pointerEvents: 'none',
-      }}>
-        <div
-          className="hmu-card-in"
-          style={{
-            animationDelay: `${animationDelayMs}ms`,
-            width: 220, height: 220, borderRadius: 28,
-            border: '2px solid rgba(255,255,255,0.10)',
-            background: '#0A0A0A', overflow: 'hidden',
-            boxShadow: '0 12px 40px rgba(0,0,0,0.55)',
-            transform: 'translateY(-30px)',
-          }}
-        >
-          {driver.videoUrl ? (
-            <video
-              src={driver.videoUrl}
-              autoPlay muted loop playsInline preload="metadata"
-              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-            />
-          ) : driver.photoUrl ? (
-            <img
-              src={driver.photoUrl}
-              alt={driver.displayName}
-              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-            />
-          ) : (
-            <div style={{
-              width: '100%', height: '100%',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-              fontSize: 64, color: '#444',
-              background: 'linear-gradient(135deg, #1a1a1a, #0a0a0a)',
-            }}>
-              {driver.displayName.charAt(0).toUpperCase()}
-            </div>
-          )}
+        <div className="hmu-feed-media" style={{
+          background: `radial-gradient(ellipse at 50% 30%, #1a2e1a, #080808)`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+          fontSize: 96, color: 'rgba(255,255,255,0.08)',
+        }}>
+          {driver.displayName.charAt(0).toUpperCase()}
         </div>
-      </div>
+      )}
 
+      {/* Gradient scrim for readability */}
+      <div className="hmu-feed-scrim" />
+
+      {/* Info card pinned to bottom */}
       <div
         className="hmu-card-in"
         style={{
           position: 'absolute', left: 16, right: 16, bottom: 28,
-          animationDelay: `${animationDelayMs + 60}ms`,
+          animationDelay: `${animationDelayMs}ms`,
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         <div style={{
-          background: 'rgba(20,20,20,0.78)',
-          backdropFilter: 'blur(18px)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: 22, padding: '18px 18px 16px',
+          background: 'rgba(10,10,10,0.84)',
+          backdropFilter: 'blur(22px)',
+          WebkitBackdropFilter: 'blur(22px)',
+          border: '1px solid rgba(255,255,255,0.07)',
+          borderRadius: 22, padding: '16px 16px 14px',
         }}>
+          {/* Name + price row */}
           <div style={{
-            display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-            gap: 12, marginBottom: 4,
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+            gap: 12, marginBottom: 2,
           }}>
-            <div style={{ minWidth: 0 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{
-                fontSize: 22, fontWeight: 800, color: '#fff',
+                fontSize: 20, fontWeight: 800, color: '#fff', lineHeight: 1.1,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
                 {driver.displayName}
               </div>
-              <div style={{
-                fontSize: 12, color: '#888',
-                fontFamily: 'inherit',
-              }}>
+              <div style={{ fontSize: 11, color: '#666', marginTop: 1 }}>
                 @{driver.handle}
               </div>
             </div>
             {driver.minPrice > 0 && (
-              <div style={{ textAlign: 'right' }}>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <div style={{
                   fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-                  fontSize: 24, color: '#fff', lineHeight: 1,
+                  fontSize: 22, color: '#fff', lineHeight: 1,
                 }}>
                   ${driver.minPrice}+
                 </div>
-                <div style={{ fontSize: 9, color: '#888', letterSpacing: 0.5 }}>
-                  starts at
-                </div>
+                <div style={{ fontSize: 9, color: '#555', letterSpacing: 0.5 }}>starts at</div>
               </div>
             )}
           </div>
 
-          <div style={{ fontSize: 12, color: '#bbb', marginBottom: 10 }}>
-            {driver.areas.length ? driver.areas.slice(0, 4).join(' · ') : 'Area not set'}
-          </div>
+          {/* Areas — only rendered if present */}
+          {driver.areas.length > 0 && (
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 8, marginTop: 4 }}>
+              {driver.areas.slice(0, 4).join(' · ')}
+            </div>
+          )}
 
+          {/* Live message */}
           {driver.liveMessage && (
             <div style={{
               background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.15)',
-              borderRadius: 12, padding: '8px 12px', marginBottom: 10,
-              display: 'flex', alignItems: 'flex-start', gap: 8,
+              borderRadius: 10, padding: '7px 10px', marginBottom: 8,
+              display: 'flex', alignItems: 'flex-start', gap: 7,
             }}>
               <Chip label={
                 <>
@@ -608,63 +660,82 @@ function FeedDriverCard({
                     background: '#00E676', display: 'inline-block',
                     animation: 'hmuBrowsePulse 1.5s ease-in-out infinite',
                   }} />
-                  LIVE
+                  {' '}LIVE
                 </>
               } tone="live" compact />
-              <span style={{ fontSize: 13, color: '#fff', lineHeight: 1.3 }}>
+              <span style={{ fontSize: 12, color: '#ddd', lineHeight: 1.3 }}>
                 {driver.liveMessage}
               </span>
             </div>
           )}
 
+          {/* Stats row */}
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-            fontSize: 12, color: '#bbb', marginBottom: 10,
+            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap',
+            fontSize: 11, color: '#bbb', marginBottom: 8, overflow: 'hidden',
           }}>
-            <span>
+            <span style={{ flexShrink: 0 }}>
               <span style={{
                 fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-                color: '#00E676', fontSize: 18, marginRight: 4,
+                color: '#00E676', fontSize: 16, marginRight: 2,
               }}>
                 {driver.chillScore.toFixed(0)}%
               </span>
               chill
             </span>
-            {formatDistance(driver.distanceMi) && (
+            {formatProximity(driver.distanceMi, riderHasCoords) && (
               <>
-                <span style={{ color: '#444' }}>·</span>
-                <span style={{ color: '#00E676', fontWeight: 600 }}>
-                  📍 {formatDistance(driver.distanceMi)}
+                <span style={{ color: '#333', flexShrink: 0 }}>·</span>
+                <span style={{ color: '#00E676', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+                  <LocationSourceIcon source={driver.locationSource} />
+                  {formatProximity(driver.distanceMi, riderHasCoords)}
                 </span>
               </>
             )}
             {driver.vehicleSummary && (
               <>
-                <span style={{ color: '#444' }}>·</span>
-                <span style={{
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
-                }}>
+                <span style={{ color: '#333', flexShrink: 0 }}>·</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
                   🚗 {driver.vehicleSummary.label}
                 </span>
               </>
             )}
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-            <DriverChips driver={driver} />
+          {/* Chip row — max 3, never wraps into second line */}
+          <div style={{ display: 'flex', gap: 5, marginBottom: 12, minHeight: 22, overflow: 'hidden', flexWrap: 'nowrap' }}>
+            <DriverChips driver={driver} cashAllowed={cashAllowed} maxCount={3} />
           </div>
 
+          {/* HMU CTA — always pinned last, never pushed */}
           <button
-            onClick={onBook}
+            onClick={(e) => { e.stopPropagation(); onBook(); }}
+            className="hmu-btn"
             style={{
-              width: '100%', padding: 14, borderRadius: 100, border: 'none',
+              width: '100%', padding: '13px 0', borderRadius: 100, border: 'none',
               background: '#00E676', color: '#080808',
               fontWeight: 800, fontSize: 16, cursor: 'pointer',
-              fontFamily: 'inherit',
+              fontFamily: 'inherit', letterSpacing: 0.5,
             }}
           >
             HMU
           </button>
+          {driver.acceptsDownBad && (
+            <a
+              href={`/rider/down-bad/new?driver=${driver.handle}`}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                display: 'block', textAlign: 'center', marginTop: 8,
+                padding: '10px 0', borderRadius: 100,
+                border: '1.5px solid rgba(255,255,255,0.15)',
+                background: 'transparent', color: '#ddd',
+                fontWeight: 700, fontSize: 14, textDecoration: 'none',
+                fontFamily: 'inherit',
+              }}
+            >
+              😮‍💨 Down Bad
+            </a>
+          )}
         </div>
       </div>
     </div>
@@ -674,23 +745,26 @@ function FeedDriverCard({
 // ─── Grid card (compact zoom-out) ────────────────────────────────────────────
 
 function GridDriverCard({
-  driver, onBook, onProfile, animationDelayMs,
+  driver, onBook, onProfile, animationDelayMs, cashAllowed, riderHasCoords,
 }: {
   driver: BrowseDriverRow;
   onBook: () => void;
   onProfile: () => void;
   animationDelayMs: number;
+  cashAllowed: boolean;
+  riderHasCoords: boolean;
 }) {
   return (
     <div
-      className="hmu-card-in"
+      className="hmu-card-in hmu-grid-card"
+      onClick={onProfile}
       style={{
         animationDelay: `${animationDelayMs}ms`,
         background: '#141414',
         border: '1px solid rgba(255,255,255,0.08)',
         borderRadius: 20,
         overflow: 'hidden',
-        transition: 'all 0.2s',
+        cursor: 'pointer',
       }}
     >
       <div
@@ -703,21 +777,21 @@ function GridDriverCard({
           <video
             src={driver.videoUrl}
             muted playsInline loop autoPlay preload="metadata"
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', display: 'block' }}
           />
         ) : driver.photoUrl ? (
           <img
             src={driver.photoUrl}
             alt={driver.displayName}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', display: 'block' }}
           />
         ) : (
           <div style={{
             width: '100%', height: '100%',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-            fontSize: 36, color: '#444',
-            background: 'radial-gradient(circle at 50% 40%, #1a1a1a, #0a0a0a)',
+            fontSize: 36, color: 'rgba(255,255,255,0.08)',
+            background: 'radial-gradient(ellipse at 50% 30%, #1a2e1a, #0a0a0a)',
           }}>
             {driver.displayName.charAt(0).toUpperCase()}
           </div>
@@ -739,53 +813,58 @@ function GridDriverCard({
         )}
       </div>
 
-      <div style={{ padding: '12px 14px 14px' }}>
+      <div style={{ padding: '12px 14px 14px' }} onClick={(e) => e.stopPropagation()}>
         <div style={{
-          fontSize: 14, fontWeight: 700, color: '#fff', marginBottom: 2,
+          fontSize: 14, fontWeight: 700, color: '#fff', marginBottom: 1,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>
           {driver.displayName}
         </div>
-        <div style={{
-          fontSize: 11, color: '#888', marginBottom: 8,
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
-          {driver.areas.length ? driver.areas.join(', ') : 'Area not set'}
-        </div>
+        {driver.areas.length > 0 && (
+          <div style={{
+            fontSize: 11, color: '#666', marginBottom: 7,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {driver.areas.slice(0, 2).join(', ')}
+          </div>
+        )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#bbb', marginBottom: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#bbb', marginBottom: 7, flexWrap: 'nowrap', overflow: 'hidden' }}>
           <span style={{
             fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
-            color: '#00E676', fontSize: 16,
+            color: '#00E676', fontSize: 14, flexShrink: 0,
           }}>
             {driver.chillScore.toFixed(0)}%
           </span>
           {driver.minPrice > 0 && (
             <>
-              <span style={{ color: '#444' }}>·</span>
-              <span>${driver.minPrice}+</span>
+              <span style={{ color: '#333', flexShrink: 0 }}>·</span>
+              <span style={{ flexShrink: 0 }}>${driver.minPrice}+</span>
             </>
           )}
-          {formatDistance(driver.distanceMi) && (
+          {formatProximity(driver.distanceMi, riderHasCoords) && (
             <>
-              <span style={{ color: '#444' }}>·</span>
-              <span style={{ color: '#00E676', fontWeight: 600 }}>
-                📍 {formatDistance(driver.distanceMi)}
+              <span style={{ color: '#333', flexShrink: 0 }}>·</span>
+              <span style={{ color: '#00E676', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                <LocationSourceIcon source={driver.locationSource} />
+                {formatProximity(driver.distanceMi, riderHasCoords)}
               </span>
             </>
           )}
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8, minHeight: 18 }}>
-          <DriverChips driver={driver} compact />
+        {/* Chip row — single line, max 2 compact chips */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 10, minHeight: 20, overflow: 'hidden', flexWrap: 'nowrap' }}>
+          <DriverChips driver={driver} compact cashAllowed={cashAllowed} maxCount={2} />
         </div>
 
         <button
-          onClick={onBook}
+          onClick={(e) => { e.stopPropagation(); onBook(); }}
+          className="hmu-btn"
           style={{
-            width: '100%', padding: 10, borderRadius: 100, border: 'none',
+            width: '100%', padding: '9px 0', borderRadius: 100, border: 'none',
             background: '#00E676', color: '#080808',
-            fontWeight: 700, fontSize: 13, cursor: 'pointer',
+            fontWeight: 800, fontSize: 13, cursor: 'pointer',
             fontFamily: 'inherit',
           }}
         >

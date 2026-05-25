@@ -321,11 +321,13 @@ function CollapsibleSection({ section, fbGroups, copiedId, onCopyCaption, shimme
               </ul>
 
               {fbGroups && (
-                <InlineFbGroups
-                  groups={fbGroups}
-                  copiedId={copiedId}
-                  onCopyCaption={onCopyCaption}
-                />
+                <div id="fb-groups">
+                  <InlineFbGroups
+                    groups={fbGroups}
+                    copiedId={copiedId}
+                    onCopyCaption={onCopyCaption}
+                  />
+                </div>
               )}
             </div>
           </motion.div>

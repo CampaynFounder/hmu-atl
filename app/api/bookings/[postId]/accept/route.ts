@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
+import { publishRideUpdate, notifyUser, publishAdminEvent, publishToChannel } from '@/lib/ably/server';
 import { notifyRiderBookingAccepted } from '@/lib/sms/textbee';
 import {
   checkDriverAvailability,
@@ -12,9 +12,10 @@ import {
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { generateRefCode } from '@/lib/rides/ref-code';
+import { driverAllowsCashOnly } from '@/lib/payments/strategies';
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ postId: string }> }
 ) {
   try {
@@ -39,14 +40,27 @@ export async function POST(
     const postRows = await sql`
       SELECT * FROM hmu_posts
       WHERE id = ${postId}
-        AND status = 'active'
         AND (
-          (post_type = 'direct_booking' AND target_driver_id = ${driverUserId} AND booking_expires_at > NOW())
+          (post_type = 'direct_booking' AND status = 'active' AND target_driver_id = ${driverUserId} AND booking_expires_at > NOW())
           OR
-          (post_type = 'rider_request' AND expires_at > NOW())
+          (post_type = 'rider_request' AND status = 'active' AND expires_at > NOW())
+          OR
+          (post_type = 'blast' AND status = 'active' AND expires_at > NOW())
+          OR
+          (post_type = 'down_bad' AND status IN ('active', 'matched') AND expires_at > NOW())
         )
       LIMIT 1
     `;
+
+    // Down Bad posts require the driver to have explicitly opted in.
+    if (postRows.length && (postRows[0] as Record<string, unknown>).post_type === 'down_bad') {
+      const dpRows = await sql`
+        SELECT accepts_down_bad FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
+      `;
+      if (!dpRows.length || !(dpRows[0] as Record<string, unknown>).accepts_down_bad) {
+        return NextResponse.json({ error: 'Enable Down Bad in your profile settings first', code: 'down_bad_not_enabled' }, { status: 403 });
+      }
+    }
 
     if (!postRows.length) {
       return NextResponse.json({ error: 'Request not found or expired' }, { status: 404 });
@@ -57,7 +71,11 @@ export async function POST(
     const price = Number(post.price || 0);
     const timeWindow = (post.time_window || {}) as Record<string, unknown>;
     const areas = (post.areas || []) as string[];
-    const isCash = (post.is_cash as boolean) || false;
+    // The post may have been created with is_cash=true, but the driver's
+    // active pricing strategy gets the final say — deposit-only forces digital
+    // every time so the cash-only path stays disabled.
+    const cashAllowed = await driverAllowsCashOnly(driverUserId);
+    const isCash = cashAllowed ? ((post.is_cash as boolean) || false) : false;
 
     // ── Cash ride counter check ──
     if (isCash) {
@@ -97,17 +115,145 @@ export async function POST(
     const driverName = (driverProfile?.handle as string) || (driverProfile?.display_name as string) || 'A driver';
 
     const isDirectBooking = post.post_type === 'direct_booking';
+    const isBlast = post.post_type === 'blast';
+
+    // ── BLAST: write to blast_driver_targets and ping the rider's offer board ──
+    // Driver UI is the same as a regular open request — no special UI on this side.
+    // The rider picks a driver via /api/blast/[id]/select; this endpoint just
+    // records the interest and surfaces it on the rider's live offer board.
+    if (isBlast) {
+      const driverActiveRides = await sql`
+        SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('otw','here','active') LIMIT 1
+      `;
+      if (driverActiveRides.length) {
+        return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });
+      }
+
+      // Optional driver-supplied counter price comes through req.json().
+      let counterPrice: number | null = null;
+      try {
+        const body = await req.json().catch(() => ({})) as { counter_price?: number };
+        if (typeof body.counter_price === 'number' && body.counter_price > 0) {
+          counterPrice = body.counter_price;
+        }
+      } catch { /* no body is fine */ }
+
+      const updated = await sql`
+        UPDATE blast_driver_targets
+           SET hmu_at = NOW(),
+               hmu_counter_price = ${counterPrice}
+         WHERE blast_id = ${postId}
+           AND driver_id = ${driverUserId}
+           AND hmu_at IS NULL
+           AND passed_at IS NULL
+         RETURNING id
+      `;
+      if (!updated.length) {
+        // Driver not in the target list (e.g., found the post via shortcode link
+        // shared by a friend) — insert a self-added target with a synthesized
+        // 0 score so the rider can still see them.
+        await sql`
+          INSERT INTO blast_driver_targets (blast_id, driver_id, match_score, hmu_at, hmu_counter_price, score_breakdown)
+          VALUES (${postId}, ${driverUserId}, 0, NOW(), ${counterPrice}, '{"self_added":1}'::jsonb)
+          ON CONFLICT (blast_id, driver_id) DO UPDATE
+            SET hmu_at = NOW(),
+                hmu_counter_price = ${counterPrice}
+        `;
+      }
+
+      // Live update to the rider's offer board.
+      publishToChannel(`blast:${postId}`, 'target_hmu', {
+        blastId: postId,
+        driverUserId,
+        driverName: driverName,
+        driverHandle: driverProfile?.handle || null,
+        driverVideoUrl: driverProfile?.video_url || null,
+        counterPrice,
+      }).catch(() => {});
+
+      return NextResponse.json({ status: 'hmu', blast: true, counterPrice });
+    }
+
+    // ── DOWN BAD: First driver to RUN IT wins — instant match ──
+    const isDownBad = post.post_type === 'down_bad';
+
+    if (isDownBad) {
+      const [riderActiveRides, driverActiveRides] = await Promise.all([
+        sql`SELECT id FROM rides WHERE rider_id = ${riderId} AND status IN ('otw','here','active') LIMIT 1`,
+        sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('otw','here','active') LIMIT 1`,
+      ]);
+      if (riderActiveRides.length) {
+        return NextResponse.json({ error: 'This rider already has an active ride' }, { status: 409 });
+      }
+      if (driverActiveRides.length) {
+        return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });
+      }
+
+      // Atomic claim — first driver wins; any concurrent accept gets 409.
+      const claimed = await sql`
+        UPDATE hmu_posts SET status = 'matched'
+        WHERE id = ${postId} AND status = 'active' AND post_type = 'down_bad'
+        RETURNING id
+      `;
+      if (!claimed.length) {
+        return NextResponse.json({ error: 'Someone else already ran it — post is gone', code: 'already_matched' }, { status: 409 });
+      }
+
+      const waitRows = await sql`SELECT wait_minutes FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1`;
+      const waitMinutes = Number((waitRows[0] as Record<string, unknown>)?.wait_minutes ?? 10);
+
+      const refCode = generateRefCode();
+      const rideRows = await sql`
+        INSERT INTO rides (
+          driver_id, rider_id, status, amount, final_agreed_price,
+          price_mode, price_accepted_at, hmu_post_id,
+          pickup_address, pickup_lat, pickup_lng,
+          dropoff_address, dropoff_lat, dropoff_lng,
+          dispute_window_minutes, is_cash, wait_minutes, ref_code,
+          booking_type
+        ) VALUES (
+          ${driverUserId}, ${riderId}, 'matched', ${price}, ${price},
+          'proposed', NOW(), ${postId},
+          ${(post.pickup_address as string) || null},
+          ${post.pickup_lat ? Number(post.pickup_lat) : null},
+          ${post.pickup_lng ? Number(post.pickup_lng) : null},
+          ${(post.dropoff_address as string) || null},
+          ${post.dropoff_lat ? Number(post.dropoff_lat) : null},
+          ${post.dropoff_lng ? Number(post.dropoff_lng) : null},
+          ${parseInt(process.env.DISPUTE_WINDOW_MINUTES || '5')},
+          false, ${waitMinutes}, ${refCode},
+          'down_bad'
+        )
+        RETURNING id
+      `;
+      const rideId = (rideRows[0] as { id: string }).id;
+
+      await notifyUser(riderId, 'booking_accepted', {
+        rideId, postId, driverUserId, driverName, price,
+        message: `${driverName} is running it!`,
+      }).catch(() => {});
+
+      await publishRideUpdate(rideId, 'status_change', {
+        status: 'matched',
+        message: 'Down Bad matched — driver incoming!',
+      }).catch(() => {});
+
+      publishAdminEvent('ride_created', { rideId, driverUserId, riderId, price, status: 'matched', postType: 'down_bad' }).catch(() => {});
+
+      return NextResponse.json({ status: 'matched', rideId });
+    }
 
     // ── OPEN REQUESTS: Register interest (rider picks later) ──
     if (!isDirectBooking) {
-      // Check driver doesn't already have interest or active ride
-      const [existingInterest, driverActiveRides] = await Promise.all([
-        sql`SELECT id FROM ride_interests WHERE post_id = ${postId} AND driver_id = ${driverUserId} LIMIT 1`,
+      // Block only if driver explicitly passed this post (different intent from re-accepting).
+      // A pre-existing 'interested' row is fine — treat accept as idempotent.
+      const [existingPassed, driverActiveRides] = await Promise.all([
+        sql`SELECT id FROM ride_interests WHERE post_id = ${postId} AND driver_id = ${driverUserId} AND status = 'passed' LIMIT 1`,
         sql`SELECT id FROM rides WHERE driver_id = ${driverUserId} AND status IN ('otw','here','active') LIMIT 1`,
       ]);
 
-      if (existingInterest.length) {
-        return NextResponse.json({ error: 'You already expressed interest in this ride' }, { status: 409 });
+      if (existingPassed.length) {
+        return NextResponse.json({ error: 'You already passed on this ride' }, { status: 409 });
       }
       if (driverActiveRides.length) {
         return NextResponse.json({ error: 'You already have an active ride' }, { status: 409 });

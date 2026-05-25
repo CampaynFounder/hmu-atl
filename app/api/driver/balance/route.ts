@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { isFeatureEnabled } from '@/lib/feature-flags';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
@@ -135,6 +136,14 @@ export async function GET() {
     const noShowRides = Number((noShowRows[0] as Record<string, unknown>).no_show_rides || 0);
     const noShowTotal = Number((noShowRows[0] as Record<string, unknown>).no_show_total || 0);
 
+    // Per-driver feature flag for the Deposits Detail Sheet overlay. Dormant
+    // when the flag row is missing — keeps the tile static (pre-launch
+    // behavior). The client gates tappability on this value.
+    const depositsDetailSheet = await isFeatureEnabled(
+      'driver_deposits_detail_sheet',
+      { userId: driverUserId },
+    );
+
     return NextResponse.json({
       available,
       pending,
@@ -148,6 +157,7 @@ export async function GET() {
       cashEarnings: { rides: cashRides, total: cashTotal },
       digitalEarnings: { rides: digitalRides, total: digitalTotal },
       noShowEarnings: { rides: noShowRides, total: noShowTotal },
+      flags: { depositsDetailSheet },
     });
   } catch (error) {
     console.error('Balance error:', error);

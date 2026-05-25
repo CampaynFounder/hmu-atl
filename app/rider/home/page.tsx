@@ -1,5 +1,6 @@
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { globalDefaultAllowsCashOnly } from '@/lib/payments/strategies';
 import RiderHomeClient from './rider-home-client';
 import RiderFeedClient from './rider-feed-client';
 
@@ -17,7 +18,7 @@ export default async function RiderHomePage() {
     const { userId: clerkId } = await auth();
     if (clerkId) {
       const rows = await sql`
-        SELECT u.id, u.profile_type, rp.display_name, rp.first_name
+        SELECT u.id, u.profile_type, rp.display_name, rp.first_name, rp.handle
         FROM users u
         LEFT JOIN rider_profiles rp ON rp.user_id = u.id
         WHERE u.clerk_id = ${clerkId} LIMIT 1
@@ -26,7 +27,7 @@ export default async function RiderHomePage() {
         const user = rows[0] as Record<string, unknown>;
         if (user.profile_type === 'rider') {
           isLoggedIn = true;
-          displayName = (user.display_name as string) || 'Rider';
+          displayName = (user.handle as string) || (user.display_name as string) || 'you';
           userId = user.id as string;
         }
       }
@@ -36,7 +37,8 @@ export default async function RiderHomePage() {
   }
 
   if (isLoggedIn) {
-    return <RiderFeedClient displayName={displayName} userId={userId} />;
+    const cashAllowed = await globalDefaultAllowsCashOnly();
+    return <RiderFeedClient displayName={displayName} userId={userId} cashAllowed={cashAllowed} />;
   }
 
   return <RiderHomeClient />;

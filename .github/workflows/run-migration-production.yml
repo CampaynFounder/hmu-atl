@@ -1,0 +1,36 @@
+name: Run Migration → Production
+
+# One-shot workflow to apply a SQL migration to the production Neon database.
+# Trigger manually from GitHub → Actions → Run Migration → Production → Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      migration:
+        description: 'Migration file path (relative to repo root)'
+        required: false
+        default: 'lib/db/migrations/comments-add-deleted-at.sql'
+
+jobs:
+  migrate:
+    name: Apply migration to production DB
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run migration
+        env:
+          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
+        run: |
+          echo "Applying: ${{ github.event.inputs.migration }}"
+          node scripts/apply-migration.mjs "${{ github.event.inputs.migration }}"

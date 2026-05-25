@@ -1,0 +1,621 @@
+// POST /api/blast — create a blast booking from an authenticated rider.
+//
+// Spec: docs/BLAST-BOOKING-SPEC.md §5.1
+//
+// LAX CREATION MODEL (founder direction 2026-05-13):
+//   Creating a blast is permissive — no card required, no minimum match count.
+//   Matching still runs and filters who gets the SMS / push, but a 0-match
+//   result does not block creation. The deposit hold + card collection are
+//   deferred to the match-acceptance step (/api/blast/[id]/select). Goal: get
+//   riders into the funnel and convert them to paying customers when they
+//   actually pick a driver.
+//
+// Orchestration:
+//   1. Auth (Clerk) + photo gate (rider_profiles.avatar_url required)
+//   2. Validate body (pickup/dropoff coords, scheduled_for ≥ now+5m, etc.)
+//   3. Feature flag check (blast_booking)
+//   4. Rate limit (per-rider, per-IP) via existing checkRateLimit + persist hit
+//   5. Resolve market; bail if blast not enabled in market
+//   6. Run matching algorithm (0 results is OK — blast still creates)
+//   7. Insert hmu_posts row + blast_driver_targets rows (deposit columns null)
+//   8. Fanout (Ably push + voip.ms SMS) — fire-and-forget; no-op if 0 targets
+//   9. Publish blast_created on blast:{id} channel
+//   10. Return { blastId, expiresAt, targetedCount, shortcode }
+
+import { NextRequest, NextResponse } from 'next/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
+import { sql } from '@/lib/db/client';
+import { isFeatureEnabled } from '@/lib/feature-flags';
+import { resolveMarketForUser } from '@/lib/markets/resolver';
+import { checkRateLimit } from '@/lib/rate-limit/check';
+import { calculateDistance } from '@/lib/geo/distance';
+import { getMatchingConfig, getKnob } from '@/lib/blast/config';
+// fanoutBlast intentionally not called here — notification is deferred to the
+// per-driver right-swipe action in POST /api/blast/[id]/hmu-fallback/[targetId].
+import { publishToChannel, notifyUser } from '@/lib/ably/server';
+import { getMatchingProvider, InternalMatcher } from '@/lib/blast/provider';
+import type { BlastConfig as V3BlastConfig, BlastCreateInput } from '@/lib/blast/types';
+import { writeBlastEvent, writeMatchLog, releaseScheduleBlocks } from '@/lib/blast/lifecycle';
+import { stripe } from '@/lib/stripe/connect';
+import { getRiderActiveDirectBooking } from '@/lib/db/direct-bookings';
+
+export const runtime = 'nodejs';
+
+// Bump on every deploy so the response confirms which build is live.
+// If the response detail says BUILD_TAG !== '2026-05-13-instr-1', the worker
+// is serving stale code (cache, queued deploy, wrong branch).
+const BUILD_TAG = '2026-05-14-bump-expand-pref';
+
+// Wrap every awaited sql call with this so the error message tells us which
+// query threw. We've been chasing "$8" without knowing whether it's
+// fetchCandidates, fetchFallbackDrivers, the INSERT, or something else.
+// Default T to any[] to match the original `await sql\`...\`` behavior;
+// callsites cast individual rows after .length / [0] checks.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function runQuery<T = any[]>(name: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    const orig = e instanceof Error ? e.message : String(e);
+    const enhanced: Error & { queryName?: string; pgCode?: unknown; pgPosition?: unknown; pgWhere?: unknown; pgInternalQuery?: unknown; original?: unknown } = new Error(`[query:${name}] ${orig}`);
+    enhanced.queryName = name;
+    if (e && typeof e === 'object') {
+      const obj = e as Record<string, unknown>;
+      enhanced.pgCode = obj.code;
+      enhanced.pgPosition = obj.position;
+      enhanced.pgWhere = obj.where;
+      enhanced.pgInternalQuery = obj.internalQuery;
+      enhanced.original = e;
+    }
+    throw enhanced;
+  }
+}
+
+interface BlastBody {
+  pickup?: { lat?: number; lng?: number; address?: string };
+  dropoff?: { lat?: number; lng?: number; address?: string };
+  // Accept both snake_case (legacy) and camelCase (client BlastCreateInput)
+  trip_type?: 'one_way' | 'round_trip';
+  tripType?: 'one_way' | 'round_trip';
+  scheduled_for?: string | null;
+  scheduledFor?: string | null;
+  storage?: boolean;
+  driver_preference?: 'male' | 'female' | 'any';
+  // Client sends GenderPreference { preferred: string[], strict: boolean }
+  driverPreference?: { preferred: string[]; strict: boolean };
+  price_dollars?: number;
+  priceDollars?: number;
+  riderGender?: string | null;
+  /** Rider-set max drive time to pickup in minutes. Sent from the proximity step. */
+  maxPickupMinutes?: number | null;
+}
+
+function clientIp(req: NextRequest): string {
+  return (
+    req.headers.get('cf-connecting-ip') ??
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    req.headers.get('x-real-ip') ??
+    'unknown'
+  );
+}
+
+function generateShortcode(): string {
+  // 7-char URL-safe shortcode for SMS deep links. Collision is checked at
+  // insert via UNIQUE constraint (added below); regen on conflict.
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 7; i += 1) s += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return s;
+}
+
+function shortLabel(address: string | undefined, lat: number, lng: number): string {
+  if (address) {
+    // Take the first comma-separated segment; if too long, truncate.
+    const seg = address.split(',')[0].trim();
+    return seg.length > 24 ? seg.slice(0, 22) + '…' : seg;
+  }
+  return `${lat.toFixed(2)},${lng.toFixed(2)}`;
+}
+
+function whenLabel(scheduledFor: Date | null): string {
+  if (!scheduledFor) return 'now';
+  const minutes = Math.round((scheduledFor.getTime() - Date.now()) / 60_000);
+  if (minutes <= 0) return 'now';
+  if (minutes < 60) return `in ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 12) return `in ~${hours}h`;
+  // For >12h out, give a coarse marker. No timezone tokens (per founder rule).
+  const local = new Date(scheduledFor.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (local.toDateString() === tomorrow.toDateString()) return 'tomorrow';
+  return local.toLocaleDateString('en-US', { weekday: 'short' });
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    // ── 1. Auth ──
+    const { userId: clerkId } = await auth();
+    if (!clerkId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const userRows = await runQuery('lookup_user_by_clerk_id', () => sql`
+      SELECT u.id, u.gender, u.account_status,
+        COALESCE(rp.thumbnail_url, rp.avatar_url) AS photo_url,
+        rp.stripe_customer_id, rp.display_name
+      FROM users u
+      LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+      WHERE u.clerk_id = ${clerkId} LIMIT 1
+    `);
+    if (!userRows.length) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+    const user = userRows[0] as Record<string, unknown>;
+    const riderId = user.id as string;
+    const riderGender = (user.gender as string | null) ?? null;
+
+    if (user.account_status !== 'active') {
+      return NextResponse.json({ error: 'Account must be active to send a blast' }, { status: 403 });
+    }
+
+    // ── 1a. Feature flag ──
+    if (!(await isFeatureEnabled('blast_booking', { userId: riderId }))) {
+      return NextResponse.json({ error: 'Blast booking not available' }, { status: 404 });
+    }
+
+    // ── 2. Photo gate ──
+    // Existing riders who signed up before photo was required won't have
+    // avatar_url in rider_profiles. Fall back to Clerk's profileImageUrl
+    // (every authed user has one) and save it so future requests hit the fast
+    // path. Only hard-block if neither source has a photo.
+    let photoUrl = user.photo_url as string | null;
+    if (!photoUrl) {
+      try {
+        const cc = await clerkClient();
+        const clerkUser = await cc.users.getUser(clerkId);
+        const clerkImage = clerkUser.imageUrl ?? null;
+        if (clerkImage) {
+          await sql`
+            UPDATE rider_profiles
+            SET avatar_url = ${clerkImage}
+            WHERE user_id = ${riderId} AND avatar_url IS NULL
+          `;
+          photoUrl = clerkImage;
+        }
+      } catch (e) {
+        console.error('[blast] clerk image fallback failed:', e);
+      }
+    }
+    if (!photoUrl) {
+      return NextResponse.json(
+        { error: 'PHOTO_REQUIRED', message: 'Upload a profile photo before sending a blast' },
+        { status: 412 },
+      );
+    }
+
+    // ── 2b. One-blast-at-a-time gate ──
+    // Riders can only have one active blast. Return the existing shortcode so
+    // the client can redirect the rider back to their offer board.
+    // shortcode is not a column — it's stored as areas[1] = 'shortcode:{code}'
+    // and also in time_window->>'shortcode'. Extract via time_window JSONB.
+    const existingBlast = await runQuery('check_existing_blast', () => sql`
+      SELECT id, time_window->>'shortcode' AS shortcode
+      FROM hmu_posts
+      WHERE user_id = ${riderId}
+        AND post_type = 'blast'
+        AND status = 'active'
+        AND expires_at > NOW()
+      LIMIT 1
+    `);
+    if (existingBlast.length) {
+      const existing = existingBlast[0] as { id: string; shortcode: string };
+      return NextResponse.json(
+        {
+          error: 'ACTIVE_BLAST_EXISTS',
+          message: 'You already have an active blast',
+          shortcode: existing.shortcode,
+          blastId: existing.id,
+        },
+        { status: 409 },
+      );
+    }
+
+    // Prevent cross-type conflicts: a rider cannot blast while a direct booking
+    // request is in flight. They must cancel the direct request first.
+    const activeDirectBooking = await getRiderActiveDirectBooking(riderId);
+    if (activeDirectBooking) {
+      return NextResponse.json(
+        {
+          error: 'ACTIVE_DIRECT_BOOKING_EXISTS',
+          message: 'Cancel your pending direct request before sending a blast',
+          postId: activeDirectBooking.id,
+          expiresAt: activeDirectBooking.booking_expires_at,
+        },
+        { status: 409 },
+      );
+    }
+
+    // ── 3. Config + body validation ──
+    // Load config before validation so scheduled_blast_lead_minutes and
+    // price bounds come from platform_config rather than hardcoded constants.
+    const config = await getMatchingConfig();
+
+    const body = (await req.json().catch(() => ({}))) as BlastBody;
+
+    const pickupLat = body.pickup?.lat;
+    const pickupLng = body.pickup?.lng;
+    const dropoffLat = body.dropoff?.lat;
+    const dropoffLng = body.dropoff?.lng;
+
+    if (
+      typeof pickupLat !== 'number' ||
+      typeof pickupLng !== 'number' ||
+      typeof dropoffLat !== 'number' ||
+      typeof dropoffLng !== 'number' ||
+      Math.abs(pickupLat) > 90 || Math.abs(dropoffLat) > 90 ||
+      Math.abs(pickupLng) > 180 || Math.abs(dropoffLng) > 180
+    ) {
+      return NextResponse.json({ error: 'Invalid pickup or dropoff coordinates' }, { status: 400 });
+    }
+
+    const tripType = (body.trip_type ?? body.tripType) === 'round_trip' ? 'round_trip' : 'one_way';
+
+    // driverPreference: legacy API sent 'male'|'female'|'any' string; new client
+    // sends GenderPreference { preferred: string[], strict: boolean }.
+    let driverPreference: 'male' | 'female' | 'any' = 'any';
+    if (body.driver_preference === 'male' || body.driver_preference === 'female') {
+      driverPreference = body.driver_preference;
+    } else if (body.driverPreference?.preferred?.length) {
+      const p = body.driverPreference.preferred[0];
+      if (p === 'man') driverPreference = 'male';
+      else if (p === 'woman') driverPreference = 'female';
+    }
+
+    const storageRequested = Boolean(body.storage);
+
+    let scheduledFor: Date | null = null;
+    const scheduledForRaw = body.scheduled_for ?? body.scheduledFor;
+    if (scheduledForRaw) {
+      const parsed = new Date(scheduledForRaw);
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: 'Invalid scheduled_for' }, { status: 400 });
+      }
+      const minLeadMin = config.expiry.scheduled_blast_lead_minutes;
+      const minLead = Date.now() + minLeadMin * 60_000;
+      if (parsed.getTime() < minLead) {
+        return NextResponse.json(
+          { error: `scheduled_for must be at least ${minLeadMin} minutes in the future` },
+          { status: 400 },
+        );
+      }
+      scheduledFor = parsed;
+    }
+    const priceDollars = Number(body.price_dollars ?? body.priceDollars ?? config.default_price_dollars);
+    if (!Number.isFinite(priceDollars) || priceDollars < 1 || priceDollars > config.max_price_dollars) {
+      return NextResponse.json(
+        { error: `price_dollars must be between $1 and $${config.max_price_dollars}` },
+        { status: 400 },
+      );
+    }
+
+    // ── 4. Rate limit ──
+    // 0 on either knob = check disabled (admin can knob-out without code change).
+    const ip = clientIp(req);
+    const [perHour, perDay] = await Promise.all([
+      getKnob<number>('blast.rate_limit_per_phone_hour', 5),
+      getKnob<number>('blast.rate_limit_per_phone_day', 20),
+    ]);
+    const checks = await Promise.all([
+      perHour > 0
+        ? checkRateLimit({ key: `blast:user:${riderId}:hour`, limit: perHour, windowSeconds: 3600 })
+        : Promise.resolve({ ok: true, retryAfterSeconds: 0 }),
+      perDay > 0
+        ? checkRateLimit({ key: `blast:user:${riderId}:day`, limit: perDay, windowSeconds: 86400 })
+        : Promise.resolve({ ok: true, retryAfterSeconds: 0 }),
+    ]);
+    const [hourLimit, dayLimit] = checks;
+    if (!hourLimit.ok || !dayLimit.ok) {
+      const retry = Math.max(hourLimit.retryAfterSeconds, dayLimit.retryAfterSeconds);
+      // Persist rate-limit hit for admin review (per spec §9).
+      sql`
+        INSERT INTO blast_rate_limits (identifier_kind, identifier_value, blast_count, window_end)
+        VALUES ('user_id', ${riderId}, 1, NOW() + INTERVAL '1 hour')
+        ON CONFLICT (identifier_kind, identifier_value, window_end)
+        DO UPDATE SET blast_count = blast_rate_limits.blast_count + 1
+      `.catch(() => {});
+      return NextResponse.json(
+        { error: 'Rate limit exceeded', retryAfterSeconds: retry },
+        { status: 429, headers: { 'Retry-After': String(retry) } },
+      );
+    }
+    void ip; // Per-IP cap handled by /api/blast/draft pre-auth (future); for auth'd we use user_id.
+
+    // ── 5. Market resolution + per-market enable ──
+    const market = await resolveMarketForUser(riderId);
+    const marketEnabledRows = await runQuery('lookup_market_blast_enabled', () => sql`
+      SELECT blast_enabled FROM markets WHERE id = ${market.market_id} LIMIT 1
+    `);
+    if (!marketEnabledRows.length || !(marketEnabledRows[0] as { blast_enabled: boolean }).blast_enabled) {
+      return NextResponse.json(
+        { error: 'Blast booking not available in your market yet' },
+        { status: 403 },
+      );
+    }
+
+    // ── 6. Matching ──
+    // Routed through MatchingProvider per contract §3 D-7 so the matcher impl
+    // can be swapped per-market via env var without touching this route. The
+    // InternalMatcher is the only impl wired today; behavior is byte-for-byte
+    // identical to the prior direct matchBlast() call (it delegates internally).
+    const provider = getMatchingProvider(market.slug);
+    // Rider-set proximity constraint → override max_distance_mi in config.
+    // 25 mph urban speed: maxPickupMinutes * 25/60 = miles.
+    const maxPickupMinutes =
+      typeof body.maxPickupMinutes === 'number' &&
+      body.maxPickupMinutes >= 1 &&
+      body.maxPickupMinutes <= 60
+        ? body.maxPickupMinutes
+        : null;
+    const proximityOverrideMi = maxPickupMinutes != null
+      ? Math.round(maxPickupMinutes * 25 / 60 * 10) / 10
+      : null;
+
+    const v3Config: V3BlastConfig = {
+      weights: config.weights as unknown as Record<string, number>,
+      hardFilters: config.filters as unknown as Record<string, unknown>,
+      limits: {
+        ...(config.limits as unknown as Record<string, number | boolean>),
+        // Override radius when rider specified a proximity cap
+        ...(proximityOverrideMi != null ? { max_distance_mi: proximityOverrideMi } : {}),
+      },
+      rewardFunction: 'revenue_per_blast',
+      counterOfferMaxPct: 0.25,
+      feedMinScorePercentile: 0,
+      nlpChipOnly: false,
+      configVersion: 1,
+    };
+    const v3Input: BlastCreateInput = {
+      pickup: { lat: pickupLat, lng: pickupLng, address: body.pickup?.address ?? '' },
+      dropoff: { lat: dropoffLat, lng: dropoffLng, address: body.dropoff?.address ?? '' },
+      tripType,
+      scheduledFor: scheduledFor ? scheduledFor.toISOString() : null,
+      storage: storageRequested,
+      priceDollars,
+      riderGender: null,
+      driverPreference: { preferred: [], strict: false },
+      maxPickupMinutes,
+      draftCreatedAt: Date.now(),
+      marketSlug: market.slug,
+    };
+    // The InternalMatcher is the in-process impl and exposes a richer
+    // matchInternal() that includes finalRadiusMi/expansionsUsed/fallback —
+    // values this route still needs for the response payload and persistence.
+    // External providers must build the same enrichment server-side.
+    // Only the InternalMatcher path is wired today (per provider.ts fallback
+    // semantics, an unknown env var still resolves to InternalMatcher).
+    // The cast lets us read the lossless extras (rawTargets/rawFallback)
+    // that preserve distanceMi + tier for downstream persistence + push
+    // payload byte-parity with the pre-Gate-2.2 direct matchBlast() call.
+    const matchResult = await (provider as InternalMatcher).matchInternal(
+      v3Input,
+      v3Config,
+      {
+        riderId,
+        marketId: market.market_id,
+        driverPreference,
+        riderGender,
+      },
+    );
+
+    const scoredTargets = matchResult.extras.rawTargets;
+    const fallbackDrivers = matchResult.extras.rawFallback;
+    const finalRadiusMi = matchResult.extras.finalRadiusMi;
+    const expansionsUsed = matchResult.extras.expansionsUsed;
+
+    // Lax creation: 0 matches is fine. The offer board will say "still hunting"
+    // and the bump button can widen the radius. Drivers coming online after
+    // creation can also be added on bump. See lax-creation note at top.
+
+    // ── 6b. Cancel any existing active blast for this rider ──
+    // A rider can only have one active blast at a time. Cancel before inserting
+    // so the partial unique index (uq_one_active_blast_per_rider) is never
+    // violated under normal flow. Under a race the index is the final guard.
+    const superseded = await runQuery('cancel_existing_blast', () => sql`
+      UPDATE hmu_posts
+         SET status = 'cancelled'
+       WHERE user_id   = ${riderId}
+         AND post_type = 'blast'
+         AND status IN ('active', 'matched')
+       RETURNING id, deposit_payment_intent_id
+    `);
+    for (const old of superseded) {
+      const { id: oldId, deposit_payment_intent_id: depositPi } =
+        old as { id: string; deposit_payment_intent_id: string | null };
+
+      // Release deposit hold if one was captured at /select.
+      if (depositPi && process.env.STRIPE_MOCK !== 'true') {
+        stripe.paymentIntents.cancel(depositPi, {}).catch(() => {});
+      }
+
+      // Tell the offer board (if open in a tab) this blast is gone.
+      publishToChannel(`blast:${oldId}`, 'blast_cancelled', {
+        blastId: oldId,
+        reason: 'superseded',
+      }).catch(() => {});
+
+      // Tell any HMU'd drivers their request is gone.
+      const interestedRows = await sql`
+        SELECT driver_id FROM blast_driver_targets
+         WHERE blast_id = ${oldId}
+           AND (hmu_at IS NOT NULL OR selected_at IS NOT NULL)
+      `;
+      for (const r of interestedRows) {
+        notifyUser(
+          (r as { driver_id: string }).driver_id,
+          'blast_cancelled',
+          { blastId: oldId },
+        ).catch(() => {});
+      }
+
+      void releaseScheduleBlocks({ blastId: oldId });
+    }
+
+    // Use a UUID for the blast id up front so any client retry hits the same
+    // INSERT. (No deposit PI here — that moves to /api/blast/[id]/select.)
+    const blastIdRows = await runQuery('gen_blast_id', () => sql`SELECT gen_random_uuid() AS id`);
+    const blastId = (blastIdRows[0] as { id: string }).id;
+
+    // ── 7. Persist blast + targets ──
+    const expiresAt = new Date(Date.now() + config.expiry.default_blast_minutes * 60_000);
+    const distanceMi = calculateDistance(
+      { latitude: pickupLat, longitude: pickupLng },
+      { latitude: dropoffLat, longitude: dropoffLng },
+    );
+
+    // Generate a shortcode for the SMS deep link. Collisions retry up to 3x.
+    let shortcode = generateShortcode();
+    for (let i = 0; i < 3; i += 1) {
+      const exists = await runQuery('shortcode_collision_check', () => sql`
+        SELECT 1 FROM hmu_posts WHERE areas[1] = ${`shortcode:${shortcode}`} LIMIT 1
+      `);
+      if (!exists.length) break;
+      shortcode = generateShortcode();
+    }
+
+    // Insert blast row. We piggy-back the shortcode in areas[0] for now (cheap
+    // index-free lookup); the spec calls for a dedicated column in Phase 2.
+    // deposit_payment_intent_id + deposit_amount are NULL here. They get
+    // populated at /api/blast/[id]/select when the rider picks a driver and
+    // the deposit hold actually fires.
+    await runQuery('insert_hmu_posts', () => sql`
+      INSERT INTO hmu_posts (
+        id, user_id, post_type, status, areas, shortcode, price, time_window,
+        pickup_lat, pickup_lng, pickup_address,
+        dropoff_lat, dropoff_lng, dropoff_address,
+        trip_type, scheduled_for, storage_requested, driver_preference,
+        market_id, expires_at
+      ) VALUES (
+        ${blastId}, ${riderId}, 'blast', 'active',
+        ARRAY[${`shortcode:${shortcode}`}, ${market.slug}],
+        ${shortcode},
+        ${priceDollars},
+        ${JSON.stringify({
+          shortcode,
+          tripType,
+          scheduledFor: scheduledFor?.toISOString() ?? null,
+          distanceMi: Math.round(distanceMi * 100) / 100,
+        })}::jsonb,
+        ${pickupLat}, ${pickupLng}, ${body.pickup?.address ?? null},
+        ${dropoffLat}, ${dropoffLng}, ${body.dropoff?.address ?? null},
+        ${tripType}, ${scheduledFor}, ${storageRequested}, ${driverPreference},
+        ${market.market_id}, ${expiresAt}
+      )
+    `);
+
+    // Insert all matched drivers with notified_at = NULL so they appear in
+    // the swipe deck. Riders contact drivers individually by swiping right;
+    // there is no auto-fanout. UNIQUE(blast_id, driver_id) guards dupes.
+    const targetIds: { id: string; driverId: string; matchScore: number; distanceMi: number }[] = [];
+    const allMatchedDrivers = [...scoredTargets, ...fallbackDrivers];
+    for (const t of allMatchedDrivers) {
+      const inserted = await runQuery('insert_blast_driver_target', () => sql`
+        INSERT INTO blast_driver_targets (
+          blast_id, driver_id, match_score, score_breakdown,
+          notification_channels, notified_at
+        ) VALUES (
+          ${blastId}, ${t.driverId}, ${t.matchScore},
+          ${JSON.stringify(t.scoreBreakdown)}::jsonb,
+          ARRAY[]::text[],
+          NULL
+        )
+        ON CONFLICT (blast_id, driver_id) DO UPDATE
+          SET match_score = EXCLUDED.match_score,
+              score_breakdown = EXCLUDED.score_breakdown
+        RETURNING id
+      `);
+      const row = inserted[0] as { id: string };
+      targetIds.push({ id: row.id, driverId: t.driverId, matchScore: t.matchScore, distanceMi: t.distanceMi });
+    }
+
+    // ── 7b. Funnel observability (fire-and-forget) ──
+    // Per contract §9: every (blast, driver) pair gets logged. blast_match_log
+    // is the long-term training source; blast_driver_events is the funnel
+    // timeline. Stream D's /admin/blast/[id] page reads both. Failures here
+    // never block the rider's response (NFR-19).
+    const allCandidates = matchResult.candidates;
+    const notifiedSet = new Set(matchResult.notifiedDriverIds);
+    void writeMatchLog({
+      blastId,
+      candidates: allCandidates,
+      notifiedDriverIds: matchResult.notifiedDriverIds,
+      configVersion: matchResult.configVersion,
+      providerName: matchResult.providerName,
+      experimentArmId: matchResult.experimentArmId,
+    });
+    for (const c of allCandidates) {
+      void writeBlastEvent({
+        blastId,
+        driverId: c.driverId,
+        eventType: 'candidate_considered',
+        source: 'matcher',
+        data: { score: c.score },
+      });
+      void writeBlastEvent({
+        blastId,
+        driverId: c.driverId,
+        eventType: 'scored',
+        source: 'matcher',
+        data: { score: c.score, scoreBreakdown: c.scoreBreakdown, notified: notifiedSet.has(c.driverId) },
+      });
+    }
+
+    // ── 8. Fanout deferred ──
+    // Drivers are notified one-at-a-time when the rider swipes right in the
+    // swipe deck (POST /api/blast/[id]/hmu-fallback/[targetId]). All targets
+    // are stored with notified_at = NULL so they appear in the swipe deck.
+
+    // ── 9. Publish to blast channel for the rider's live offer board ──
+    publishToChannel(`blast:${blastId}`, 'blast_created', {
+      blastId,
+      expiresAt: expiresAt.toISOString(),
+      targetedCount: targetIds.length,
+      finalRadiusMi,
+      expansionsUsed,
+    }).catch(() => {});
+
+    return NextResponse.json({
+      blastId,
+      shortcode,
+      expiresAt: expiresAt.toISOString(),
+      targetedCount: targetIds.length,
+      finalRadiusMi,
+      expansionsUsed,
+      buildTag: BUILD_TAG,
+      supersededBlastId: superseded.length
+        ? (superseded[0] as { id: string }).id
+        : null,
+    });
+  } catch (e) {
+    console.error('[blast] POST failed:', e);
+    // Surface every diagnostic we have. buildTag confirms the deployed version;
+    // queryName tells us WHICH sql call threw; pgCode/pgPosition/pgWhere/
+    // pgInternalQuery come from the Postgres error object when present.
+    // This is verbose on purpose — once $8 is solved we can dial it back.
+    const err = e as Record<string, unknown>;
+    return NextResponse.json(
+      {
+        error: 'Internal error',
+        detail: e instanceof Error ? e.message : String(e),
+        buildTag: BUILD_TAG,
+        queryName: err.queryName ?? null,
+        pgCode: err.pgCode ?? null,
+        pgPosition: err.pgPosition ?? null,
+        pgWhere: err.pgWhere ?? null,
+        pgInternalQuery: err.pgInternalQuery ?? null,
+        stack: e instanceof Error ? e.stack?.split('\n').slice(0, 8).join('\n') : null,
+      },
+      { status: 500 },
+    );
+  }
+}

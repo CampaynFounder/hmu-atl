@@ -14,10 +14,10 @@ export async function GET(req: NextRequest) {
   try {
     const rows = await sql`
       SELECT
-        u.id, u.profile_type, u.account_status, u.created_at,
-        COALESCE(dp.display_name, dp.first_name, rp.display_name, rp.first_name) as name,
-        dp.phone as driver_phone,
-        dp.handle
+        u.id, u.profile_type, u.account_status, u.created_at, u.phone,
+        COALESCE(dp.display_name, dp.first_name, rp.display_name, rp.handle, rp.first_name) as name,
+        COALESCE(dp.phone, u.phone) as contact_phone,
+        COALESCE(dp.handle, rp.handle) as handle
       FROM users u
       LEFT JOIN driver_profiles dp ON dp.user_id = u.id
       LEFT JOIN rider_profiles rp ON rp.user_id = u.id
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       signups: rows.map((r: Record<string, unknown>) => ({
         id: r.id,
         name: r.name || 'No name',
-        phone: r.driver_phone || null,
+        phone: r.contact_phone || null,
         profileType: r.profile_type,
         accountStatus: r.account_status,
         handle: r.handle,

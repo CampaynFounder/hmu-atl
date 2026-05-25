@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { computeRideBreakdown } from '@/lib/payments/breakdown';
 import ActiveRideClient from './active-ride-client';
 
 export default async function RidePage({ params }: { params: Promise<{ id: string }> }) {
@@ -23,10 +24,15 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
     rideRows = await sql`
       SELECT r.*,
         dp.display_name as driver_name, dp.handle as driver_handle, dp.thumbnail_url as driver_avatar_url, dp.vehicle_info as driver_vehicle_info,
-        rp.display_name as rider_display_name, rp.handle as rider_handle, rp.avatar_url as rider_avatar_url
+        rp.display_name as rider_display_name, rp.handle as rider_handle, rp.avatar_url as rider_avatar_url,
+        rl.lat as last_driver_lat, rl.lng as last_driver_lng
       FROM rides r
       LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
       LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
+      LEFT JOIN LATERAL (
+        SELECT lat, lng FROM ride_locations
+        WHERE ride_id = r.id ORDER BY recorded_at DESC LIMIT 1
+      ) rl ON true
       WHERE r.id = ${rideId} AND (r.driver_id = ${user.id} OR r.rider_id = ${user.id})
       LIMIT 1
     `;
@@ -47,7 +53,8 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
   let addOnTotal = 0;
   try {
     addOnRows = await sql`
-      SELECT id, name, unit_price, quantity, subtotal, status, added_by
+      SELECT id, name, unit_price, quantity, subtotal, status, added_by,
+             stripe_charge_status, error_message
       FROM ride_add_ons
       WHERE ride_id = ${rideId} AND status NOT IN ('removed')
       ORDER BY added_at
@@ -56,6 +63,57 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
       .filter(a => a.status !== 'disputed')
       .reduce((sum, a) => sum + Number(a.subtotal ?? 0), 0);
   } catch { /* non-critical */ }
+
+  // Rider's default payment method — shown in the "confirming" state receipt
+  // so the rider knows which card/wallet the deposit was secured against.
+  // Driver view never needs this, so skip the query for drivers.
+  let riderPaymentBrand: string | null = null;
+  let riderPaymentLast4: string | null = null;
+  if (!isDriver) {
+    try {
+      const pmRows = await sql`
+        SELECT brand, last4 FROM rider_payment_methods
+        WHERE rider_id = ${user.id} AND is_default = true
+        LIMIT 1
+      `;
+      if (pmRows.length) {
+        riderPaymentBrand = (pmRows[0] as Record<string, unknown>).brand as string | null;
+        riderPaymentLast4 = (pmRows[0] as Record<string, unknown>).last4 as string | null;
+      }
+    } catch { /* non-critical */ }
+  }
+
+  // Down Bad sum extra + ride details — fetched from the originating post.
+  let sumExtra: { text: string; mediaUrl: string; mediaType: 'photo' | 'video' } | null = null;
+  let rideDetails: { additionalPassengers: number; kids: number; luggage: 'none' | 'bag' | 'trunk' } | null = null;
+  if (ride.hmu_post_id) {
+    try {
+      const postRows = await sql`
+        SELECT sum_extra_text, sum_extra_media_url, sum_extra_media_type, ride_details
+        FROM hmu_posts
+        WHERE id = ${ride.hmu_post_id as string}
+          AND post_type = 'down_bad'
+          AND sum_extra_media_url IS NOT NULL
+        LIMIT 1
+      `;
+      if (postRows.length) {
+        const p = postRows[0] as Record<string, unknown>;
+        sumExtra = {
+          text: (p.sum_extra_text as string) || '',
+          mediaUrl: (p.sum_extra_media_url as string) || '',
+          mediaType: (p.sum_extra_media_type as 'photo' | 'video') || 'photo',
+        };
+        rideDetails = (p.ride_details as { additionalPassengers: number; kids: number; luggage: 'none' | 'bag' | 'trunk' } | null) ?? null;
+      }
+    } catch { /* non-critical */ }
+  }
+
+  // Ride breakdown — only fetched once the ride has ended so we don't
+  // pay for the extra query on every in-flight render.
+  const endedStatuses = ['ended', 'completed', 'disputed'];
+  const breakdown = endedStatuses.includes(ride.status as string)
+    ? await computeRideBreakdown(rideId).catch(() => null)
+    : null;
 
   return (
     <>
@@ -113,8 +171,26 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
           subtotal: Number(a.subtotal ?? 0),
           status: a.status as string,
           addedBy: (a.added_by as string) || 'rider',
+          chargeStatus: (a.stripe_charge_status as string) || null,
+          errorMessage: (a.error_message as string) || null,
         })),
         addOnTotal,
+        breakdown,
+        cancelRequestedAt: ride.cancel_requested_at
+          ? new Date(ride.cancel_requested_at as string).toISOString()
+          : null,
+        cancelRequestedBy: (ride.cancel_requested_by as 'rider' | 'driver' | null) ?? null,
+        cancelRequestReason: (ride.cancel_request_reason as string) || null,
+        cancelResolution: (ride.cancel_resolution as string) || null,
+        visibleDeposit: Number(ride.visible_deposit ?? 0),
+        pricingModeKey: (ride.pricing_mode_key as string) || 'legacy_full_fare',
+        riderPaymentBrand,
+        riderPaymentLast4,
+        hmuPostId: (ride.hmu_post_id as string) || null,
+        sumExtra,
+        rideDetails,
+        initialDriverLat: ride.last_driver_lat ? Number(ride.last_driver_lat) : null,
+        initialDriverLng: ride.last_driver_lng ? Number(ride.last_driver_lng) : null,
       }}
       mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''}
     />

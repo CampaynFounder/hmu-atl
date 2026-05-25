@@ -4,12 +4,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/client';
-import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { publishAdminEvent } from '@/lib/ably/server';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'grow.convagent.edit')) return unauthorizedResponse();
 
   const { id } = await params;
   const { reason } = (await req.json().catch(() => ({}))) as { reason?: string };

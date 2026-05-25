@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { requireAdmin, logAdminAction } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 
 const ALLOWED_STATUSES = ['setup', 'soft_launch', 'live', 'paused'] as const;
@@ -14,7 +14,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const admin = await requireAdmin();
-  if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+  if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'admin.markets.edit')) return unauthorizedResponse();
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));

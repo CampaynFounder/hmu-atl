@@ -5,6 +5,7 @@ import {
   checkRiderEligibility,
   createDirectBookingPost,
   getActiveDirectBooking,
+  checkRiderRequestConflict,
 } from '@/lib/db/direct-bookings';
 import { notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyDriverNewBooking } from '@/lib/sms/textbee';
@@ -17,13 +18,11 @@ import {
 import { logSuspectEvent } from '@/lib/admin/suspect-events';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
+import { driverAllowsCashOnly } from '@/lib/payments/strategies';
 import { parseRoute, resolveProvidedSlugs } from '@/lib/markets/parse-areas';
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
+import { getPlatformConfig } from '@/lib/platform-config/get';
 
-// Cap total booking submissions per rider per hour. The structural
-// getActiveDirectBooking() check already prevents duplicate active bookings
-// to the SAME driver, so this only has to cover aggregate spam across drivers.
-const LIMIT_BOOKINGS_PER_HOUR = 5;
 
 /** Strip city, state, zip, directional prefixes from address for shorter SMS */
 function stripAddress(addr: string): string {
@@ -81,13 +80,26 @@ export async function POST(
   const driverProfile = driverRows[0] as { user_id: string; areas: string[]; enforce_minimum: boolean; accepts_cash: boolean | null; cash_only: boolean | null; min_ride_price: number | null };
   const driverUserId = driverProfile.user_id;
 
+  const bookingCfg = await getPlatformConfig('direct_booking.config', {
+    expiry_minutes: 15,
+    rate_limit_per_rider_hour: 5,
+    rate_limit_per_rider_day: 15,
+  });
+  const bookingRateLimitHour = Math.max(1, Number(bookingCfg.rate_limit_per_rider_hour) || 5);
+  const bookingRateLimitDay = Math.max(1, Number(bookingCfg.rate_limit_per_rider_day) || 15);
+
   // Clamp is_cash to the driver's payment config — never trust the client.
   // Keeps the driver SMS, payment gate, and scheduling policy in sync with
   // what the driver actually offers, regardless of stale chat state.
   //   cash_only             → forced true
   //   !accepts_cash         → forced false (digital-only driver)
   //   accepts_cash + !cash_only → honor rider's choice
-  const resolvedIsCash = driverProfile.cash_only === true
+  // Then: active pricing strategy gets the final say. Deposit-only requires a
+  // digital deposit on every ride, so cash_only is forced off when active.
+  const cashAllowed = await driverAllowsCashOnly(driverUserId);
+  const resolvedIsCash = !cashAllowed
+    ? false
+    : driverProfile.cash_only === true
     ? true
     : driverProfile.accepts_cash !== true
     ? false
@@ -110,7 +122,7 @@ export async function POST(
   // "spam one driver" case, so we only cap aggregate spam.
   const bookRate = await checkRateLimit({
     key: `book:rider:${rider.id}`,
-    limit: LIMIT_BOOKINGS_PER_HOUR,
+    limit: bookingRateLimitHour,
     windowSeconds: 3600,
   });
   if (!bookRate.ok) {
@@ -121,7 +133,7 @@ export async function POST(
     });
     return NextResponse.json(
       {
-        error: 'You\'ve submitted a lot of booking requests lately. Give the drivers a chance to respond, then try again in a bit.',
+        error: `You've submitted a lot of booking requests lately. Give the drivers a chance to respond, then try again in a bit.`,
         code: 'booking_rate_limit',
         retryAfter: bookRate.retryAfterSeconds,
       },
@@ -169,7 +181,10 @@ export async function POST(
   }
 
   // Re-run eligibility server-side (never trust client)
-  const eligibility = await checkRiderEligibility(rider.id, driverUserId, resolvedIsCash);
+  const eligibility = await checkRiderEligibility(rider.id, driverUserId, resolvedIsCash, {
+    hourly: bookingRateLimitHour,
+    daily: bookingRateLimitDay,
+  });
   if (!eligibility.eligible) {
     return NextResponse.json({ error: eligibility.reason, code: eligibility.code }, { status: 403 });
   }
@@ -202,6 +217,31 @@ export async function POST(
   if (!avail.available && avail.conflict) {
     return NextResponse.json(
       { error: 'This driver already has a booking at that time. Try a different time.', code: 'schedule_conflict' },
+      { status: 409 }
+    );
+  }
+
+  // Prevent duplicate pending requests: a rider cannot have an active blast
+  // or any other direct booking that overlaps this time window.
+  const riderConflict = await checkRiderRequestConflict(rider.id, window.startAt, window.endAt);
+  if (riderConflict) {
+    if (riderConflict.code === 'ACTIVE_BLAST_EXISTS') {
+      return NextResponse.json(
+        {
+          error: 'Cancel your active blast before sending a direct request.',
+          code: 'ACTIVE_BLAST_EXISTS',
+          postId: riderConflict.postId,
+        },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json(
+      {
+        error: 'You already have a pending request for that time. Cancel it before sending another.',
+        code: 'TIME_WINDOW_CONFLICT',
+        postId: riderConflict.postId,
+        expiresAt: riderConflict.expiresAt,
+      },
       { status: 409 }
     );
   }
@@ -244,6 +284,8 @@ export async function POST(
     }
   }
 
+  const expiryMinutes = Math.max(1, Math.min(60, Number(bookingCfg.expiry_minutes) || 15));
+
   const post = await createDirectBookingPost({
     riderId: rider.id,
     driverUserId,
@@ -255,6 +297,7 @@ export async function POST(
     dropoffInMarket: route.dropoff_in_market,
     timeWindow: resolvedTimeWindow,
     isCash: resolvedIsCash,
+    expiryMinutes,
   });
 
   // Always create a tentative hold — "now" bookings need the same
@@ -327,7 +370,7 @@ export async function POST(
       if (!payoutSetup) {
         smsMsg = `HMU: ${riderName} wants a ride. $${price}${dest ? ' ' + dest : ''}${cashSuffix}. Link payout: atl.hmucashride.com/driver/payout-setup`;
       } else {
-        smsMsg = `HMU: ${riderName} wants a ride. $${price}${dest ? ' ' + dest : ''}${cashSuffix}. 15min. atl.hmucashride.com/driver/home`;
+        smsMsg = `HMU: ${riderName} wants a ride. $${price}${dest ? ' ' + dest : ''}${cashSuffix}. ${expiryMinutes}min. atl.hmucashride.com/driver/home`;
       }
       // Truncate to 160 if still too long
       if (smsMsg.length > 160) smsMsg = smsMsg.slice(0, 157) + '...';
@@ -359,7 +402,7 @@ export async function POST(
     console.error('[BOOK-SMS] Error:', e);
   }
 
-  return NextResponse.json({ postId: post.id, expiresAt: post.booking_expires_at }, { status: 201 });
+  return NextResponse.json({ postId: post.id, expiresAt: post.booking_expires_at, expiryMinutes }, { status: 201 });
 }
 
 // DELETE — rider cancels their active booking request

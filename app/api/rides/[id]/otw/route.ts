@@ -32,7 +32,7 @@ export async function POST(
 
     // Require COO before OTW
     if (!ride.coo_at) {
-      return NextResponse.json({ error: 'Waiting for rider to send COO — they need to confirm payment and share location' }, { status: 400 });
+      return NextResponse.json({ error: 'Waiting for rider to Pull Up — they need to confirm payment and share location' }, { status: 400 });
     }
 
     const deadlineMinutes = parseInt(process.env.OTW_DEADLINE_MINUTES || '10');

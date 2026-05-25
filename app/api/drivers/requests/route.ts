@@ -14,7 +14,7 @@ export async function GET() {
 
   // Driver routing preferences
   const prefRows = await sql`
-    SELECT accepts_cash, cash_only, area_slugs, services_entire_market, accepts_long_distance
+    SELECT accepts_cash, cash_only, area_slugs, services_entire_market, accepts_long_distance, accepts_down_bad
     FROM driver_profiles WHERE user_id = ${driverUserId} LIMIT 1
   `;
   const driverPrefs = (prefRows[0] || {}) as {
@@ -23,6 +23,7 @@ export async function GET() {
     area_slugs: string[] | null;
     services_entire_market: boolean;
     accepts_long_distance: boolean;
+    accepts_down_bad: boolean;
   };
   const driverAreaSlugs = Array.isArray(driverPrefs.area_slugs) ? driverPrefs.area_slugs : [];
 
@@ -72,7 +73,6 @@ export async function GET() {
         SELECT 1 FROM ride_interests ri
         WHERE ri.post_id = p.id
           AND ri.driver_id = ${driverUserId}
-          AND ri.status = 'passed'
       )
       AND (
         -- Direct booking targeting this driver (not area-gated)
@@ -118,16 +118,99 @@ export async function GET() {
     ORDER BY p.created_at DESC
   `;
 
+  // ── Blast requests — blasts where this driver was notified (initial fanout
+  // OR rider swiped HMU on them as a fallback) and hasn't yet responded. ──────
+  // Separate query so we don't need a UNION that forces identical column shapes.
+  const blastRows = await sql`
+    SELECT
+      p.id,
+      p.status,
+      p.price,
+      p.expires_at,
+      p.created_at,
+      p.pickup_area_slug,
+      p.dropoff_area_slug,
+      p.dropoff_in_market,
+      p.pickup_address,
+      p.dropoff_address,
+      p.scheduled_for,
+      p.is_cash,
+      COALESCE(rp.handle, rp.display_name, 'Rider') AS rider_name,
+      rp.handle                                       AS rider_handle,
+      COALESCE(rp.thumbnail_url, rp.avatar_url)       AS rider_avatar_url,
+      rp.video_url                                    AS rider_video_url,
+      u2.chill_score      AS rider_chill_score,
+      u2.completed_rides  AS rider_completed_rides,
+      bdt.id              AS target_id
+    FROM hmu_posts p
+    JOIN blast_driver_targets bdt
+      ON bdt.blast_id = p.id
+     AND bdt.driver_id = ${driverUserId}
+     AND bdt.notified_at IS NOT NULL
+     AND bdt.hmu_at      IS NULL
+     AND bdt.passed_at   IS NULL
+     AND bdt.rejected_at IS NULL
+    LEFT JOIN rider_profiles rp ON rp.user_id = p.user_id
+    LEFT JOIN users u2          ON u2.id       = p.user_id
+    WHERE p.post_type = 'blast'
+      AND p.status    = 'active'
+      AND p.expires_at > NOW()
+    ORDER BY bdt.notified_at DESC
+  `;
+
+  const blastRequests = blastRows.map((row: Record<string, unknown>) => {
+    const createdAt = new Date(row.created_at as string);
+    const minutesAgo = (Date.now() - createdAt.getTime()) / 60000;
+    // Human-readable time label matching the SMS copy pattern.
+    const scheduledFor = row.scheduled_for ? new Date(row.scheduled_for as string) : null;
+    const timeLabel = (() => {
+      if (!scheduledFor) return 'now';
+      const minutes = Math.round((scheduledFor.getTime() - Date.now()) / 60_000);
+      if (minutes <= 5) return 'now';
+      if (minutes < 60) return `in ${minutes} min`;
+      const hours = Math.round(minutes / 60);
+      if (hours < 12) return `in ~${hours}h`;
+      return scheduledFor.toLocaleDateString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+    })();
+    return {
+      id: row.id as string,
+      type: 'blast' as const,
+      locked: false,
+      targetId: row.target_id as string,
+      riderName: (row.rider_name as string) ?? 'Rider',
+      riderHandle: (row.rider_handle as string) || null,
+      riderAvatarUrl: (row.rider_avatar_url as string) || null,
+      riderVideoUrl: (row.rider_video_url as string) || null,
+      riderChillScore: Number(row.rider_chill_score ?? 0),
+      riderCompletedRides: Number(row.rider_completed_rides ?? 0),
+      isCash: Boolean(row.is_cash),
+      pickupAreaSlug: (row.pickup_area_slug as string) || null,
+      dropoffAreaSlug: (row.dropoff_area_slug as string) || null,
+      dropoffInMarket: row.dropoff_in_market !== false,
+      // Blasts use structured address columns, not time_window JSON.
+      destination: (row.dropoff_address as string) || (row.dropoff_area_slug as string) || '',
+      pickupAddress: (row.pickup_address as string) || '',
+      time: timeLabel,
+      stops: '',
+      roundTrip: false,
+      price: Number(row.price ?? 0),
+      expiresAt: row.expires_at,
+      createdAt: row.created_at,
+      riderOnline: minutesAgo < 30,
+    };
+  });
+
   const requests = rows.map((row: Record<string, unknown>) => {
     const tw = (row.time_window ?? {}) as Record<string, unknown>;
     const createdAt = new Date(row.created_at as string);
     const minutesAgo = (Date.now() - createdAt.getTime()) / 60000;
     const locked = row.status === 'declined_awaiting_rider';
     return {
-      id: row.id,
-      type: row.post_type === 'direct_booking' ? 'direct' : 'open',
+      id: row.id as string,
+      type: (row.post_type === 'direct_booking' ? 'direct' : 'open') as 'direct' | 'open',
       locked,
-      riderName: row.rider_name ?? 'Rider',
+      targetId: null,
+      riderName: (row.rider_name as string) ?? 'Rider',
       riderHandle: (row.rider_handle as string) || null,
       riderAvatarUrl: (row.rider_avatar_url as string) || null,
       riderVideoUrl: (row.rider_video_url as string) || null,
@@ -138,6 +221,7 @@ export async function GET() {
       dropoffAreaSlug: (row.dropoff_area_slug as string) || null,
       dropoffInMarket: row.dropoff_in_market !== false,
       destination: tw.destination ?? tw.message ?? tw.note ?? '',
+      pickupAddress: '',
       time: tw.time ?? '',
       stops: tw.stops ?? '',
       roundTrip: tw.round_trip === true,
@@ -148,17 +232,42 @@ export async function GET() {
     };
   });
 
+  // Merge: blast requests surface first (rider personally HMU'd the driver),
+  // then regular broadcast/direct requests.
+  const merged = [...blastRequests, ...requests];
+
   // Cash-preference filtering
-  type Req = typeof requests[number];
-  let filtered: Req[] = requests;
+  type Req = typeof merged[number];
+  let filtered: Req[] = merged;
   if (driverPrefs.cash_only) {
-    filtered = requests.filter((r: Req) => r.isCash === true);
+    filtered = merged.filter((r: Req) => r.isCash === true);
   } else if (!driverPrefs.accepts_cash) {
     filtered = [
-      ...requests.filter((r: Req) => r.isCash !== true),
-      ...requests.filter((r: Req) => r.isCash === true),
+      ...merged.filter((r: Req) => r.isCash !== true),
+      ...merged.filter((r: Req) => r.isCash === true),
     ];
   }
 
-  return NextResponse.json({ requests: filtered });
+  // Down Bad count — for opted-in drivers, surface how many posts are waiting
+  // in their swipe deck so the home screen can show an entry card.
+  let downBadCount = 0;
+  if (driverPrefs.accepts_down_bad) {
+    const countRows = await sql`
+      SELECT COUNT(*) AS n
+      FROM hmu_posts p
+      WHERE p.post_type = 'down_bad'
+        AND p.status = 'active'
+        AND p.expires_at > NOW()
+        AND p.market_id = ${driverMarketId}
+        AND NOT EXISTS (
+          SELECT 1 FROM ride_interests ri
+          WHERE ri.post_id = p.id
+            AND ri.driver_id = ${driverUserId}
+            AND ri.status = 'passed'
+        )
+    `;
+    downBadCount = Number((countRows[0] as Record<string, unknown>).n ?? 0);
+  }
+
+  return NextResponse.json({ requests: filtered, downBadCount });
 }

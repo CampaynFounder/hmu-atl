@@ -7,7 +7,7 @@ export default async function DriverRidesPage() {
   const { userId: clerkId } = await auth();
   if (!clerkId) redirect('/sign-in');
 
-  const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+  const userRows = await sql`SELECT id, profile_type FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
   if (!userRows.length) redirect('/onboarding?type=driver');
   const userId = (userRows[0] as { id: string }).id;
 
@@ -30,6 +30,7 @@ export default async function DriverRidesPage() {
 
   return (
     <MyRidesClient
+      currentUserId={userId}
       rides={rides.map((r: Record<string, unknown>) => {
         const summary = (r.agreement_summary || {}) as Record<string, unknown>;
         return {

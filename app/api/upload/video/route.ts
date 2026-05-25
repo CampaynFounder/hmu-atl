@@ -3,7 +3,9 @@ import { auth } from '@clerk/nextjs/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { sql } from '@/lib/db/client';
 
-const R2_PUBLIC_URL = 'https://pub-649c30e78a62433eb6ed9cb1209d112a.r2.dev';
+const R2_PUBLIC_URL =
+  process.env.NEXT_PUBLIC_R2_PUBLIC_URL ??
+  'https://pub-649c30e78a62433eb6ed9cb1209d112a.r2.dev';
 
 // Resolve the uploader's market slug for R2 key prefixing. Existing objects
 // uploaded before market prefixing (2026-04 and earlier) have keys without a
@@ -116,9 +118,12 @@ export async function POST(request: NextRequest) {
               WHERE user_id = ${userId}
             `;
           } else {
+            // Driver profile photo: write to thumbnail_url (what the swipe card reads)
+            // AND vehicle_info.photo_url (legacy / vehicle display).
             await sql`
               UPDATE driver_profiles
-              SET vehicle_info = jsonb_set(COALESCE(vehicle_info, '{}')::jsonb, '{photo_url}', ${JSON.stringify(publicUrl)}::jsonb)
+              SET thumbnail_url = ${publicUrl},
+                  vehicle_info = jsonb_set(COALESCE(vehicle_info, '{}')::jsonb, '{photo_url}', ${JSON.stringify(publicUrl)}::jsonb)
               WHERE user_id = ${userId}
             `;
           }
@@ -136,9 +141,12 @@ export async function POST(request: NextRequest) {
               WHERE user_id = ${userId}
             `;
           } else {
+            // avatar_url is the legacy column; thumbnail_url is what the blast
+            // API photo gate and driver card hero both read — set both so
+            // either path that checks either column sees the photo.
             await sql`
               UPDATE rider_profiles
-              SET avatar_url = ${publicUrl}
+              SET avatar_url = ${publicUrl}, thumbnail_url = ${publicUrl}
               WHERE user_id = ${userId}
             `;
           }

@@ -1,11 +1,29 @@
-// Minimal rider profile update endpoint. Scoped to fields the rider
-// onboarding flows need (handle, ride_types, home_area_slug); broaden as
-// new flows ship rather than upfront — keeps the surface area honest.
+// Rider profile endpoint. GET returns basic profile fields (gender, handle)
+// for pre-populating flows. PATCH updates the profile.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { updateRiderProfile } from '@/lib/db/profiles';
+import { createUser } from '@/lib/db/users';
+
+export async function GET(_req: NextRequest) {
+  const { userId: clerkId } = await auth();
+  if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const rows = await sql`
+    SELECT rp.gender, rp.handle
+    FROM rider_profiles rp
+    JOIN users u ON u.id = rp.user_id
+    WHERE u.clerk_id = ${clerkId}
+    LIMIT 1
+  `;
+
+  if (!rows.length) return NextResponse.json({ gender: null, handle: null });
+  const row = rows[0] as { gender: string | null; handle: string | null };
+  return NextResponse.json({ gender: row.gender ?? null, handle: row.handle ?? null });
+}
 
 const SLUG_RE = /^[a-z0-9_]{1,32}$/;
 const HANDLE_RE = /^[a-z0-9_-]+$/;
@@ -19,7 +37,21 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
 
   // Build a partial patch — anything `undefined` is ignored downstream.
-  const patch: { handle?: string; ride_types?: string[]; home_area_slug?: string | null } = {};
+  const patch: {
+    handle?: string;
+    ride_types?: string[];
+    home_area_slug?: string | null;
+    avatar_url?: string;
+    gender?: string;
+  } = {};
+
+  if (typeof body.avatar_url === 'string' && body.avatar_url.startsWith('https://')) {
+    patch.avatar_url = body.avatar_url;
+  }
+
+  if (typeof body.gender === 'string' && ['man', 'woman', 'nonbinary'].includes(body.gender)) {
+    patch.gender = body.gender;
+  }
 
   if (typeof body.handle === 'string') {
     const normalized = body.handle.trim().toLowerCase().replace(/\s+/g, '');
@@ -52,11 +84,69 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
   }
 
-  const userRows = await sql`
+  let userRows = await sql`
     SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1
   `;
+
+  // Blast signup race: the Clerk user.updated webhook fires asynchronously and
+  // may not have created the Neon users row yet by the time this PATCH arrives.
+  // Create a minimal row here so the profile upsert + blast POST can proceed.
+  if (userRows.length === 0) {
+    try {
+      const cc = await clerkClient();
+      const clerkUser = await cc.users.getUser(clerkId);
+      const verifiedPhone = clerkUser.phoneNumbers.find(p => p.verification?.status === 'verified')?.phoneNumber ?? null;
+      await createUser({
+        clerk_id: clerkId,
+        profile_type: 'rider',
+        phone: verifiedPhone ?? '',
+        signup_source: 'direct',
+        referred_by_driver_id: null,
+        market_id: null,
+      });
+      userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    } catch (e) {
+      console.error('[rider/profile] failed to bootstrap users row:', e);
+    }
+  }
+
   if (userRows.length === 0) return NextResponse.json({ error: 'User not found' }, { status: 404 });
   const userId = userRows[0].id as string;
+
+  // Blast funnel signups reach this endpoint before the full onboarding flow
+  // runs, so rider_profiles may not exist yet. Upsert a minimal row using
+  // Clerk name data so updateRiderProfile never throws "not found".
+  // Use the handle as display_name so blast riders don't end up with "Rider".
+  try {
+    const existingRows = await sql`
+      SELECT id, display_name FROM rider_profiles WHERE user_id = ${userId} LIMIT 1
+    `;
+    if (!existingRows.length) {
+      const clerk = await clerkClient();
+      const clerkUser = await clerk.users.getUser(clerkId);
+      // Don't fall back to 'Rider' — use null so the handle becomes the identity.
+      const firstName = clerkUser.firstName || null;
+      const lastName = clerkUser.lastName || null;
+      // For blast riders who only have a handle, surface it as display_name.
+      const displayName = patch.handle || firstName || null;
+      await sql`
+        INSERT INTO rider_profiles (user_id, first_name, last_name, display_name, safety_preferences)
+        VALUES (${userId}, ${firstName ?? ''}, ${lastName ?? ''}, ${displayName}, '{}')
+        ON CONFLICT (user_id) DO NOTHING
+      `;
+    } else if (!existingRows[0].display_name && patch.handle) {
+      // Row exists but display_name was never set — backfill with handle so the
+      // profile page doesn't fall through to the 'Rider' default.
+      await sql`
+        UPDATE rider_profiles
+        SET display_name = COALESCE(display_name, ${patch.handle})
+        WHERE user_id = ${userId}
+      `;
+    }
+  } catch {
+    // Non-fatal — updateRiderProfile will throw its own error if the row
+    // still doesn't exist after this, handled below.
+  }
 
   try {
     const updated = await updateRiderProfile(userId, patch);
@@ -67,8 +157,6 @@ export async function PATCH(req: NextRequest) {
       home_area_slug: updated.home_area_slug,
     });
   } catch (err) {
-    // 23505 = unique_violation. Race against another rider claiming the same
-    // handle between the check and the write.
     const msg = err instanceof Error ? err.message : '';
     if (/duplicate key|unique/i.test(msg)) {
       return NextResponse.json({ error: 'Handle already taken' }, { status: 409 });

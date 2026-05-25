@@ -42,12 +42,13 @@ export default function SafetySettings() {
   }
 
   return (
-    <div style={{
+    <div id="safety-checkins" style={{
       background: '#141414',
       border: '1px solid rgba(255,255,255,0.08)',
       borderRadius: 20,
       padding: 20,
       marginBottom: 16,
+      scrollMarginTop: 80,
     }}>
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14,

@@ -6,6 +6,7 @@ import { holdRiderPayment } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 import { getDriverMenuForRider } from '@/lib/db/service-menu';
 import { getHoldPolicy, calculateDepositAmount } from '@/lib/payments/hold-policy';
+import { driverAllowsCashOnly, resolvePricingStrategy } from '@/lib/payments/strategies';
 
 export async function POST(
   req: NextRequest,
@@ -40,8 +41,27 @@ export async function POST(
       return NextResponse.json({ error: `Cannot COO from status: ${ride.status}` }, { status: 400 });
     }
 
+    // Idempotency: if payment was already held (partial success on a prior tap), skip hold
+    if (ride.funds_held && ride.payment_intent_id) {
+      return NextResponse.json({
+        status: 'coo',
+        rideId,
+        paymentHeld: true,
+        visibleDeposit: Number(ride.visible_deposit ?? 0),
+        holdMode: ride.pricing_mode_key ?? null,
+        ridePrice: Number(ride.final_agreed_price || ride.amount || 0),
+        idempotent: true,
+      });
+    }
+
     // ── Skip payment hold for cash rides ──
-    const isCashRide = !!(ride.is_cash);
+    // The active pricing strategy gets the final say. When the strategy
+    // disallows cash-only (deposit_only), we ignore ride.is_cash so legacy
+    // rides created before the booking-route fix still flow through Stripe.
+    const cashAllowed = ride.driver_id
+      ? await driverAllowsCashOnly(ride.driver_id as string)
+      : true;
+    const isCashRide = cashAllowed && !!(ride.is_cash);
     let visibleDeposit: number | null = null;
     let holdMode: string | null = null;
     let cooAgreedPrice = Number(ride.final_agreed_price || ride.amount || 0);
@@ -86,7 +106,9 @@ export async function POST(
       // Non-critical — proceed without reserve
     }
 
-    // Look up hold policy for the driver's tier to calculate visible deposit
+    // Look up hold policy for the driver's tier to calculate visible deposit.
+    // (Strategy resolver inside holdRiderPayment owns the actual deposit
+    // decision; this pre-calc is kept only to populate hold_policy_id below.)
     const driverTierRows = await sql`SELECT tier FROM users WHERE id = ${ride.driver_id} LIMIT 1`;
     const driverTier = ((driverTierRows[0] as Record<string, unknown>)?.tier as string) || 'free';
     const holdPolicy = await getHoldPolicy(driverTier);
@@ -95,35 +117,52 @@ export async function POST(
     holdMode = depositCalc.holdMode;
     cooAgreedPrice = agreedPrice;
 
-    // Hold the payment (Stripe always authorizes full amount for capture ability)
-    // The visible deposit is stored on the ride for cancellation cap calculations.
-    // If the full hold (base + reserve) fails, retry with base only.
+    // Read the driver's per-driver deposit floor (used by deposit_only mode;
+    // legacy_full_fare ignores it).
+    const driverFloorRows = await sql`SELECT deposit_floor FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1`;
+    const driverDepositFloor = (driverFloorRows[0] as Record<string, unknown>)?.deposit_floor as number | null | undefined;
+    const selectedDeposit = driverDepositFloor != null ? Number(driverDepositFloor) : undefined;
+
+    // Hold the payment. The strategy resolved from the driver's cohort
+    // controls how much we authorize:
+    //   legacy_full_fare → full ride price + add-on reserve (current behavior)
+    //   deposit_only → just the rider-selected deposit
+    // If the full hold fails, retry without the add-on reserve.
     try {
-      await holdRiderPayment({
+      const result = await holdRiderPayment({
         rideId,
         agreedPrice,
         addOnReserve,
+        selectedDeposit,
         stripeCustomerId,
         paymentMethodId,
         driverStripeAccountId,
         riderId: userId,
         driverId: ride.driver_id as string,
+        driverTier: driverTier as 'free' | 'hmu_first',
       });
+      // Strategy may have produced a different visible_deposit from the
+      // pre-calc above (e.g. deposit_only clamps the rider's selection).
+      // Trust the hold result.
+      visibleDeposit = result.visibleDeposit;
     } catch (e) {
       if (addOnReserve > 0) {
         // Retry without the add-on reserve — card may only cover the ride
         console.warn('Full hold failed, retrying without add-on reserve:', e);
         try {
-          await holdRiderPayment({
+          const result = await holdRiderPayment({
             rideId,
             agreedPrice,
             addOnReserve: 0,
+            selectedDeposit,
             stripeCustomerId,
             paymentMethodId,
             driverStripeAccountId,
             riderId: userId,
             driverId: ride.driver_id as string,
+            driverTier: driverTier as 'free' | 'hmu_first',
           });
+          visibleDeposit = result.visibleDeposit;
           addOnReserve = 0; // Reset so DB reflects no reserve
         } catch (e2) {
           console.error('Payment hold failed (no reserve):', e2);
@@ -137,11 +176,12 @@ export async function POST(
       }
     }
 
-    // Store the visible deposit amount on the ride for cancellation/no-show calculations
+    // visible_deposit is now written by holdRiderPayment based on the active
+    // pricing strategy. We still pin the legacy hold_policy_id for ledger /
+    // cancellation paths that read it (deposit-only paths read pricing_modes
+    // instead — those don't depend on hold_policy_id).
     await sql`
-      UPDATE rides SET
-        visible_deposit = ${depositCalc.visibleDeposit},
-        hold_policy_id = ${holdPolicy.id}
+      UPDATE rides SET hold_policy_id = ${holdPolicy.id}
       WHERE id = ${rideId}
     `;
     } // end if (!isCashRide)
@@ -149,6 +189,14 @@ export async function POST(
     // Prepare validated stops as JSONB (with reached_at/verified fields for tracking)
     const stopsJson = validatedStops?.length
       ? JSON.stringify(validatedStops.map(s => ({ ...s, reached_at: null, verified: false })))
+      : null;
+
+    // Resolve the pricing strategy now so we can stamp it on the row.
+    // Digital rides also stamp inside holdRiderPayment, but the cash branch
+    // doesn't go through there — so this is the single point that covers
+    // both paths.
+    const cooStrategy = ride.driver_id
+      ? await resolvePricingStrategy(ride.driver_id as string)
       : null;
 
     // Update ride with rider location, validated addresses, and COO status
@@ -165,6 +213,7 @@ export async function POST(
         dropoff_lat = ${validatedDropoff?.latitude || null},
         dropoff_lng = ${validatedDropoff?.longitude || null},
         stops = ${stopsJson}::jsonb,
+        pricing_mode_key = COALESCE(pricing_mode_key, ${cooStrategy?.modeKey ?? null}),
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'matched'
     `;

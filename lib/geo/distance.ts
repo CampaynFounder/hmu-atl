@@ -176,6 +176,22 @@ export function isWithinProximity(
   return { within: feet <= thresholdFeet, distanceFeet: Math.round(feet) };
 }
 
+/**
+ * Estimate how long a driver's time should be blocked for a trip.
+ * Uses straight-line distance at 25 mph city average plus a 10-minute
+ * buffer for pickup and loading. Clamped to [20, 90] minutes.
+ */
+export function estimateTripBlockMinutes(
+  pickup: Coordinates,
+  dropoff: Coordinates,
+  avgSpeedMph = 25,
+  bufferMinutes = 10,
+): number {
+  const miles = calculateDistance(pickup, dropoff);
+  const tripMinutes = (miles / avgSpeedMph) * 60;
+  return Math.min(90, Math.max(20, Math.ceil(tripMinutes) + bufferMinutes));
+}
+
 // Helper: Convert degrees to radians
 function toRadians(degrees: number): number {
   return degrees * (Math.PI / 180);

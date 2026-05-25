@@ -3,6 +3,10 @@
     "remotion": {
       "command": "npx",
       "args": ["@remotion/mcp@latest"]
+    },
+    "neon": {
+      "command": "npx",
+      "args": ["-y", "@neondatabase/mcp-server-neon"]
     }
   }
 }
