@@ -498,6 +498,22 @@ export default function BookingDrawer({ driver, onClose, isAuthenticated = true 
                   {submitting ? 'Sending...' : isAuthenticated ? `Send to ${displayName}` : 'Continue'}
                 </button>
               </div>
+
+              {driver.acceptsDownBad && isAuthenticated && (
+                <a
+                  href={`/rider/down-bad/new?driver=${handle}`}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    marginTop: 10, padding: '13px 0', borderRadius: 100,
+                    border: '1.5px solid rgba(255,255,255,0.15)',
+                    background: 'transparent', color: '#ddd',
+                    fontFamily: 'inherit', fontWeight: 700, fontSize: 15,
+                    textDecoration: 'none', width: '100%', textAlign: 'center',
+                  }}
+                >
+                  <span>😮‍💨</span> Send Down Bad Offer
+                </a>
+              )}
             </div>
           </>
         )}
