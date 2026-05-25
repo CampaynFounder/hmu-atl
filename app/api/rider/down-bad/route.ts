@@ -192,6 +192,7 @@ export async function POST(req: NextRequest) {
         pickup_lat, pickup_lng, pickup_address,
         dropoff_lat, dropoff_lng, dropoff_address,
         price, scheduled_for, expires_at, areas,
+        time_window,
         sum_extra_text, sum_extra_media_url, sum_extra_media_type,
         target_driver_id
       ) VALUES (
@@ -200,6 +201,7 @@ export async function POST(req: NextRequest) {
         ${dropoff_lat}, ${dropoff_lng}, ${dropoff_address},
         ${price}, ${scheduled_for ?? null}, ${expiresAt},
         ${[market.slug.toUpperCase()]},
+        ${'{}'},
         ${sum_extra_text.trim()},
         ${sum_extra_media_url},
         ${sum_extra_media_type},
