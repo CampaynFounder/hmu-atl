@@ -92,7 +92,7 @@ export default function DriverDownBadClient() {
       if (!res.ok) throw new Error(data.error || 'Failed');
       dismiss(currentPost.id);
       showToast('Ride matched — let\'s go! 🔥');
-      if (data.rideId) router.push(`/driver/rides/${data.rideId}`);
+      if (data.rideId) router.push(`/ride/${data.rideId}`);
     } catch (e) {
       showToast((e as Error).message || 'Failed to accept', 'err');
     } finally {
