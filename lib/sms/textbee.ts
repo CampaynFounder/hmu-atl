@@ -269,6 +269,16 @@ export async function notifyRiderBookingAccepted(
   return sendSms(riderPhone, message, { ...options, eventType: 'booking_accepted', rideId });
 }
 
+export async function notifyDriverDownBadPosted(
+  driverPhone: string,
+  price: number,
+  options: SmsOptions = {}
+): Promise<SendSmsResult> {
+  const fallback = `HMU ATL: Down Bad drop! $${price} cash ride just posted. Open the app to run it: atl.hmucashride.com/driver/down-bad`;
+  const message = (await renderTemplate('driver_down_bad_posted', { price: String(price) })) ?? fallback;
+  return sendSms(driverPhone, message, { ...options, eventType: 'driver_down_bad_posted' });
+}
+
 export async function notifyRiderBookingDeclined(
   riderPhone: string,
   driverName: string,
