@@ -118,7 +118,16 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
   // ── Navigation ─────────────────────────────────────────────────────────────
 
   const advance = useCallback(() => {
-    if (!isValid(step)) { setShakeKey(k => k + 1); return; }
+    if (!isValid(step)) {
+      setShakeKey(k => k + 1);
+      if (step === 'sum_extra' && !draft.sumExtraMedia) {
+        setError('Upload a photo or video before posting.');
+      } else if (step === 'sum_extra' && !draft.sumExtraText.trim()) {
+        setError('Describe the sum extra before posting.');
+      }
+      return;
+    }
+    setError('');
     if (stepIdx < STEPS.length - 1) {
       setStepIdx(stepIdx + 1);
     } else {
@@ -126,7 +135,7 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
       if (!disclaimerAccepted) { setShowDisclaimer(true); return; }
       void submit();
     }
-  }, [isValid, step, stepIdx, disclaimerAccepted]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isValid, step, stepIdx, disclaimerAccepted, draft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const back = useCallback(() => {
     if (stepIdx > 0) setStepIdx(stepIdx - 1);
@@ -136,7 +145,10 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
   // ── Submit ─────────────────────────────────────────────────────────────────
 
   const submit = useCallback(async () => {
-    if (submitting || !draft.pickup || !draft.dropoff || !draft.sumExtraMedia) return;
+    if (submitting) return;
+    if (!draft.pickup) { setError('Pickup location is missing.'); return; }
+    if (!draft.dropoff) { setError('Dropoff location is missing.'); return; }
+    if (!draft.sumExtraMedia) { setError('Upload a photo or video first.'); return; }
     setSubmitting(true);
     setError('');
     try {
