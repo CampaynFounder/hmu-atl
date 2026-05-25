@@ -720,6 +720,22 @@ function FeedDriverCard({
           >
             HMU
           </button>
+          {driver.acceptsDownBad && (
+            <a
+              href={`/rider/down-bad/new?driver=${driver.handle}`}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                display: 'block', textAlign: 'center', marginTop: 8,
+                padding: '10px 0', borderRadius: 100,
+                border: '1.5px solid rgba(255,255,255,0.15)',
+                background: 'transparent', color: '#ddd',
+                fontWeight: 700, fontSize: 14, textDecoration: 'none',
+                fontFamily: 'inherit',
+              }}
+            >
+              😮‍💨 Down Bad
+            </a>
+          )}
         </div>
       </div>
     </div>

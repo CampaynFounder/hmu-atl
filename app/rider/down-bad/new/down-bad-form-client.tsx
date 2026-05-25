@@ -379,8 +379,8 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
           disabled={submitting || !configLoaded}
           style={{
             width: '100%', padding: '16px 0',
-            background: isValid(step) ? '#fff' : '#1a1a1a',
-            color: isValid(step) ? '#000' : '#555',
+            background: isValid(step) ? '#00E676' : '#1a1a1a',
+            color: isValid(step) ? '#080808' : '#555',
             fontSize: 16, fontWeight: 800, borderRadius: 100,
             border: 'none', cursor: 'pointer',
             fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
@@ -447,8 +447,8 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
                 disabled={submitting}
                 style={{
                   width: '100%', padding: '15px 0',
-                  background: submitting ? '#333' : '#fff',
-                  color: '#000', fontWeight: 800, fontSize: 16,
+                  background: submitting ? '#333' : '#00E676',
+                  color: '#080808', fontWeight: 800, fontSize: 16,
                   borderRadius: 100, border: 'none', cursor: 'pointer',
                   fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
                 }}

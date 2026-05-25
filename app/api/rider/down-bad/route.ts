@@ -167,7 +167,12 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Resolve market ─────────────────────────────────────────────────────────
-  const market = await resolveMarketForUser(rider.id);
+  let market: Awaited<ReturnType<typeof resolveMarketForUser>>;
+  try {
+    market = await resolveMarketForUser(rider.id);
+  } catch {
+    return NextResponse.json({ error: 'No live market available. Try again later.', code: 'no_market' }, { status: 503 });
+  }
 
   // Cancel any existing active Down Bad post for this rider (one at a time)
   await sql`
@@ -180,38 +185,42 @@ export async function POST(req: NextRequest) {
   const expiresAt = new Date(Date.now() + 4 * 3_600_000); // 4-hour window
 
   // ── Insert ─────────────────────────────────────────────────────────────────
-  const rows = await sql`
-    INSERT INTO hmu_posts (
-      user_id, post_type, market_id, status,
-      pickup_lat, pickup_lng, pickup_address,
-      dropoff_lat, dropoff_lng, dropoff_address,
-      price, scheduled_for, expires_at, areas,
-      sum_extra_text, sum_extra_media_url, sum_extra_media_type,
-      target_driver_id
-    ) VALUES (
-      ${rider.id}, 'down_bad', ${market.market_id}, 'active',
-      ${pickup_lat}, ${pickup_lng}, ${pickup_address},
-      ${dropoff_lat}, ${dropoff_lng}, ${dropoff_address},
-      ${price}, ${scheduled_for ?? null}, ${expiresAt},
-      ${[market.slug.toUpperCase()]},
-      ${sum_extra_text.trim()},
-      ${sum_extra_media_url},
-      ${sum_extra_media_type},
-      ${targetDriverId}
-    )
-    RETURNING id
-  `;
+  try {
+    const rows = await sql`
+      INSERT INTO hmu_posts (
+        user_id, post_type, market_id, status,
+        pickup_lat, pickup_lng, pickup_address,
+        dropoff_lat, dropoff_lng, dropoff_address,
+        price, scheduled_for, expires_at, areas,
+        sum_extra_text, sum_extra_media_url, sum_extra_media_type,
+        target_driver_id
+      ) VALUES (
+        ${rider.id}, 'down_bad', ${market.market_id}, 'active',
+        ${pickup_lat}, ${pickup_lng}, ${pickup_address},
+        ${dropoff_lat}, ${dropoff_lng}, ${dropoff_address},
+        ${price}, ${scheduled_for ?? null}, ${expiresAt},
+        ARRAY[${market.slug.toUpperCase()}]::jsonb,
+        ${sum_extra_text.trim()},
+        ${sum_extra_media_url},
+        ${sum_extra_media_type},
+        ${targetDriverId}
+      )
+      RETURNING id
+    `;
 
-  const postId = (rows[0] as { id: string }).id;
+    const postId = (rows[0] as { id: string }).id;
 
-  // Notify driver feed so the swipe deck updates in real-time
-  publishToChannel(`market:${market.slug}:down-bad`, 'down_bad_posted', {
-    postId, price,
-    mediaType: sum_extra_media_type,
-    posterUrl: sum_extra_poster_url ?? null,
-    pickupAddress: pickup_address,
-    dropoffAddress: dropoff_address,
-  }).catch(() => {});
+    publishToChannel(`market:${market.slug}:down-bad`, 'down_bad_posted', {
+      postId, price,
+      mediaType: sum_extra_media_type,
+      posterUrl: sum_extra_poster_url ?? null,
+      pickupAddress: pickup_address,
+      dropoffAddress: dropoff_address,
+    }).catch(() => {});
 
-  return NextResponse.json({ postId, expiresAt: expiresAt.toISOString() }, { status: 201 });
+    return NextResponse.json({ postId, expiresAt: expiresAt.toISOString() }, { status: 201 });
+  } catch (err) {
+    console.error('down-bad insert failed:', err);
+    return NextResponse.json({ error: 'Failed to create post. Try again.' }, { status: 500 });
+  }
 }
