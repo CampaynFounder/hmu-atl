@@ -9,14 +9,16 @@ import type { ValidatedAddress } from '@/lib/db/types';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type StepId = 'pickup' | 'dropoff' | 'deposit' | 'sum_extra';
+type StepId = 'pickup' | 'dropoff' | 'deposit' | 'details' | 'sum_extra';
+type Luggage = 'none' | 'bag' | 'trunk';
 
-const STEPS: StepId[] = ['pickup', 'dropoff', 'deposit', 'sum_extra'];
+const STEPS: StepId[] = ['pickup', 'dropoff', 'deposit', 'details', 'sum_extra'];
 
 const STEP_TITLES: Record<StepId, string> = {
   pickup: 'Where you at?',
   dropoff: 'Where to?',
   deposit: 'How much you putting up?',
+  details: 'Any extra details?',
   sum_extra: `What's the "Sum' Extra?"`,
 };
 
@@ -43,6 +45,9 @@ interface FormDraft {
   pickup: ValidatedAddress | null;
   dropoff: ValidatedAddress | null;
   depositDollars: number;
+  additionalPassengers: number;
+  kids: number;
+  luggage: Luggage;
   sumExtraText: string;
   sumExtraMedia: DownBadMediaResult | null;
 }
@@ -86,6 +91,9 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
     pickup: null,
     dropoff: null,
     depositDollars: 10,
+    additionalPassengers: 0,
+    kids: 0,
+    luggage: 'none',
     sumExtraText: '',
     sumExtraMedia: null,
   });
@@ -125,6 +133,7 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
       case 'dropoff': return !!draft.dropoff;
       case 'deposit':
         return draft.depositDollars >= floorDollars && draft.depositDollars <= ceilingDollars;
+      case 'details': return true; // always valid — optional step
       case 'sum_extra':
         return (
           draft.sumExtraText.trim().length > 0 &&
@@ -172,6 +181,7 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
     setSubmitting(true);
     setError('');
     try {
+      const hasDetails = draft.additionalPassengers > 0 || draft.kids > 0 || draft.luggage !== 'none';
       const res = await fetch('/api/rider/down-bad', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -183,6 +193,9 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
           dropoff_lng: draft.dropoff.longitude,
           dropoff_address: draft.dropoff.address || draft.dropoff.name,
           price: draft.depositDollars,
+          ride_details: hasDetails
+            ? { additionalPassengers: draft.additionalPassengers, kids: draft.kids, luggage: draft.luggage }
+            : null,
           sum_extra_text: draft.sumExtraText.trim(),
           sum_extra_media_url: draft.sumExtraMedia.mediaUrl,
           sum_extra_media_type: draft.sumExtraMedia.mediaType,
@@ -257,6 +270,108 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
             </div>
             <div style={{ fontSize: 12, color: '#555', marginTop: 16 }}>
               + sum extra in person at pickup
+            </div>
+          </div>
+        );
+      }
+
+      case 'details': {
+        return (
+          <div style={{ padding: '0 20px 24px', display: 'flex', flexDirection: 'column', gap: 28 }}>
+            <div style={{ fontSize: 13, color: '#888' }}>
+              Optional — help your driver know what to expect before accepting.
+            </div>
+
+            {/* Additional passengers */}
+            <div>
+              <div style={{ fontSize: 13, color: '#aaa', marginBottom: 12, fontWeight: 600 }}>
+                Additional passengers
+              </div>
+              <div style={{ fontSize: 12, color: '#555', marginBottom: 12 }}>
+                Not counting yourself
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+                <button
+                  type="button"
+                  onClick={() => setDraft(d => ({ ...d, additionalPassengers: Math.max(0, d.additionalPassengers - 1) }))}
+                  style={stepperBtnStyle}
+                  disabled={draft.additionalPassengers === 0}
+                >
+                  −
+                </button>
+                <div style={{ fontSize: 36, fontWeight: 900, color: '#fff', minWidth: 48, textAlign: 'center' }}>
+                  {draft.additionalPassengers}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDraft(d => ({ ...d, additionalPassengers: Math.min(4, d.additionalPassengers + 1) }))}
+                  style={stepperBtnStyle}
+                  disabled={draft.additionalPassengers === 4}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Kids / car seats */}
+            <div>
+              <div style={{ fontSize: 13, color: '#aaa', marginBottom: 12, fontWeight: 600 }}>
+                Kids needing car seats
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+                <button
+                  type="button"
+                  onClick={() => setDraft(d => ({ ...d, kids: Math.max(0, d.kids - 1) }))}
+                  style={stepperBtnStyle}
+                  disabled={draft.kids === 0}
+                >
+                  −
+                </button>
+                <div style={{ fontSize: 36, fontWeight: 900, color: '#fff', minWidth: 48, textAlign: 'center' }}>
+                  {draft.kids}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDraft(d => ({ ...d, kids: Math.min(3, d.kids + 1) }))}
+                  style={stepperBtnStyle}
+                  disabled={draft.kids === 3}
+                >
+                  +
+                </button>
+              </div>
+              {draft.kids > 0 && (
+                <div style={{ fontSize: 12, color: '#00E676', marginTop: 8 }}>
+                  Driver will see: {draft.kids} car seat{draft.kids > 1 ? 's' : ''} needed
+                </div>
+              )}
+            </div>
+
+            {/* Luggage */}
+            <div>
+              <div style={{ fontSize: 13, color: '#aaa', marginBottom: 12, fontWeight: 600 }}>
+                Luggage / trunk space
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                {(['none', 'bag', 'trunk'] as Luggage[]).map(opt => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => setDraft(d => ({ ...d, luggage: opt }))}
+                    style={{
+                      flex: 1, padding: '10px 0',
+                      borderRadius: 100,
+                      border: `1.5px solid ${draft.luggage === opt ? '#00E676' : '#2a2a2a'}`,
+                      background: draft.luggage === opt ? 'rgba(0,230,118,0.1)' : '#111',
+                      color: draft.luggage === opt ? '#00E676' : '#888',
+                      fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                      fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {opt === 'none' ? 'None' : opt === 'bag' ? '🎒 Bag' : '📦 Trunk'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         );
@@ -429,6 +544,20 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
         >
           {ctaLabel}
         </button>
+        {step === 'details' && (
+          <button
+            type="button"
+            onClick={() => { setError(''); setStepIdx(stepIdx + 1); }}
+            style={{
+              display: 'block', width: '100%', marginTop: 12,
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: '#555', fontSize: 14,
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            }}
+          >
+            Skip →
+          </button>
+        )}
       </motion.div>
 
       {/* Disclaimer modal */}

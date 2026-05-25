@@ -16,6 +16,7 @@ interface DownBadPost {
   sumExtraMediaUrl: string;
   sumExtraMediaType: 'photo' | 'video';
   isDirectOffer: boolean;
+  rideDetails: { additionalPassengers: number; kids: number; luggage: 'none' | 'bag' | 'trunk' } | null;
   riderName: string;
   riderAvatarUrl: string | null;
   chillScore: number;
@@ -339,6 +340,32 @@ function DownBadCard({ post }: { post: DownBadPost }) {
             <p className="text-white/60 text-sm leading-tight line-clamp-1">{post.dropoffAddress}</p>
           </div>
         </div>
+
+        {/* Ride details pills — only shown when non-default */}
+        {post.rideDetails && (post.rideDetails.additionalPassengers > 0 || post.rideDetails.kids > 0 || post.rideDetails.luggage !== 'none') && (
+          <div className="flex flex-wrap gap-1.5">
+            {post.rideDetails.additionalPassengers > 0 && (
+              <span className="text-[10px] font-bold text-white/70 bg-white/10 px-2 py-0.5 rounded-full">
+                +{post.rideDetails.additionalPassengers} passenger{post.rideDetails.additionalPassengers > 1 ? 's' : ''}
+              </span>
+            )}
+            {post.rideDetails.kids > 0 && (
+              <span className="text-[10px] font-bold text-amber-300/90 bg-amber-300/10 px-2 py-0.5 rounded-full">
+                👶 {post.rideDetails.kids} car seat{post.rideDetails.kids > 1 ? 's' : ''}
+              </span>
+            )}
+            {post.rideDetails.luggage === 'bag' && (
+              <span className="text-[10px] font-bold text-white/70 bg-white/10 px-2 py-0.5 rounded-full">
+                🎒 Bag
+              </span>
+            )}
+            {post.rideDetails.luggage === 'trunk' && (
+              <span className="text-[10px] font-bold text-orange-300/90 bg-orange-300/10 px-2 py-0.5 rounded-full">
+                📦 Trunk needed
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Rider */}
         <div className="flex items-center gap-2 mt-auto">
