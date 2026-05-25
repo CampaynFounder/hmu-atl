@@ -111,16 +111,16 @@ export default function DriverDownBadClient() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-black">
+      <div className="flex items-center justify-center min-h-screen bg-black" style={{ paddingTop: 56 }}>
         <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="relative flex flex-col min-h-screen bg-black overflow-hidden">
+    <div className="relative flex flex-col min-h-screen bg-black overflow-hidden" style={{ paddingTop: 56 }}>
       {/* Header */}
-      <div className="relative z-10 flex items-center justify-between px-4 pt-safe pt-4 pb-3">
+      <div className="relative z-10 flex items-center justify-between px-4 pt-4 pb-3">
         <button
           onClick={() => router.back()}
           className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white"
