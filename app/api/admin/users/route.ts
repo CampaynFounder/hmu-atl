@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
+import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
+import { sendSms } from '@/lib/sms/textbee';
+
+type DeleteReason = 'wrong_user_type' | 'bad_actor' | 'duplicate' | 'other';
 
 const PAGE_SIZE = 50;
 
@@ -148,30 +151,78 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!admin.is_super) return NextResponse.json({ error: 'Super admin only' }, { status: 403 });
 
-  const { userId, clerkId: inputClerkId } = await req.json();
+  const { userId, clerkId: inputClerkId, reason, smsMessage } = await req.json() as {
+    userId?: string;
+    clerkId?: string;
+    reason?: DeleteReason;
+    smsMessage?: string;
+  };
 
   let userRows;
   if (userId) {
-    userRows = await sql`SELECT id, clerk_id FROM users WHERE id = ${userId}`;
+    userRows = await sql`
+      SELECT id, clerk_id, profile_type,
+             dp.phone AS driver_phone,
+             rp.phone AS rider_phone
+      FROM users u
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      LEFT JOIN rider_profiles  rp ON rp.user_id  = u.id
+      WHERE u.id = ${userId}
+    `;
   } else if (inputClerkId) {
-    userRows = await sql`SELECT id, clerk_id FROM users WHERE clerk_id = ${inputClerkId}`;
+    userRows = await sql`
+      SELECT id, clerk_id, profile_type,
+             dp.phone AS driver_phone,
+             rp.phone AS rider_phone
+      FROM users u
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      LEFT JOIN rider_profiles  rp ON rp.user_id  = u.id
+      WHERE u.clerk_id = ${inputClerkId}
+    `;
   } else {
     return NextResponse.json({ error: 'userId or clerkId required' }, { status: 400 });
   }
 
   if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-  const user     = userRows[0];
-  const neonId   = user.id as string;
-  const clerkId  = user.clerk_id as string;
+  const user    = userRows[0];
+  const neonId  = user.id as string;
+  const clerkId = user.clerk_id as string;
+  const phone   = (user.driver_phone || user.rider_phone) as string | null;
+
+  // Safety: block delete if any ride record exists (as rider or driver)
+  const rideCheck = await sql`
+    SELECT 1 FROM rides
+    WHERE rider_id = ${neonId} OR driver_id = ${neonId}
+    LIMIT 1
+  `;
+  if (rideCheck.length > 0) {
+    return NextResponse.json({ error: 'Cannot delete — user has ride history' }, { status: 409 });
+  }
+
+  // Send SMS before deleting (we need the phone while the record exists)
+  let smsSent = false;
+  if (reason === 'wrong_user_type' && smsMessage && phone) {
+    const result = await sendSms(phone, smsMessage, { userId: neonId, eventType: 'admin_hard_delete_redirect' });
+    smsSent = result.success;
+  }
 
   await sql`DELETE FROM users WHERE id = ${neonId}`;
 
   try {
     const clerk = await clerkClient();
     await clerk.users.deleteUser(clerkId);
-  } catch { /* May already be deleted */ }
+  } catch { /* May already be deleted from Clerk */ }
 
-  return NextResponse.json({ success: true, deleted: { neonId, clerkId } });
+  await logAdminAction(
+    admin.id,
+    'hard_delete_user',
+    'user',
+    neonId,
+    { reason: reason ?? 'unspecified', smsSent, clerkId },
+  ).catch(() => {});
+
+  return NextResponse.json({ success: true, deleted: { neonId, clerkId }, smsSent });
 }

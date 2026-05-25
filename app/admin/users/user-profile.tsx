@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useAdminAuth } from '@/app/admin/components/admin-auth-context';
 
 interface UserData {
   user: {
@@ -83,7 +84,26 @@ function fmt(n: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 }
 
+const DELETE_REASONS = [
+  { value: 'wrong_user_type', label: 'Wrong user type', sendsSms: true },
+  { value: 'bad_actor',       label: 'Bad actor / spam', sendsSms: false },
+  { value: 'duplicate',       label: 'Duplicate account', sendsSms: false },
+  { value: 'other',           label: 'Other', sendsSms: false },
+] as const;
+
+type DeleteReason = typeof DELETE_REASONS[number]['value'];
+
+function defaultSmsForUser(profileType: string, phone: string): string {
+  const isDriver = profileType === 'driver';
+  const link = isDriver
+    ? 'atl.hmucashride.com/r/express'
+    : 'atl.hmucashride.com/driver/express';
+  const role = isDriver ? 'rider' : 'driver';
+  return `HMU ATL: It looks like you signed up as a ${isDriver ? 'driver' : 'rider'} but may have meant to join as a ${role}. Sign up at: ${link}`;
+}
+
 export function UserProfile({ userId, onBack }: { userId: string; onBack: () => void }) {
+  const { admin } = useAdminAuth();
   const [data, setData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +114,13 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
   const [smsResult, setSmsResult] = useState<string | null>(null);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [copyFlash, setCopyFlash] = useState<string | null>(null);
+  // Hard delete dialog
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteReason, setDeleteReason] = useState<DeleteReason>('wrong_user_type');
+  const [deleteConfirmHandle, setDeleteConfirmHandle] = useState('');
+  const [deleteSmsMessage, setDeleteSmsMessage] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [nudgeSending, setNudgeSending] = useState(false);
   const [nudgeMsg, setNudgeMsg] = useState<
     | { kind: 'ok'; preview: string }
@@ -1173,7 +1200,141 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             </div>
           </div>
         )}
+
+        {/* Hard Delete — super admin only */}
+        {admin?.isSuper && (
+          <div className="mt-4 pt-4 border-t border-red-900/40">
+            <button
+              onClick={() => {
+                setDeleteReason('wrong_user_type');
+                setDeleteConfirmHandle('');
+                setDeleteSmsMessage(defaultSmsForUser(user.profileType, user.phone ?? ''));
+                setDeleteError(null);
+                setDeleteOpen(true);
+              }}
+              className="bg-red-950 hover:bg-red-900 border border-red-800 text-red-400 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Hard Delete Account
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Hard Delete Dialog */}
+      {deleteOpen && data && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="bg-neutral-900 border border-red-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <h2 className="text-base font-bold text-red-400 mb-1">Hard Delete Account</h2>
+            <p className="text-xs text-neutral-400 mb-4">
+              Permanently removes <span className="text-white font-medium">{data.user.displayName || data.user.handle}</span> from Clerk and Neon.
+              Blocked if any ride history exists.
+            </p>
+
+            {/* Reason */}
+            <label className="block text-xs text-neutral-400 mb-1">Reason</label>
+            <select
+              value={deleteReason}
+              onChange={(e) => {
+                const r = e.target.value as DeleteReason;
+                setDeleteReason(r);
+                if (r === 'wrong_user_type') {
+                  setDeleteSmsMessage(defaultSmsForUser(data.user.profileType, data.user.phone ?? ''));
+                }
+              }}
+              className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white mb-4"
+            >
+              {DELETE_REASONS.map(r => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+
+            {/* SMS preview / editor */}
+            {DELETE_REASONS.find(r => r.value === deleteReason)?.sendsSms ? (
+              <div className="mb-4">
+                <label className="block text-xs text-neutral-400 mb-1">
+                  SMS to send{data.user.phone ? ` → ${data.user.phone}` : ' (no phone on file — SMS will be skipped)'}
+                </label>
+                <textarea
+                  rows={4}
+                  maxLength={155}
+                  value={deleteSmsMessage}
+                  onChange={(e) => setDeleteSmsMessage(e.target.value.slice(0, 155))}
+                  className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-white resize-none"
+                />
+                <div className="flex justify-between mt-1">
+                  <span className={`text-[10px] ${deleteSmsMessage.length > 140 ? 'text-yellow-400' : 'text-neutral-600'}`}>
+                    {deleteSmsMessage.length}/155
+                  </span>
+                  {!data.user.phone && (
+                    <span className="text-[10px] text-yellow-500">No phone — SMS will not be sent</span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-[11px] text-neutral-500 mb-4">No SMS will be sent for this reason.</p>
+            )}
+
+            {/* Confirmation */}
+            <label className="block text-xs text-neutral-400 mb-1">
+              Type <span className="text-white font-mono">{data.user.handle || data.user.displayName}</span> to confirm
+            </label>
+            <input
+              type="text"
+              value={deleteConfirmHandle}
+              onChange={(e) => setDeleteConfirmHandle(e.target.value)}
+              placeholder={data.user.handle || data.user.displayName}
+              className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white mb-4"
+            />
+
+            {deleteError && (
+              <p className="text-xs text-red-400 mb-3">{deleteError}</p>
+            )}
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setDeleteOpen(false)}
+                disabled={deleteLoading}
+                className="text-xs text-neutral-400 hover:text-white transition-colors px-3 py-1.5"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={deleteLoading || deleteConfirmHandle !== (data.user.handle || data.user.displayName)}
+                onClick={async () => {
+                  setDeleteLoading(true);
+                  setDeleteError(null);
+                  try {
+                    const sendsSms = DELETE_REASONS.find(r => r.value === deleteReason)?.sendsSms;
+                    const res = await fetch('/api/admin/users', {
+                      method: 'DELETE',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        userId: data.user.id,
+                        reason: deleteReason,
+                        smsMessage: sendsSms ? deleteSmsMessage : undefined,
+                      }),
+                    });
+                    const json = await res.json();
+                    if (!res.ok) {
+                      setDeleteError(json.error ?? 'Delete failed');
+                    } else {
+                      setDeleteOpen(false);
+                      onBack();
+                    }
+                  } catch {
+                    setDeleteError('Network error');
+                  } finally {
+                    setDeleteLoading(false);
+                  }
+                }}
+                className="bg-red-700 hover:bg-red-600 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"
+              >
+                {deleteLoading ? 'Deleting…' : 'Delete Forever'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Rating History */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
