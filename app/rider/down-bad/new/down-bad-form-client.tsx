@@ -17,8 +17,27 @@ const STEP_TITLES: Record<StepId, string> = {
   pickup: 'Where you at?',
   dropoff: 'Where to?',
   deposit: 'How much you putting up?',
-  sum_extra: "What's the sum extra?",
+  sum_extra: `What's the "Sum' Extra?"`,
 };
+
+const MAX_NUMERIC_CHARS = 4;
+
+// Strip emoji variation selectors + keycap combiners before counting
+// so that 1️⃣ exposes its underlying digit character.
+function normalizeSumText(s: string): string {
+  return s.replace(/[️⃣]/g, '');
+}
+
+// Counts ALL Unicode numeric characters (ASCII digits, keycap digits,
+// circled digits ①②, Arabic-Indic numerals, etc.) via \p{N}.
+function countNumeric(s: string): number {
+  return [...normalizeSumText(s)].filter(ch => /\p{N}/u.test(ch)).length;
+}
+
+// Emoji-safe character count (by code point, not UTF-16 units).
+function countCodePoints(s: string): number {
+  return [...s].length;
+}
 
 interface FormDraft {
   pickup: ValidatedAddress | null;
@@ -42,7 +61,7 @@ const DEFAULT_CONFIG: DownBadRemoteConfig = {
   enabled: false,
   cashFloorCents: 500,
   cashCeilingCents: 3000,
-  sumExtraMaxChars: 120,
+  sumExtraMaxChars: 60,
   requireMinRides: 0,
   requireMinChillScore: 0,
   disclaimerText: '',
@@ -109,7 +128,8 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
       case 'sum_extra':
         return (
           draft.sumExtraText.trim().length > 0 &&
-          draft.sumExtraText.trim().length <= config.sumExtraMaxChars &&
+          countCodePoints(draft.sumExtraText) <= config.sumExtraMaxChars &&
+          countNumeric(draft.sumExtraText) <= MAX_NUMERIC_CHARS &&
           !!draft.sumExtraMedia
         );
     }
@@ -243,19 +263,25 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
       }
 
       case 'sum_extra': {
-        const charsLeft = config.sumExtraMaxChars - draft.sumExtraText.length;
+        const codePointsUsed = countCodePoints(draft.sumExtraText);
+        const charsLeft = config.sumExtraMaxChars - codePointsUsed;
+        const digitsUsed = countNumeric(draft.sumExtraText);
+        const digitsLeft = MAX_NUMERIC_CHARS - digitsUsed;
         return (
           <div style={{ padding: '0 20px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
             <div>
               <div style={{ fontSize: 13, color: '#888', marginBottom: 10 }}>
-                What are you bringing? Be specific — your driver needs to know what to expect.
+                What are you offering? Be specific — your driver needs to know what to expect.
               </div>
               <textarea
                 value={draft.sumExtraText}
-                onChange={e => setDraft(d => ({ ...d, sumExtraText: e.target.value }))}
-                maxLength={config.sumExtraMaxChars + 10}
+                onChange={e => {
+                  const next = e.target.value;
+                  if (countNumeric(next) > MAX_NUMERIC_CHARS) return;
+                  setDraft(d => ({ ...d, sumExtraText: next }));
+                }}
                 rows={3}
-                placeholder='e.g. "10pc wing combo from the spot on Edgewood"'
+                placeholder='e.g. "bag of wings from the spot on Edgewood"'
                 style={{
                   width: '100%', boxSizing: 'border-box',
                   background: '#111', border: '1.5px solid #2a2a2a',
@@ -266,11 +292,13 @@ export default function DownBadFormClient({ targetDriverHandle }: { targetDriver
                   lineHeight: 1.5,
                 }}
               />
-              <div style={{
-                fontSize: 11, color: charsLeft < 20 ? '#FFC107' : '#555',
-                textAlign: 'right', marginTop: 4,
-              }}>
-                {charsLeft} left
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: digitsLeft === 0 ? '#FFC107' : '#555' }}>
+                  {digitsLeft === 0 ? 'No more numbers allowed' : `${digitsLeft} number${digitsLeft === 1 ? '' : 's'} left`}
+                </div>
+                <div style={{ fontSize: 11, color: charsLeft < 15 ? '#FFC107' : '#555' }}>
+                  {charsLeft} left
+                </div>
               </div>
             </div>
 
