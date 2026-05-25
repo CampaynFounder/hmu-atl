@@ -27,6 +27,7 @@ interface DownBadConfig {
   sum_extra_max_chars: number;
   require_min_rides: number;
   require_min_chill_score: number;
+  expiry_hours: number;
 }
 
 export async function POST(req: NextRequest) {
@@ -92,6 +93,7 @@ export async function POST(req: NextRequest) {
       sum_extra_max_chars: 120,
       require_min_rides: 0,
       require_min_chill_score: 0,
+      expiry_hours: 4,
     } as Record<string, unknown>),
   ]);
 
@@ -182,7 +184,7 @@ export async function POST(req: NextRequest) {
       AND status = 'active'
   `;
 
-  const expiresAt = new Date(Date.now() + 4 * 3_600_000); // 4-hour window
+  const expiresAt = new Date(Date.now() + config.expiry_hours * 3_600_000);
 
   // ── Insert ─────────────────────────────────────────────────────────────────
   try {
