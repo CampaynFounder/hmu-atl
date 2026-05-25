@@ -270,10 +270,17 @@ export default function DownBadConfigClient() {
               label="Post expiry window"
               help="How long a Down Bad post stays active before it auto-expires. Shorter = more urgent feel. Longer = more driver coverage."
               value={config.expiry_hours}
-              min={1}
+              min={0.25}
               max={24}
-              step={1}
-              format={(v) => `${v}h`}
+              step={0.25}
+              format={(v) => {
+                const totalMins = Math.round(v * 60);
+                const h = Math.floor(totalMins / 60);
+                const m = totalMins % 60;
+                if (h === 0) return `${m}m`;
+                if (m === 0) return `${h}h`;
+                return `${h}h ${m}m`;
+              }}
               onChange={(v) => setConfig((c) => ({ ...c, expiry_hours: v }))}
             />
 
