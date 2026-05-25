@@ -83,7 +83,12 @@ export default function DriverDownBadClient() {
     setActionState('accepting');
     try {
       const res = await fetch(`/api/bookings/${currentPost.id}/accept`, { method: 'POST' });
-      const data = await res.json() as { status?: string; rideId?: string; error?: string };
+      const data = await res.json() as { status?: string; rideId?: string; error?: string; code?: string };
+      if (res.status === 409) {
+        dismiss(currentPost.id);
+        showToast('Someone else got it first 😮‍💨', 'err');
+        return;
+      }
       if (!res.ok) throw new Error(data.error || 'Failed');
       dismiss(currentPost.id);
       showToast('Ride matched — let\'s go! 🔥');
@@ -147,7 +152,7 @@ export default function DriverDownBadClient() {
               key={currentPost.id}
               axis="x"
               leftLabel="PASS"
-              rightLabel="RUN IT"
+              rightLabel="FWM"
               onSwipeRight={handleRunIt}
               onSwipeLeft={handlePass}
               className="w-full max-w-sm"
@@ -204,12 +209,12 @@ export default function DriverDownBadClient() {
             onClick={handleRunIt}
             disabled={actionState !== 'idle'}
             className="w-20 h-20 rounded-full bg-[#00E676] flex items-center justify-center text-black font-black text-sm active:scale-95 transition-transform disabled:opacity-50 shadow-lg shadow-[#00E676]/30"
-            aria-label="Run It"
+            aria-label="FWM"
           >
             {actionState === 'accepting' ? (
               <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
             ) : (
-              'RUN IT'
+              'FWM'
             )}
           </button>
           <div className="w-16 h-16" />
@@ -285,9 +290,14 @@ function DownBadCard({ post }: { post: DownBadPost }) {
 
         {/* Sum extra badge — bottom-left of media */}
         <div className="absolute bottom-3 left-3 right-3">
-          <p className="text-white font-semibold text-sm leading-snug line-clamp-2 drop-shadow-sm">
-            🎁 {post.sumExtraText}
-          </p>
+          <div className="flex items-start gap-2">
+            <span className="shrink-0 mt-0.5 text-[10px] font-black text-black bg-[#00E676] px-2 py-0.5 rounded-full leading-tight">
+              FWM?
+            </span>
+            <p className="text-white font-semibold text-sm leading-snug line-clamp-2 drop-shadow-sm">
+              {post.sumExtraText}
+            </p>
+          </div>
         </div>
 
         {/* Direct offer badge — top left */}
@@ -307,7 +317,10 @@ function DownBadCard({ post }: { post: DownBadPost }) {
       <div className="px-4 pt-3 pb-4 flex flex-col gap-2" style={{ height: '38%' }}>
         {/* Price */}
         <div className="flex items-center justify-between">
-          <span className="text-[#00E676] font-black text-2xl">${post.price}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[#00E676] font-black text-2xl">${post.price}</span>
+            <span className="text-[10px] font-bold text-white/60 bg-white/10 px-2 py-0.5 rounded-full">Cash</span>
+          </div>
           <div className="flex items-center gap-2 text-white/50 text-xs">
             <span>⭐ {post.chillScore}</span>
             <span>·</span>

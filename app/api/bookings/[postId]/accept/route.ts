@@ -40,15 +40,14 @@ export async function POST(
     const postRows = await sql`
       SELECT * FROM hmu_posts
       WHERE id = ${postId}
-        AND status = 'active'
         AND (
-          (post_type = 'direct_booking' AND target_driver_id = ${driverUserId} AND booking_expires_at > NOW())
+          (post_type = 'direct_booking' AND status = 'active' AND target_driver_id = ${driverUserId} AND booking_expires_at > NOW())
           OR
-          (post_type = 'rider_request' AND expires_at > NOW())
+          (post_type = 'rider_request' AND status = 'active' AND expires_at > NOW())
           OR
-          (post_type = 'blast' AND expires_at > NOW())
+          (post_type = 'blast' AND status = 'active' AND expires_at > NOW())
           OR
-          (post_type = 'down_bad' AND expires_at > NOW())
+          (post_type = 'down_bad' AND status IN ('active', 'matched') AND expires_at > NOW())
         )
       LIMIT 1
     `;
@@ -210,7 +209,8 @@ export async function POST(
           price_mode, price_accepted_at, hmu_post_id,
           pickup_address, pickup_lat, pickup_lng,
           dropoff_address, dropoff_lat, dropoff_lng,
-          dispute_window_minutes, is_cash, wait_minutes, ref_code
+          dispute_window_minutes, is_cash, wait_minutes, ref_code,
+          booking_type
         ) VALUES (
           ${driverUserId}, ${riderId}, 'matched', ${price}, ${price},
           'proposed', NOW(), ${postId},
@@ -221,7 +221,8 @@ export async function POST(
           ${post.dropoff_lat ? Number(post.dropoff_lat) : null},
           ${post.dropoff_lng ? Number(post.dropoff_lng) : null},
           ${parseInt(process.env.DISPUTE_WINDOW_MINUTES || '5')},
-          false, ${waitMinutes}, ${refCode}
+          false, ${waitMinutes}, ${refCode},
+          'down_bad'
         )
         RETURNING id
       `;

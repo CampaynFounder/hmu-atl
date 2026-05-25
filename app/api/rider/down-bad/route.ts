@@ -19,6 +19,7 @@ import { sql } from '@/lib/db/client';
 import { getPlatformConfig } from '@/lib/platform-config/get';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { publishToChannel } from '@/lib/ably/server';
+import { notifyDriverDownBadPosted } from '@/lib/sms/textbee';
 
 interface DownBadConfig {
   enabled: boolean;
@@ -220,6 +221,24 @@ export async function POST(req: NextRequest) {
       posterUrl: sum_extra_poster_url ?? null,
       pickupAddress: pickup_address,
       dropoffAddress: dropoff_address,
+    }).catch(() => {});
+
+    // SMS all opted-in drivers in this market (fire-and-forget)
+    sql`
+      SELECT dp.phone
+      FROM driver_profiles dp
+      JOIN users u ON u.id = dp.user_id
+      WHERE dp.accepts_down_bad = true
+        AND dp.phone IS NOT NULL
+        AND length(dp.phone) >= 10
+        AND u.account_status = 'active'
+        AND u.market_id = ${market.market_id}
+      LIMIT 15
+    `.then((driverRows: unknown[]) => {
+      for (const row of driverRows) {
+        const phone = (row as { phone: string }).phone;
+        notifyDriverDownBadPosted(phone, price, { market: market.slug }).catch(() => {});
+      }
     }).catch(() => {});
 
     return NextResponse.json({ postId, expiresAt: expiresAt.toISOString() }, { status: 201 });
