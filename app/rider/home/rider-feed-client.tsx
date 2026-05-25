@@ -846,18 +846,81 @@ function ActivePostCard({
             Cancelled
           </div>
         ) : post.status === 'active' ? (
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            fontSize: 12, padding: '4px 12px', borderRadius: 100,
-            background: 'rgba(0,230,118,0.1)', color: '#00E676',
-          }}>
-            <span style={{
-              width: 6, height: 6, borderRadius: '50%', background: '#00E676',
-              animation: 'pulse 1.5s ease-in-out infinite',
-            }} />
-            Looking for drivers...
-          </div>
+          <LookingForDriversCountdown createdAt={post.createdAt} />
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ── Looking-for-drivers countdown (broadcast posts) ──
+//
+// Counts down from the post's createdAt for LOOKING_DURATION_MS. After 0:00,
+// the chip switches to a "still searching" state — the server-side
+// hmu_posts.expires_at is still ~2h, so the post stays live for late
+// drivers. The 10-min window is purely a rider-facing urgency signal.
+const LOOKING_DURATION_MS = 10 * 60 * 1000;
+
+function LookingForDriversCountdown({ createdAt }: { createdAt: string }) {
+  const [remainingMs, setRemainingMs] = useState<number>(() => {
+    const elapsed = Date.now() - new Date(createdAt).getTime();
+    return Math.max(0, LOOKING_DURATION_MS - elapsed);
+  });
+
+  useEffect(() => {
+    const tick = () => {
+      const elapsed = Date.now() - new Date(createdAt).getTime();
+      setRemainingMs(Math.max(0, LOOKING_DURATION_MS - elapsed));
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [createdAt]);
+
+  const isExpired = remainingMs <= 0;
+  const isUrgent = remainingMs > 0 && remainingMs < 60_000;
+  const mins = Math.floor(remainingMs / 60000);
+  const secs = Math.floor((remainingMs % 60000) / 1000);
+  const countdownLabel = `${mins}:${String(secs).padStart(2, '0')}`;
+
+  // Post-expiry: drop the timer, switch to a softer "still looking" cue so
+  // the rider knows the post is still live but it's been a while.
+  if (isExpired) {
+    return (
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        fontSize: 12, padding: '4px 12px', borderRadius: 100,
+        background: 'rgba(255,145,0,0.1)', color: '#FF9100',
+        border: '1px solid rgba(255,145,0,0.2)',
+      }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: '50%', background: '#FF9100',
+          animation: 'pulse 1.5s ease-in-out infinite',
+        }} />
+        No drivers yet — still looking…
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2,
+    }}>
+      <div style={{ fontSize: 11, color: '#888' }}>Looking for drivers</div>
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        fontSize: 13, fontWeight: 700, padding: '4px 12px', borderRadius: 100,
+        fontFamily: "'Space Mono', monospace",
+        background: isUrgent ? 'rgba(255,82,82,0.1)' : 'rgba(0,230,118,0.08)',
+        color: isUrgent ? '#FF5252' : '#00E676',
+        border: `1px solid ${isUrgent ? 'rgba(255,82,82,0.2)' : 'rgba(0,230,118,0.2)'}`,
+      }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: '50%',
+          background: isUrgent ? '#FF5252' : '#00E676',
+          animation: 'pulse 1.5s ease-in-out infinite',
+        }} />
+        {countdownLabel}
       </div>
     </div>
   );
