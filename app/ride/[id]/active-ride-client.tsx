@@ -110,6 +110,8 @@ interface RideData {
   hmuPostId: string | null;
   // Down Bad sum extra — only present when the ride came from a down_bad post.
   sumExtra: { text: string; mediaUrl: string; mediaType: 'photo' | 'video' } | null;
+  // Rider-provided trip details (passengers, car seats, luggage).
+  rideDetails: { additionalPassengers: number; kids: number; luggage: 'none' | 'bag' | 'trunk' } | null;
   // Last known driver GPS at page-load time — seeds driverLocation so the
   // map shows the driver marker immediately on refresh instead of waiting
   // for the next Ably ping.
@@ -2618,6 +2620,37 @@ export default function ActiveRideClient({
             </div>
           );
         })()}
+
+        {/* Ride details pills — Down Bad, driver only, non-default values only */}
+        {isDriver && ride.rideDetails && ride.status !== 'cancelled' && (
+          ride.rideDetails.additionalPassengers > 0 || ride.rideDetails.kids > 0 || ride.rideDetails.luggage !== 'none'
+        ) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '12px 16px', background: 'rgba(255,255,255,0.04)', borderRadius: 12 }}>
+            <div style={{ width: '100%', fontSize: 11, color: '#666', marginBottom: 4, letterSpacing: 1, textTransform: 'uppercase', fontFamily: "'Space Mono', monospace" }}>
+              Ride Details
+            </div>
+            {ride.rideDetails.additionalPassengers > 0 && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.7)', background: 'rgba(255,255,255,0.1)', padding: '3px 10px', borderRadius: 100 }}>
+                +{ride.rideDetails.additionalPassengers} passenger{ride.rideDetails.additionalPassengers > 1 ? 's' : ''}
+              </span>
+            )}
+            {ride.rideDetails.kids > 0 && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(251,191,36,0.9)', background: 'rgba(251,191,36,0.1)', padding: '3px 10px', borderRadius: 100 }}>
+                👶 {ride.rideDetails.kids} car seat{ride.rideDetails.kids > 1 ? 's' : ''}
+              </span>
+            )}
+            {ride.rideDetails.luggage === 'bag' && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.7)', background: 'rgba(255,255,255,0.1)', padding: '3px 10px', borderRadius: 100 }}>
+                🎒 Bag
+              </span>
+            )}
+            {ride.rideDetails.luggage === 'trunk' && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(251,146,60,0.9)', background: 'rgba(251,146,60,0.1)', padding: '3px 10px', borderRadius: 100 }}>
+                📦 Trunk needed
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Sum Extra reference — Down Bad rides only, hidden after cancel */}
         {ride.sumExtra && ride.status !== 'cancelled' && (

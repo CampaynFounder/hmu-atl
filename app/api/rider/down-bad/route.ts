@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
     dropoff_lng?: number;
     dropoff_address?: string;
     price?: number;
+    ride_details?: { additionalPassengers: number; kids: number; luggage: 'none' | 'bag' | 'trunk' } | null;
     sum_extra_text?: string;
     sum_extra_media_url?: string;
     sum_extra_media_type?: 'photo' | 'video';
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest) {
   // ── Validate required fields ───────────────────────────────────────────────
   const { pickup_lat, pickup_lng, pickup_address,
           dropoff_lat, dropoff_lng, dropoff_address,
-          price, sum_extra_text, sum_extra_media_url, sum_extra_media_type,
+          price, ride_details, sum_extra_text, sum_extra_media_url, sum_extra_media_type,
           sum_extra_poster_url, scheduled_for, target_driver_handle } = body;
 
   if (!pickup_lat || !pickup_lng || !pickup_address) {
@@ -208,6 +209,7 @@ export async function POST(req: NextRequest) {
         dropoff_lat, dropoff_lng, dropoff_address,
         price, scheduled_for, expires_at, areas,
         time_window,
+        ride_details,
         sum_extra_text, sum_extra_media_url, sum_extra_media_type,
         target_driver_id
       ) VALUES (
@@ -217,6 +219,7 @@ export async function POST(req: NextRequest) {
         ${price}, ${scheduled_for ?? null}, ${expiresAt},
         ${[market.slug.toUpperCase()]},
         ${'{}'},
+        ${ride_details ? JSON.stringify(ride_details) : null},
         ${sum_extra_text.trim()},
         ${sum_extra_media_url},
         ${sum_extra_media_type},

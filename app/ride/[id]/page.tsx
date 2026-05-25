@@ -83,13 +83,13 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
     } catch { /* non-critical */ }
   }
 
-  // Down Bad sum extra — only fetched when the ride came from a down_bad post.
-  // Both parties reference this during the ride to confirm what the rider is bringing.
+  // Down Bad sum extra + ride details — fetched from the originating post.
   let sumExtra: { text: string; mediaUrl: string; mediaType: 'photo' | 'video' } | null = null;
+  let rideDetails: { additionalPassengers: number; kids: number; luggage: 'none' | 'bag' | 'trunk' } | null = null;
   if (ride.hmu_post_id) {
     try {
       const postRows = await sql`
-        SELECT sum_extra_text, sum_extra_media_url, sum_extra_media_type
+        SELECT sum_extra_text, sum_extra_media_url, sum_extra_media_type, ride_details
         FROM hmu_posts
         WHERE id = ${ride.hmu_post_id as string}
           AND post_type = 'down_bad'
@@ -103,6 +103,7 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
           mediaUrl: (p.sum_extra_media_url as string) || '',
           mediaType: (p.sum_extra_media_type as 'photo' | 'video') || 'photo',
         };
+        rideDetails = (p.ride_details as { additionalPassengers: number; kids: number; luggage: 'none' | 'bag' | 'trunk' } | null) ?? null;
       }
     } catch { /* non-critical */ }
   }
@@ -187,6 +188,7 @@ export default async function RidePage({ params }: { params: Promise<{ id: strin
         riderPaymentLast4,
         hmuPostId: (ride.hmu_post_id as string) || null,
         sumExtra,
+        rideDetails,
         initialDriverLat: ride.last_driver_lat ? Number(ride.last_driver_lat) : null,
         initialDriverLng: ride.last_driver_lng ? Number(ride.last_driver_lng) : null,
       }}
