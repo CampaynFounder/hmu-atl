@@ -365,7 +365,7 @@ export default function RiderHomeClient() {
             Skip the surge pricing and corporate fees. Book local ATL drivers directly — you name the price, they accept or pass.
           </p>
           <Link
-            href={isSignedIn ? '/rider/browse' : '/sign-up?type=rider'}
+            href={isSignedIn ? '/rider/browse' : '/r/express'}
             className="hero-cta"
             onClick={() => posthog.capture('rider_hero_cta_clicked', { signedIn: !!isSignedIn })}
           >
@@ -694,7 +694,7 @@ export default function RiderHomeClient() {
         {/* Sticky bottom CTA */}
         <div className="bottom-cta">
           <Link
-            href={isSignedIn ? '/rider/browse' : '/sign-up?type=rider'}
+            href={isSignedIn ? '/rider/browse' : '/r/express'}
             className="bottom-cta-btn"
             onClick={() => posthog.capture('rider_sticky_cta_clicked', { signedIn: !!isSignedIn })}
           >

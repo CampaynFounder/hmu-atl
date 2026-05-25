@@ -44,7 +44,7 @@ export default function DemoLandingPage() {
 
           {/* Rider Demo */}
           <Link
-            href="/rider"
+            href="/r/express"
             className="group rounded-3xl bg-white/10 p-8 backdrop-blur-lg transition-all hover:scale-105 hover:bg-white/20"
           >
             <div className="mb-4 flex justify-center">

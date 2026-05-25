@@ -166,23 +166,14 @@ function RiderLandingInner({ brandLabel, brandCity }: { brandLabel: string; bran
     const signUpParams = new URLSearchParams({ type: 'rider' });
     if (currentPersona) signUpParams.set('persona', currentPersona);
     if (currentStage !== 'awareness') signUpParams.set('funnel_stage', currentStage);
-    setTimeout(() => { window.location.href = `/sign-up?${signUpParams}`; }, 800);
+    setTimeout(() => { window.location.href = '/sign-up?type=rider&returnTo=/r/express'; }, 800);
   };
 
   const testimonials = cmsTestimonials;
 
   // Build sign-up URL that carries persona + funnel stage through
   const { sectionOrder: ctxSectionOrder } = useCmsContext();
-  const [signUpUrl, setSignUpUrl] = useState('/sign-up?type=rider');
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const sp = new URLSearchParams({ type: 'rider' });
-    const p = params.get('utm_persona');
-    const f = params.get('utm_funnel');
-    if (p) sp.set('persona', p);
-    if (f && f !== 'awareness') sp.set('funnel_stage', f);
-    setSignUpUrl(`/sign-up?${sp}`);
-  }, []);
+  const [signUpUrl] = useState('/r/express');
 
   // Dynamic section ordering
   const activeSections = new Set(
