@@ -5953,7 +5953,7 @@ function SumExtraBlock({
           {/* Text */}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12, color: '#888', marginBottom: 4, fontFamily: "'Space Mono', monospace", letterSpacing: 1, textTransform: 'uppercase' }}>
-              {isDriver ? 'Rider is bringing' : 'What you\'re bringing'}
+              {isDriver ? 'Rider Is Offering' : 'What you\'re bringing'}
             </div>
             <div style={{ fontSize: 14, color: '#fff', lineHeight: 1.5 }}>{text}</div>
           </div>
