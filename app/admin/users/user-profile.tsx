@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 
 interface UserData {
   user: {
@@ -31,6 +31,11 @@ interface UserData {
     lastSignInAt: string | null;
     signInCount: number;
     firstReturnAt: string | null;
+    marketId: string | null;
+    marketName: string | null;
+    marketSlug: string | null;
+    areaSlugs: string[];
+    servicesEntireMarket: boolean;
     profileVisible: boolean | null;
     paymentReady: boolean;
     stripeOnboardingComplete: boolean;
@@ -88,6 +93,35 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
   const [smsSending, setSmsSending] = useState(false);
   const [smsResult, setSmsResult] = useState<string | null>(null);
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [copyFlash, setCopyFlash] = useState<string | null>(null);
+  const [nudgeSending, setNudgeSending] = useState(false);
+  const [nudgeMsg, setNudgeMsg] = useState<
+    | { kind: 'ok'; preview: string }
+    | { kind: 'error'; reason: string }
+    | { kind: 'dedup'; lastSentAt: string; windowHours: number }
+    | null
+  >(null);
+  // Driver Lab — local draft state, committed on Save
+  const [labDraft, setLabDraft] = useState<{
+    displayName: string;
+    thumbnailUrl: string;
+    videoUrl: string;
+    vehicleMake: string; vehicleModel: string; vehicleYear: string; vehicleColor: string;
+    minimumFare: string;
+    lat: string; lng: string;
+  } | null>(null);
+  const [labSaving, setLabSaving] = useState(false);
+  const [labMsg, setLabMsg] = useState<string | null>(null);
+  const [labUploading, setLabUploading] = useState(false);
+  const labFileRef = useRef<HTMLInputElement>(null);
+  // Market & Area assignment
+  const [markets, setMarkets] = useState<{ id: string; name: string; slug: string; status: string }[]>([]);
+  const [areas, setAreas] = useState<{ slug: string; name: string; cardinal: string; sort_order: number }[]>([]);
+  const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
+  const [selectedSlugs, setSelectedSlugs] = useState<string[]>([]);
+  const [servicesEntireMarket, setServicesEntireMarket] = useState(false);
+  const [marketSaving, setMarketSaving] = useState(false);
+  const [marketMsg, setMarketMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!avatarOpen) return;
@@ -95,6 +129,36 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [avatarOpen]);
+
+  // Load markets list once
+  useEffect(() => {
+    fetch('/api/admin/markets')
+      .then(r => r.json())
+      .then(d => setMarkets((d.markets ?? []).map((m: Record<string, unknown>) => ({
+        id: m.id as string,
+        name: m.name as string,
+        slug: m.slug as string,
+        status: m.status as string,
+      }))))
+      .catch(() => {});
+  }, []);
+
+  // Sync local state from loaded user data
+  useEffect(() => {
+    if (!data) return;
+    setSelectedMarketId(data.user.marketId ?? null);
+    setSelectedSlugs(data.user.areaSlugs ?? []);
+    setServicesEntireMarket(data.user.servicesEntireMarket ?? false);
+  }, [data]);
+
+  // Fetch areas when selected market changes
+  useEffect(() => {
+    if (!selectedMarketId) { setAreas([]); return; }
+    fetch(`/api/admin/markets/${selectedMarketId}/areas`)
+      .then(r => r.json())
+      .then(d => setAreas(d.areas ?? []))
+      .catch(() => setAreas([]));
+  }, [selectedMarketId]);
 
   const fetchUser = useCallback(async () => {
     setLoading(true);
@@ -162,6 +226,50 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
   }
 
   const { user, rides, ratings, disputes, activity = [] } = data;
+
+  const shareLinkDisplay = user.handle ? `atl.hmucashride.com/d/${user.handle}` : '';
+  const shareLinkFull = user.handle ? `https://atl.hmucashride.com/d/${user.handle}` : '';
+  const isDriver = user.profileType === 'driver' || user.profileType === 'both';
+
+  const copyShareLink = async () => {
+    if (!shareLinkFull) return;
+    try {
+      await navigator.clipboard.writeText(shareLinkFull);
+      setCopyFlash('Copied!');
+      setTimeout(() => setCopyFlash(null), 1500);
+    } catch {
+      setCopyFlash('Copy failed');
+      setTimeout(() => setCopyFlash(null), 2000);
+    }
+  };
+
+  const sendShareLinkNudge = async (ackDuplicate = false) => {
+    setNudgeSending(true);
+    setNudgeMsg(null);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/send-activation-nudge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checkKey: 'driver_share_link_promo', ackDuplicate }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setNudgeMsg({ kind: 'ok', preview: json.smsPreview || 'Sent' });
+      } else if (res.status === 409 && json.error === 'duplicate_within_window') {
+        setNudgeMsg({
+          kind: 'dedup',
+          lastSentAt: json.lastSentAt,
+          windowHours: json.windowHours ?? 72,
+        });
+      } else {
+        setNudgeMsg({ kind: 'error', reason: json.reason || json.error || `HTTP ${res.status}` });
+      }
+    } catch (err) {
+      setNudgeMsg({ kind: 'error', reason: err instanceof Error ? err.message : 'Network error' });
+    } finally {
+      setNudgeSending(false);
+    }
+  };
 
   const ratingCounts = ratings.filter((r) => r.direction === 'received').reduce(
     (acc, r) => { acc[r.type] = (acc[r.type] ?? 0) + 1; return acc; },
@@ -277,6 +385,91 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
         </div>
       </div>
 
+      {/* HMU Share Link — drivers only. Surfaces the public profile URL with
+          one-click copy + "send activation nudge" so admins can fire the
+          canonical driver_share_link_promo SMS straight from this page.
+          RBAC follow-up: gate the nudge button on a future
+          'activation:send_nudge' slug in lib/admin/route-permissions.ts so
+          roles like Sr Growth Manager can use it without full super access. */}
+      {isDriver && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold">HMU Share Link</h3>
+            {copyFlash && (
+              <span className="text-[10px] text-[#00E676] font-medium">{copyFlash}</span>
+            )}
+          </div>
+          {user.handle ? (
+            <>
+              <div className="flex items-center gap-2 mb-3">
+                <code className="flex-1 min-w-0 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-[#00E676] font-mono truncate">
+                  {shareLinkDisplay}
+                </code>
+                <button
+                  onClick={copyShareLink}
+                  className="bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors shrink-0"
+                >
+                  Copy
+                </button>
+                <a
+                  href={shareLinkFull}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors shrink-0"
+                >
+                  Open
+                </a>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => sendShareLinkNudge(false)}
+                  disabled={nudgeSending || !user.phone}
+                  className="bg-[#00E676] hover:bg-[#00C864] disabled:bg-neutral-700 disabled:text-neutral-500 text-black text-xs font-semibold px-3 py-2 rounded-lg transition-colors"
+                  title={!user.phone ? 'No phone on profile' : 'Sends the canonical share-link activation SMS'}
+                >
+                  {nudgeSending ? 'Sending…' : 'Send activation nudge'}
+                </button>
+                <span className="text-[10px] text-neutral-500">
+                  Fires <code className="font-mono">driver_share_link_promo</code> SMS to {user.phone || 'their phone'}
+                </span>
+              </div>
+              {nudgeMsg?.kind === 'ok' && (
+                <div className="mt-3 p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                  <p className="text-[11px] text-emerald-400 font-medium">Nudge sent.</p>
+                  <p className="text-[10px] text-emerald-400/70 mt-0.5 font-mono break-words">{nudgeMsg.preview}</p>
+                </div>
+              )}
+              {nudgeMsg?.kind === 'dedup' && (
+                <div className="mt-3 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                  <p className="text-[11px] text-yellow-400 font-medium">
+                    Already nudged in the last {nudgeMsg.windowHours}h
+                    {nudgeMsg.lastSentAt && (
+                      <> · last sent {new Date(nudgeMsg.lastSentAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</>
+                    )}.
+                  </p>
+                  <button
+                    onClick={() => sendShareLinkNudge(true)}
+                    disabled={nudgeSending}
+                    className="mt-2 bg-yellow-600 hover:bg-yellow-700 text-white text-[11px] font-semibold px-2.5 py-1 rounded transition-colors disabled:opacity-50"
+                  >
+                    Send anyway
+                  </button>
+                </div>
+              )}
+              {nudgeMsg?.kind === 'error' && (
+                <div className="mt-3 p-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+                  <p className="text-[11px] text-red-400 font-medium">{nudgeMsg.reason}</p>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-neutral-500">
+              Driver hasn&apos;t claimed an @handle yet — share link not available.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Quick Contact */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
@@ -312,19 +505,38 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             </div>
           )}
           <div>
-            <p className="text-neutral-500">Last Sign In</p>
+            <p
+              className="text-neutral-500"
+              title="Updated by Clerk session.created webhook. Tracks distinct sign-in sessions, not app opens — a user with a long-lived session may show one count per week."
+            >
+              Last Sign In
+            </p>
             {user.lastSignInAt ? (
               <>
                 <p className="text-white">{new Date(user.lastSignInAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
                 <p className="text-neutral-400">{new Date(user.lastSignInAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</p>
               </>
             ) : (
-              <p className="text-red-400">Never returned</p>
+              <p className="text-red-400">Never signed in</p>
             )}
           </div>
           <div>
-            <p className="text-neutral-500">Sign-in Count</p>
-            <p className="text-white">{user.signInCount}</p>
+            <p
+              className="text-neutral-500"
+              title={
+                user.signInCount === 0 && user.lastSignInAt
+                  ? 'Last sign-in is known but count was never tracked (predates the session.created handler). Run the sign-in backfill or wait for the next session.'
+                  : 'Incremented once per Clerk session.created event. Not every app open — only new sessions.'
+              }
+            >
+              Sign-in Count
+            </p>
+            <p className="text-white">
+              {user.signInCount}
+              {user.signInCount === 0 && user.lastSignInAt && (
+                <span className="text-[10px] text-yellow-400 ml-2">untracked</span>
+              )}
+            </p>
           </div>
           <div>
             <p className="text-neutral-500">Profile Type</p>
@@ -448,16 +660,228 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
         </div>
       )}
 
-      {/* Browse Visibility — separate from account status */}
+      {/* Driver Lab — edit test driver data without touching the driver's own profile */}
+      {(user.profileType === 'driver' || user.profileType === 'both') && (() => {
+        const vi = user.vehicleInfo ?? {};
+        const draft = labDraft ?? {
+          displayName: user.displayName ?? '',
+          thumbnailUrl: user.avatarUrl ?? '',
+          videoUrl: user.videoUrl ?? '',
+          vehicleMake: (vi.make as string) ?? '',
+          vehicleModel: (vi.model as string) ?? '',
+          vehicleYear: String(vi.year ?? ''),
+          vehicleColor: (vi.color as string) ?? '',
+          minimumFare: '',
+          lat: '',
+          lng: '',
+        };
+        const setField = (k: keyof typeof draft, v: string) =>
+          setLabDraft((prev) => ({ ...(prev ?? draft), [k]: v }));
+
+        const handleFileUpload = async (file: File) => {
+          setLabUploading(true);
+          setLabMsg(null);
+          try {
+            const fd = new FormData();
+            fd.append('video', file, file.name);
+            fd.append('profile_type', 'driver');
+            fd.append('media_type', 'auto');
+            fd.append('save_to_profile', 'false');
+            const res = await fetch('/api/upload/video', { method: 'POST', body: fd });
+            const result = await res.json() as { url?: string; error?: string };
+            if (res.ok && result.url) {
+              const isVideo = file.type.startsWith('video/');
+              setLabDraft((prev) => ({
+                ...(prev ?? draft),
+                thumbnailUrl: result.url!,
+                ...(isVideo ? { videoUrl: result.url! } : {}),
+              }));
+              setLabMsg('Uploaded — click Save to apply');
+            } else {
+              setLabMsg(result.error ?? 'Upload failed');
+            }
+          } catch {
+            setLabMsg('Upload failed');
+          } finally {
+            setLabUploading(false);
+            if (labFileRef.current) labFileRef.current.value = '';
+          }
+        };
+
+        const saveLab = async () => {
+          setLabSaving(true);
+          setLabMsg(null);
+          const payload: Record<string, unknown> = {};
+          if (draft.displayName) payload.displayName = draft.displayName;
+          if (draft.thumbnailUrl) payload.thumbnailUrl = draft.thumbnailUrl;
+          if (draft.videoUrl) payload.videoUrl = draft.videoUrl;
+          const vi: Record<string, unknown> = {};
+          if (draft.vehicleMake) vi.make = draft.vehicleMake;
+          if (draft.vehicleModel) vi.model = draft.vehicleModel;
+          if (draft.vehicleYear) vi.year = Number(draft.vehicleYear);
+          if (draft.vehicleColor) vi.color = draft.vehicleColor;
+          if (Object.keys(vi).length) payload.vehicleInfo = vi;
+          if (draft.minimumFare) payload.minimumFare = Number(draft.minimumFare);
+          if (draft.lat && draft.lng) {
+            payload.currentLat = Number(draft.lat);
+            payload.currentLng = Number(draft.lng);
+          }
+          try {
+            const res = await fetch(`/api/admin/users/${userId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            if (res.ok) {
+              setLabMsg('Saved');
+              setLabDraft(null);
+              fetchUser();
+            } else {
+              setLabMsg('Save failed');
+            }
+          } catch {
+            setLabMsg('Save failed');
+          } finally {
+            setLabSaving(false);
+          }
+        };
+
+        return (
+          <div className="bg-neutral-900 border border-amber-500/20 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-amber-400">Driver Lab</h3>
+                <p className="text-[11px] text-neutral-500 mt-0.5">Edit test driver data — name, photo, car, fare, location.</p>
+              </div>
+              <span className="text-[10px] font-bold bg-amber-500/15 text-amber-400 px-2 py-0.5 rounded-full">ADMIN ONLY</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="col-span-2">
+                <label className="block text-[11px] text-neutral-400 mb-1">Display name</label>
+                <input
+                  value={draft.displayName}
+                  onChange={(e) => setField('displayName', e.target.value)}
+                  placeholder={user.displayName ?? 'Name'}
+                  className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50"
+                />
+              </div>
+
+              <div className="col-span-2">
+                <label className="block text-[11px] text-neutral-400 mb-1">Photo / Video</label>
+                {/* Upload button */}
+                <div className="flex gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => labFileRef.current?.click()}
+                    disabled={labUploading}
+                    className="text-xs font-medium px-3 py-2 rounded-lg bg-neutral-700 hover:bg-neutral-600 text-white transition-colors disabled:opacity-50"
+                  >
+                    {labUploading ? 'Uploading…' : '↑ Upload file'}
+                  </button>
+                  <span className="text-[10px] text-neutral-500 self-center">or paste a URL below</span>
+                </div>
+                <input
+                  ref={labFileRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFileUpload(f); }}
+                />
+                {/* Photo URL */}
+                <div className="flex gap-2 mb-2">
+                  <input
+                    value={draft.thumbnailUrl}
+                    onChange={(e) => setField('thumbnailUrl', e.target.value)}
+                    placeholder="Photo URL (https://…)"
+                    className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50"
+                  />
+                  {draft.thumbnailUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={draft.thumbnailUrl} alt="" className="h-9 w-9 rounded-lg object-cover shrink-0 border border-neutral-700" />
+                  )}
+                </div>
+                {/* Video URL — auto-filled when a video is uploaded */}
+                <div className="flex gap-2 items-center">
+                  <input
+                    value={draft.videoUrl}
+                    onChange={(e) => setField('videoUrl', e.target.value)}
+                    placeholder="Video URL (https://…) — optional"
+                    className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50"
+                  />
+                  {draft.videoUrl && (
+                    <span className="text-[10px] text-amber-400 shrink-0">▶ video set</span>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-neutral-400 mb-1">Make</label>
+                <input value={draft.vehicleMake} onChange={(e) => setField('vehicleMake', e.target.value)}
+                  placeholder="Toyota" className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+              </div>
+              <div>
+                <label className="block text-[11px] text-neutral-400 mb-1">Model</label>
+                <input value={draft.vehicleModel} onChange={(e) => setField('vehicleModel', e.target.value)}
+                  placeholder="Camry" className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+              </div>
+              <div>
+                <label className="block text-[11px] text-neutral-400 mb-1">Year</label>
+                <input value={draft.vehicleYear} onChange={(e) => setField('vehicleYear', e.target.value)}
+                  placeholder="2022" type="number" className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+              </div>
+              <div>
+                <label className="block text-[11px] text-neutral-400 mb-1">Color</label>
+                <input value={draft.vehicleColor} onChange={(e) => setField('vehicleColor', e.target.value)}
+                  placeholder="Black" className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-neutral-400 mb-1">Min fare ($)</label>
+                <input value={draft.minimumFare} onChange={(e) => setField('minimumFare', e.target.value)}
+                  placeholder="15" type="number" className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+              </div>
+
+              <div className="col-span-2">
+                <label className="block text-[11px] text-neutral-400 mb-1">Set GPS location (lat, lng) — sets driver as live at this coordinate</label>
+                <div className="flex gap-2">
+                  <input value={draft.lat} onChange={(e) => setField('lat', e.target.value)}
+                    placeholder="33.749" type="number" step="any"
+                    className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+                  <input value={draft.lng} onChange={(e) => setField('lng', e.target.value)}
+                    placeholder="-84.388" type="number" step="any"
+                    className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-amber-500/50" />
+                </div>
+                <p className="text-[10px] text-neutral-600 mt-1">Atlanta downtown: 33.749, -84.388 · Midtown: 33.781, -84.383 · Buckhead: 33.838, -84.365</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={saveLab}
+                disabled={labSaving}
+                className="bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {labSaving ? 'Saving…' : 'Save changes'}
+              </button>
+              {labMsg && (
+                <span className={`text-xs ${labMsg === 'Saved' ? 'text-green-400' : 'text-red-400'}`}>{labMsg}</span>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Browse Visibility + Blast Exclusion */}
       {user.profileType === 'driver' && (
         <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-sm font-semibold">Browse Visibility</h3>
+              <h3 className="text-sm font-semibold">Visibility</h3>
               <p className="text-[11px] text-neutral-500 mt-1 max-w-md">
                 {user.profileVisible === false
-                  ? 'Hidden from /rider/browse. Direct HMU link still works and bookings still flow.'
-                  : 'Shown in /rider/browse. Riders discover this driver in the list.'}
+                  ? 'Hidden from browse and excluded from blast matching. Use this to park test drivers.'
+                  : 'Visible in browse and eligible for blast matching.'}
               </p>
             </div>
             <button
@@ -469,8 +893,120 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
                   : 'bg-neutral-700 hover:bg-neutral-600 text-white'
               }`}
             >
-              {user.profileVisible === false ? 'Show in browse' : 'Hide from browse'}
+              {user.profileVisible === false ? 'Enable driver' : 'Disable driver'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Market Assignment — all profile types; Areas only for drivers */}
+      {(user.profileType === 'rider' || user.profileType === 'driver' || user.profileType === 'both') && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-4">
+          <h3 className="text-sm font-semibold">Market{(user.profileType === 'driver' || user.profileType === 'both') ? ' & Areas' : ''}</h3>
+
+          {/* Market dropdown */}
+          <div>
+            <label className="text-[11px] text-neutral-400 block mb-1">Market</label>
+            <select
+              value={selectedMarketId ?? ''}
+              onChange={e => {
+                setSelectedMarketId(e.target.value || null);
+                setSelectedSlugs([]);
+              }}
+              className="w-full bg-neutral-800 border border-neutral-700 text-white text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-neutral-500"
+            >
+              <option value="">— Unassigned —</option>
+              {markets.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.status.toUpperCase()})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Areas checkboxes — drivers only */}
+          {(user.profileType === 'driver' || user.profileType === 'both') && selectedMarketId && areas.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[11px] text-neutral-400">Service areas</label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <span className="text-[11px] text-neutral-400">Entire market</span>
+                  <button
+                    type="button"
+                    onClick={() => setServicesEntireMarket(v => !v)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                      servicesEntireMarket ? 'bg-[#00E676]' : 'bg-neutral-700'
+                    }`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                      servicesEntireMarket ? 'translate-x-4' : 'translate-x-0.5'
+                    }`} />
+                  </button>
+                </label>
+              </div>
+              {!servicesEntireMarket && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {areas.sort((a, b) => a.sort_order - b.sort_order).map(area => (
+                    <label
+                      key={area.slug}
+                      className="flex items-center gap-2 cursor-pointer text-xs text-neutral-300 hover:text-white"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedSlugs.includes(area.slug)}
+                        onChange={e => {
+                          setSelectedSlugs(prev =>
+                            e.target.checked
+                              ? [...prev, area.slug]
+                              : prev.filter(s => s !== area.slug)
+                          );
+                        }}
+                        className="accent-[#00E676] h-3.5 w-3.5 rounded"
+                      />
+                      {area.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              onClick={async () => {
+                setMarketSaving(true);
+                setMarketMsg(null);
+                try {
+                  const isDriver = user.profileType === 'driver' || user.profileType === 'both';
+                  const res = await fetch(`/api/admin/users/${userId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      marketId: selectedMarketId,
+                      ...(isDriver && {
+                        areaSlugs: servicesEntireMarket ? [] : selectedSlugs,
+                        servicesEntireMarket,
+                      }),
+                    }),
+                  });
+                  setMarketMsg(res.ok ? 'Saved' : 'Failed');
+                  if (res.ok) fetchUser();
+                } catch {
+                  setMarketMsg('Failed');
+                } finally {
+                  setMarketSaving(false);
+                }
+              }}
+              disabled={marketSaving}
+              className="bg-[#00E676] hover:bg-[#00C864] text-black text-xs font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {marketSaving ? 'Saving…' : 'Save market'}
+            </button>
+            {marketMsg && (
+              <span className={`text-xs ${marketMsg === 'Saved' ? 'text-green-400' : 'text-red-400'}`}>
+                {marketMsg}
+              </span>
+            )}
           </div>
         </div>
       )}

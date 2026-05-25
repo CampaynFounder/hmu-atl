@@ -6,7 +6,7 @@ import { holdRiderPayment } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 import { getDriverMenuForRider } from '@/lib/db/service-menu';
 import { getHoldPolicy, calculateDepositAmount } from '@/lib/payments/hold-policy';
-import { driverAllowsCashOnly } from '@/lib/payments/strategies';
+import { driverAllowsCashOnly, resolvePricingStrategy } from '@/lib/payments/strategies';
 
 export async function POST(
   req: NextRequest,
@@ -39,6 +39,19 @@ export async function POST(
 
     if (ride.status !== 'matched') {
       return NextResponse.json({ error: `Cannot COO from status: ${ride.status}` }, { status: 400 });
+    }
+
+    // Idempotency: if payment was already held (partial success on a prior tap), skip hold
+    if (ride.funds_held && ride.payment_intent_id) {
+      return NextResponse.json({
+        status: 'coo',
+        rideId,
+        paymentHeld: true,
+        visibleDeposit: Number(ride.visible_deposit ?? 0),
+        holdMode: ride.pricing_mode_key ?? null,
+        ridePrice: Number(ride.final_agreed_price || ride.amount || 0),
+        idempotent: true,
+      });
     }
 
     // ── Skip payment hold for cash rides ──
@@ -178,6 +191,14 @@ export async function POST(
       ? JSON.stringify(validatedStops.map(s => ({ ...s, reached_at: null, verified: false })))
       : null;
 
+    // Resolve the pricing strategy now so we can stamp it on the row.
+    // Digital rides also stamp inside holdRiderPayment, but the cash branch
+    // doesn't go through there — so this is the single point that covers
+    // both paths.
+    const cooStrategy = ride.driver_id
+      ? await resolvePricingStrategy(ride.driver_id as string)
+      : null;
+
     // Update ride with rider location, validated addresses, and COO status
     await sql`
       UPDATE rides SET
@@ -192,6 +213,7 @@ export async function POST(
         dropoff_lat = ${validatedDropoff?.latitude || null},
         dropoff_lng = ${validatedDropoff?.longitude || null},
         stops = ${stopsJson}::jsonb,
+        pricing_mode_key = COALESCE(pricing_mode_key, ${cooStrategy?.modeKey ?? null}),
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'matched'
     `;

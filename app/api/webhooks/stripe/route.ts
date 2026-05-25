@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { sql } from '@/lib/db/client';
 import { sendSms } from '@/lib/sms/textbee';
+import { renderTemplate } from '@/lib/sms/templates';
 import { publishAdminEvent } from '@/lib/ably/server';
 import { syncTierForCustomer } from '@/lib/stripe/sync-tier';
 
@@ -130,9 +131,12 @@ export async function POST(request: NextRequest) {
 
             // Only SMS on first transition to payout-ready
             if (!wasAlreadyComplete && driver.phone) {
+              const firstName = (driver.first_name as string | null) || 'Hey';
+              const fallback = `HMU ATL: ${firstName}, your payout account is verified! You can now cash out your earnings. atl.hmucashride.com/driver/home`;
+              const message = (await renderTemplate('payout_ready', { firstName })) ?? fallback;
               await sendSms(
                 driver.phone as string,
-                `HMU ATL: ${driver.first_name || 'Hey'}, your payout account is verified! You can now cash out your earnings. atl.hmucashride.com/driver/home`,
+                message,
                 { userId: driver.user_id as string, eventType: 'payout_ready' }
               );
             }
@@ -327,8 +331,9 @@ export async function POST(request: NextRequest) {
         const firstName =
           (driver.display_name ?? '').trim().split(/\s+/)[0] || 'Hey';
         const clearedDollars = (deltaCents / 100).toFixed(2);
-        const smsBody =
+        const fallback =
           `HMU ATL: ${firstName}, your $${clearedDollars} just cleared! Cash out at atl.hmucashride.com/driver/home`;
+        const smsBody = (await renderTemplate('balance_available', { firstName, clearedDollars })) ?? fallback;
 
         const result = await sendSms(driver.phone, smsBody, {
           userId: driver.user_id,

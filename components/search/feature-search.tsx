@@ -97,7 +97,7 @@ function trackSearch(event: string, data: Record<string, unknown>) {
 // Active ride feature labels that should deep-link to the ride page
 const ACTIVE_RIDE_LABELS = new Set(['Track My Driver', 'Chat with Driver', 'Rate a Driver', 'Dispute a Ride']);
 
-export function FeatureSearch({ profileType }: { profileType?: string }) {
+export function FeatureSearch({ profileType }: { profileType: 'rider' | 'driver' | 'admin' | string }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
@@ -105,7 +105,8 @@ export function FeatureSearch({ profileType }: { profileType?: string }) {
   const router = useRouter();
 
   const isRider = profileType === 'rider';
-  const baseFeatures = isRider ? RIDER_FEATURES : DRIVER_FEATURES;
+  const isDriver = profileType === 'driver';
+  const baseFeatures = isRider ? RIDER_FEATURES : isDriver ? DRIVER_FEATURES : [];
 
   // For riders, update active-ride feature hrefs if they have an active ride
   const features = isRider && activeRideId

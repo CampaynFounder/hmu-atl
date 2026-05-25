@@ -28,6 +28,7 @@ function canDismiss(action: PendingAction): boolean {
     'pending_booking',
     'booking_request',
     'continue_booking',
+    'active_blast',
   ]);
   return !permanent.has(action.type);
 }

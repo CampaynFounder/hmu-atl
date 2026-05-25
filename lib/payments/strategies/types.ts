@@ -30,6 +30,82 @@ export interface PricingStrategy {
 
   /** Decide capture + application_fee on voluntary post-OTW cancel. */
   calculateCancel(input: CancelInput): Promise<CancelDecision>;
+
+  /**
+   * Build the post-ride breakdown shown on the ride-end page. Each strategy
+   * owns its own row set + labels — the UI just renders whatever it gets.
+   * Pure function over the values already on the row + per-extra rows;
+   * no DB or Stripe calls.
+   */
+  buildBreakdownRows(input: BreakdownInput): BreakdownResult;
+}
+
+// ── Ride-end breakdown ──
+
+export interface BreakdownExtra {
+  id: string;
+  name: string;
+  subtotal: number;
+  driverAmount: number;
+  platformFee: number;
+  status: string;
+  chargeStatus: string | null;
+}
+
+export interface BreakdownInput {
+  isCash: boolean;
+  agreedPrice: number;
+  visibleDeposit: number;
+  addOnTotal: number;
+  /** Driver's net from the deposit/main capture (rides.driver_payout_amount). */
+  driverPayoutAmount: number;
+  /** Platform's fee from the deposit/main capture (rides.platform_fee_amount). */
+  platformFeeAmount: number;
+  /** Stripe processing fee on the deposit/main capture (rides.stripe_fee_amount). */
+  stripeFeeAmount: number;
+  /** Sum of driver_amount across succeeded extras. */
+  extrasDriverAmount: number;
+  /** Sum of platform_fee across succeeded extras. */
+  extrasPlatformFee: number;
+  /** Sum of stripe_fee across succeeded extras. */
+  extrasStripeFee: number;
+  /** Per-extra detail (succeeded + failed both included). */
+  extras: BreakdownExtra[];
+}
+
+export interface BreakdownRow {
+  label: string;
+  value: number; // dollars
+  /**
+   * Visual treatment.
+   * 'amount' = positive earnings line (white)
+   * 'muted'  = informational/secondary line (gray)
+   * 'fee'    = cost/deduction line — rendered with −$ prefix in orange
+   * 'total'  = grand total at the bottom (bold)
+   */
+  role: 'amount' | 'muted' | 'fee' | 'total';
+}
+
+export interface BreakdownResult {
+  modeKey: ModeKey;
+  isCash: boolean;
+  /** Driver's total income (headline number above the rows). */
+  youEarned: number;
+  /** Total money the rider paid (sum of riderRows non-total entries). */
+  total: number;
+  /**
+   * What the driver sees: deposit/extras received, HMU's net cut, Stripe fee,
+   * cash, total. Money-conservation identity for digital rides:
+   *   sum(non-total rows) === total === sum of rider's non-total rows.
+   */
+  driverRows: BreakdownRow[];
+  /**
+   * What the rider sees: deposit/extras/cash they paid + total. No platform
+   * or Stripe internals — riders don't care how the money is sliced after
+   * leaving their card.
+   */
+  riderRows: BreakdownRow[];
+  extras: BreakdownExtra[];
 }
 
 // ── Hold (Pull Up) ──
@@ -69,6 +145,9 @@ export interface CaptureInput {
   agreedPrice: number;
   /** Confirmed add-ons at capture time (dollars). Used by legacy_full_fare. */
   addOnTotal: number;
+  /** Add-on reserve set at authorization time (dollars). legacy_full_fare uses this
+   *  to cap captureAmountCents so it never exceeds the authorized PI amount. */
+  addOnReserve?: number;
   /** Deposit set at hold time (rides.visible_deposit). Used by deposit_only. */
   visibleDeposit: number;
   driverTier: 'free' | 'hmu_first';

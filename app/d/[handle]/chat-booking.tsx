@@ -36,7 +36,6 @@ interface Message {
   };
 }
 
-const EXPIRY_MINUTES = 15;
 const TYPING_DELAY = 400;
 
 export default function ChatBooking({ driver, open, onClose }: Props) {
@@ -46,6 +45,7 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
   const [typing, setTyping] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
+  const [expiryMinutes, setExpiryMinutes] = useState(15);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -320,8 +320,10 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
         setStep('confirm');
         return;
       }
+      const mins = data.expiryMinutes ?? 15;
       setExpiresAt(new Date(data.expiresAt));
-      addSystemMessageDirect(`sent! ${driver.displayName} has 15 min to respond. no charge until they accept.`);
+      setExpiryMinutes(mins);
+      addSystemMessageDirect(`sent! ${driver.displayName} has ${mins} min to respond. no charge until they accept.`);
       setStep('pending');
     } catch {
       addSystemMessageDirect("network error — try again");
@@ -539,7 +541,7 @@ export default function ChatBooking({ driver, open, onClose }: Props) {
               <div className="pending-timer">{mins}:{String(secs).padStart(2, '0')}</div>
               <div className="pending-label">waiting on {driver.displayName}...</div>
               <div className="timer-bar">
-                <div className="timer-fill" style={{ width: `${(secondsLeft / (EXPIRY_MINUTES * 60)) * 100}%` }} />
+                <div className="timer-fill" style={{ width: `${(secondsLeft / (expiryMinutes * 60)) * 100}%` }} />
               </div>
               <button className="chat-done-btn" onClick={onClose}>
                 Close — I&apos;ll check back

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useClerk, useUser } from '@clerk/nextjs';
@@ -30,8 +30,12 @@ function getLogoHref(pathname: string, profileType?: string) {
   return '/';
 }
 
+const PROFILE_TYPE_KEY = 'hmu_profile_type';
+
 export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [cachedProfileType, setCachedProfileType] = useState<string | undefined>(undefined);
+  const [fetchedProfileType, setFetchedProfileType] = useState<string | undefined>(undefined);
   const pathname = usePathname();
   const { isSignedIn, user } = useUser();
   const { signOut } = useClerk();
@@ -44,16 +48,64 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
   // /admin-signup which are pre-auth pages and want the global chrome.
   if (pathname === '/admin' || pathname.startsWith('/admin/')) return null;
 
-  const profileType = user?.publicMetadata?.profileType as string | undefined;
+  const rawProfileType = user?.publicMetadata?.profileType as string | undefined;
   const tier = user?.publicMetadata?.tier as string | undefined;
   const isHmuFirst = tier === 'hmu_first';
+
+  // Resolution priority (first truthy value wins):
+  //   1. Clerk publicMetadata — authoritative, instant when set
+  //   2. URL prefix — /rider* or /driver* gives an unambiguous signal
+  //   3. localStorage cache — populated on any prior visit where 1 or 4 resolved
+  //   4. /api/me/role fetch — reads Neon, backfills Clerk so subsequent loads skip this
+  const profileType: string | undefined = rawProfileType
+    || (pathname.startsWith('/rider') ? 'rider'
+      : pathname.startsWith('/driver') ? 'driver'
+      : cachedProfileType ?? fetchedProfileType);
+
+  useEffect(() => {
+    if (rawProfileType) {
+      localStorage.setItem(PROFILE_TYPE_KEY, rawProfileType);
+      return;
+    }
+    const stored = localStorage.getItem(PROFILE_TYPE_KEY);
+    if (stored) {
+      setCachedProfileType(stored);
+      return;
+    }
+    // Neither Clerk nor localStorage has the role — fetch from Neon.
+    // The endpoint also backfills Clerk publicMetadata so this only fires once
+    // per account (future loads resolve at step 1).
+    if (isSignedIn) {
+      fetch('/api/me/role')
+        .then(r => r.ok ? r.json() : null)
+        .then((d: { profileType?: string } | null) => {
+          if (d?.profileType) {
+            setFetchedProfileType(d.profileType);
+            localStorage.setItem(PROFILE_TYPE_KEY, d.profileType);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isSignedIn, rawProfileType]);
+
   const logoHref = getLogoHref(pathname, profileType);
   const close = () => setIsMenuOpen(false);
 
   const handleSignOut = () => {
     close();
-    const redirectUrl = profileType === 'rider' ? '/rider/home' : profileType === 'driver' ? '/driver' : '/';
-    signOut({ redirectUrl });
+    const onBlastPage = pathname.startsWith('/rider/blast') || pathname === '/rider/browse/blast';
+    const redirectUrl = onBlastPage
+      ? '/rider/browse/blast'
+      : profileType === 'rider' ? '/rider/home'
+      : profileType === 'driver' ? '/sign-in'
+      : '/';
+    // Defer to the next tick so the close() state update (isMenuOpen → false)
+    // finishes its render cycle before Clerk's signOut triggers its own
+    // internal auth-state broadcast — mixing the two in the same microtask
+    // causes React error #300 ("cannot update while rendering").
+    setTimeout(() => {
+      void signOut({ redirectUrl });
+    }, 0);
   };
 
   return (
@@ -82,7 +134,7 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
               )}
             </div>
             <div className="flex items-center gap-1">
-              {isSignedIn && <FeatureSearch profileType={profileType} />}
+              {isSignedIn && profileType && <FeatureSearch profileType={profileType} />}
               <button
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
                 className="p-2 rounded-lg hover:bg-white/10 transition-colors text-white"
@@ -137,6 +189,8 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
                   {isSignedIn && profileType === 'rider' && (
                     <>
                       <NavItem href="/rider/home" label="Find a Ride" active={pathname === '/rider/home'} accent onClick={close} />
+                      <NavItem href="/rider/blast" label="My Blasts" icon="⚡" active={pathname.startsWith('/rider/blast')} onClick={close} />
+                      <NavItem href="/rider/down-bad/new" label="Down Bad" icon="😮‍💨" active={pathname.startsWith('/rider/down-bad')} onClick={close} />
                       <NavItem href="/rider/browse" label="Browse Drivers" active={pathname.startsWith('/rider/browse') || pathname.startsWith('/d/')} onClick={close} />
                       <NavItem href="/rider/rides" label="Your Rides" active={pathname.startsWith('/rider/rides')} onClick={close} />
                       <NavItem href="/rider/profile" label="HMU Profile" active={pathname.startsWith('/rider/profile')} onClick={close} />
@@ -182,14 +236,14 @@ export function Header({ brandLabel = 'HMU ATL' }: { brandLabel?: string }) {
                     </>
                   ) : (
                     <li>
-                      <Link
+                      <a
                         href="/sign-in"
                         onClick={close}
                         className="block px-4 py-3 rounded-xl text-center text-[15px] font-semibold text-[#080808] bg-[#00E676] hover:bg-[#00C864] transition-colors"
-                        style={{ fontFamily: 'var(--font-body, DM Sans, sans-serif)' }}
+                        style={{ fontFamily: 'var(--font-body, DM Sans, sans-serif)', textDecoration: 'none' }}
                       >
                         Sign In
-                      </Link>
+                      </a>
                     </li>
                   )}
                 </ul>

@@ -18,6 +18,9 @@ interface UserItem {
   completedRides: number;
   disputeCount: number;
   createdAt: string;
+  lastSignInAt: string | null;
+  signInCount: number;
+  firstReturnAt: string | null;
   profileVisible: boolean | null;
   paymentReady: boolean;
 }
@@ -31,6 +34,8 @@ export function UserManagement() {
   const [visibilityFilter, setVisibilityFilter] = useState(''); // '' | 'visible' | 'hidden'
   const [tab, setTab] = useState<'search' | 'growth' | 'pending'>('search');
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
@@ -99,7 +104,7 @@ export function UserManagement() {
     await bulkUpdate({ cashOnly: false, acceptsCash: false });
   }
 
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async (pageNum = page) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -108,11 +113,14 @@ export function UserManagement() {
       if (statusFilter) params.set('status', statusFilter);
       if (selectedMarketId) params.set('marketId', selectedMarketId);
       if (visibilityFilter) params.set('visibility', visibilityFilter);
+      params.set('page', String(pageNum));
 
       const res = await fetch(`/api/admin/users?${params}`);
       if (res.ok) {
         const data = await res.json();
         setUsers(data.users ?? []);
+        setTotal(data.total ?? 0);
+        setPage(pageNum);
       } else {
         console.error('Admin users API error:', res.status, await res.text());
       }
@@ -121,11 +129,11 @@ export function UserManagement() {
     } finally {
       setLoading(false);
     }
-  }, [search, typeFilter, statusFilter, visibilityFilter, selectedMarketId]);
+  }, [search, typeFilter, statusFilter, visibilityFilter, selectedMarketId, page]);
 
   useEffect(() => {
-    if (tab === 'search') fetchUsers();
-  }, [fetchUsers, tab]);
+    if (tab === 'search') fetchUsers(1);
+  }, [typeFilter, statusFilter, visibilityFilter, selectedMarketId, tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Optimistic toggle of profile_visible. Reverts on API failure so the UI
   // never lies about the persisted state.
@@ -183,7 +191,7 @@ export function UserManagement() {
                 placeholder="Search by name, handle, phone, Clerk ID..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && fetchUsers()}
+                onKeyDown={(e) => e.key === 'Enter' && fetchUsers(1)}
                 className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600"
               />
             </div>
@@ -220,7 +228,7 @@ export function UserManagement() {
               </select>
             )}
             <button
-              onClick={fetchUsers}
+              onClick={() => fetchUsers(1)}
               className="bg-white/10 hover:bg-white/20 text-white text-xs font-medium px-4 py-2 rounded-lg transition-colors"
             >
               Search
@@ -289,6 +297,8 @@ export function UserManagement() {
                     <th className="text-right p-3 font-medium">Rides</th>
                     <th className="text-right p-3 font-medium">Disputes</th>
                     <th className="text-left p-3 font-medium">Joined</th>
+                    <th className="text-left p-3 font-medium">Last Sign In</th>
+                    <th className="text-right p-3 font-medium">Logins</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -395,6 +405,12 @@ export function UserManagement() {
                           </span>
                         </td>
                         <td className="p-3 text-neutral-500">{new Date(user.createdAt).toLocaleDateString()}</td>
+                        <td className="p-3 text-neutral-500">
+                          {user.lastSignInAt
+                            ? new Date(user.lastSignInAt).toLocaleDateString()
+                            : <span className="text-neutral-700">—</span>}
+                        </td>
+                        <td className="p-3 text-right text-neutral-500">{user.signInCount || <span className="text-neutral-700">—</span>}</td>
                       </tr>
                       );
                     })
@@ -403,6 +419,31 @@ export function UserManagement() {
               </table>
             </div>
           </div>
+
+          {/* Pagination */}
+          {total > 0 && (
+            <div className="flex items-center justify-between text-xs text-neutral-500 pt-1">
+              <span>
+                {Math.min((page - 1) * 50 + 1, total)}–{Math.min(page * 50, total)} of {total} users
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => fetchUsers(page - 1)}
+                  disabled={page <= 1 || loading}
+                  className="px-3 py-1.5 rounded border border-neutral-800 bg-neutral-900 hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  ← Prev
+                </button>
+                <button
+                  onClick={() => fetchUsers(page + 1)}
+                  disabled={page * 50 >= total || loading}
+                  className="px-3 py-1.5 rounded border border-neutral-800 bg-neutral-900 hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
 

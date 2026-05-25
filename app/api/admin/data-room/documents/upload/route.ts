@@ -3,7 +3,9 @@ import { sql } from '@/lib/db/client';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 
-const R2_PUBLIC_URL = 'https://pub-649c30e78a62433eb6ed9cb1209d112a.r2.dev';
+const R2_PUBLIC_URL =
+  process.env.NEXT_PUBLIC_R2_PUBLIC_URL ??
+  'https://pub-649c30e78a62433eb6ed9cb1209d112a.r2.dev';
 const VALID_CATEGORIES = ['pitch_deck', 'financials', 'one_pager', 'legal', 'other'];
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
 

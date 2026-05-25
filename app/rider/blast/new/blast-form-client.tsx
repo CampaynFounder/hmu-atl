@@ -1,0 +1,1547 @@
+'use client';
+
+// /rider/blast/new — v3 bottom-sheet form for the Blast booking flow.
+// Stream A (per docs/BLAST-V3-AGENT-CONTRACT.md §3 D-3, D-4, D-12, D-13;
+// §4 Stream A row; §5.1 above-the-fold rule; §5.5 frontend feel bar; §6.6
+// micro-animation moments; §10 PostHog events).
+//
+// 8 internal steps (no URL param — internal state machine):
+//   1. Pickup       (AddressAutocomplete, REUSE)
+//   2. Dropoff      (AddressAutocomplete, REUSE)
+//   3. Trip type    (one_way / round_trip chip selector)
+//   4. Datetime     (NLP free-text → chip fallback per D-4)
+//   5. Storage      (Y/N toggle)
+//   6. Price        (+/- $5 stepper, default $25, CountUpNumber animation)
+//   7. Driver pref  (multi-select chips + strict toggle, per D-3)
+//   8. Rider gender (chips, optional — Woman / Man / Non-binary)
+//
+// On submit:
+//   - saveBlastDraft() to localStorage (30min TTL per D-12)
+//   - Unauth → /sign-up?type=rider&draft=blast&returnTo=/auth-callback/blast
+//   - Auth   → /auth-callback/blast?mode=signin (skips username + photo)
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useUser } from '@clerk/nextjs';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { posthog } from '@/components/analytics/posthog-provider';
+import { AddressAutocomplete } from '@/components/ride/address-autocomplete';
+import { BottomSheet } from '@/components/blast/motion';
+import { CountUpNumber } from '@/components/blast/motion';
+import { SuccessCheckmark } from '@/components/blast/motion';
+import {
+  Chip,
+  ChipGroup,
+  PriceStepperButton,
+  Toggle,
+  PrimaryCta,
+  ShakeWrap,
+} from '@/components/blast/form/form-controls';
+import { saveBlastDraft } from '@/lib/storage/blast-draft';
+import { getDateParser, NLP_CONFIDENCE_CUTOFF } from '@/lib/blast/date-parser';
+import type { ValidatedAddress } from '@/lib/db/types';
+import type { BlastDraft, GenderOption, GenderPreference } from '@/lib/blast/types';
+
+// ─── Step types ─────────────────────────────────────────────────────────────
+
+type StepId =
+  | 'pickup'
+  | 'dropoff'
+  | 'stops'
+  | 'trip_type'
+  | 'datetime'
+  | 'storage'
+  | 'price'
+  | 'proximity'
+  | 'driver_pref'
+  | 'rider_gender';
+
+const STEPS: ReadonlyArray<StepId> = [
+  'pickup',
+  'dropoff',
+  'stops',
+  'trip_type',
+  'datetime',
+  'storage',
+  'price',
+  'proximity',
+  'driver_pref',
+  'rider_gender',
+];
+
+const STEP_TITLES: Record<StepId, string> = {
+  pickup: 'Where you at?',
+  dropoff: 'Where to?',
+  stops: 'Any stops?',
+  trip_type: 'One way or round trip?',
+  datetime: 'When you trying to roll?',
+  storage: 'Bringing bags?',
+  price: 'What you paying?',
+  proximity: 'How close they need to be?',
+  driver_pref: 'Driver preference',
+  rider_gender: 'About you',
+};
+
+const DEFAULT_PRICE_DOLLARS = 25;
+
+// Internal form draft mirrors BlastDraft (lib/blast/types.ts) but lets pickup/
+// dropoff start as null. saveBlastDraft validates the canonical shape.
+interface FormDraft {
+  pickup: ValidatedAddress | null;
+  dropoff: ValidatedAddress | null;
+  stops: ValidatedAddress[];
+  tripType: 'one_way' | 'round_trip';
+  scheduledFor: string | null;
+  scheduledFreeText: string;
+  nlpConfidence: number | null;
+  storage: boolean;
+  priceDollars: number;
+  maxPickupMinutes: number | null;
+  riderGender: GenderOption | null;
+  driverPreference: GenderPreference;
+}
+
+const EMPTY_DRAFT: FormDraft = {
+  pickup: null,
+  dropoff: null,
+  stops: [],
+  tripType: 'one_way',
+  scheduledFor: null,
+  scheduledFreeText: '',
+  nlpConfidence: null,
+  storage: false,
+  priceDollars: DEFAULT_PRICE_DOLLARS,
+  maxPickupMinutes: null,
+  riderGender: null,
+  driverPreference: { preferred: [], strict: false },
+};
+
+const stepSlideVariants = {
+  enter: { x: 60, opacity: 0 },
+  center: { x: 0, opacity: 1 },
+  exit: { x: -60, opacity: 0 },
+};
+const stepSlideTransition = { duration: 0.28, ease: [0.32, 0.72, 0, 1] as [number, number, number, number] };
+
+// ─── Component ──────────────────────────────────────────────────────────────
+
+interface ActiveBlast {
+  id: string;
+  shortcode: string | null;
+  pickupAddress: string;
+  dropoffAddress: string;
+  price: number;
+  expiresAt: string;
+}
+
+function isInAppBrowser() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return (
+    /FBAN|FBAV/i.test(ua) ||
+    /Instagram/i.test(ua) ||
+    /TikTok/i.test(ua) ||
+    /Snapchat/i.test(ua) ||
+    /LinkedInApp/i.test(ua) ||
+    /Twitter/i.test(ua) ||
+    /Line\//i.test(ua) ||
+    /MicroMessenger/i.test(ua) ||
+    (/wv\)/.test(ua) && /Android/.test(ua))
+  );
+}
+
+export default function BlastFormClient() {
+  const router = useRouter();
+  const { isSignedIn, isLoaded } = useUser();
+  const prefersReduced = useReducedMotion();
+
+  const [open, setOpen] = useState(true);
+  const [stepIdx, setStepIdx] = useState(0);
+  const [inAppBannerDismissed, setInAppBannerDismissed] = useState(false);
+  const [inApp, setInApp] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  // Server-side draft ID for cross-browser handoff (in-app → Safari/Chrome).
+  // Set once the draft is persisted server-side; passed through the auth URL chain
+  // so blast-handoff-client can fetch the draft even when localStorage is empty.
+  const [serverDraftId, setServerDraftId] = useState<string | undefined>(undefined);
+  const [draft, setDraft] = useState<FormDraft>(EMPTY_DRAFT);
+  const [submitting, setSubmitting] = useState(false);
+  const [shakeKey, setShakeKey] = useState(0);
+  const [existingBlast, setExistingBlast] = useState<ActiveBlast | null>(null);
+  // Pricing estimate fetched once both addresses are set. distanceMi feeds the
+  // price-step sublabel; suggestedPriceDollars replaces the static $25 default.
+  const [estimate, setEstimate] = useState<{
+    distanceMi: number;
+    estimatedMinutes: number;
+    suggestedPriceDollars: number;
+  } | null>(null);
+  // When the signed-in rider already has gender on file we skip the last step.
+  const [genderKnown, setGenderKnown] = useState(false);
+  const priceTouchedRef = useRef(false);
+  const prevTripTypeRef = useRef<'one_way' | 'round_trip'>('one_way');
+  const startedAt = useRef<number>(Date.now());
+  const startedRef = useRef(false);
+
+  // Steps list — drop rider_gender when the signed-in user already has it.
+  const effectiveSteps = useMemo<ReadonlyArray<StepId>>(
+    () => genderKnown ? STEPS.filter(s => s !== 'rider_gender') : STEPS,
+    [genderKnown],
+  );
+
+  const step: StepId = effectiveSteps[stepIdx];
+
+  // Fire blast_form_started exactly once on mount.
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    try {
+      posthog.capture('blast_form_started', { source: 'direct' });
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { setInApp(isInAppBrowser()); }, []);
+
+  // If the rider is already signed in, fetch their profile and pre-fill gender
+  // so they skip the rider_gender step entirely.
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    (async () => {
+      try {
+        const res = await fetch('/api/rider/profile');
+        if (!res.ok) return;
+        const data = await res.json() as { gender: string | null };
+        const g = data.gender;
+        if (g === 'woman' || g === 'man' || g === 'nonbinary') {
+          setDraft(d => ({ ...d, riderGender: g as GenderOption }));
+          setGenderKnown(true);
+        }
+      } catch { /* non-fatal — gender step still shows as fallback */ }
+    })();
+  }, [isLoaded, isSignedIn]);
+
+  // Abandonment beacon if the user navigates away without completing.
+  useEffect(() => {
+    const handler = () => {
+      if (submitting) return; // they did finish
+      try {
+        posthog.capture('blast_form_abandoned', {
+          lastStep: effectiveSteps[stepIdx],
+          durationMs: Date.now() - startedAt.current,
+        });
+      } catch { /* ignore */ }
+    };
+    window.addEventListener('pagehide', handler);
+    return () => window.removeEventListener('pagehide', handler);
+    // intentionally re-bind on stepIdx so the latest step is reported
+  }, [stepIdx, submitting]);
+
+  // Fetch the pricing estimate once both addresses are set. Re-fires whenever
+  // pickup, dropoff, or stops change so the price reflects the full route.
+  // If the rider hasn't touched the stepper we adopt the suggested fare;
+  // otherwise we only refresh the distance/duration label.
+  useEffect(() => {
+    const p = draft.pickup;
+    const d = draft.dropoff;
+    if (!p || !d) {
+      setEstimate(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/blast/estimate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pickup: { lat: p.latitude, lng: p.longitude },
+            dropoff: { lat: d.latitude, lng: d.longitude },
+            stops: draft.stops.map(s => ({ lat: s.latitude, lng: s.longitude })),
+          }),
+        });
+        if (!res.ok || cancelled) return;
+        const body = (await res.json()) as {
+          distance_mi: number;
+          estimated_minutes: number;
+          suggested_price_dollars: number;
+        };
+        if (cancelled) return;
+        setEstimate({
+          distanceMi: body.distance_mi,
+          estimatedMinutes: body.estimated_minutes,
+          suggestedPriceDollars: body.suggested_price_dollars,
+        });
+        if (!priceTouchedRef.current) {
+          setDraft((cur) => ({
+            ...cur,
+            priceDollars: cur.tripType === 'round_trip'
+              ? body.suggested_price_dollars * 2
+              : body.suggested_price_dollars,
+          }));
+        }
+      } catch {
+        // Estimate is best-effort — failure leaves the default $25 in place.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.pickup, draft.dropoff, draft.stops]);
+
+  // When the rider changes trip type (and hasn't manually adjusted price),
+  // double or halve the current price to match the leg count.
+  useEffect(() => {
+    const prev = prevTripTypeRef.current;
+    const next = draft.tripType;
+    prevTripTypeRef.current = next;
+    if (prev === next || priceTouchedRef.current) return;
+    setDraft((d) => {
+      if (prev === 'one_way' && next === 'round_trip') {
+        return { ...d, priceDollars: d.priceDollars * 2 };
+      }
+      if (prev === 'round_trip' && next === 'one_way') {
+        return { ...d, priceDollars: Math.round(d.priceDollars / 2) };
+      }
+      return d;
+    });
+  }, [draft.tripType]);
+
+  // Closing the sheet returns the user to /blast — there's no half-state we
+  // want to keep them on.
+  const handleClose = useCallback(() => {
+    setOpen(false);
+    // Allow the close animation to play before navigating away.
+    window.setTimeout(() => router.push('/blast'), 320);
+  }, [router]);
+
+  // ─── Per-step validation ──────────────────────────────────────────────────
+
+  const isStepValid = useCallback((id: StepId, d: FormDraft): boolean => {
+    switch (id) {
+      case 'pickup': return !!d.pickup;
+      case 'dropoff': return !!d.dropoff;
+      case 'stops': return true; // optional — always continue
+      case 'trip_type': return d.tripType === 'one_way' || d.tripType === 'round_trip';
+      case 'datetime': return true; // null means "ASAP" — always valid
+      case 'storage': return true;  // boolean is always valid
+      case 'price': return d.priceDollars >= 1 && d.priceDollars <= 500;
+      case 'proximity': return true; // null = no constraint, any value is valid
+      case 'driver_pref': return true; // empty preferred is "no preference" — valid
+      // About You is now mandatory — drivers honor the rider's stated
+      // gender preference, so we need this for matching to work.
+      case 'rider_gender': return d.riderGender === 'woman' || d.riderGender === 'man' || d.riderGender === 'nonbinary';
+    }
+  }, []);
+
+  const advance = useCallback(() => {
+    const valid = isStepValid(step, draft);
+    if (!valid) {
+      setShakeKey((k) => k + 1);
+      return;
+    }
+    try {
+      posthog.capture('blast_form_step_completed', {
+        step,
+        stepIndex: stepIdx,
+      });
+    } catch { /* ignore */ }
+    if (stepIdx < effectiveSteps.length - 1) {
+      setStepIdx(stepIdx + 1);
+    } else {
+      void submit();
+    }
+    // submit is defined below — eslint is fine with it bc of the closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, stepIdx, draft, isStepValid]);
+
+  const back = useCallback(() => {
+    if (stepIdx > 0) setStepIdx(stepIdx - 1);
+    else handleClose();
+  }, [stepIdx, handleClose]);
+
+  // ─── Submit: park draft, route to handoff ─────────────────────────────────
+
+  const navigateToHandoff = useCallback((draftId?: string) => {
+    const draftParam = draftId ? `&blastDraftId=${encodeURIComponent(draftId)}` : '';
+    if (isLoaded && isSignedIn) {
+      router.push(`/auth-callback/blast?mode=signin${draftParam}`);
+    } else {
+      const returnTo = encodeURIComponent('/auth-callback/blast');
+      window.location.href = `/sign-up?type=rider&draft=blast${draftParam}&returnTo=${returnTo}`;
+    }
+  }, [isLoaded, isSignedIn, router]);
+
+  const submit = useCallback(async () => {
+    if (submitting) return;
+    if (!draft.pickup || !draft.dropoff) {
+      setStepIdx(draft.pickup ? 1 : 0);
+      setShakeKey((k) => k + 1);
+      return;
+    }
+    setSubmitting(true);
+    const blastDraft: BlastDraft = {
+      pickup: {
+        lat: draft.pickup.latitude,
+        lng: draft.pickup.longitude,
+        address: draft.pickup.address || draft.pickup.name,
+        mapboxId: draft.pickup.mapbox_id,
+      },
+      dropoff: {
+        lat: draft.dropoff.latitude,
+        lng: draft.dropoff.longitude,
+        address: draft.dropoff.address || draft.dropoff.name,
+        mapboxId: draft.dropoff.mapbox_id,
+      },
+      stops: draft.stops.length > 0 ? draft.stops.map(s => ({
+        lat: s.latitude,
+        lng: s.longitude,
+        address: s.address || s.name,
+        mapboxId: s.mapbox_id,
+      })) : undefined,
+      tripType: draft.tripType,
+      scheduledFor: draft.scheduledFor,
+      storage: draft.storage,
+      priceDollars: draft.priceDollars,
+      riderGender: draft.riderGender,
+      driverPreference: draft.driverPreference,
+      maxPickupMinutes: draft.maxPickupMinutes,
+      parsedFromText: draft.scheduledFreeText || undefined,
+      nlpConfidence: draft.nlpConfidence ?? undefined,
+      draftCreatedAt: Date.now(),
+    };
+    saveBlastDraft(blastDraft);
+
+    // Persist server-side so the draft survives a browser switch
+    // (in-app browser → Safari/Chrome). Best-effort: localStorage is the
+    // fallback if this fails.
+    let remoteDraftId: string | undefined;
+    try {
+      const res = await fetch('/api/public/blast-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(blastDraft),
+      });
+      if (res.ok) {
+        const data = await res.json() as { draftId: string };
+        remoteDraftId = data.draftId;
+        setServerDraftId(remoteDraftId);
+      }
+    } catch { /* non-fatal */ }
+
+    // For signed-in riders: check if an active blast already exists.
+    // If so, surface a confirmation sheet before proceeding — the API will
+    // cancel the old blast automatically, but riders deserve to know.
+    if (isLoaded && isSignedIn) {
+      try {
+        const res = await fetch('/api/blast/active');
+        if (res.ok) {
+          const body = await res.json() as { blast: ActiveBlast | null };
+          if (body.blast) {
+            setExistingBlast(body.blast);
+            setSubmitting(false);
+            return; // wait for confirmation — navigateToHandoff called from replace button
+          }
+        }
+      } catch {
+        // Network error — proceed anyway; API enforces the rule server-side.
+      }
+    }
+
+    navigateToHandoff(remoteDraftId);
+  }, [draft, isLoaded, isSignedIn, navigateToHandoff, submitting]);
+
+  // ─── Render step body ─────────────────────────────────────────────────────
+
+  const renderStepBody = () => {
+    switch (step) {
+      case 'pickup':
+        return (
+          <PickupOrDropoffStep
+            label="Pickup address"
+            value={draft.pickup}
+            onSelect={(addr) => {
+              setDraft((d) => ({ ...d, pickup: addr }));
+              // Auto-advance after a brief pause so the checkmark is seen.
+              window.setTimeout(() => setStepIdx((i) => Math.max(i, 1)), 350);
+            }}
+          />
+        );
+      case 'dropoff':
+        return (
+          <PickupOrDropoffStep
+            label="Dropoff address"
+            value={draft.dropoff}
+            onSelect={(addr) => {
+              setDraft((d) => ({ ...d, dropoff: addr }));
+              window.setTimeout(() => setStepIdx((i) => Math.max(i, effectiveSteps.indexOf('stops'))), 350);
+            }}
+          />
+        );
+      case 'stops':
+        return (
+          <StopsStep
+            stops={draft.stops}
+            onChange={(stops) => setDraft((d) => ({ ...d, stops }))}
+          />
+        );
+      case 'trip_type':
+        return (
+          <ChipGroup
+            ariaLabel="Trip type"
+            options={[
+              { value: 'one_way', label: 'One way' },
+              { value: 'round_trip', label: 'Round trip' },
+            ]}
+            value={draft.tripType}
+            onChange={(v) => setDraft((d) => ({ ...d, tripType: v as 'one_way' | 'round_trip' }))}
+          />
+        );
+      case 'datetime':
+        return (
+          <DatetimeStep
+            freeText={draft.scheduledFreeText}
+            scheduledFor={draft.scheduledFor}
+            onChange={(scheduledFor, freeText, confidence) =>
+              setDraft((d) => ({ ...d, scheduledFor, scheduledFreeText: freeText, nlpConfidence: confidence ?? null }))
+            }
+          />
+        );
+      case 'storage':
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 4px' }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: '#fff', marginBottom: 4 }}>Bringing bags?</div>
+              <div style={{ fontSize: 12, color: '#888' }}>
+                Groceries, luggage, anything bigger than a backpack. Drivers see this.
+              </div>
+            </div>
+            <Toggle
+              ariaLabel="Bringing storage"
+              value={draft.storage}
+              onChange={(next) => setDraft((d) => ({ ...d, storage: next }))}
+            />
+          </div>
+        );
+      case 'price':
+        return (
+          <PriceStep
+            value={draft.priceDollars}
+            distanceMi={estimate?.distanceMi ?? null}
+            estimatedMinutes={estimate?.estimatedMinutes ?? null}
+            tripType={draft.tripType}
+            pickup={draft.pickup}
+            dropoff={draft.dropoff}
+            stops={draft.stops}
+            onChange={(next) => {
+              priceTouchedRef.current = true;
+              setDraft((d) => ({ ...d, priceDollars: next }));
+            }}
+          />
+        );
+      case 'proximity':
+        return (
+          <ProximityStep
+            value={draft.maxPickupMinutes}
+            onChange={(v) => setDraft((d) => ({ ...d, maxPickupMinutes: v }))}
+          />
+        );
+      case 'driver_pref':
+        return (
+          <DriverPrefStep
+            value={draft.driverPreference}
+            onChange={(next) => setDraft((d) => ({ ...d, driverPreference: next }))}
+          />
+        );
+      case 'rider_gender':
+        return (
+          <div>
+            <p style={{ fontSize: 13, color: '#888', margin: '0 0 12px' }}>
+              So your driver knows who&rsquo;s pulling up. Required — drivers honor
+              this when they pick.
+            </p>
+            <ChipGroup
+              ariaLabel="Your gender"
+              options={[
+                { value: 'woman', label: 'Woman' },
+                { value: 'man', label: 'Man' },
+                // Stored as 'nonbinary' for back-compat with the rest of the
+                // schema; surfaced to the rider as "Neither" per UX spec.
+                { value: 'nonbinary', label: 'Neither' },
+              ]}
+              value={draft.riderGender ?? ('' as GenderOption)}
+              onChange={(v) => setDraft((d) => ({ ...d, riderGender: v as GenderOption }))}
+            />
+          </div>
+        );
+    }
+  };
+
+  const isLastStep = stepIdx === effectiveSteps.length - 1;
+  const ctaLabel = isLastStep ? (submitting ? 'Notifying…' : 'Notify Drivers') : 'Continue';
+  const stepValid = isStepValid(step, draft);
+
+  // Reduced motion: skip the slide variant.
+  const slideVariants = prefersReduced
+    ? { enter: { opacity: 0 }, center: { opacity: 1 }, exit: { opacity: 0 } }
+    : stepSlideVariants;
+
+  return (
+    <BottomSheet open={open} onClose={handleClose} ariaLabel="Send a blast">
+      <div
+        style={{
+          padding: '4px 20px 24px',
+          minHeight: '60vh',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {/* In-app browser nudge — soft banner, not a hard gate.
+            Signed-in users can complete the full flow; signed-out users
+            will hit the sign-up gate later and need to switch browsers then. */}
+        {inApp && !inAppBannerDismissed && (
+          <div style={{
+            margin: '0 0 16px',
+            padding: '12px 14px',
+            borderRadius: 12,
+            background: 'rgba(0,230,118,0.08)',
+            border: '1px solid rgba(0,230,118,0.2)',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 10,
+          }}>
+            <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>⚡</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#00E676', letterSpacing: 0.5, marginBottom: 3 }}>
+                WORKS BETTER IN YOUR BROWSER
+              </div>
+              <div style={{ fontSize: 12, color: '#aaa', lineHeight: 1.5 }}>
+                {isSignedIn
+                  ? 'You\'re signed in — this will work. For the smoothest experience, open in Safari or Chrome.'
+                  : 'Fill this out, then you\'ll need to open in Safari or Chrome to sign up.'}
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(window.location.href);
+                  } catch {
+                    const el = document.createElement('input');
+                    el.value = window.location.href;
+                    document.body.appendChild(el);
+                    el.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(el);
+                  }
+                  setLinkCopied(true);
+                  setTimeout(() => setLinkCopied(false), 3000);
+                }}
+                style={{
+                  marginTop: 8,
+                  padding: '5px 12px',
+                  borderRadius: 100,
+                  background: 'rgba(0,230,118,0.15)',
+                  border: '1px solid rgba(0,230,118,0.3)',
+                  color: '#00E676',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  fontFamily: "var(--font-body,'DM Sans',sans-serif)",
+                }}
+              >
+                {linkCopied ? '✓ Link copied — paste in your browser' : 'Copy link to open in browser'}
+              </button>
+            </div>
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={() => setInAppBannerDismissed(true)}
+              style={{
+                flexShrink: 0, background: 'none', border: 'none',
+                color: '#555', fontSize: 16, cursor: 'pointer', padding: 2,
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {/* Step header */}
+        <header style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <button
+              type="button"
+              onClick={back}
+              aria-label={stepIdx === 0 ? 'Close' : 'Back'}
+              style={{
+                width: 32, height: 32, borderRadius: 8, border: 'none',
+                background: 'transparent', color: '#fff', fontSize: 18, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              {stepIdx === 0 ? '×' : '←'}
+            </button>
+            <ProgressDots count={effectiveSteps.length} active={stepIdx} />
+          </div>
+          <h2
+            style={{
+              margin: 0,
+              fontSize: 24,
+              fontWeight: 800,
+              color: '#fff',
+              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+              letterSpacing: 0.2,
+            }}
+          >
+            {STEP_TITLES[step]}
+          </h2>
+        </header>
+
+        {/* Step body — primary input above-the-fold per §5.1 */}
+        <div style={{ flex: 1, minHeight: 240 }}>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={step}
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={stepSlideTransition}
+            >
+              <ShakeWrap shake={shakeKey > 0 && false /* triggered below per render */}>
+                {renderStepBody()}
+              </ShakeWrap>
+              {/* Re-render shake on key bumps */}
+              {shakeKey > 0 && (
+                <motion.div
+                  key={`shake-${shakeKey}`}
+                  initial={{ x: 0 }}
+                  animate={{ x: prefersReduced ? 0 : [0, -4, 4, -4, 4, 0] }}
+                  transition={{ duration: 0.25 }}
+                  aria-hidden
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        {/* Footer CTA */}
+        <div style={{ paddingTop: 16 }}>
+          <PrimaryCta
+            onClick={advance}
+            disabled={!stepValid}
+            loading={submitting}
+            pulse={isLastStep && stepValid}
+          >
+            {ctaLabel}
+          </PrimaryCta>
+        </div>
+      </div>
+
+      {/* Cancel-existing-blast confirmation — slides up over the form */}
+      <AnimatePresence>
+        {existingBlast && (
+          <motion.div
+            initial={{ y: '100%', opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: '100%', opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+            style={{
+              position: 'absolute', inset: 0,
+              background: '#101010',
+              borderRadius: 'inherit',
+              padding: '32px 24px 28px',
+              display: 'flex', flexDirection: 'column', gap: 20,
+              zIndex: 10,
+            }}
+          >
+            <div style={{ fontSize: 28, fontFamily: "var(--font-display,'Bebas Neue',sans-serif)", lineHeight: 1 }}>
+              REPLACE YOUR BLAST?
+            </div>
+            <div style={{
+              background: '#1a1a1a', borderRadius: 14,
+              border: '1px solid rgba(255,255,255,0.08)', padding: '14px 16px',
+            }}>
+              <div style={{ fontSize: 12, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+                Active blast
+              </div>
+              <div style={{ fontSize: 14, color: '#fff', fontWeight: 600 }}>
+                {existingBlast.pickupAddress} → {existingBlast.dropoffAddress}
+              </div>
+              <div style={{ fontSize: 13, color: '#00E676', fontFamily: "var(--font-mono,'Space Mono',monospace)", marginTop: 4 }}>
+                ${existingBlast.price}
+              </div>
+            </div>
+            <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.65)', margin: 0, lineHeight: 1.5 }}>
+              Creating a new blast will cancel this one. Any drivers who already HMU&rsquo;d will be notified.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 'auto' }}>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.97 }}
+                onClick={() => {
+                  setExistingBlast(null);
+                  navigateToHandoff(serverDraftId);
+                }}
+                style={{
+                  width: '100%', padding: '16px 24px', borderRadius: 100,
+                  background: '#00E676', color: '#080808',
+                  fontSize: 16, fontWeight: 700, border: 'none', cursor: 'pointer',
+                  fontFamily: "var(--font-body,'DM Sans',sans-serif)",
+                }}
+              >
+                Yes, replace it
+              </motion.button>
+              <button
+                type="button"
+                onClick={() => setExistingBlast(null)}
+                style={{
+                  width: '100%', padding: '14px 24px', borderRadius: 100,
+                  background: 'transparent', color: 'rgba(255,255,255,0.6)',
+                  fontSize: 15, fontWeight: 500, border: 'none', cursor: 'pointer',
+                  fontFamily: "var(--font-body,'DM Sans',sans-serif)",
+                }}
+              >
+                Keep my current blast
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </BottomSheet>
+  );
+}
+
+// ─── ProgressDots ───────────────────────────────────────────────────────────
+
+function ProgressDots({ count, active }: { count: number; active: number }) {
+  return (
+    <div style={{ display: 'flex', gap: 4, flex: 1 }} aria-label={`Step ${active + 1} of ${count}`}>
+      {Array.from({ length: count }).map((_, i) => (
+        <span
+          key={i}
+          style={{
+            flex: 1,
+            height: 3,
+            borderRadius: 2,
+            background: i <= active ? '#00E676' : 'rgba(255,255,255,0.12)',
+            transition: 'background-color 200ms ease',
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ─── Pickup / Dropoff ───────────────────────────────────────────────────────
+
+function PickupOrDropoffStep({
+  label,
+  value,
+  onSelect,
+}: {
+  label: string;
+  value: ValidatedAddress | null;
+  onSelect: (addr: ValidatedAddress) => void;
+}) {
+  return (
+    <div>
+      <AddressAutocomplete
+        label={label}
+        value={value}
+        onSelect={onSelect}
+        required
+      />
+      {value && (
+        <motion.div
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          style={{
+            marginTop: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            color: '#00E676',
+            fontSize: 13,
+          }}
+        >
+          <SuccessCheckmark size={20} autoHide={false} />
+          Got it. Tap Continue.
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ─── Datetime step ──────────────────────────────────────────────────────────
+
+function DatetimeStep({
+  freeText,
+  scheduledFor,
+  onChange,
+}: {
+  freeText: string;
+  scheduledFor: string | null;
+  onChange: (scheduledFor: string | null, freeText: string, confidence: number | null) => void;
+}) {
+  const [text, setText] = useState(freeText);
+  const [parsing, setParsing] = useState(false);
+  const [parserStatus, setParserStatus] = useState<'idle' | 'parsed' | 'picked' | 'low_conf' | 'failed'>('idle');
+  const parserRef = useRef(getDateParser());
+  const debounceRef = useRef<number | null>(null);
+  // Stable ref for onChange — parent recreates the callback on every render
+  // (inline arrow in JSX) so adding it to effect deps causes re-fires even
+  // when text hasn't changed. Read via ref inside the effect instead.
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  // Track the last text that produced a confident parse so we never call
+  // the API again for the same input once we have a good result.
+  const lastParsedTextRef = useRef<string | null>(null);
+
+  // Debounced LLM parse — fires only on text changes, not on every parent
+  // render. onChange is read via onChangeRef so it never appears in deps.
+  // Once a text string produces a confident parse it's cached in
+  // lastParsedTextRef and won't fire the API again for that exact input.
+  useEffect(() => {
+    if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    if (!text || text.trim().length < 3) {
+      setParserStatus((prev) => (prev === 'picked' ? 'picked' : 'idle'));
+      return;
+    }
+    // Already parsed this exact phrase successfully — don't call the API again.
+    if (text === lastParsedTextRef.current && parserStatus === 'parsed') return;
+
+    debounceRef.current = window.setTimeout(async () => {
+      setParsing(true);
+      try {
+        const result = await parserRef.current.parse(text);
+        if (result.scheduledFor && result.confidence >= NLP_CONFIDENCE_CUTOFF) {
+          onChangeRef.current(result.scheduledFor.toISOString(), text, result.confidence);
+          lastParsedTextRef.current = text;
+          setParserStatus('parsed');
+        } else if (result.scheduledFor) {
+          setParserStatus('low_conf');
+          onChangeRef.current(null, text, result.confidence);
+        } else {
+          setParserStatus('failed');
+          onChangeRef.current(null, text, null);
+        }
+        try {
+          posthog.capture('blast_nlp_parsed', {
+            confidence: result.confidence,
+            fallbackUsed: result.confidence < NLP_CONFIDENCE_CUTOFF,
+          });
+        } catch { /* ignore */ }
+      } finally {
+        setParsing(false);
+      }
+    }, 400);
+    return () => {
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]); // onChange intentionally excluded — read via stable onChangeRef
+
+  // Chip times are sensible defaults (Tonight = 8pm tonight, Tomorrow = 9am
+  // tomorrow); labels stay terse per UX spec. A rider who wants a precise
+  // time uses the free-text input above or the "Pick date" picker below.
+  const presetChips = useMemo<{ value: string; label: string; iso: string | null }[]>(() => {
+    const now = new Date();
+    const tonight = new Date(now);
+    tonight.setHours(20, 0, 0, 0);
+    if (tonight.getTime() < now.getTime()) tonight.setDate(tonight.getDate() + 1);
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    return [
+      { value: 'now', label: 'Now', iso: null },
+      { value: 'tonight', label: 'Tonight', iso: tonight.toISOString() },
+      { value: 'tomorrow', label: 'Tomorrow', iso: tomorrow.toISOString() },
+    ];
+  }, []);
+
+  return (
+    <div>
+      <input
+        type="text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder='Try "tonight 8pm" or pick below'
+        style={{
+          width: '100%',
+          padding: '14px 16px',
+          borderRadius: 12,
+          border: '1.5px solid rgba(255,255,255,0.12)',
+          background: 'rgba(255,255,255,0.04)',
+          color: '#fff',
+          fontSize: 16,
+          outline: 'none',
+          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+        }}
+      />
+      <div style={{ minHeight: 18, marginTop: 8, fontSize: 12, color: '#888' }}>
+        {parsing && 'Reading that…'}
+        {!parsing && (parserStatus === 'parsed' || parserStatus === 'picked') && scheduledFor && (
+          <span style={{ color: '#00E676' }}>
+            ✓{' '}
+            {new Date(scheduledFor).toLocaleString(undefined, {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+            })}
+          </span>
+        )}
+        {!parsing && parserStatus === 'low_conf' && (
+          <span style={{ color: '#FFB300' }}>Not sure — pick a chip below to confirm.</span>
+        )}
+        {!parsing && parserStatus === 'failed' && (
+          <span>Couldn&rsquo;t read that — pick below.</span>
+        )}
+      </div>
+      <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {presetChips.map((p) => (
+          <Chip
+            key={p.value}
+            active={scheduledFor === p.iso || (p.iso === null && scheduledFor === null && parserStatus === 'idle' && !text)}
+            onClick={() => {
+              setText('');
+              setParserStatus('idle');
+              onChange(p.iso, '', null);
+            }}
+          >
+            {p.label}
+          </Chip>
+        ))}
+        {/* Native picker chip. The prior implementation relayed through a
+            separate hidden input via showPicker() — which silently failed on
+            iOS Safari because the input was pointer-events:none / height:0
+            (not focusable) and showPicker() requires a focusable element +
+            user activation in the same call stack. Wrapping the input in a
+            <label> styled like a chip lets the tap land directly on the input
+            so the native picker opens reliably across iOS, Android, and
+            desktop. showPicker() is called as a belt-and-suspenders fallback
+            for desktop browsers that don't auto-open on click. */}
+        <label
+          htmlFor="blast-pick-date"
+          onClick={() => {
+            // Best-effort — user activation is fresh inside this click handler.
+            // Wrapped in try/catch because Safari throws NotAllowedError if it
+            // disagrees about user gesture, which we can safely ignore — the
+            // label-wrapped input's native click already opens the picker on
+            // browsers that need it.
+            const el = document.getElementById('blast-pick-date') as HTMLInputElement | null;
+            try { el?.showPicker?.(); } catch { /* ignore */ }
+          }}
+          style={{
+            position: 'relative',
+            display: 'inline-flex',
+            alignItems: 'center',
+            padding: '12px 14px',
+            borderRadius: 14,
+            border: parserStatus === 'picked' && scheduledFor
+              ? '1.5px solid rgba(0,230,118,0.5)'
+              : '1.5px solid rgba(255,255,255,0.12)',
+            background: parserStatus === 'picked' && scheduledFor
+              ? 'rgba(0,230,118,0.08)'
+              : 'rgba(255,255,255,0.04)',
+            color: parserStatus === 'picked' && scheduledFor
+              ? '#00E676'
+              : 'rgba(255,255,255,0.78)',
+            fontSize: 14,
+            fontWeight: 600,
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            userSelect: 'none',
+            transition: 'border-color 0.2s, background 0.2s, color 0.2s',
+          }}
+        >
+          {parserStatus === 'picked' && scheduledFor
+            ? new Date(scheduledFor).toLocaleString(undefined, {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              })
+            : 'Pick date'}
+          <input
+            id="blast-pick-date"
+            type="datetime-local"
+            min={new Date(Date.now() + 5 * 60_000).toISOString().slice(0, 16)}
+            onChange={(e) => {
+              const t = new Date(e.target.value);
+              if (Number.isFinite(t.getTime())) {
+                // Clear text so the NLP debounce doesn't fire and overwrite
+                // 'picked' status. The effect preserves 'picked' when text=''.
+                setText('');
+                setParserStatus('picked');
+                onChange(t.toISOString(), '', null);
+              }
+            }}
+            // Cover the entire chip so any tap inside the chip lands on the
+            // input — that's the gesture that opens the native picker on iOS
+            // Safari + Android Chrome. opacity:0 hides the native field UI
+            // (which would otherwise render its own visible text on iOS).
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              opacity: 0,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              fontSize: 14,
+            }}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+// ─── Haversine helper (client-side leg distances) ───────────────────────────
+
+function legMi(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }): number {
+  const R = 3958.8;
+  const lat1 = a.latitude * Math.PI / 180;
+  const lat2 = b.latitude * Math.PI / 180;
+  const dLat = (b.latitude - a.latitude) * Math.PI / 180;
+  const dLon = (b.longitude - a.longitude) * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+// ─── Price step ─────────────────────────────────────────────────────────────
+
+function PriceStep({
+  value,
+  distanceMi,
+  estimatedMinutes,
+  tripType,
+  pickup,
+  dropoff,
+  stops,
+  onChange,
+}: {
+  value: number;
+  distanceMi: number | null;
+  estimatedMinutes: number | null;
+  tripType: 'one_way' | 'round_trip';
+  pickup: ValidatedAddress | null;
+  dropoff: ValidatedAddress | null;
+  stops: ValidatedAddress[];
+  onChange: (v: number) => void;
+}) {
+  // Build ordered waypoints for the route display.
+  type WaypointKind = 'pickup' | 'stop' | 'dropoff' | 'return';
+  interface Waypoint {
+    kind: WaypointKind;
+    label: string;
+    address: string;
+    lat: number;
+    lng: number;
+  }
+  const waypoints: Waypoint[] = [];
+  if (pickup) {
+    waypoints.push({ kind: 'pickup', label: 'Pickup', address: pickup.address || pickup.name, lat: pickup.latitude, lng: pickup.longitude });
+  }
+  stops.forEach((s, i) => {
+    waypoints.push({ kind: 'stop', label: `Stop ${i + 1}`, address: s.address || s.name, lat: s.latitude, lng: s.longitude });
+  });
+  if (dropoff) {
+    waypoints.push({ kind: 'dropoff', label: 'Dropoff', address: dropoff.address || dropoff.name, lat: dropoff.latitude, lng: dropoff.longitude });
+  }
+  if (tripType === 'round_trip' && pickup) {
+    waypoints.push({ kind: 'return', label: 'Return', address: pickup.address || pickup.name, lat: pickup.latitude, lng: pickup.longitude });
+  }
+
+  // Per-leg distances for the connector lines.
+  const legDistances: (number | null)[] = waypoints.slice(0, -1).map((wp, i) => {
+    const next = waypoints[i + 1];
+    return (wp && next) ? legMi({ latitude: wp.lat, longitude: wp.lng }, { latitude: next.lat, longitude: next.lng }) : null;
+  });
+
+  // Total one-way mileage (from API — already sums all legs including stops).
+  // For round trip, distanceMi is one-way; we double it for the total display.
+  const onewayMi = distanceMi;
+  const totalMi = onewayMi != null ? (tripType === 'round_trip' ? onewayMi * 2 : onewayMi) : null;
+  const totalMins = estimatedMinutes != null ? (tripType === 'round_trip' ? estimatedMinutes * 2 : estimatedMinutes) : null;
+
+  const dotColor: Record<WaypointKind, string> = {
+    pickup: '#00E676',
+    stop: '#888',
+    dropoff: '#FF5252',
+    return: '#00E676',
+  };
+  const labelColor: Record<WaypointKind, string> = {
+    pickup: '#00E676',
+    stop: '#aaa',
+    dropoff: '#FF5252',
+    return: '#FFB300',
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Full route card */}
+      {waypoints.length >= 2 && (
+        <div
+          style={{
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 14,
+            padding: '12px 14px',
+          }}
+        >
+          {waypoints.map((wp, i) => (
+            <div key={`${wp.kind}-${i}`}>
+              {/* Waypoint row */}
+              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                {/* Dot + connector */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 3 }}>
+                  <div style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: dotColor[wp.kind], flexShrink: 0,
+                  }} />
+                  {i < waypoints.length - 1 && (
+                    <div style={{ width: 1, flex: 1, background: 'rgba(255,255,255,0.1)', minHeight: 18, marginTop: 3 }} />
+                  )}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 10, color: labelColor[wp.kind], fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 1 }}>
+                    {wp.kind === 'return' ? '↩ Return' : wp.label}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {wp.address}
+                  </div>
+                </div>
+              </div>
+              {/* Leg distance connector label */}
+              {i < waypoints.length - 1 && legDistances[i] != null && (
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <div style={{ width: 8, flexShrink: 0 }} />
+                  <div style={{ fontSize: 11, color: '#555', padding: '3px 0', fontVariantNumeric: 'tabular-nums' }}>
+                    {legDistances[i]!.toFixed(1)} mi
+                    {estimatedMinutes != null && onewayMi != null && onewayMi > 0
+                      ? ` · ~${Math.max(1, Math.round(legDistances[i]! / onewayMi * estimatedMinutes))} min`
+                      : ''}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* Total mileage footer */}
+          {totalMi != null && (
+            <div style={{
+              marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <span style={{ fontSize: 11, color: '#666', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}>
+                {tripType === 'round_trip' ? 'Round trip total' : 'Total'}
+              </span>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontVariantNumeric: 'tabular-nums' }}>
+                {totalMi.toFixed(1)} mi{totalMins != null ? ` · ~${totalMins} min` : ''}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Price stepper */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <PriceStepperButton direction="-" onClick={() => onChange(Math.max(1, value - 5))} />
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <div
+            style={{
+              fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)",
+              fontSize: 56,
+              color: '#fff',
+              lineHeight: 1,
+            }}
+          >
+            $<CountUpNumber value={value} />
+          </div>
+          <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>
+            Drivers see this. They can counter.
+          </div>
+        </div>
+        <PriceStepperButton direction="+" onClick={() => onChange(value + 5)} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Stops step ─────────────────────────────────────────────────────────────
+// Optional intermediate stops between pickup and dropoff. Riders can add up
+// to 3. Each slot starts null (empty autocomplete) and becomes a ValidatedAddress
+// on selection. Null slots are filtered out before saving to the draft.
+
+function StopsStep({
+  stops,
+  onChange,
+}: {
+  stops: ValidatedAddress[];
+  onChange: (stops: ValidatedAddress[]) => void;
+}) {
+  // slots is a mix of validated addresses and null (pending input slots)
+  const [slots, setSlots] = useState<Array<ValidatedAddress | null>>(() =>
+    stops.length > 0 ? [...stops] : [],
+  );
+
+  const updateSlot = (i: number, addr: ValidatedAddress) => {
+    const next = slots.map((s, j) => (j === i ? addr : s));
+    setSlots(next);
+    onChange(next.filter((s): s is ValidatedAddress => s !== null));
+  };
+
+  const removeSlot = (i: number) => {
+    const next = slots.filter((_, j) => j !== i);
+    setSlots(next);
+    onChange(next.filter((s): s is ValidatedAddress => s !== null));
+  };
+
+  const addSlot = () => {
+    if (slots.length >= 3) return;
+    setSlots(s => [...s, null]);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <p style={{ fontSize: 13, color: '#888', margin: '0 0 4px', lineHeight: 1.5 }}>
+        Optional — need the driver to swing by anywhere? Add up to 3 stops.
+      </p>
+
+      {slots.length === 0 ? (
+        <div style={{
+          padding: '16px 14px',
+          borderRadius: 12,
+          border: '1px dashed rgba(255,255,255,0.12)',
+          color: '#555',
+          fontSize: 13,
+          textAlign: 'center',
+        }}>
+          No stops — going straight through.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {slots.map((slot, i) => (
+            <div key={i} style={{ position: 'relative' }}>
+              <AddressAutocomplete
+                label={`Stop ${i + 1}`}
+                value={slot}
+                onSelect={(addr) => updateSlot(i, addr)}
+              />
+              <button
+                type="button"
+                aria-label={`Remove stop ${i + 1}`}
+                onClick={() => removeSlot(i)}
+                style={{
+                  position: 'absolute', top: 10, right: 10,
+                  width: 24, height: 24, borderRadius: 12,
+                  background: 'rgba(255,255,255,0.08)', border: 'none',
+                  color: '#888', fontSize: 14, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  lineHeight: 1,
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {slots.length < 3 && (
+        <button
+          type="button"
+          onClick={addSlot}
+          style={{
+            alignSelf: 'flex-start',
+            padding: '10px 16px',
+            borderRadius: 100,
+            border: '1.5px solid rgba(0,230,118,0.35)',
+            background: 'transparent',
+            color: '#00E676',
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: 'pointer',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          }}
+        >
+          + Add a stop
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Proximity step ─────────────────────────────────────────────────────────
+// Rider sets the maximum drive time to pickup. Displayed as a row of chips
+// (5 / 7 / 10 / 12 / 15 / 20 min) with a Framer spring on the active
+// indicator so each tap feels snappy. null = "Any distance" (default).
+
+const PROXIMITY_OPTIONS = [5, 7, 10, 12, 15, 20] as const;
+type ProximityMinutes = typeof PROXIMITY_OPTIONS[number];
+
+function ProximityStep({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (v: number | null) => void;
+}) {
+  return (
+    <div>
+      <p style={{ fontSize: 13, color: '#888', margin: '0 0 16px', lineHeight: 1.5 }}>
+        Only show drivers within this drive time of your pickup.
+        Closer = faster pickup. Farther = more options.
+      </p>
+
+      {/* Chip row */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {/* "Any" chip — clears the filter */}
+        <ProximityChip
+          label="Any"
+          active={value === null}
+          onClick={() => onChange(null)}
+        />
+        {PROXIMITY_OPTIONS.map((min) => (
+          <ProximityChip
+            key={min}
+            label={`${min} min`}
+            active={value === min}
+            onClick={() => onChange(min)}
+          />
+        ))}
+      </div>
+
+      {/* Live label */}
+      <div style={{ marginTop: 14, minHeight: 18, fontSize: 12, color: '#888' }}>
+        {value === null ? (
+          'Showing drivers across the whole market'
+        ) : (
+          <span style={{ color: '#00E676' }}>
+            ✓ Within ~{value} min of your pickup
+            <span style={{ color: '#666', marginLeft: 6 }}>
+              (~{Math.round(value * 25 / 60 * 10) / 10} mi at city speed)
+            </span>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProximityChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      whileTap={{ scale: 0.94 }}
+      animate={{
+        background: active ? '#00E676' : 'rgba(255,255,255,0.05)',
+        color: active ? '#080808' : 'rgba(255,255,255,0.75)',
+        borderColor: active ? '#00E676' : 'rgba(255,255,255,0.12)',
+      }}
+      transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+      style={{
+        padding: '11px 18px',
+        borderRadius: 100,
+        border: '1.5px solid',
+        fontSize: 14,
+        fontWeight: 700,
+        cursor: 'pointer',
+        fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+        outline: 'none',
+        WebkitTapHighlightColor: 'transparent',
+      }}
+    >
+      {label}
+    </motion.button>
+  );
+}
+
+// ─── Driver pref step ───────────────────────────────────────────────────────
+// Single-select: Woman / Man / No Preference. The strict toggle stays in
+// the schema (GenderPreference.strict) but is only revealed when the rider
+// picks Woman or Man — "No Preference" hides it since strict-on-anyone is
+// nonsensical. Persists into the existing `{ preferred: GenderOption[],
+// strict: boolean }` shape so downstream matching code doesn't change.
+
+function DriverPrefStep({
+  value,
+  onChange,
+}: {
+  value: GenderPreference;
+  onChange: (v: GenderPreference) => void;
+}) {
+  // Map the JSON-shape preferred-array to a single-select state for the UI.
+  // We treat any non-empty preferred as the first element's gender; "none"
+  // means the rider hasn't expressed a preference.
+  type Pick = 'woman' | 'man' | 'none';
+  const current: Pick =
+    value.preferred.includes('woman') ? 'woman' :
+    value.preferred.includes('man') ? 'man' :
+    'none';
+
+  const pick = (next: Pick) => {
+    if (next === 'none') {
+      onChange({ preferred: [], strict: false });
+    } else {
+      onChange({ preferred: [next as GenderOption], strict: value.strict });
+    }
+  };
+
+  const showStrict = current === 'woman' || current === 'man';
+  const strictLabel =
+    current === 'woman' ? 'Only women drivers' :
+    current === 'man' ? 'Only men drivers' :
+    '';
+
+  return (
+    <div>
+      <p style={{ fontSize: 13, color: '#888', margin: '0 0 12px' }}>
+        Pick who you&rsquo;d prefer driving you. No preference = anyone close.
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+        <Chip active={current === 'woman'} onClick={() => pick('woman')}>Woman</Chip>
+        <Chip active={current === 'man'} onClick={() => pick('man')}>Man</Chip>
+        <Chip active={current === 'none'} onClick={() => pick('none')}>No preference</Chip>
+      </div>
+      {showStrict && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 0',
+            borderTop: '1px solid rgba(255,255,255,0.08)',
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{strictLabel}</div>
+            <div style={{ fontSize: 12, color: '#888' }}>
+              Hard filter — we won&rsquo;t send your blast to anyone else.
+            </div>
+          </div>
+          <Toggle
+            ariaLabel="Strict gender preference"
+            value={value.strict}
+            onChange={(strict) => onChange({ ...value, strict })}
+          />
+        </div>
+      )}
+    </div>
+  );
+}

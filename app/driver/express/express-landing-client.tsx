@@ -141,7 +141,7 @@ export function ExpressLandingClient() {
   function goSignUp() {
     // Single funnel for any tap. mode=express + type=driver routes through
     // sign-up → auth-callback → /onboarding?mode=express → DriverOnboardingExpress.
-    router.push('/sign-up?type=driver&mode=express');
+    window.location.href = '/sign-up?type=driver&mode=express';
   }
 
   const visible = visibleIds
@@ -160,28 +160,43 @@ export function ExpressLandingClient() {
     >
       <div style={{ maxWidth: 480, margin: '0 auto', padding: '32px 20px 20px' }}>
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '4px 12px',
-              borderRadius: 999,
-              background: 'rgba(0,230,118,0.12)',
-              color: '#00E676',
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: 1,
-              textTransform: 'uppercase',
-              marginBottom: 12,
-            }}
-          >
-            <motion.span
-              animate={{ opacity: [0.4, 1, 0.4] }}
-              transition={{ duration: 2, repeat: Infinity }}
-              style={{ width: 6, height: 6, borderRadius: 999, background: '#00E676' }}
-            />
-            Live in ATL
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 12 }}>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 12px',
+                borderRadius: 999,
+                background: 'rgba(0,230,118,0.12)',
+                color: '#00E676',
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+              }}
+            >
+              <motion.span
+                animate={{ opacity: [0.4, 1, 0.4] }}
+                transition={{ duration: 2, repeat: Infinity }}
+                style={{ width: 6, height: 6, borderRadius: 999, background: '#00E676' }}
+              />
+              Live in ATL
+            </div>
+            <div
+              style={{
+                display: 'inline-block',
+                padding: '4px 14px',
+                borderRadius: 999,
+                background: 'rgba(0,230,118,0.12)',
+                color: '#00E676',
+                fontSize: 13,
+                fontWeight: 800,
+                letterSpacing: '0.5px',
+              }}
+            >
+              Ride Fair.
+            </div>
           </div>
           <h1
             style={{

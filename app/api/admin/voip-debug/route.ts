@@ -6,7 +6,7 @@
 //
 // Both lists are admin-global; sms_log can be optionally market-scoped.
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 
 async function resolveMarketSlug(marketId: string | null): Promise<string | null> {
@@ -18,6 +18,7 @@ async function resolveMarketSlug(marketId: string | null): Promise<string | null
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'admin.voip.view')) return unauthorizedResponse();
 
   const { searchParams } = req.nextUrl;
   const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 200);

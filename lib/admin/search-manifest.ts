@@ -259,7 +259,7 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
   {
     id: 'pitch-videos',
     label: 'Pitch Videos',
-    description: 'Manage investor pitch videos',
+    description: 'Manage how-it-works videos (drivers, riders, investors)',
     href: '/admin/pitch-videos',
     section: 'Raise',
     icon: '📱',
@@ -322,6 +322,15 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     keywords: ['driver to rider', 'cap', 'hmu link cap'],
   },
   {
+    id: 'blast-config',
+    label: 'Blast Config',
+    description: 'Tune blast booking matching algorithm and limits',
+    href: '/admin/blast-config',
+    section: 'System',
+    icon: '💥',
+    keywords: ['blast', 'booking', 'matching', 'fanout', 'sms cap', 'blast booking'],
+  },
+  {
     id: 'onboarding-config',
     label: 'Onboarding Config',
     description: 'Set required driver signup fields',
@@ -365,6 +374,15 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     section: 'System',
     icon: '📡',
     keywords: ['voip.ms', 'sms debug', 'phone numbers', 'did'],
+  },
+  {
+    id: 'sms-templates',
+    label: 'SMS Templates',
+    description: 'Edit transactional SMS bodies live, no deploy',
+    href: '/admin/sms-templates',
+    section: 'System',
+    icon: '✉️',
+    keywords: ['sms templates', 'message text', 'driver sms', 'rider sms', 'edit sms', 'transactional'],
   },
   {
     id: 'audit-log',

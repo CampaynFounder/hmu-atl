@@ -24,16 +24,21 @@ export async function POST(req: NextRequest) {
     const userId = (userRows[0] as { id: string }).id;
     const userMarketId = (userRows[0] as { market_id: string | null }).market_id;
 
-    // Determine priority based on category
-    const priority = ['safety', 'report_driver'].includes(category) ? 'urgent'
+    // Map category to severity (schema uses severity, not priority)
+    const severity = ['safety', 'report_driver'].includes(category) ? 'critical'
       : ['refund', 'overcharged'].includes(category) ? 'high'
-      : 'normal';
+      : 'medium';
 
-    // Stamp the filer's market on the ticket so admin queries can filter by
-    // the currently-selected market.
+    const CATEGORY_LABELS: Record<string, string> = {
+      payment: 'Payment issue', overcharged: 'Overcharged', refund: 'Refund request',
+      driver_noshow: 'Driver no-show', safety: 'Safety concern',
+      report_driver: 'Report driver', other: 'Other',
+    };
+    const subject = CATEGORY_LABELS[category] || category;
+
     const result = await sql`
-      INSERT INTO support_tickets (user_id, ride_id, category, message, priority, market_id)
-      VALUES (${userId}, ${rideId || null}, ${category}, ${message.trim()}, ${priority}, ${userMarketId})
+      INSERT INTO support_tickets (user_id, ride_id, category, subject, details, severity, market_id)
+      VALUES (${userId}, ${rideId || null}, ${category}, ${subject}, ${message.trim()}, ${severity}, ${userMarketId})
       RETURNING id
     `;
 
@@ -45,7 +50,7 @@ export async function POST(req: NextRequest) {
       userId,
       rideId: rideId || null,
       category,
-      priority,
+      severity,
       preview: message.trim().slice(0, 100),
     }).catch(() => {});
 
@@ -72,8 +77,8 @@ export async function GET(req: NextRequest) {
 
     const tickets = await sql`
       SELECT
-        t.id, t.category, t.message, t.status, t.priority,
-        t.admin_notes, t.created_at, t.updated_at, t.resolved_at,
+        t.id, t.category, t.subject, t.details, t.status, t.severity,
+        t.admin_notes, t.created_at, t.resolved_at,
         t.ride_id,
         u.clerk_id as user_clerk_id,
         COALESCE(rp.display_name, rp.first_name, dp.display_name, dp.first_name) as user_name,
@@ -95,22 +100,24 @@ export async function GET(req: NextRequest) {
       LEFT JOIN rider_profiles r_rp ON r_rp.user_id = r.rider_id
       WHERE (${marketId}::uuid IS NULL OR t.market_id = ${marketId})
       ORDER BY
-        CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+        CASE t.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
         CASE t.status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,
         t.created_at DESC
       LIMIT 100
     `;
 
+    const SEVERITY_TO_PRIORITY: Record<string, string> = { critical: 'urgent', high: 'high', medium: 'normal', low: 'low' };
+
     return NextResponse.json({
       tickets: tickets.map((t: Record<string, unknown>) => ({
         id: t.id,
         category: t.category,
-        message: t.message,
+        subject: t.subject,
+        message: (t.details as string) || (t.subject as string) || '',
         status: t.status,
-        priority: t.priority,
+        priority: SEVERITY_TO_PRIORITY[t.severity as string] || 'normal',
         adminNotes: t.admin_notes,
         createdAt: t.created_at,
-        updatedAt: t.updated_at,
         resolvedAt: t.resolved_at,
         userName: t.user_name || 'User',
         userHandle: t.user_handle,
@@ -161,9 +168,8 @@ export async function PATCH(req: NextRequest) {
       UPDATE support_tickets SET
         status = COALESCE(${status || null}, status),
         admin_notes = COALESCE(${adminNotes ?? null}, admin_notes),
-        resolved_by = CASE WHEN ${status || null} = 'resolved' THEN ${adminId} ELSE resolved_by END,
-        resolved_at = CASE WHEN ${status || null} = 'resolved' THEN NOW() ELSE resolved_at END,
-        updated_at = NOW()
+        admin_id = CASE WHEN ${status || null} = 'resolved' THEN ${adminId} ELSE admin_id END,
+        resolved_at = CASE WHEN ${status || null} = 'resolved' THEN NOW() ELSE resolved_at END
       WHERE id = ${ticketId}
     `;
 

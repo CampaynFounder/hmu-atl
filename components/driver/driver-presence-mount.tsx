@@ -1,17 +1,31 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useDriverPresence } from '@/hooks/use-driver-presence';
 import { useDriverLocationPublisher } from '@/hooks/use-driver-location-publisher';
 
-// Renders nothing — just wires the presence + location-publisher effects.
-// Mounted from the driver layout so every /driver/* page keeps the driver
-// in presence and (if permission granted) publishing their coarse location
-// for the rider browse distance badge.
+// Renders nothing — wires presence + location-publisher effects.
+// Fetches location_sharing_enabled from the DB on mount so that a driver who
+// has opted out of live GPS doesn't have their position published, regardless
+// of which device they're on. Defaults to false until the preference loads so
+// GPS never fires without explicit confirmation.
 export default function DriverPresenceMount({ marketSlug }: { marketSlug: string | null }) {
   useDriverPresence(marketSlug);
-  // Always-on: the publisher itself no-ops if the browser denies geolocation,
-  // so we don't need a separate gate. If we add an in-app opt-out later,
-  // wire it through here.
-  useDriverLocationPublisher(true);
+
+  const [locationEnabled, setLocationEnabled] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/driver/location')
+      .then((r) => r.json())
+      .then((d: { location_sharing_enabled?: boolean }) => {
+        setLocationEnabled(d.location_sharing_enabled === true);
+      })
+      .catch(() => {
+        // Network error — keep GPS off rather than unknowingly publishing.
+      });
+  }, []);
+
+  useDriverLocationPublisher(locationEnabled);
+
   return null;
 }

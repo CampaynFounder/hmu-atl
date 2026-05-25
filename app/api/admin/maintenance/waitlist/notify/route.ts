@@ -5,13 +5,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { listUnnotified, markNotified } from '@/lib/maintenance';
 import { sendSms } from '@/lib/sms/textbee';
+import { renderTemplate } from '@/lib/sms/templates';
 
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
 
   const body = await req.json().catch(() => ({})) as { message?: string };
-  const message = body.message?.trim() || 'HMU ATL is back live — open the app and run it up. atl.hmucashride.com';
+  // Admin may type a custom message; otherwise use the admin-editable default
+  // template, falling back to the literal if the row is missing/disabled.
+  const customMessage = body.message?.trim();
+  const fallback = 'HMU ATL is back live — open the app and run it up. atl.hmucashride.com';
+  const message =
+    customMessage ||
+    (await renderTemplate('maintenance_back_live', {})) ||
+    fallback;
   if (message.length > 155) {
     return NextResponse.json({ error: 'message over 155 chars — would be split' }, { status: 400 });
   }

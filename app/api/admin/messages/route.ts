@@ -140,14 +140,14 @@ export async function GET(req: NextRequest) {
           1 as priority
         FROM driver_profiles dp
         JOIN users u ON u.id = dp.user_id
-        WHERE dp.phone = ${normalized} OR dp.phone = ${'+1' + normalized}
+        WHERE RIGHT(REGEXP_REPLACE(dp.phone, '[^0-9]', '', 'g'), 10) = ${normalized}
         UNION ALL
         SELECT u.id, u.profile_type,
           COALESCE(rp.display_name, rp.first_name) as name,
           2 as priority
         FROM rider_profiles rp
         JOIN users u ON u.id = rp.user_id
-        WHERE rp.phone = ${normalized} OR rp.phone = ${'+1' + normalized}
+        WHERE RIGHT(REGEXP_REPLACE(rp.phone, '[^0-9]', '', 'g'), 10) = ${normalized}
       ) candidates
       ORDER BY priority
       LIMIT 1
@@ -220,17 +220,19 @@ export async function GET(req: NextRequest) {
         ),
         identities AS (
           SELECT DISTINCT ON (phone) phone, name, profile_type FROM (
-            SELECT dp.phone as phone,
+            SELECT RIGHT(REGEXP_REPLACE(dp.phone, '[^0-9]', '', 'g'), 10) as phone,
               COALESCE(dp.display_name, dp.first_name) as name,
               u.profile_type, 1 as priority
             FROM driver_profiles dp
             JOIN users u ON u.id = dp.user_id
+            WHERE dp.phone IS NOT NULL AND dp.phone != ''
             UNION ALL
-            SELECT rp.phone as phone,
+            SELECT RIGHT(REGEXP_REPLACE(rp.phone, '[^0-9]', '', 'g'), 10) as phone,
               COALESCE(rp.display_name, rp.first_name) as name,
               u.profile_type, 2 as priority
             FROM rider_profiles rp
             JOIN users u ON u.id = rp.user_id
+            WHERE rp.phone IS NOT NULL AND rp.phone != ''
           ) all_ids
           ORDER BY phone, priority
         )
@@ -238,7 +240,7 @@ export async function GET(req: NextRequest) {
           l.phone, l.last_message_at, l.unread_count,
           i.name, i.profile_type
         FROM latest l
-        LEFT JOIN identities i ON (i.phone = l.phone OR i.phone = '+1' || l.phone)
+        LEFT JOIN identities i ON i.phone = l.phone
         ORDER BY l.unread_count DESC, l.last_message_at DESC
         LIMIT 50
       `
@@ -259,17 +261,19 @@ export async function GET(req: NextRequest) {
         ),
         identities AS (
           SELECT DISTINCT ON (phone) phone, name, profile_type FROM (
-            SELECT dp.phone as phone,
+            SELECT RIGHT(REGEXP_REPLACE(dp.phone, '[^0-9]', '', 'g'), 10) as phone,
               COALESCE(dp.display_name, dp.first_name) as name,
               u.profile_type, 1 as priority
             FROM driver_profiles dp
             JOIN users u ON u.id = dp.user_id
+            WHERE dp.phone IS NOT NULL AND dp.phone != ''
             UNION ALL
-            SELECT rp.phone as phone,
+            SELECT RIGHT(REGEXP_REPLACE(rp.phone, '[^0-9]', '', 'g'), 10) as phone,
               COALESCE(rp.display_name, rp.first_name) as name,
               u.profile_type, 2 as priority
             FROM rider_profiles rp
             JOIN users u ON u.id = rp.user_id
+            WHERE rp.phone IS NOT NULL AND rp.phone != ''
           ) all_ids
           ORDER BY phone, priority
         )
@@ -277,7 +281,7 @@ export async function GET(req: NextRequest) {
           l.phone, l.last_message_at, l.unread_count,
           i.name, i.profile_type
         FROM latest l
-        LEFT JOIN identities i ON (i.phone = l.phone OR i.phone = '+1' || l.phone)
+        LEFT JOIN identities i ON i.phone = l.phone
         ORDER BY l.unread_count DESC, l.last_message_at DESC
         LIMIT 50
       `;

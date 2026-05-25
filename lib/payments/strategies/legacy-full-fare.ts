@@ -15,6 +15,8 @@ import type {
   NoShowDecision,
   CancelInput,
   CancelDecision,
+  BreakdownInput,
+  BreakdownResult,
 } from './types';
 
 export class LegacyFullFareStrategy implements PricingStrategy {
@@ -38,7 +40,13 @@ export class LegacyFullFareStrategy implements PricingStrategy {
   }
 
   async calculateCapture(input: CaptureInput): Promise<CaptureDecision> {
-    const totalRideAmount = input.agreedPrice + input.addOnTotal;
+    // Never capture more than what was authorized. If confirmed add-ons exceed
+    // the add_on_reserve set at hold time, Stripe rejects the capture with
+    // "requested capture amount is greater than amount you can capture".
+    const cappedAddOnTotal = input.addOnReserve != null
+      ? Math.min(input.addOnTotal, input.addOnReserve)
+      : input.addOnTotal;
+    const totalRideAmount = input.agreedPrice + cappedAddOnTotal;
 
     const breakdown = calculateFullBreakdown(
       totalRideAmount,
@@ -92,6 +100,59 @@ export class LegacyFullFareStrategy implements PricingStrategy {
       platformAmount,
       riderRefunded,
       addOnRefunded: input.addOnReserve,
+    };
+  }
+
+  buildBreakdownRows(input: BreakdownInput): BreakdownResult {
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    if (input.isCash) {
+      const cashTotal = round2(input.agreedPrice + input.addOnTotal);
+      return {
+        modeKey: this.modeKey,
+        isCash: true,
+        youEarned: cashTotal,
+        total: cashTotal,
+        driverRows: [
+          { label: 'Cash Received', value: cashTotal, role: 'total' },
+        ],
+        riderRows: [
+          { label: 'Cash Paid', value: cashTotal, role: 'total' },
+        ],
+        extras: input.extras,
+      };
+    }
+
+    // Legacy mode captures the full fare + confirmed add-ons in a single
+    // Start-Ride transaction. There is no separate per-extra capture and no
+    // cash remainder — driver_payout_amount + platform_fee_amount + stripe
+    // fee cover everything. Same identity as deposit_only:
+    //   driverNet + hmuSplit_NET + stripeFee = total
+    const fareCaptured = round2(input.agreedPrice);
+    const addOnsCaptured = round2(input.addOnTotal);
+    const driverNet = round2(input.driverPayoutAmount);
+    const hmuSplitGross = round2(input.platformFeeAmount);
+    const stripeFee = round2(input.stripeFeeAmount);
+    const hmuSplitNet = round2(Math.max(0, hmuSplitGross - stripeFee));
+    const total = round2(fareCaptured + addOnsCaptured);
+
+    return {
+      modeKey: this.modeKey,
+      isCash: false,
+      youEarned: driverNet,
+      total,
+      driverRows: [
+        { label: 'You Kept', value: driverNet, role: 'amount' },
+        { label: 'HMU Split', value: hmuSplitNet, role: 'muted' },
+        { label: 'Stripe Fee', value: stripeFee, role: 'muted' },
+        { label: 'Total', value: total, role: 'total' },
+      ],
+      riderRows: [
+        { label: 'Fare Paid', value: fareCaptured, role: 'amount' },
+        { label: 'Add-ons', value: addOnsCaptured, role: 'amount' },
+        { label: 'Total', value: total, role: 'total' },
+      ],
+      extras: input.extras,
     };
   }
 

@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import CommentsSection from '@/components/hmu/comments/CommentsSection';
 
 interface DriverProfileData {
+  userId: string;
   displayName: string;
   handle: string;
   avatarUrl: string | null;
@@ -20,13 +22,14 @@ interface DriverProfileData {
   vehicle: { label: string; photoUrl: string | null; maxRiders: number | null } | null;
   pricing: { minimum: number; thirtyMin: number; hourly: number };
   services: { name: string; icon: string; price: number; pricingType: string }[];
-  completionRate: number;
+  acceptanceRate: number | null;
 }
 
 interface Props {
   handle: string;
   open: boolean;
   onClose: () => void;
+  isAuthenticated?: boolean;
 }
 
 const RATING_DISPLAY: Record<string, { label: string; emoji: string; color: string }> = {
@@ -36,9 +39,10 @@ const RATING_DISPLAY: Record<string, { label: string; emoji: string; color: stri
   weirdo: { label: 'WEIRDO', emoji: '\uD83D\uDEA9', color: '#FF5252' },
 };
 
-export default function DriverProfileOverlay({ handle, open, onClose }: Props) {
+export default function DriverProfileOverlay({ handle, open, onClose, isAuthenticated = false }: Props) {
   const [profile, setProfile] = useState<DriverProfileData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [videoMuted, setVideoMuted] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -46,13 +50,15 @@ export default function DriverProfileOverlay({ handle, open, onClose }: Props) {
     if (!open || !handle) return;
     setLoading(true);
     setProfile(null);
+    setLoadError(false);
     setVideoMuted(true);
     fetch(`/api/driver/${handle}`)
       .then(r => r.json())
       .then(data => {
         if (data.displayName) setProfile(data);
+        else setLoadError(true);
       })
-      .catch(() => {})
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, [open, handle]);
 
@@ -107,11 +113,25 @@ export default function DriverProfileOverlay({ handle, open, onClose }: Props) {
           </div>
         )}
 
-        {!loading && !profile && (
-          <div style={{ textAlign: 'center', padding: '60px 0', color: '#888', fontSize: 14 }}>
-            Driver not found
+        {loadError && !loading && (
+          <div style={{ padding: '40px 20px 32px', textAlign: 'center' }}>
+            <div style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
+              Couldn't load this driver's profile.
+            </div>
+            <button
+              onClick={onClose}
+              style={{
+                padding: '10px 28px', borderRadius: 100,
+                border: '1px solid rgba(255,255,255,0.1)', background: 'transparent',
+                color: '#bbb', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              }}
+            >
+              Close
+            </button>
           </div>
         )}
+
 
         {profile && (
           <div style={{ padding: '8px 20px 40px' }}>
@@ -212,14 +232,23 @@ export default function DriverProfileOverlay({ handle, open, onClose }: Props) {
 
             {/* Stats row */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-              <StatCard label="Chill" value={`${profile.chillScore.toFixed(0)}%`} color="#00E676" />
+              <StatCard label="Chill" value={profile.completedRides === 0 ? 'New' : `${profile.chillScore.toFixed(0)}%`} color="#00E676" />
               <StatCard label="Rides" value={String(profile.completedRides)} color="#fff" />
               <StatCard
                 label="Disputes"
                 value={String(profile.disputeCount)}
                 color={profile.disputeCount === 0 ? '#00E676' : profile.disputeCount <= 2 ? '#FFD740' : '#FF5252'}
               />
-              <StatCard label="Rate" value={`${profile.completionRate}%`} color="#448AFF" />
+              <StatCard
+                label="Accepts"
+                value={profile.acceptanceRate === null ? 'New' : `${profile.acceptanceRate}%`}
+                color={
+                  profile.acceptanceRate === null ? '#888' :
+                  profile.acceptanceRate >= 80 ? '#00E676' :
+                  profile.acceptanceRate >= 60 ? '#448AFF' :
+                  '#FFD740'
+                }
+              />
             </div>
 
             {/* Vehicle info */}
@@ -358,6 +387,15 @@ export default function DriverProfileOverlay({ handle, open, onClose }: Props) {
                 No ratings yet — new driver
               </div>
             )}
+
+            {/* Comments */}
+            <CommentsSection
+              subjectHandle={profile.handle}
+              subjectId={profile.userId}
+              isAuthenticated={isAuthenticated}
+              canReply={false}
+              canComment={isAuthenticated}
+            />
 
             {/* Member since */}
             {memberDate && (

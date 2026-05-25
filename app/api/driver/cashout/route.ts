@@ -73,23 +73,19 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Amount too low' }, { status: 400 });
       }
 
-      let fee = 0;
-      if (driver.tier !== 'hmu_first') {
-        const percentFee = Math.round(payableCents * 0.01);
-        fee = Math.max(100, percentFee);
-      }
-
-      const payoutAmountCents = payableCents - fee;
-      if (payoutAmountCents <= 0) {
-        return NextResponse.json({ error: 'Balance too low for instant payout after fee' }, { status: 400 });
-      }
-
+      // No cashout-time fee. All platform revenue is collected at deposit
+      // capture via `application_fee_amount` on the PaymentIntent (see
+      // DepositOnlyStrategy.calculateCapture). Stripe Connect Express doesn't
+      // support Connect → platform transfers, so the previous "$1 or 1% fee"
+      // at instant cashout was uncollectable — it deducted from the payout
+      // but stranded the money in the driver's Connect balance. Driver now
+      // gets the full requested amount.
       const payout = await stripe.payouts.create(
         {
-          amount: payoutAmountCents,
+          amount: payableCents,
           currency: 'usd',
           method: 'instant',
-          metadata: { driverId: driver.user_id, fee: String(fee) },
+          metadata: { driverId: driver.user_id },
         },
         { stripeAccount: driver.stripe_account_id }
       );
@@ -97,9 +93,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         payoutId: payout.id,
-        amount: payoutAmountCents / 100,
+        amount: payableCents / 100,
         grossAmount: payableCents / 100,
-        fee: fee / 100,
+        fee: 0,
         method: 'instant',
         arrival: 'Minutes',
         tier: driver.tier,

@@ -50,6 +50,27 @@ export default function DriverPaymentForm({ onSuccess }: Props) {
     );
   }
 
+  // Staging mock bypass — seti_mock_* secrets are not valid Stripe client secrets
+  if (clientSecret.startsWith('seti_mock_')) {
+    return (
+      <div style={{ padding: 16, background: 'rgba(0,230,118,0.08)', borderRadius: 12, textAlign: 'center' }}>
+        <div style={{ fontSize: 13, color: '#00E676', fontWeight: 700, marginBottom: 8 }}>
+          Staging mock — payment method bypassed
+        </div>
+        <button
+          onClick={onSuccess}
+          style={{
+            padding: '10px 24px', borderRadius: 100, border: 'none',
+            background: '#00E676', color: '#080808', fontWeight: 700, fontSize: 14,
+            cursor: 'pointer', fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          }}
+        >
+          Confirm (mock)
+        </button>
+      </div>
+    );
+  }
+
   return (
     <Elements
       stripe={stripePromise}

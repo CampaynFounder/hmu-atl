@@ -71,7 +71,14 @@ jobs:
           NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_POSTHOG_HOST: https://app.posthog.com
           NEXT_PUBLIC_APP_URL: https://staging.hmucashride.com
+          NEXT_PUBLIC_R2_PUBLIC_URL: ${{ secrets.NEXT_PUBLIC_R2_PUBLIC_URL }}
           NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+          # Sentry sourcemap upload — runs during `next build` via withSentryConfig.
+          # Auth token must NEVER appear in .env.local (opennextjs bakes that into
+          # the worker bundle). Org + project are non-sensitive build-time inputs.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
           # Server-side placeholders. Real values come from `wrangler secret`
           # at runtime; these only exist to satisfy SDK constructors that
           # instantiate at module load. Same shape as local .env.local.
@@ -97,6 +104,56 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler deploy --config wrangler.staging.jsonc
+
+      - name: Sync runtime secrets to Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          sync_secret() {
+            local name="$1"
+            local value="$2"
+            if [ -z "$value" ]; then
+              echo "⚠️  $name is empty — skipping"
+              return
+            fi
+            echo "$value" | npx wrangler secret put "$name" --config wrangler.staging.jsonc
+            echo "✓ $name"
+          }
+          sync_secret DATABASE_URL              "${{ secrets.DATABASE_URL }}"
+          sync_secret DATABASE_URL_UNPOOLED     "${{ secrets.DATABASE_URL_UNPOOLED }}"
+          sync_secret CLERK_SECRET_KEY          "${{ secrets.CLERK_SECRET_KEY }}"
+          sync_secret CLERK_WEBHOOK_SECRET      "${{ secrets.CLERK_WEBHOOK_SECRET }}"
+          sync_secret STRIPE_SECRET_KEY         "${{ secrets.STRIPE_SECRET_KEY }}"
+          sync_secret STRIPE_WEBHOOK_SECRET     "${{ secrets.STRIPE_WEBHOOK_SECRET }}"
+          sync_secret STRIPE_PLATFORM_ACCOUNT_ID "${{ secrets.STRIPE_PLATFORM_ACCOUNT_ID }}"
+          sync_secret HMU_FIRST_PRICE_ID        "${{ secrets.HMU_FIRST_PRICE_ID }}"
+          sync_secret ABLY_API_KEY              "${{ secrets.ABLY_API_KEY }}"
+          sync_secret TWILIO_ACCOUNT_SID        "${{ secrets.TWILIO_ACCOUNT_SID }}"
+          sync_secret TWILIO_AUTH_TOKEN         "${{ secrets.TWILIO_AUTH_TOKEN }}"
+          sync_secret TWILIO_PHONE_NUMBER       "${{ secrets.TWILIO_PHONE_NUMBER }}"
+          sync_secret TWILIO_VERIFY_SERVICE_SID "${{ secrets.TWILIO_VERIFY_SERVICE_SID }}"
+          sync_secret UPSTASH_REDIS_REST_URL    "${{ secrets.UPSTASH_REDIS_REST_URL }}"
+          sync_secret UPSTASH_REDIS_REST_TOKEN  "${{ secrets.UPSTASH_REDIS_REST_TOKEN }}"
+          sync_secret OPENAI_API_KEY            "${{ secrets.OPENAI_API_KEY }}"
+          sync_secret META_CONVERSIONS_API_TOKEN "${{ secrets.META_CONVERSIONS_API_TOKEN }}"
+          sync_secret VOIPMS_API_USERNAME       "${{ secrets.VOIPMS_API_USERNAME }}"
+          sync_secret VOIPMS_API_PASSWORD       "${{ secrets.VOIPMS_API_PASSWORD }}"
+
+      - name: Apply schema migrations to staging DB
+        env:
+          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
+        run: |
+          node scripts/apply-migration.mjs lib/db/migrations/voip-debug-logging.sql
+          node scripts/apply-migration.mjs lib/db/migrations/rider-payment-methods.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-18-one-active-blast-per-rider.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-18-driver-location-sharing.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-18-blast-matching-home-fallback.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-20-public-blast-drafts.sql
+          node scripts/apply-migration.mjs sql/007b_comments_base.sql
+          node scripts/apply-migration.mjs sql/008_comments_v2.sql
+          node scripts/apply-migration.mjs sql/009_comments_config.sql
+          node scripts/apply-migration.mjs lib/db/migrations/comments-add-deleted-at.sql
 
       - name: Post-deploy health check
         run: |

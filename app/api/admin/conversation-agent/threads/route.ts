@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse } from '@/lib/admin/helpers';
 import { listThreads, getThreadStats, type ThreadStatus } from '@/lib/conversation/threads';
 
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'grow.convagent.view')) return unauthorizedResponse();
 
   const url = req.nextUrl;
   const statusParam = url.searchParams.get('status') as ThreadStatus | null;

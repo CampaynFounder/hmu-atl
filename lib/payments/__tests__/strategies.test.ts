@@ -39,6 +39,7 @@ describe('strategy registry', () => {
       calculateCapture: vi.fn(),
       calculateNoShow: vi.fn(),
       calculateCancel: vi.fn(),
+      buildBreakdownRows: vi.fn(),
     };
     registerStrategy(stub);
     expect(getStrategy('test_stub')).toBe(stub);

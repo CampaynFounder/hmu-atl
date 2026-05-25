@@ -153,7 +153,7 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
           <div className={styles.themeToggle}>
             <span className={styles.themeIcon}>{isDark ? '🌙' : '☀️'}</span>
           </div>
-          <Link href="/sign-in" className={styles.navSignIn}>Sign In</Link>
+          <a href="/sign-in" className={styles.navSignIn}>Sign In</a>
           <a href="#get-started" className={styles.navCta}>Sign Up</a>
         </div>
       </nav>
@@ -178,7 +178,7 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
         </p>
 
         <div className={`${styles.heroCtaGroup} ${styles.fadeUp}`} style={{ animationDelay: '0.3s' }}>
-          <Link href="/rider" className={styles.btnOutline}>I NEED A RIDE</Link>
+          <Link href="/r/express" className={styles.btnOutline}>I NEED A RIDE</Link>
           <Link href="/driver" className={styles.btnPrimary}>I WANT TO DRIVE</Link>
         </div>
 
@@ -221,7 +221,7 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
                 </div>
                 ))}
               </div>
-              <Link href="/rider" className={styles.howLink}>
+              <Link href="/r/express" className={styles.howLink}>
                 Learn more <span>→</span>
               </Link>
             </div>
@@ -387,9 +387,9 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
               <p className={styles.dualCtaDesc}>
                 {driverCtaDesc}
               </p>
-              <Link href="/sign-up?type=driver" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnFilled}`}>
+              <a href="/sign-up?type=driver" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnFilled}`}>
                 SIGN UP NOW
-              </Link>
+              </a>
             </div>
 
             <div className={`${styles.dualCtaCard} ${styles.dualCtaCardRider}`}>
@@ -399,14 +399,14 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
               <p className={styles.dualCtaDesc}>
                 {riderCtaDesc}
               </p>
-              <Link href="/sign-up?type=rider" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnOutline}`}>
+              <a href="/r/express" className={`${styles.dualCtaBtn} ${styles.dualCtaBtnOutline}`}>
                 SIGN UP AS RIDER
-              </Link>
+              </a>
             </div>
           </div>
 
           <div className={`${styles.dualCtaSignIn} ${styles.reveal}`}>
-            Already have an account? <Link href="/sign-in">Sign in</Link>
+            Already have an account? <a href="/sign-in">Sign in</a>
           </div>
         </div>
       </section>

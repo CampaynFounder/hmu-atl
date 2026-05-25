@@ -168,7 +168,7 @@ export default async function RiderGuidePage() {
         {/* CTA */}
         <div style={{ textAlign: 'center', marginTop: '20px' }}>
           <a
-            href="/sign-in?type=rider"
+            href="/r/express"
             style={{
               display: 'inline-block', padding: '16px 48px', borderRadius: '100px',
               background: '#448AFF', color: '#fff', fontWeight: 700, fontSize: '16px',

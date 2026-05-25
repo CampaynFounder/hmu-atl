@@ -85,7 +85,10 @@ export async function GET() {
 
     const customerId = (rows[0] as Record<string, unknown>).stripe_customer_id as string | null;
 
-    if (!customerId || isMock) {
+    if (isMock) {
+      return NextResponse.json({ hasPaymentMethod: true });
+    }
+    if (!customerId) {
       return NextResponse.json({ hasPaymentMethod: false });
     }
 

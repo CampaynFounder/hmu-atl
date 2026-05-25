@@ -39,6 +39,10 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
   const [loading, setLoading] = useState(true);
   const [reserve, setReserve] = useState(0);
   const [isCash, setIsCash] = useState(false);
+  // True only for legacy_full_fare rides — those pre-authorize an add-on
+  // reserve at hold time and items must fit within it. deposit_only mode
+  // charges each extra at driver-confirm time, so the reserve is irrelevant.
+  const [requiresReserve, setRequiresReserve] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +58,7 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
         setMenu(data.menu || []);
         setReserve(data.reserve ?? 0);
         setIsCash(data.isCash ?? false);
+        setRequiresReserve(!!data.requiresReserve);
       })
       .catch(() => setError('Failed to load menu'))
       .finally(() => setLoading(false));
@@ -245,8 +250,11 @@ export default function AddOnMenuSheet({ rideId, open, onClose, agreedPrice, add
               {menu.map(item => {
                 const isAdding = adding === item.id;
                 const existingCount = activeAddOns.filter(a => a.name === item.name).reduce((s, a) => s + a.quantity, 0);
-                const noReserve = !isCash && reserve === 0;
-                const overBudget = !isCash && reserve > 0 && Number(item.price) > remaining;
+                // Reserve gating only applies when the ride's pricing mode
+                // pre-authorizes a reserve (legacy_full_fare). deposit_only
+                // and cash rides skip both checks — items are added freely.
+                const noReserve = requiresReserve && reserve === 0;
+                const overBudget = requiresReserve && reserve > 0 && Number(item.price) > remaining;
                 const disabled = isAdding || noReserve || overBudget;
 
                 return (

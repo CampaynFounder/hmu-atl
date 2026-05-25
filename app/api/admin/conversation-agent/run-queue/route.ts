@@ -4,13 +4,14 @@
 // opt-ins without waiting 5 minutes for the GitHub Actions schedule.
 
 import { NextResponse } from 'next/server';
-import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { drainQueue } from '@/lib/conversation/scheduler';
 import { scheduleDueFollowups } from '@/lib/conversation/followups';
 
 export async function POST() {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'grow.convagent.edit')) return unauthorizedResponse();
 
   const drain = await drainQueue(200);
   const followups = await scheduleDueFollowups();

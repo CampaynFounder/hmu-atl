@@ -21,6 +21,8 @@ import type {
   NoShowDecision,
   CancelInput,
   CancelDecision,
+  BreakdownInput,
+  BreakdownResult,
 } from './types';
 
 export interface DepositOnlyConfig {
@@ -36,6 +38,12 @@ export interface DepositOnlyConfig {
   depositMaxPctOfFare: number;
   /** What the driver keeps on no-show (1.0 = 100% of deposit minus fee). */
   noShowDriverPct: number;
+  /**
+   * Platform fee percent of each confirmed add-on (0.20 = 20%). Each extra
+   * is charged through Stripe at driver-confirm time as a destination charge
+   * with application_fee_amount = round(subtotalCents × extrasFeePercent).
+   */
+  extrasFeePercent: number;
   /** Future modes: 'rider_select' (current), 'distance_band', 'percent_of_fare'. */
   depositRule?: 'rider_select' | 'distance_band' | 'percent_of_fare';
 }
@@ -47,8 +55,14 @@ export const DEFAULT_DEPOSIT_ONLY_CONFIG: DepositOnlyConfig = {
   depositIncrement: 1,
   depositMaxPctOfFare: 0.5,
   noShowDriverPct: 1.0,
+  extrasFeePercent: 0.20,
   depositRule: 'rider_select',
 };
+
+/** Platform fee in cents on a single add-on subtotal. Floor not applied here. */
+export function calculateExtrasFeeCents(subtotalCents: number, config: DepositOnlyConfig): number {
+  return Math.max(0, Math.round(subtotalCents * config.extrasFeePercent));
+}
 
 let configCache: { config: DepositOnlyConfig; cachedAt: number } | null = null;
 const CACHE_TTL_MS = 60_000;
@@ -139,13 +153,18 @@ export class DepositOnlyStrategy implements PricingStrategy {
     const waivedFee = input.inFreeWindow ? calculateDepositFeeCents(depositCents, config) / 100 : 0;
     const driverReceives = Math.round((depositCents - feeCents)) / 100;
     const platformReceives = Math.round(feeCents) / 100;
+    // Estimate Stripe processing fee on the deposit so the ride-end breakdown
+    // can show it as a real number. Standard US card rate: 2.9% + $0.30.
+    // Stripe deducts this from the platform's net (application_fee) on
+    // destination charges; the driver Connect amount is untouched.
+    const stripeFee = (Math.round(depositCents * 0.029) + 30) / 100;
 
     return {
       captureAmountCents: depositCents,
       applicationFeeCents: feeCents,
       driverReceives,
       platformReceives,
-      stripeFee: 0, // Stripe processing fee is absorbed by connected account; not surfaced here.
+      stripeFee,
       platformFee,
       waivedFee,
       dailyCapHit: false, // Deposit-only mode does not use daily/weekly caps.
@@ -169,6 +188,82 @@ export class DepositOnlyStrategy implements PricingStrategy {
       platformAmount: Math.round(feeCents) / 100,
       riderRefunded: 0,
       addOnRefunded: 0,
+    };
+  }
+
+  buildBreakdownRows(input: BreakdownInput): BreakdownResult {
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    if (input.isCash) {
+      const cashTotal = round2(input.agreedPrice + input.addOnTotal);
+      return {
+        modeKey: this.modeKey,
+        isCash: true,
+        youEarned: cashTotal,
+        total: cashTotal,
+        driverRows: [
+          { label: 'Cash Received', value: cashTotal, role: 'total' },
+        ],
+        riderRows: [
+          { label: 'Cash Paid', value: cashTotal, role: 'total' },
+        ],
+        extras: input.extras,
+      };
+    }
+
+    // ── Money-conservation math ──────────────────────────────────────
+    // Rider pays = visibleDeposit + sum(succeeded extra subtotals) + cash
+    //            = agreedPrice + sum(succeeded extra subtotals)
+    //
+    // Driver receives:
+    //   depositNet   = visibleDeposit − platformFeeAmount   (Stripe Connect payout)
+    //   extrasNet    = extrasDriverAmount                   (extras already net of fees)
+    //   cashReceived = agreedPrice − visibleDeposit         (0-fee Pull Up Cash)
+    //   youEarned    = depositNet + extrasNet + cashReceived
+    //
+    // Fee display (deposit-only; extras fees are baked into extrasDriverAmount):
+    //   hmuFeePaid    = platformFeeAmount − stripeFeeAmount  (HMU's net cut)
+    //   stripeFeePaid = stripeFeeAmount                     (Stripe's processing slice)
+    //   hmuFeePaid + stripeFeePaid = platformFeeAmount
+    //   → visibleDeposit − hmuFeePaid − stripeFeePaid = depositNet ✓
+    // ─────────────────────────────────────────────────────────────────
+    const succeededExtrasSubtotal = round2(
+      input.extras
+        .filter(e => e.chargeStatus === 'succeeded')
+        .reduce((s, e) => s + e.subtotal, 0)
+    );
+
+    const depositNet = round2(input.driverPayoutAmount);
+    const extrasNet = round2(input.extrasDriverAmount);
+    const hmuFeePaid = round2(Math.max(0, input.platformFeeAmount - input.stripeFeeAmount));
+    const stripeFeePaid = round2(input.stripeFeeAmount);
+    const cashReceived = round2(Math.max(0, input.agreedPrice - input.visibleDeposit));
+
+    const youEarned = round2(depositNet + extrasNet + cashReceived);
+    const total = round2(input.agreedPrice + succeededExtrasSubtotal);
+
+    const driverRows: BreakdownResult['driverRows'] = [
+      { label: 'Deposit', value: round2(input.visibleDeposit), role: 'amount' },
+      { label: 'Pull Up Cash', value: cashReceived, role: 'amount' },
+      ...(extrasNet > 0 ? [{ label: 'HMU Extras', value: extrasNet, role: 'amount' as const }] : []),
+      { label: 'HMU Fees Paid', value: hmuFeePaid, role: 'fee' },
+      { label: 'Stripe Fees Paid', value: stripeFeePaid, role: 'fee' },
+      { label: 'Total Earnings', value: youEarned, role: 'total' },
+    ];
+
+    return {
+      modeKey: this.modeKey,
+      isCash: false,
+      youEarned,
+      total,
+      driverRows,
+      riderRows: [
+        { label: 'Deposit', value: round2(input.visibleDeposit), role: 'amount' },
+        { label: 'HMU Extras', value: succeededExtrasSubtotal, role: 'amount' },
+        { label: 'Cash to Driver', value: cashReceived, role: 'amount' },
+        { label: 'Total', value: total, role: 'total' },
+      ],
+      extras: input.extras,
     };
   }
 

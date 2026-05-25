@@ -31,7 +31,7 @@ export default async function DriverHomePage() {
   `;
 
   const profileRows = await sql`
-    SELECT handle, display_name, first_name, areas, pricing, payout_setup_complete, cash_only
+    SELECT handle, display_name, first_name, areas, pricing, payout_setup_complete, cash_only, accepts_down_bad
     FROM driver_profiles
     WHERE user_id = ${user.id}
     LIMIT 1
@@ -46,6 +46,7 @@ export default async function DriverHomePage() {
     pricing: Record<string, unknown>;
     payout_setup_complete: boolean;
     cash_only: boolean;
+    accepts_down_bad: boolean;
   };
 
   const displayName = profile.display_name || profile.first_name || profile.handle || 'Driver';
@@ -64,6 +65,7 @@ export default async function DriverHomePage() {
       payoutSetup={!!profile.payout_setup_complete}
       cashOnly={!!profile.cash_only}
       marketSlug={marketSlug}
+      acceptsDownBad={!!profile.accepts_down_bad}
     />
   );
 }

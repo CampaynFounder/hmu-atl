@@ -1,17 +1,21 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
 import { useAbly } from '@/hooks/use-ably';
 import CashoutCard from '@/components/driver/cashout-card';
 import { ViewsCard } from '@/components/driver/views-card';
 import { PendingActionBanner } from '@/components/pending-action-banner';
 import PassReasonSheet, { type PassReason } from '@/components/driver/pass-reason-sheet';
+import { DriverBlastStatusSection } from '@/components/blast/driver/driver-blast-status-section';
 
 interface BookingRequest {
   id: string;
   type?: string;
+  targetId?: string | null;
+  pickupAddress?: string | null;
+  dropoffAddress?: string | null;
   riderName: string;
   riderHandle: string | null;
   riderAvatarUrl: string | null;
@@ -41,6 +45,7 @@ interface Props {
   payoutSetup: boolean;
   cashOnly: boolean;
   marketSlug: string;
+  acceptsDownBad: boolean;
 }
 
 export default function DriverHomeClient({
@@ -54,14 +59,19 @@ export default function DriverHomeClient({
   payoutSetup,
   cashOnly,
   marketSlug,
+  acceptsDownBad,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [requests, setRequests] = useState<BookingRequest[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(true);
+  const [downBadCount, setDownBadCount] = useState(0);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [pendingPassPostId, setPendingPassPostId] = useState<string | null>(null);
+  const [pendingPassRequest, setPendingPassRequest] = useState<BookingRequest | null>(null);
   const [actionToast, setActionToast] = useState<string | null>(null);
   const [focusedPostId, setFocusedPostId] = useState<string | null>(null);
+  const [newRequestIds, setNewRequestIds] = useState<Set<string>>(new Set());
+  const [exitDirs, setExitDirs] = useState<Record<string, 'left' | 'right'>>({});
+  const initialLoadDone = useRef(false);
 
   const searchParams = useSearchParams();
   const focusParam = searchParams.get('focus');
@@ -71,7 +81,41 @@ export default function DriverHomeClient({
       const res = await fetch('/api/drivers/requests');
       if (res.ok) {
         const data = await res.json();
-        setRequests(data.requests ?? []);
+        const incoming: BookingRequest[] = data.requests ?? [];
+        if (typeof data.downBadCount === 'number') setDownBadCount(data.downBadCount);
+
+        // First load: skip the glide-in/glow so we don't fanfare requests that
+        // were already sitting there. Subsequent fetches diff against current
+        // state and flag anything whose id wasn't present before.
+        if (!initialLoadDone.current) {
+          setRequests(incoming);
+          initialLoadDone.current = true;
+        } else {
+          setRequests((prev) => {
+            const prevIds = new Set(prev.map((r) => r.id));
+            const justArrived = incoming.filter((r) => !prevIds.has(r.id)).map((r) => r.id);
+            if (justArrived.length > 0) {
+              setNewRequestIds((cur) => {
+                const next = new Set(cur);
+                justArrived.forEach((id) => next.add(id));
+                return next;
+              });
+              if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+                navigator.vibrate(15);
+              }
+              // Drop the "new" flag after the glow finishes so a future status
+              // change on this card doesn't re-trigger the animation.
+              setTimeout(() => {
+                setNewRequestIds((cur) => {
+                  const next = new Set(cur);
+                  justArrived.forEach((id) => next.delete(id));
+                  return next;
+                });
+              }, 2600);
+            }
+            return incoming;
+          });
+        }
       }
     } catch {
       // silent fail — will retry on next poll
@@ -80,9 +124,11 @@ export default function DriverHomeClient({
     }
   }, []);
 
-  // Initial load — Ably handles real-time updates, visibility change handles tab return
+  // Initial load + 15s fallback poll (Ably is primary; poll catches Ably failures)
   useEffect(() => {
     fetchRequests();
+    const t = window.setInterval(fetchRequests, 15_000);
+    return () => window.clearInterval(t);
   }, [fetchRequests]);
 
   // Re-fetch immediately on any Ably notification (cancelled ride, new request, etc.)
@@ -111,6 +157,17 @@ export default function DriverHomeClient({
   useAbly({
     channelName: `market:${marketSlug}:feed`,
     onMessage: handleAblyMessage,
+  });
+
+  // Down Bad channel — new posts bump the count so the entry card appears
+  // without a full refetch. A full refetch still happens via handleAblyMessage
+  // to keep counts accurate.
+  useAbly({
+    channelName: acceptsDownBad ? `market:${marketSlug}:down-bad` : null,
+    onMessage: useCallback(() => {
+      setDownBadCount(c => c + 1);
+      fetchRequests();
+    }, [fetchRequests]),
   });
 
   // Re-fetch when page becomes visible (returning from ride page after cancel)
@@ -174,61 +231,97 @@ export default function DriverHomeClient({
     }
   };
 
-  const handleAction = async (postId: string, action: 'accept' | 'decline') => {
-    // Pass routes through the reason sheet — same payload contract as /driver/feed
-    // so riders see the reason chip + note on the "driver passed" card.
+  const showToast = (msg: string, duration = 2500) => {
+    setActionToast(msg);
+    setTimeout(() => setActionToast(null), duration);
+  };
+
+  const handleAction = async (req: BookingRequest, action: 'accept' | 'decline') => {
     if (action === 'decline') {
-      setPendingPassPostId(postId);
+      setPendingPassRequest(req);
       return;
     }
-    setActionLoading(postId);
+    setActionLoading(req.id);
     try {
-      const res = await fetch(`/api/bookings/${postId}/accept`, { method: 'POST' });
+      let res: Response;
+      if (req.type === 'blast' && req.targetId) {
+        res = await fetch(`/api/blast/${req.id}/targets/${req.targetId}/hmu`, { method: 'POST' });
+      } else {
+        res = await fetch(`/api/bookings/${req.id}/accept`, { method: 'POST' });
+      }
       const data = await res.json();
       if (res.ok) {
-        if (data.rideId) {
-          setRequests((prev) => prev.filter((r) => r.id !== postId));
-          window.location.replace(`/ride/${data.rideId}`);
+        if (req.type === 'blast') {
+          // Blast HMU — card exits right, driver waits for rider Pull Up
+          setExitDirs((d) => ({ ...d, [req.id]: 'right' }));
+          setTimeout(() => setRequests((prev) => prev.filter((r) => r.id !== req.id)), 0);
+          showToast('HMU sent — waiting for rider');
         } else {
-          setRequests((prev) => prev.filter((r) => r.id !== postId));
+          // Direct accept — throw card right, navigate to ride
+          setExitDirs((d) => ({ ...d, [req.id]: 'right' }));
+          setTimeout(() => {
+            setRequests((prev) => prev.filter((r) => r.id !== req.id));
+            if (data.rideId) {
+              setTimeout(() => window.location.replace(`/ride/${data.rideId}`), 560);
+            }
+          }, 0);
         }
+      } else if (res.status === 404) {
+        // Ride was already matched or expired — drop the card silently
+        setExitDirs((d) => ({ ...d, [req.id]: 'left' }));
+        setTimeout(() => setRequests((prev) => prev.filter((r) => r.id !== req.id)), 0);
+        showToast('Ride already taken', 2000);
       } else if (data.error === 'PAYOUT_REQUIRED') {
         if (confirm('Set up your payout account to accept rides. Go to payout setup?')) {
           window.location.href = '/driver/payout-setup';
         }
+      } else {
+        showToast(data.error ?? `Error (${res.status})`, 3000);
       }
     } catch {
-      // silent
+      showToast('Network error — try again', 3000);
     } finally {
       setActionLoading(null);
     }
   };
 
   const submitPass = async (reason: PassReason | null, message: string) => {
-    const postId = pendingPassPostId;
-    if (!postId) return;
-    setActionLoading(postId);
+    const req = pendingPassRequest;
+    if (!req) return;
+    setActionLoading(req.id);
     try {
-      const res = await fetch(`/api/bookings/${postId}/decline`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason, message }),
-      });
+      let res: Response;
+      if (req.type === 'blast' && req.targetId) {
+        res = await fetch(`/api/blast/${req.id}/targets/${req.targetId}/pass`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason, message }),
+        });
+      } else {
+        res = await fetch(`/api/bookings/${req.id}/decline`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason, message }),
+        });
+      }
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setRequests((prev) => prev.filter((r) => r.id !== postId));
-        setActionToast(data.status === 'declined_awaiting_rider' ? 'Passed — rider notified' : 'Passed');
-        setTimeout(() => setActionToast(null), 2000);
+        setExitDirs((d) => ({ ...d, [req.id]: 'left' }));
+        setTimeout(() => setRequests((prev) => prev.filter((r) => r.id !== req.id)), 0);
+        showToast(data.status === 'declined_awaiting_rider' ? 'Passed — rider notified' : 'Passed', 2000);
+      } else if (res.status === 404) {
+        // Ride was already matched or expired — drop the card silently
+        setExitDirs((d) => ({ ...d, [req.id]: 'left' }));
+        setTimeout(() => setRequests((prev) => prev.filter((r) => r.id !== req.id)), 0);
+        showToast('Ride already taken', 2000);
       } else {
-        setActionToast(data.error || `Couldn't pass (${res.status})`);
-        setTimeout(() => setActionToast(null), 3000);
+        showToast(data.error || `Couldn't pass (${res.status})`, 3000);
       }
     } catch {
-      setActionToast('Network error — try again');
-      setTimeout(() => setActionToast(null), 3000);
+      showToast('Network error — try again', 3000);
     } finally {
       setActionLoading(null);
-      setPendingPassPostId(null);
+      setPendingPassRequest(null);
     }
   };
 
@@ -272,6 +365,19 @@ export default function DriverHomeClient({
         .loading-dot:nth-child(2) { animation-delay: 0.2s; }
         .loading-dot:nth-child(3) { animation-delay: 0.4s; }
         @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.3;transform:scale(0.6)} }
+
+        /* Brand-green glow that fires once when a new request lands. The ring
+           is brightest at 0%, softens by 60%, fully fades by 100%. Pairs with
+           the framer glide-in for a layered "this is fresh" cue. */
+        @keyframes newRequestGlow {
+          0%   { box-shadow: 0 0 0 2px rgba(0,230,118,0.8), 0 0 44px rgba(0,230,118,0.6); }
+          40%  { box-shadow: 0 0 0 2px rgba(0,230,118,0.7), 0 0 38px rgba(0,230,118,0.45); }
+          70%  { box-shadow: 0 0 0 1px rgba(0,230,118,0.35), 0 0 22px rgba(0,230,118,0.25); }
+          100% { box-shadow: 0 0 0 0 rgba(0,230,118,0), 0 0 0 rgba(0,230,118,0); }
+        }
+        .request-card.is-new {
+          animation: newRequestGlow 2.8s ease-out forwards;
+        }
 
         /* First-load shimmer — a soft sheen sweeps each primary CTA twice then
            stops. Works on any button with .shimmer-once. The ::after gives us
@@ -344,6 +450,51 @@ export default function DriverHomeClient({
         {/* Profile-views growth card — self-hides when there are zero views */}
         <ViewsCard />
 
+        {/* Active HMUs — self-hides when driver has no pending blast responses */}
+        <DriverBlastStatusSection driverId={userId} />
+
+        {/* Down Bad entry card — only for opted-in drivers with active posts */}
+        <AnimatePresence>
+          {acceptsDownBad && downBadCount > 0 && (
+            <motion.a
+              key="down-bad-entry"
+              href="/driver/down-bad"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.35, ease: [0.25, 0.1, 0.25, 1] }}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 16, padding: '14px 18px', marginBottom: 16,
+                textDecoration: 'none', cursor: 'pointer',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 22 }}>😮‍💨</span>
+                <div>
+                  <div style={{ color: '#fff', fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>
+                    Down Bad
+                    <span style={{
+                      display: 'inline-block', background: '#00E676', color: '#080808',
+                      fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 100,
+                      marginLeft: 8, verticalAlign: 'middle',
+                    }}>
+                      {downBadCount}
+                    </span>
+                  </div>
+                  <div style={{ color: '#888', fontSize: 12, marginTop: 2 }}>
+                    {downBadCount === 1 ? '1 post waiting' : `${downBadCount} posts waiting`} — swipe to pick
+                  </div>
+                </div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2.5">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </motion.a>
+          )}
+        </AnimatePresence>
+
         {/* Incoming Requests — collapse the section entirely when empty so the
             cashout card sits above the fold for new drivers. Loading still
             shows the dots; requests still render as cards. */}
@@ -365,16 +516,20 @@ export default function DriverHomeClient({
             transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1], delay: 0.2 }}
           >
             <h2 className="section-title">Incoming Requests</h2>
-            {requests.map((req) => (
-              <RequestCard
-                key={req.id}
-                req={req}
-                actionLoading={actionLoading}
-                onAction={handleAction}
-                focused={focusedPostId === req.id}
-                onExpired={handleRequestExpired}
-              />
-            ))}
+            <AnimatePresence initial={false}>
+              {requests.map((req) => (
+                <RequestCard
+                  key={req.id}
+                  req={req}
+                  actionLoading={actionLoading}
+                  onAction={handleAction}
+                  focused={focusedPostId === req.id}
+                  isNew={newRequestIds.has(req.id)}
+                  exitDir={exitDirs[req.id]}
+                  onExpired={handleRequestExpired}
+                />
+              ))}
+            </AnimatePresence>
           </motion.div>
         )}
 
@@ -514,8 +669,8 @@ export default function DriverHomeClient({
       </div>
 
       <PassReasonSheet
-        open={pendingPassPostId !== null}
-        onClose={() => setPendingPassPostId(null)}
+        open={pendingPassRequest !== null}
+        onClose={() => setPendingPassRequest(null)}
         onConfirm={submitPass}
       />
 
@@ -587,11 +742,13 @@ function getTimeAgo(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function RequestCard({ req, actionLoading, onAction, focused, onExpired }: {
+function RequestCard({ req, actionLoading, onAction, focused, isNew, exitDir, onExpired }: {
   req: BookingRequest;
   actionLoading: string | null;
-  onAction: (id: string, action: 'accept' | 'decline') => void;
+  onAction: (req: BookingRequest, action: 'accept' | 'decline') => void;
   focused?: boolean;
+  isNew?: boolean;
+  exitDir?: 'left' | 'right';
   onExpired?: (postId: string) => void;
 }) {
   const [showRider, setShowRider] = useState(false);
@@ -625,16 +782,29 @@ function RequestCard({ req, actionLoading, onAction, focused, onExpired }: {
 
   const isExpired = countdown === 'Expired';
 
+  const exitVariant = exitDir
+    ? {
+        x: exitDir === 'left' ? -520 : 520,
+        rotate: exitDir === 'left' ? -22 : 22,
+        opacity: 0,
+        transition: { duration: 0.55, ease: [0.32, 0, 0.67, 0] as const },
+      }
+    : { opacity: 0, x: 32, scale: 0.94, transition: { duration: 0.25, ease: 'easeIn' as const } };
+
   return (
-    <div
+    <motion.div
       id={`request-${req.id}`}
-      className="request-card"
+      className={`request-card${isNew ? ' is-new' : ''}`}
+      layout
+      initial={{ opacity: 0, y: -44, scale: 0.9 }}
+      animate={{ opacity: isExpired ? 0.5 : 1, y: 0, scale: 1 }}
+      exit={exitVariant}
+      transition={{ type: 'spring', stiffness: 180, damping: 22, mass: 1.05 }}
       style={{
-        opacity: isExpired ? 0.5 : 1,
-        ...(focused ? {
+        ...(focused && !isNew ? {
           boxShadow: '0 0 0 2px rgba(255,145,0,0.85), 0 0 32px rgba(255,145,0,0.45)',
           transition: 'box-shadow 0.3s ease-out',
-        } : { transition: 'box-shadow 0.6s ease-out' }),
+        } : !isNew ? { transition: 'box-shadow 0.6s ease-out' } : {}),
       }}
     >
       {/* Rider header — clickable */}
@@ -763,20 +933,20 @@ function RequestCard({ req, actionLoading, onAction, focused, onExpired }: {
         <div className="request-actions">
           <button
             className="req-btn req-btn--decline"
-            onClick={() => onAction(req.id, 'decline')}
+            onClick={() => onAction(req, 'decline')}
             disabled={actionLoading === req.id}
           >
             Pass
           </button>
           <button
             className="req-btn req-btn--accept"
-            onClick={() => onAction(req.id, 'accept')}
+            onClick={() => onAction(req, 'accept')}
             disabled={actionLoading === req.id}
           >
-            {req.type === 'direct' ? 'Accept' : 'HMU'}
+            {req.type === 'blast' ? 'HMU' : 'Accept'}
           </button>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }

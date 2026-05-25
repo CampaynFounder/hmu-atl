@@ -1,4 +1,4 @@
-// GET /api/admin/drilldown?type=matched|active|completed|cancelled|disputed|revenue|unconverted|drivers
+// GET /api/admin/drilldown?type=matched|active|completed|cancelled|disputed|revenue|unconverted|abandoned|onboarded|drivers
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
@@ -133,6 +133,36 @@ export async function GET(req: NextRequest) {
           id: r.id, name: r.name ?? 'Unknown', handle: r.handle,
           phone: r.phone, profileType: r.profile_type,
           accountStatus: r.account_status, createdAt: r.created_at,
+        })),
+      });
+    }
+
+    case 'onboarded': {
+      // Users with a profile row (rider_profiles OR driver_profiles), regardless
+      // of ride completion. Founder's "converted" definition.
+      const rows = await sql`
+        SELECT
+          u.id, u.profile_type, u.created_at, u.account_status, u.phone,
+          u.completed_rides, u.last_sign_in_at, u.sign_in_count,
+          COALESCE(rp.display_name, rp.first_name, dp.display_name, dp.first_name) as name,
+          COALESCE(rp.handle, dp.handle) as handle
+        FROM users u
+        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+        LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+        WHERE (rp.user_id IS NOT NULL OR dp.user_id IS NOT NULL)
+          AND u.account_status NOT IN ('suspended', 'banned')
+          AND (${marketId}::uuid IS NULL OR u.market_id = ${marketId})
+        ORDER BY u.created_at DESC
+        LIMIT 100
+      `;
+      return NextResponse.json({
+        items: rows.map((r: Record<string, unknown>) => ({
+          id: r.id, name: r.name ?? 'Unknown', handle: r.handle,
+          phone: r.phone, profileType: r.profile_type,
+          accountStatus: r.account_status, createdAt: r.created_at,
+          completedRides: Number(r.completed_rides ?? 0),
+          lastSignInAt: r.last_sign_in_at,
+          signInCount: Number(r.sign_in_count ?? 0),
         })),
       });
     }

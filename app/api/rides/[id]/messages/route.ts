@@ -3,71 +3,85 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate } from '@/lib/ably/server';
 import { sendSms } from '@/lib/sms/textbee';
+import { renderTemplate, type SmsEventKey } from '@/lib/sms/templates';
 
-// Quick message definitions — keyed by role + shortcode
+// Quick message definitions — keyed by role + shortcode. The `templateKey`
+// names the admin-editable sms_templates row; `fallback` is the literal used
+// when the row is missing/disabled/malformed.
 const QUICK_MESSAGES: Record<string, {
   display: string;
-  smsTemplate: (senderName: string, rideId: string, extra?: string) => string;
+  templateKey: SmsEventKey;
+  fallback: (senderName: string, rideId: string, extra?: string) => string;
   roles: ('rider' | 'driver')[];
   statuses: string[];
 }> = {
   'rider_eta': {
     display: 'ETA?',
-    smsTemplate: (name, id) => `HMU ATL: ${name} wants your ETA. Open HMU: atl.hmucashride.com/ride/${id}`,
+    templateKey: 'quick_rider_eta',
+    fallback: (name, id) => `HMU ATL: ${name} wants your ETA. Open HMU: atl.hmucashride.com/ride/${id}`,
     roles: ['rider'],
     statuses: ['otw', 'here', 'confirming'],
   },
   'rider_wya': {
     display: 'WYA?',
-    smsTemplate: (name, id) => `HMU ATL: ${name}: Where you at? atl.hmucashride.com/ride/${id}`,
+    templateKey: 'quick_rider_wya',
+    fallback: (name, id) => `HMU ATL: ${name}: Where you at? atl.hmucashride.com/ride/${id}`,
     roles: ['rider'],
     statuses: ['otw', 'here', 'confirming'],
   },
   'rider_here': {
     display: "I'm here",
-    smsTemplate: (name, id) => `HMU ATL: ${name} is at the pickup spot. atl.hmucashride.com/ride/${id}`,
+    templateKey: 'quick_rider_here',
+    fallback: (name, id) => `HMU ATL: ${name} is at the pickup spot. atl.hmucashride.com/ride/${id}`,
     roles: ['rider'],
     statuses: ['otw', 'here', 'confirming'],
   },
   'rider_late': {
     display: 'Running late',
-    smsTemplate: (name) => `HMU ATL: ${name} is running a few min late — sit tight`,
+    templateKey: 'quick_rider_late',
+    fallback: (name) => `HMU ATL: ${name} is running a few min late — sit tight`,
     roles: ['rider'],
     statuses: ['otw', 'here', 'confirming'],
   },
   'rider_spot': {
     display: '📍 Share my spot',
-    smsTemplate: (name, _id, extra) => `HMU ATL: ${name} shared their location: ${extra || 'Check the app'}`,
+    templateKey: 'quick_rider_spot',
+    fallback: (name, _id, extra) => `HMU ATL: ${name} shared their location: ${extra || 'Check the app'}`,
     roles: ['rider'],
     statuses: ['otw', 'here', 'confirming'],
   },
   'driver_otw': {
     display: 'OTW',
-    smsTemplate: (name, id) => `HMU ATL: ${name} is on the way! Track ETA: atl.hmucashride.com/ride/${id}`,
+    templateKey: 'quick_driver_otw',
+    fallback: (name, id) => `HMU ATL: ${name} is on the way! Track ETA: atl.hmucashride.com/ride/${id}`,
     roles: ['driver'],
     statuses: ['otw', 'here', 'confirming'],
   },
   'driver_5min': {
     display: '5 min away',
-    smsTemplate: (name) => `HMU ATL: ${name} is about 5 min away — head to the pickup spot!`,
+    templateKey: 'quick_driver_5min',
+    fallback: (name) => `HMU ATL: ${name} is about 5 min away — head to the pickup spot!`,
     roles: ['driver'],
     statuses: ['otw', 'here', 'confirming'],
   },
   'driver_here': {
     display: "I'm here",
-    smsTemplate: (name, id) => `HMU ATL: ${name} is HERE! Head to the car. atl.hmucashride.com/ride/${id}`,
+    templateKey: 'quick_driver_here',
+    fallback: (name, id) => `HMU ATL: ${name} is HERE! Head to the car. atl.hmucashride.com/ride/${id}`,
     roles: ['driver'],
     statuses: ['otw', 'here', 'confirming'],
   },
   'driver_cantfind': {
     display: "Can't find you",
-    smsTemplate: (name, id) => `HMU ATL: ${name} can't find you at the pickup. Open HMU and share your spot: atl.hmucashride.com/ride/${id}`,
+    templateKey: 'quick_driver_cantfind',
+    fallback: (name, id) => `HMU ATL: ${name} can't find you at the pickup. Open HMU and share your spot: atl.hmucashride.com/ride/${id}`,
     roles: ['driver'],
     statuses: ['otw', 'here', 'confirming'],
   },
   'driver_pulling_up': {
     display: 'Pulling up now',
-    smsTemplate: (name) => `HMU ATL: ${name} is pulling up now — be ready!`,
+    templateKey: 'quick_driver_pulling_up',
+    fallback: (name) => `HMU ATL: ${name} is pulling up now — be ready!`,
     roles: ['driver'],
     statuses: ['otw', 'here', 'confirming'],
   },
@@ -209,7 +223,18 @@ export async function POST(
           const senderName = (senderRows[0] as Record<string, unknown>)?.display_name as string || (isDriver ? 'Your driver' : 'Your rider');
 
           if (recipientPhone) {
-            const smsText = qm.smsTemplate(senderName, rideId, extraData);
+            // Templates use {{name}}, {{rideId}}, {{extra}} placeholders.
+            // `extra` is only meaningful for rider_spot (a typed location
+            // string); for other keys it's ignored. Empty-string fallback so
+            // a template body that references {{extra}} doesn't drop to null.
+            const vars = {
+              name: senderName,
+              rideId,
+              extra: extraData || 'Check the app',
+            };
+            const smsText =
+              (await renderTemplate(qm.templateKey, vars)) ??
+              qm.fallback(senderName, rideId, extraData);
             sendSms(recipientPhone, smsText, {
               rideId,
               userId,

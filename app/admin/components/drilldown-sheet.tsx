@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { AdminSheet } from './admin-sheet';
 import { useMarket } from './market-context';
 
-type DrillType = 'matched' | 'active' | 'completed' | 'cancelled' | 'disputed' | 'revenue' | 'unconverted' | 'abandoned' | 'drivers' | null;
+type DrillType = 'matched' | 'active' | 'completed' | 'cancelled' | 'disputed' | 'revenue' | 'unconverted' | 'abandoned' | 'onboarded' | 'drivers' | null;
 
 interface DrillDownSheetProps {
   type: DrillType;
@@ -22,8 +22,9 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   cancelled: { title: 'Cancelled Rides', subtitle: 'All cancelled rides' },
   disputed: { title: 'Disputed Rides', subtitle: 'Rides with open or resolved disputes' },
   revenue: { title: 'Revenue Breakdown', subtitle: 'Completed rides sorted by price' },
-  unconverted: { title: 'Unconverted Users', subtitle: 'Signed up but no completed ride yet' },
+  unconverted: { title: 'Unconverted Users', subtitle: 'Has profile but no completed ride yet' },
   abandoned: { title: 'Incomplete Signups', subtitle: 'Started signup but never finished onboarding — delete from Clerk + Neon' },
+  onboarded: { title: 'Onboarded Users', subtitle: 'Has a rider or driver profile (counts as converted)' },
   drivers: { title: 'Active Drivers', subtitle: 'Drivers currently on a ride' },
 };
 
@@ -426,9 +427,11 @@ export function DrillDownSheet({ type, onClose }: DrillDownSheetProps) {
                     onToggle={() => toggleSelect(item.id)}
                   />
                 ))
-                : type === 'drivers'
-                  ? items.map((item, i) => <DriverRow key={i} item={item} />)
-                  : items.map((item) => <RideRow key={item.id} item={item} type={type!} />)
+                : type === 'onboarded'
+                  ? items.map((item) => <OnboardedRow key={item.id} item={item} />)
+                  : type === 'drivers'
+                    ? items.map((item, i) => <DriverRow key={i} item={item} />)
+                    : items.map((item) => <RideRow key={item.id} item={item} type={type!} />)
             }
           </div>
         </>
@@ -553,6 +556,35 @@ function AbandonedRow({ item, selected, onToggle, weeksOld }: { item: Item; sele
         </div>
       </div>
     </div>
+  );
+}
+
+function OnboardedRow({ item }: { item: Item }) {
+  const completedRides = Number(item.completedRides ?? 0);
+  const signInCount = Number(item.signInCount ?? 0);
+  return (
+    <Link href={`/admin/users/${item.id}`} className="block px-5 py-3 hover:bg-neutral-900/50 transition-colors">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-white truncate">{item.name}</span>
+            {item.handle && <span className="text-xs text-neutral-500">@{item.handle}</span>}
+          </div>
+          <div className="flex items-center gap-2 mt-1 text-[11px] text-neutral-500 flex-wrap">
+            <span className={item.profileType === 'driver' ? 'text-emerald-400' : 'text-blue-400'}>
+              {item.profileType}
+            </span>
+            <span>{completedRides} {completedRides === 1 ? 'ride' : 'rides'}</span>
+            <span>·</span>
+            <span>{signInCount} {signInCount === 1 ? 'sign-in' : 'sign-ins'}</span>
+            <span>· Joined {timeAgo(item.createdAt)}</span>
+          </div>
+        </div>
+        <div className="flex flex-col items-end text-[10px] text-neutral-500 flex-shrink-0">
+          <span>{item.lastSignInAt ? `Last in ${timeAgo(item.lastSignInAt)}` : 'never signed in'}</span>
+        </div>
+      </div>
+    </Link>
   );
 }
 

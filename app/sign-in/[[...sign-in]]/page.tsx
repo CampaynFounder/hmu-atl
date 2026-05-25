@@ -12,7 +12,11 @@ export default async function SignInPage({ searchParams }: Props) {
 
   const callbackParams = new URLSearchParams();
   if (type) callbackParams.set('type', type);
-  if (returnTo && returnTo.startsWith('/d/')) callbackParams.set('returnTo', returnTo);
+  // /d/ = chat-funnel from a driver's share link; /auth-callback/blast = blast funnel
+  // URL-param channel (detects blast even when localStorage is unavailable).
+  if (returnTo && (returnTo.startsWith('/d/') || returnTo.startsWith('/auth-callback/blast'))) {
+    callbackParams.set('returnTo', returnTo);
+  }
   // Browse-funnel draft → auth-callback gates on PM, then routes to
   // /rider/booking-sent (PM on file) or /onboarding express PM-only mode.
   if (draft) {

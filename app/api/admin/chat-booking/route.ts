@@ -6,7 +6,7 @@
 // (important for the admin test playground).
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
+import { requireAdmin, hasPermission, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 import { invalidatePlatformConfig } from '@/lib/platform-config/get';
 import { getChatBookingConfig } from '@/lib/chat/config';
@@ -18,6 +18,7 @@ const ALLOWED_TOOL_KEYS = new Set([
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'grow.chatbooking.view')) return unauthorizedResponse();
   const config = await getChatBookingConfig();
   return NextResponse.json({ config });
 }
@@ -25,6 +26,7 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
+  if (!hasPermission(admin, 'grow.chatbooking.edit')) return unauthorizedResponse();
 
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: 'bad_body' }, { status: 400 });

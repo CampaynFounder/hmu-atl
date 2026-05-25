@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { ConversationAgentConfig, ConfigUpdate } from '@/lib/conversation/config';
-import type { ConversationPersona, PersonaInput, GenderMatch, UserTypeMatch } from '@/lib/conversation/personas';
+import type { ConversationPersona, PersonaInput, GenderMatch, UserTypeMatch, LifecycleStageMatch } from '@/lib/conversation/personas';
 import type { ThreadStats, ThreadWithContext } from '@/lib/conversation/threads';
 import type { AnalyticsSnapshot } from '@/lib/conversation/analytics';
 import { composeSystemPrompt } from '@/lib/conversation/prompt-parts';
@@ -315,6 +315,8 @@ const DEFAULT_PERSONA: PersonaInput = {
   display_name: '',
   gender_match: 'any',
   user_type_match: 'any',
+  lifecycle_stage: 'any',
+  goal: null,
   greeting_template: '',
   vision_template: null,
   follow_up_template: null,
@@ -326,6 +328,16 @@ const DEFAULT_PERSONA: PersonaInput = {
   is_active: true,
   sort_order: 0,
 };
+
+const LIFECYCLE_STAGE_OPTIONS: Array<{ value: LifecycleStageMatch; label: string; hint: string }> = [
+  { value: 'any', label: 'any', hint: 'Match any user regardless of stage' },
+  { value: 'signup', label: 'signup', hint: 'Phone verified, profile not started' },
+  { value: 'profile_incomplete', label: 'profile_incomplete', hint: 'Profile started but missing required fields' },
+  { value: 'payment_setup', label: 'payment_setup', hint: 'Driver: no payout setup. Rider: no card on file.' },
+  { value: 'ready_idle', label: 'ready_idle', hint: 'Payment-ready but no rides/posts yet' },
+  { value: 'engaged', label: 'engaged', hint: 'Has activity AND signed in within 14d' },
+  { value: 'dormant', label: 'dormant', hint: 'Was active, gone silent 14d+' },
+];
 
 interface PersonasEditorProps {
   personas: SerializedPersona[];
@@ -350,6 +362,8 @@ function PersonasEditor({ personas, onPersonasChange, onToast }: PersonasEditorP
       display_name: p.display_name,
       gender_match: p.gender_match,
       user_type_match: p.user_type_match,
+      lifecycle_stage: p.lifecycle_stage ?? 'any',
+      goal: p.goal ?? null,
       greeting_template: p.greeting_template,
       vision_template: p.vision_template,
       follow_up_template: p.follow_up_template,
@@ -426,7 +440,7 @@ function PersonasEditor({ personas, onPersonasChange, onToast }: PersonasEditorP
     <div>
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs" style={{ color: 'var(--admin-text-secondary)' }}>
-          Personas are matched to users by gender + user_type. Exact matches beat &quot;any&quot;.
+          Personas match users by gender + user_type + lifecycle stage. Exact matches beat &quot;any&quot;. Author distinct personas per stage to give the agent activation-specific goals (e.g. signup, payment_setup, ready_idle).
         </p>
         <button
           onClick={startNew}
@@ -470,8 +484,14 @@ function PersonasEditor({ personas, onPersonasChange, onToast }: PersonasEditorP
                 </code>
                 <Pill label={p.gender_match} tone={p.gender_match === 'any' ? 'muted' : 'accent'} />
                 <Pill label={p.user_type_match} tone={p.user_type_match === 'any' ? 'muted' : 'accent'} />
+                <Pill label={`stage:${p.lifecycle_stage ?? 'any'}`} tone={(p.lifecycle_stage ?? 'any') === 'any' ? 'muted' : 'accent'} />
                 {!p.is_active && <Pill label="inactive" tone="muted" />}
               </div>
+              {p.goal && (
+                <p className="text-[11px] mb-1 italic" style={{ color: 'var(--admin-text-muted)' }}>
+                  Goal: {p.goal}
+                </p>
+              )}
               <p className="text-xs line-clamp-2" style={{ color: 'var(--admin-text-secondary)' }}>
                 {p.greeting_template}
               </p>
@@ -548,6 +568,28 @@ function PersonaForm({ draft, isNew, saving, onChange, onCancel, onSave }: Perso
             <option value="rider">rider</option>
             <option value="any">any</option>
           </select>
+        </Field>
+        <Field label="Lifecycle stage" full>
+          <select className="field-input" value={draft.lifecycle_stage} onChange={e => patch('lifecycle_stage', e.target.value as LifecycleStageMatch)}>
+            {LIFECYCLE_STAGE_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label} — {o.hint}</option>
+            ))}
+          </select>
+          <p className="text-[10px] mt-1" style={{ color: 'var(--admin-text-muted)' }}>
+            Persona only fires for users in this stage (or 'any' to match every stage).
+          </p>
+        </Field>
+        <Field label="Goal — what should this conversation accomplish?" full>
+          <textarea
+            className="field-input"
+            rows={2}
+            value={draft.goal ?? ''}
+            onChange={e => patch('goal', e.target.value || null)}
+            placeholder="e.g. Get them to add a payment method so booking takes one tap"
+          />
+          <p className="text-[10px] mt-1" style={{ color: 'var(--admin-text-muted)' }}>
+            Reference this in the system prompt below — Claude needs the activation goal in its context to steer replies.
+          </p>
         </Field>
         <Field label="Greeting template" full>
           <textarea className="field-input" rows={3} value={draft.greeting_template} onChange={e => patch('greeting_template', e.target.value)} />

@@ -50,7 +50,7 @@ export async function GET() {
 
 async function collectRiderActions(userId: string, user: Record<string, unknown>, actions: PendingAction[]) {
   // Run all queries in parallel
-  const [activeRides, unratedRides, pendingBookings, declinedBookings, draftBookings, paymentMethods, riderProfile, unreadMessages] = await Promise.all([
+  const [activeRides, unratedRides, pendingBookings, declinedBookings, draftBookings, paymentMethods, riderProfile, unreadMessages, activeBlasts] = await Promise.all([
     // P0: Active ride needing attention
     sql`
       SELECT id, status, driver_id, coo_at,
@@ -96,6 +96,27 @@ async function collectRiderActions(userId: string, user: Record<string, unknown>
     sql`SELECT id FROM rider_payment_methods WHERE rider_id = ${userId} LIMIT 1`,
     // P2: Profile completeness
     sql`SELECT display_name, gender, first_name FROM rider_profiles WHERE user_id = ${userId} LIMIT 1`,
+    // P0: Active blast — rider navigated away and needs to get back
+    sql`
+      SELECT
+        hp.id, hp.shortcode, hp.price, hp.expires_at,
+        COUNT(bdt.id) FILTER (
+          WHERE bdt.hmu_at IS NOT NULL
+            AND bdt.passed_at IS NULL
+            AND bdt.rejected_at IS NULL
+            AND bdt.selected_at IS NULL
+        ) AS hmu_count,
+        COUNT(bdt.id) FILTER (WHERE bdt.notified_at IS NOT NULL) AS notified_count
+      FROM hmu_posts hp
+      LEFT JOIN blast_driver_targets bdt ON bdt.blast_id = hp.id
+      WHERE hp.user_id = ${userId}
+        AND hp.post_type = 'blast'
+        AND hp.status = 'active'
+        AND hp.expires_at > NOW()
+      GROUP BY hp.id, hp.shortcode, hp.price, hp.expires_at
+      ORDER BY hp.created_at DESC
+      LIMIT 1
+    `,
     // P1: Unread chat messages — ride_messages has no sender_name column;
     // resolve via driver_profiles (sender is the driver on a rider's ride).
     sql`
@@ -130,6 +151,32 @@ async function collectRiderActions(userId: string, user: Record<string, unknown>
       href: `/ride/${ride.id}`,
       color: '#00E676',
       emoji: needsCoo ? '\u{1F4CD}' : '\u{1F697}',
+    });
+  }
+
+  // P0: Active blast — rider has an open blast and needs a way back to it
+  if (activeBlasts.length) {
+    const b = activeBlasts[0] as Record<string, unknown>;
+    const hmuCount = Number(b.hmu_count ?? 0);
+    const notifiedCount = Number(b.notified_count ?? 0);
+    const expiresAt = new Date(b.expires_at as string);
+    const minsLeft = Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / 60_000));
+    const subtitle = hmuCount > 0
+      ? `${hmuCount} driver${hmuCount === 1 ? '' : 's'} said HMU — tap to pick one`
+      : notifiedCount > 0
+        ? `${notifiedCount} driver${notifiedCount === 1 ? '' : 's'} notified — waiting for responses`
+        : `Blast active — ${minsLeft} min left`;
+    actions.push({
+      id: `active_blast_${b.id}`,
+      priority: 0,
+      type: 'active_blast',
+      title: hmuCount > 0 ? `${hmuCount} driver${hmuCount === 1 ? '' : 's'} HMU'd you` : 'Your blast is live',
+      subtitle,
+      cta: hmuCount > 0 ? 'See Responses' : 'View Blast',
+      href: `/rider/blast/${b.shortcode}`,
+      color: hmuCount > 0 ? '#00E676' : '#448AFF',
+      emoji: hmuCount > 0 ? '🔥' : '📡',
+      meta: { blastId: b.id, shortcode: b.shortcode, hmuCount, minsLeft },
     });
   }
 
@@ -483,7 +530,7 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
         title: "This Ain't Uber/Lyft",
         subtitle: 'Those platforms are for workers. HMU is for Owners.',
         cta: 'Connect w/ Riders',
-        href: '/driver/playbook#get-riders',
+        href: '/driver/find-riders',
         color: '#00E676',
         emoji: '\u{1F4B0}',
       });
@@ -529,7 +576,7 @@ async function collectDriverActions(userId: string, user: Record<string, unknown
       title: 'Configure your menu',
       subtitle: 'Add services riders can pre-order when booking',
       cta: 'Add Services',
-      href: '/driver/profile?focus=menu',
+      href: '/driver/settings?tab=menu',
       color: '#FF9100',
       emoji: '\u{1F4CB}',
     });

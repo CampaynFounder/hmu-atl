@@ -5,7 +5,7 @@ import { useUser, useClerk } from '@clerk/nextjs';
 import UpgradeOverlay from '@/components/driver/upgrade-overlay';
 import CashPackCard from '@/components/driver/cash-pack-card';
 import Link from 'next/link';
-import { ChevronLeft, Shield, Zap, Clock, MessageCircle, DollarSign, UtensilsCrossed, Star, Plus, Trash2, BarChart3, LogOut } from 'lucide-react';
+import { ChevronLeft, Shield, Zap, Clock, MessageCircle, DollarSign, UtensilsCrossed, Star, Plus, Trash2, BarChart3, LogOut, MapPin } from 'lucide-react';
 import AuthManagement from '@/components/shared/auth-management';
 import RatingsInfo from '@/components/shared/ratings-info';
 import { CountUp } from '@/components/shared/count-up';
@@ -13,6 +13,10 @@ import { EarningsChart, type DailyBucket } from '@/components/driver/earnings-ch
 
 interface Props {
   tier: string;
+  locationSharingEnabled: boolean;
+  homeLabel: string | null;
+  homeLat: number | null;
+  homeLng: number | null;
 }
 
 const TABS = [
@@ -23,18 +27,19 @@ const TABS = [
   { id: 'hmu-first', label: 'HMU First', icon: Zap },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'history', label: 'Ride History', icon: Clock },
+  { id: 'location', label: 'Location', icon: MapPin },
   { id: 'support', label: 'Support', icon: MessageCircle },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
 
-export default function DriverSettingsClient({ tier }: Props) {
+export default function DriverSettingsClient({ tier, locationSharingEnabled, homeLabel, homeLat, homeLng }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('security');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as TabId | null;
-    if (tab && ['security', 'menu', 'ratings', 'cash', 'hmu-first', 'analytics', 'history', 'support'].includes(tab)) {
+    if (tab && ['security', 'menu', 'ratings', 'cash', 'hmu-first', 'analytics', 'history', 'support', 'location'].includes(tab)) {
       setActiveTab(tab);
     }
   }, []);
@@ -185,6 +190,14 @@ export default function DriverSettingsClient({ tier }: Props) {
           {activeTab === 'hmu-first' && <HmuFirstTab tier={tier} />}
           {activeTab === 'analytics' && <AnalyticsTab tier={tier} />}
           {activeTab === 'history' && <HistoryTab />}
+          {activeTab === 'location' && (
+            <LocationTab
+              initialSharingEnabled={locationSharingEnabled}
+              initialHomeLabel={homeLabel}
+              initialHomeLat={homeLat}
+              initialHomeLng={homeLng}
+            />
+          )}
           {activeTab === 'support' && <SupportTab />}
         </div>
       </div>
@@ -214,7 +227,7 @@ function SecurityTab() {
 
       {/* Sign out */}
       <button
-        onClick={() => signOut({ redirectUrl: '/driver' })}
+        onClick={() => signOut({ redirectUrl: '/sign-in' })}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           width: '100%', padding: '14px 20px',
@@ -1283,6 +1296,219 @@ function DrillDaySheet({
             to { transform: translateY(0); opacity: 1; }
           }
         `}</style>
+      </div>
+    </div>
+  );
+}
+
+// ─── Location Tab ────────────────────────────────────────────────────────────
+
+function LocationTab({
+  initialSharingEnabled,
+  initialHomeLabel,
+  initialHomeLat,
+  initialHomeLng,
+}: {
+  initialSharingEnabled: boolean;
+  initialHomeLabel: string | null;
+  initialHomeLat: number | null;
+  initialHomeLng: number | null;
+}) {
+  const [sharingEnabled, setSharingEnabled] = useState(initialSharingEnabled);
+  const [toggling, setToggling] = useState(false);
+
+  const [homeLabel, setHomeLabel] = useState(initialHomeLabel);
+  const [homeLat, setHomeLat] = useState(initialHomeLat);
+  const [homeLng, setHomeLng] = useState(initialHomeLng);
+
+  const [addressInput, setAddressInput] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [homeMsg, setHomeMsg] = useState('');
+  const [clearing, setClearing] = useState(false);
+
+  async function toggleSharing() {
+    setToggling(true);
+    try {
+      const res = await fetch('/api/driver/location', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !sharingEnabled }),
+      });
+      if (res.ok) setSharingEnabled((v) => !v);
+    } finally {
+      setToggling(false);
+    }
+  }
+
+  async function saveHomeBase() {
+    if (!addressInput.trim()) return;
+    setSaving(true);
+    setHomeMsg('');
+    try {
+      const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+      if (!token) { setHomeMsg('Mapbox token not configured'); return; }
+
+      const geo = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(addressInput)}.json?access_token=${token}&country=US&types=poi,address,neighborhood,place&limit=1`,
+      ).then((r) => r.json()) as { features?: Array<{ center: [number, number]; place_name: string }> };
+
+      const feature = geo.features?.[0];
+      if (!feature) { setHomeMsg('Address not found — try a landmark name or street address'); return; }
+
+      const [lng, lat] = feature.center;
+      const label = feature.place_name;
+
+      const save = await fetch('/api/drivers/home-area', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lng, label }),
+      });
+      if (save.ok) {
+        setHomeLabel(label);
+        setHomeLat(lat);
+        setHomeLng(lng);
+        setAddressInput('');
+        setHomeMsg('Home base saved');
+      } else {
+        setHomeMsg('Save failed — try again');
+      }
+    } catch {
+      setHomeMsg('Network error — try again');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clearHomeBase() {
+    setClearing(true);
+    try {
+      await fetch('/api/drivers/home-area', { method: 'DELETE' });
+      setHomeLabel(null);
+      setHomeLat(null);
+      setHomeLng(null);
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  const noLocation = !sharingEnabled && !homeLat;
+
+  return (
+    <div style={{ maxWidth: 480 }}>
+      {/* Live GPS toggle */}
+      <div style={{
+        background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 16, padding: '18px 20px', marginBottom: 12,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>Share live location</div>
+            <div style={{ fontSize: 12, color: '#888', marginTop: 3, lineHeight: 1.4 }}>
+              {sharingEnabled
+                ? 'Riders see how far you are in real time. Your exact GPS is never shown.'
+                : 'Live GPS off — blast matching uses your home base instead.'}
+            </div>
+          </div>
+          <button
+            onClick={toggleSharing}
+            disabled={toggling}
+            className={`menu-toggle ${sharingEnabled ? 'menu-toggle--on' : 'menu-toggle--off'}`}
+            style={{ flexShrink: 0, marginLeft: 16 }}
+            aria-label={sharingEnabled ? 'Disable live location' : 'Enable live location'}
+          >
+            <div className="menu-toggle-knob" />
+          </button>
+        </div>
+      </div>
+
+      {/* No-location warning */}
+      {noLocation && (
+        <div style={{
+          background: 'rgba(255,180,0,0.08)', border: '1px solid rgba(255,180,0,0.25)',
+          borderRadius: 12, padding: '12px 16px', marginBottom: 12,
+          fontSize: 13, color: '#FFB300', lineHeight: 1.45,
+        }}>
+          You have live GPS off and no home base set — you won&apos;t appear in blast matches.
+          Set a home base below.
+        </div>
+      )}
+
+      {/* Home base */}
+      <div style={{
+        background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 16, padding: '18px 20px',
+      }}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Home base</div>
+        <div style={{ fontSize: 12, color: '#888', marginBottom: 14, lineHeight: 1.45 }}>
+          Used for blast matching when live GPS is off. Set it to a <strong style={{ color: '#bbb' }}>public
+          landmark</strong> near where you drive from — not your home address.
+          A coffee shop, train station, or neighborhood park works great.
+        </div>
+
+        {homeLabel ? (
+          <div style={{
+            background: '#1a1a1a', borderRadius: 10, padding: '12px 14px',
+            marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+          }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{homeLabel.split(',').slice(0, 2).join(',')}</div>
+              {homeLat && homeLng && (
+                <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
+                  {homeLat.toFixed(4)}, {homeLng.toFixed(4)}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={clearHomeBase}
+              disabled={clearing}
+              style={{ fontSize: 12, color: '#FF5252', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}
+            >
+              {clearing ? '…' : 'Clear'}
+            </button>
+          </div>
+        ) : (
+          <div style={{
+            background: '#1a1a1a', borderRadius: 10, padding: '12px 14px', marginBottom: 14,
+            fontSize: 13, color: '#555', fontStyle: 'italic',
+          }}>
+            No home base set
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="text"
+            value={addressInput}
+            onChange={(e) => setAddressInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void saveHomeBase(); }}
+            placeholder={homeLabel ? 'Change to a different landmark…' : 'e.g. Ponce City Market, Atlanta'}
+            style={{
+              flex: 1, background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 10, padding: '12px 14px', color: '#fff', fontSize: 13,
+              outline: 'none',
+            }}
+          />
+          <button
+            onClick={() => void saveHomeBase()}
+            disabled={saving || !addressInput.trim()}
+            style={{
+              background: '#00E676', color: '#080808', fontWeight: 700, fontSize: 13,
+              padding: '12px 18px', borderRadius: 10, border: 'none', cursor: 'pointer',
+              opacity: saving || !addressInput.trim() ? 0.5 : 1, flexShrink: 0,
+            }}
+          >
+            {saving ? '…' : 'Save'}
+          </button>
+        </div>
+
+        {homeMsg && (
+          <div style={{
+            marginTop: 10, fontSize: 12, fontWeight: 600,
+            color: homeMsg.includes('saved') ? '#00E676' : '#FF5252',
+          }}>
+            {homeMsg}
+          </div>
+        )}
       </div>
     </div>
   );

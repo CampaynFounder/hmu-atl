@@ -84,6 +84,7 @@ const isMaintenanceExempt = createRouteMatcher([
   '/press',
   '/blog(.*)',
   '/safety',
+  '/safety/(.*)',
   '/pricing',
   '/help',
   '/guidelines',
@@ -99,6 +100,7 @@ const isMaintenanceExempt = createRouteMatcher([
   '/api/webhooks(.*)',
   '/api/meta-verify',
   '/api/cron/(.*)',
+  '/api/blast/cron/(.*)',
   '/api/maintenance(.*)',
   '/api/health',
   '/maintenance',
@@ -122,10 +124,11 @@ const isPublicRoute = createRouteMatcher([
   '/api/webhooks(.*)',
   '/api/meta-verify',
   '/api/cron/(.*)',
+  '/api/blast/cron/(.*)',
   '/api/maintenance(.*)',
   '/api/health',
   '/d/(.*)',
-  '/api/drivers/:handle',
+  '/api/driver/:handle',
   '/api/chat/booking',
   '/api/chat/support',
   '/api/og/(.*)',
@@ -137,7 +140,12 @@ const isPublicRoute = createRouteMatcher([
   '/r/(.*)',  // rider ad-funnel landing (paid Meta/TikTok ads link target)
   '/rider',
   '/rider/home',
-  '/rider/browse',
+  '/rider/browse(.*)',     // includes /rider/browse/blast (unauth-friendly blast landing)
+  '/blast',                // Blast v3 unauth social-proof landing page (Stream A)
+  '/rider/blast/new',      // the form itself; auth gate is on submit, not page load
+  '/auth-callback/blast',  // post-Clerk handoff; renders mid-handshake for spinner state
+  '/api/blast/estimate',   // pre-auth pricing estimate for the blast form
+  '/api/blast',            // blast booking endpoint — auth checked in handler, returns 401 JSON if unauthorized
   '/api/public/(.*)',
   '/api/rider/browse/(.*)',
   '/privacy',
@@ -148,6 +156,7 @@ const isPublicRoute = createRouteMatcher([
   '/press',
   '/blog(.*)',
   '/safety',
+  '/safety/(.*)',
   '/pricing',
   '/help',
   '/guidelines',
@@ -164,6 +173,8 @@ const isPublicRoute = createRouteMatcher([
   '/admin(.*)',
   '/api/admin(.*)',
   '/maintenance',
+  '/debug/geo',
+  '/debug/deposits',
 ]);
 
 // Define pending-only routes (only for pending_activation users)

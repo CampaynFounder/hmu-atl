@@ -81,8 +81,42 @@ interface RideData {
   proposedPriceReason: string | null;
   waitMinutes: number;
   confirmDeadline: string | null;
-  addOns: { id: string; name: string; unitPrice: number; quantity: number; subtotal: number; status: string; addedBy: string }[];
+  addOns: { id: string; name: string; unitPrice: number; quantity: number; subtotal: number; status: string; addedBy: string; chargeStatus?: string | null; errorMessage?: string | null }[];
   addOnTotal: number;
+  breakdown: {
+    modeKey: string;
+    isCash: boolean;
+    youEarned: number;
+    total: number;
+    driverRows: { label: string; value: number; role: 'amount' | 'muted' | 'fee' | 'total' }[];
+    riderRows: { label: string; value: number; role: 'amount' | 'muted' | 'fee' | 'total' }[];
+    extras: { id: string; name: string; subtotal: number; driverAmount: number; platformFee: number; status: string; chargeStatus: string | null }[];
+  } | null;
+  // ── Cancel-request flow (rider-cancel-after-OTW) ──
+  // Stamped server-side when the rider hits Cancel during otw/here. Both
+  // clients render a countdown anchored to cancelRequestedAt; whichever
+  // hits zero first POSTs to /cancel-request/timeout (idempotent).
+  cancelRequestedAt: string | null;
+  cancelRequestedBy: 'rider' | 'driver' | null;
+  cancelRequestReason: string | null;
+  cancelResolution: string | null;
+  visibleDeposit: number;
+  pricingModeKey: string;
+  riderPaymentBrand: string | null;
+  riderPaymentLast4: string | null;
+  // Linked broadcast/direct-booking post id. Used after cancel so the
+  // rider can opt to re-broadcast to other drivers without recreating
+  // the request from scratch.
+  hmuPostId: string | null;
+  // Down Bad sum extra — only present when the ride came from a down_bad post.
+  sumExtra: { text: string; mediaUrl: string; mediaType: 'photo' | 'video' } | null;
+  // Rider-provided trip details (passengers, car seats, luggage).
+  rideDetails: { additionalPassengers: number; kids: number; luggage: 'none' | 'bag' | 'trunk' } | null;
+  // Last known driver GPS at page-load time — seeds driverLocation so the
+  // map shows the driver marker immediately on refresh instead of waiting
+  // for the next Ably ping.
+  initialDriverLat: number | null;
+  initialDriverLng: number | null;
 }
 
 interface ActiveRideClientProps {
@@ -148,7 +182,11 @@ export default function ActiveRideClient({
   const [error, setError] = useState<string | null>(null);
   const [rated, setRated] = useState(false);
   const [disputeWindowRemaining, setDisputeWindowRemaining] = useState<number | null>(null);
-  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(
+    initialRide.initialDriverLat && initialRide.initialDriverLng
+      ? { lat: initialRide.initialDriverLat, lng: initialRide.initialDriverLng }
+      : null
+  );
   const [eta, setEta] = useState<{ minutes: number; miles: number } | null>(null);
   const [lastLocationUpdate, setLastLocationUpdate] = useState<number>(Date.now());
   const [etaStale, setEtaStale] = useState(false);
@@ -171,12 +209,45 @@ export default function ActiveRideClient({
   const [menuSheetOpen, setMenuSheetOpen] = useState(false);
   const addOnPanelRef = useRef<HTMLDivElement>(null);
   const [pendingStop, setPendingStop] = useState<{ address: string; latitude?: number; longitude?: number } | null>(null);
-  const [cancelRequest, setCancelRequest] = useState<{ message: string; reason: string } | null>(null);
+  // Live cancel-request state. Populated when rider taps Cancel during
+  // otw/here (server stamps cancel_requested_at + publishes cancel_request).
+  // Both sides render a countdown; whoever hits zero first POSTs to
+  // /cancel-request/timeout. Resolution is owned by the server.
+  const [cancelRequest, setCancelRequest] = useState<{
+    requestedBy: 'rider' | 'driver';
+    requestedAt: string;
+    reason: string;
+    timeoutSeconds: number;
+  } | null>(
+    initialRide.cancelRequestedAt && !initialRide.cancelResolution && initialRide.cancelRequestedBy
+      ? {
+          requestedBy: initialRide.cancelRequestedBy,
+          requestedAt: initialRide.cancelRequestedAt,
+          reason: initialRide.cancelRequestReason || '',
+          timeoutSeconds: 180,
+        }
+      : null
+  );
+  // Driver's "decline & keep deposit" submit-in-flight + last result; rider's
+  // confirmation modal open state.
+  const [cancelDeclining, setCancelDeclining] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState<null | {
+    needsApproval: boolean;
+    label: string;
+  }>(null);
+  const [cancelConfirmReason, setCancelConfirmReason] = useState('');
+  const [cancelConfirmSubmitting, setCancelConfirmSubmitting] = useState(false);
+  const cancelTimeoutFiredRef = useRef(false);
+  // Live tick of seconds remaining until the timeout endpoint should fire.
+  const [cancelSecondsLeft, setCancelSecondsLeft] = useState<number | null>(null);
   const [endRideConfirm, setEndRideConfirm] = useState<{ show: boolean; reason: string; notes: string }>({ show: false, reason: '', notes: '' });
   const [addingMidRideStop, setAddingMidRideStop] = useState(false);
   // Location request: driver asks rider for live GPS
   const [locationRequested, setLocationRequested] = useState(false);
   const [locationRequestPending, setLocationRequestPending] = useState(false); // rider sees this
+  // Rider asks driver for live location/ETA
+  const [etaPingPending, setEtaPingPending] = useState(false); // rider is waiting for driver response
+  const [driverLocationRequested, setDriverLocationRequested] = useState(false); // driver received rider ping
   const [priceEditorOpen, setPriceEditorOpen] = useState(false);
   const [priceEditorValue, setPriceEditorValue] = useState('');
   // Address update flow — rider can edit addresses post-COO before OTW
@@ -196,6 +267,10 @@ export default function ActiveRideClient({
     emoji: string;
     color: string;
     sub?: string;
+    /** When true, the auto-dismiss timer skips this notification.
+     *  Used for terminal events (cancellation) where the rider needs
+     *  to actually see and acknowledge the message. */
+    persistent?: boolean;
   } | null>(null);
 
   // Safety check-in prompt — server pushes via Ably when a check is due.
@@ -255,6 +330,14 @@ export default function ActiveRideClient({
           driverPayoutAmount: Number(data.driver_payout_amount || prev.driverPayoutAmount),
           platformFeeAmount: Number(data.platform_fee_amount || prev.platformFeeAmount),
         }));
+        // Pull the freshly-computed breakdown so the post-ride card has real
+        // numbers instead of the null initialRide value from before End Ride.
+        fetch(`/api/rides/${rideId}/breakdown`)
+          .then(r => r.ok ? r.json() : null)
+          .then(d => {
+            if (d?.breakdown) setRide(prev => ({ ...prev, breakdown: d.breakdown }));
+          })
+          .catch(() => {});
         showStatusNotification('ended');
         break;
       }
@@ -298,10 +381,46 @@ export default function ActiveRideClient({
             ...(newStatus === 'active' ? { startedAt: now } : {}),
             ...(newStatus === 'ended' ? { endedAt: now } : {}),
           }));
-          showStatusNotification(newStatus);
-          // Vibrate + haptic on cancel for immediate attention
-          if (newStatus === 'cancelled' && navigator.vibrate) {
-            navigator.vibrate([200, 100, 200, 100, 200]);
+          // On transition to an end state, pull the freshly-computed
+          // breakdown. The reconciliation useEffect on mount can't catch
+          // this because mount happened while status was still active.
+          if (newStatus === 'ended' || newStatus === 'completed' || newStatus === 'disputed') {
+            fetch(`/api/rides/${rideId}/breakdown`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => {
+                if (d?.breakdown) setRide(prev => ({ ...prev, breakdown: d.breakdown }));
+              })
+              .catch(() => {});
+          }
+          if (newStatus === 'cancelled') {
+            // cancel-cascade payload includes:
+            //   `cancelledBy`: 'rider' | 'driver' | 'mutual'
+            //   `message`: human-readable reason
+            //   `resolution`: stable enum from the cascade
+            // Branch on whether the LOCAL user was the canceller:
+            //   - canceller: success-toned, auto-dismissing toast
+            //   - other side: persistent red banner the user has to
+            //     acknowledge (kept the way #28 fixed it)
+            // 'mutual' on a driver-agrees-rider-request ride: from the
+            // driver's PoV they actively agreed; from the rider's PoV
+            // their request was honored. Treat both as canceller-side.
+            const cancelledBy = data.cancelledBy as string | undefined;
+            const localIsCanceller =
+              (cancelledBy === 'rider' && !isDriver) ||
+              (cancelledBy === 'driver' && isDriver) ||
+              cancelledBy === 'mutual';
+            const cancelledByOther = !localIsCanceller;
+            const reason = (data.message as string | undefined) || null;
+            const resolution = (data.resolution as string | undefined) || null;
+            setNotification(
+              buildCancelledNotification(isDriver, cancelledByOther, reason, resolution)
+            );
+            // Server-side cancellation invalidates any open cancel-request UI.
+            setCancelRequest(null);
+            setCancelSecondsLeft(null);
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
+          } else {
+            showStatusNotification(newStatus);
           }
         }
         break;
@@ -336,13 +455,30 @@ export default function ActiveRideClient({
         break;
       }
       case 'cancel_request': {
-        if (isDriver) {
-          setCancelRequest({
-            message: (data.message as string) || 'Rider wants to cancel',
-            reason: (data.reason as string) || '',
-          });
-          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-        }
+        // Both sides hydrate the same state object. Driver sees Agree /
+        // Decline-and-keep-deposit buttons; rider sees the matching
+        // countdown ("Driver has X:XX to respond").
+        const requestedBy = (data.requestedBy as 'rider' | 'driver') || 'rider';
+        const requestedAt = (data.requestedAt as string) ||
+          (data.requested_at as string) ||
+          new Date().toISOString();
+        const timeoutSeconds = Number(data.timeoutSeconds ?? data.timeout_seconds ?? 180);
+        setCancelRequest({
+          requestedBy,
+          requestedAt,
+          reason: (data.reason as string) || '',
+          timeoutSeconds,
+        });
+        cancelTimeoutFiredRef.current = false;
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        break;
+      }
+      case 'cancel_request_cleared': {
+        // Server resolved the request (driver agreed/declined or it timed
+        // out); UI removes its banner. The follow-on status_change event
+        // will redirect both clients shortly.
+        setCancelRequest(null);
+        setCancelSecondsLeft(null);
         break;
       }
       case 'add_on_disputed': {
@@ -573,6 +709,21 @@ export default function ActiveRideClient({
         }
         break;
       }
+      case 'driver_location_requested': {
+        // Rider asked driver for their live location/ETA
+        if (isDriver) {
+          setDriverLocationRequested(true);
+          showNotification('Rider wants your ETA', '📍', COLORS.orange, 'Your GPS is being shared');
+          if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
+          // Auto-clear after 8 seconds — driver doesn't need to take action since
+          // GPS is already streaming via the location posting interval.
+          setTimeout(() => setDriverLocationRequested(false), 8000);
+        } else {
+          // Rider's own ping came back confirmed — clear pending state
+          setEtaPingPending(false);
+        }
+        break;
+      }
       case 'address_update_proposed': {
         // Driver sees rider's proposed address change
         if (isDriver) {
@@ -665,6 +816,53 @@ export default function ActiveRideClient({
       setDriverLocation({ lat: geo.lat, lng: geo.lng });
     }
   }, [isDriver, geo.lat, geo.lng]);
+
+  // ── Defensive ride-state reconciliation ──
+  // The Ably status_change handler updates status + fires its own breakdown
+  // fetch, but two paths can still leave the UI stale:
+  //   1. The tab missed the Ably event entirely (background, disconnected).
+  //   2. The fetch ran but raced the DB commit — status published before
+  //      driver_payout_amount was visible on read.
+  // Re-poll on mount, on tab-visible, and any time `ride.status` transitions
+  // into an end state. Retries every 2s up to 5x while we're in an end state
+  // but breakdown is still null — covers the publish-before-commit window
+  // without hammering a healthy endpoint.
+  const reconcileStatus = ride.status;
+  const reconcileBreakdownReady = !!ride.breakdown;
+  useEffect(() => {
+    let cancelled = false;
+    let attempts = 0;
+    const isEndState = (s: string) => s === 'ended' || s === 'completed' || s === 'disputed';
+
+    const reconcile = async () => {
+      if (cancelled) return;
+      try {
+        const r = await fetch(`/api/rides/${rideId}/breakdown`);
+        if (!r.ok || cancelled) return;
+        const d = await r.json() as { status?: string; breakdown?: RideData['breakdown'] };
+        if (cancelled) return;
+        setRide(prev => {
+          const next = { ...prev };
+          if (d.status && d.status !== prev.status) next.status = d.status;
+          if (d.breakdown) next.breakdown = d.breakdown;
+          return next;
+        });
+        const effectiveStatus = d.status || reconcileStatus;
+        const stillMissing = isEndState(effectiveStatus) && !d.breakdown;
+        if (stillMissing && attempts < 5) {
+          attempts += 1;
+          setTimeout(reconcile, 2000);
+        }
+      } catch { /* offline; the next focus or Ably event retries */ }
+    };
+
+    reconcile();
+    const onVis = () => { if (document.visibilityState === 'visible') { attempts = 0; reconcile(); } };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { cancelled = true; document.removeEventListener('visibilitychange', onVis); };
+    // Re-run on status transition + when breakdown gets cleared. Reads
+    // primitives only so deps stay stable.
+  }, [rideId, reconcileStatus, reconcileBreakdownReady]);
 
   // Auto-detect stop proximity during active ride (driver only)
   const reachedStopsRef = useRef<Set<number>>(new Set());
@@ -1331,18 +1529,132 @@ export default function ActiveRideClient({
     if (chatOpen) setChatUnread(0);
   }, [chatOpen]);
 
-  // ── Auto-redirect on cancel ──
+  // Rider-only "Find another driver" choice point. We pause the
+  // auto-redirect for the rider on a cancelled-with-post case so they
+  // can opt to re-broadcast. Default action (if they tap the home button
+  // or do nothing for ~12s) is to go home and leave the post cancelled.
+  const riderHasRebroadcastOption = !isDriver && !!ride.hmuPostId && ride.status === 'cancelled';
+  const [rebroadcasting, setRebroadcasting] = useState(false);
+
+  // ── Auto-redirect on cancel + browser-state cleanup ──
+  // When the cascade flips status to 'cancelled', both clients clear any
+  // ride-keyed local/session storage and navigate home. Reopening the tab
+  // later must NOT resume a dead ride id.
   useEffect(() => {
     if (ride.status !== 'cancelled') return;
+    try {
+      if (typeof window !== 'undefined') {
+        if (window.localStorage.getItem('hmu_pending_ride') === rideId) {
+          window.localStorage.removeItem('hmu_pending_ride');
+        }
+        clearCooDraft(rideId);
+      }
+    } catch { /* storage may be disabled */ }
+    setCancelRequest(null);
+    setCancelSecondsLeft(null);
+    // Rider gets ~12s to choose re-broadcast vs back-home; everyone else
+    // bounces in 2.5s as before.
+    const delay = riderHasRebroadcastOption ? 12000 : 2500;
     const t = setTimeout(() => {
       window.location.replace(isDriver ? '/driver/home' : '/rider/home');
-    }, 2500);
+    }, delay);
     return () => clearTimeout(t);
-  }, [ride.status, isDriver]);
+  }, [ride.status, isDriver, rideId, riderHasRebroadcastOption]);
+
+  async function handleRebroadcast() {
+    if (!ride.hmuPostId || rebroadcasting) return;
+    setRebroadcasting(true);
+    try {
+      const res = await fetch(`/api/rider/posts/${ride.hmuPostId}/broadcast-after-decline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        window.location.replace('/rider/home');
+        return;
+      }
+    } catch { /* fall through to home */ }
+    setRebroadcasting(false);
+    // On failure, surface in the notification and let the auto-redirect
+    // do its thing — not a blocker for getting home.
+    showNotification("Couldn't re-broadcast — heading home.", '⚠️', COLORS.yellow);
+  }
+
+  // ── Cancel-request countdown ──
+  // Ticks every 250ms while a request is open. Whichever client hits zero
+  // first fires POST /cancel-request/timeout (idempotent server-side; if
+  // both clients race to fire, one wins the conditional UPDATE, the other
+  // gets a noop_already_resolved response).
+  useEffect(() => {
+    if (!cancelRequest) {
+      setCancelSecondsLeft(null);
+      return;
+    }
+    const startedMs = new Date(cancelRequest.requestedAt).getTime();
+    const deadlineMs = startedMs + cancelRequest.timeoutSeconds * 1000;
+    function tick() {
+      const remaining = Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000));
+      setCancelSecondsLeft(remaining);
+      if (remaining <= 0 && !cancelTimeoutFiredRef.current) {
+        cancelTimeoutFiredRef.current = true;
+        fetch(`/api/rides/${rideId}/cancel-request/timeout`, { method: 'POST' })
+          .catch(() => { cancelTimeoutFiredRef.current = false; });
+      }
+    }
+    tick();
+    const id = setInterval(tick, 250);
+    return () => clearInterval(id);
+  }, [cancelRequest, rideId]);
+
+  // ── Belt-and-suspenders: clear banner whenever ride status leaves the
+  // open-cancel-request window. Catches any path where the Ably
+  // status_change handler didn't fire (reconnect outside 2-min rewind,
+  // dropped event, dual-tab desync). The banner UI is gated on the
+  // canceller-after-OTW state (status='otw' or 'here'); if the local
+  // ride snapshot says we're past that, the banner is stale by definition.
+  useEffect(() => {
+    if (!cancelRequest) return;
+    const stillOpen = ride.status === 'otw' || ride.status === 'here';
+    if (!stillOpen) {
+      setCancelRequest(null);
+      setCancelSecondsLeft(null);
+    }
+  }, [ride.status, cancelRequest]);
+
+  // ── Safety poll: refresh cancel state every 8s while a cancel request
+  // is open. Re-confirms server truth so a missed Ably event can't
+  // strand either side on a permanent banner. Lightweight single-row
+  // SELECT against /api/rides/[id]/cancel-state.
+  useEffect(() => {
+    if (!cancelRequest) return;
+    let cancelled = false;
+    async function pollOnce() {
+      try {
+        const r = await fetch(`/api/rides/${rideId}/cancel-state`);
+        if (!r.ok || cancelled) return;
+        const data = await r.json();
+        const status = data.status as string | undefined;
+        const resolution = data.cancel_resolution as string | undefined;
+        if (status === 'cancelled' || resolution) {
+          // Server says it's done — reflect that locally even if Ably
+          // didn't deliver the status_change.
+          if (status) {
+            setRide((prev) => ({ ...prev, status }));
+          }
+          setCancelRequest(null);
+          setCancelSecondsLeft(null);
+        }
+      } catch { /* network hiccup; next tick will retry */ }
+    }
+    const id = setInterval(pollOnce, 8000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [cancelRequest, rideId]);
 
   // ── Notification auto-dismiss ──
   useEffect(() => {
     if (!notification) return;
+    if (notification.persistent) return; // terminal events (cancel) stay until tapped
     const t = setTimeout(() => setNotification(null), 5000);
     return () => clearTimeout(t);
   }, [notification]);
@@ -1356,6 +1668,40 @@ export default function ActiveRideClient({
     if (notif) setNotification(notif);
     // Vibrate if supported
     if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+  }
+
+  // ── Cancel confirm modal handlers ──
+  // Replaces window.confirm() so the canceller sees a proper sheet with
+  // an optional reason input + a clear "actually cancel" gate. The label
+  // we collected from the tapped button drives the verb in the modal.
+  function openCancelConfirm(needsApproval: boolean, label: string) {
+    setCancelConfirmReason('');
+    setCancelConfirmOpen({ needsApproval, label });
+  }
+
+  async function submitCancelConfirm() {
+    if (!cancelConfirmOpen) return;
+    const { needsApproval } = cancelConfirmOpen;
+    setCancelConfirmSubmitting(true);
+    try {
+      const res = await fetch(`/api/rides/${rideId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: cancelConfirmReason.trim() || (isDriver ? 'Driver cancelled' : 'Rider cancelled'),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      // Server has the truth. Cascade publishes status_change → our handler
+      // does the redirect + browser-state cleanup. Just close the modal
+      // and let the realtime event drive the rest.
+      if (data.status === 'cancel_requested' || (needsApproval && !data.idempotent)) {
+        // Keep the modal closed; the cancel-request banner that just got
+        // pushed via Ably (initiator='rider') will render the countdown.
+      }
+    } catch { /* surfaced via Ably and the next status read */ }
+    setCancelConfirmSubmitting(false);
+    setCancelConfirmOpen(null);
   }
 
   // ── API actions ──
@@ -2170,52 +2516,150 @@ export default function ActiveRideClient({
           </div>
         )}
 
-        {/* Cancel request banner (driver sees this when rider requests cancel) */}
-        {cancelRequest && isDriver && (
-          <div style={{
-            background: 'rgba(255,82,82,0.12)', border: '1px solid rgba(255,82,82,0.3)',
-            borderRadius: 16, padding: '16px', marginBottom: 10,
-            animation: 'actionPulse 2s ease-in-out infinite',
-          }}>
-            <style>{`@keyframes actionPulse { 0%,100%{box-shadow:none} 50%{box-shadow:0 0 16px rgba(255,82,82,0.2)} }`}</style>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', marginBottom: 4 }}>
-              Rider wants to cancel
+        {/* ── Cancel-request banner ──
+            Both sides render this while a request is open. Driver sees the
+            action buttons (Agree / Decline-and-keep-deposit). Rider sees a
+            mirrored countdown with explanatory copy. Whichever side hits
+            zero first fires /cancel-request/timeout (effect above).
+            Server is the authority — if anything wins the resolution race,
+            the cascade flips ride.status to 'cancelled' and clears this. */}
+        {cancelRequest && (() => {
+          const secsLeft = cancelSecondsLeft ?? cancelRequest.timeoutSeconds;
+          const mm = Math.floor(secsLeft / 60);
+          const ss = String(secsLeft % 60).padStart(2, '0');
+          const countdown = `${mm}:${ss}`;
+          const urgent = secsLeft <= 30;
+          const initiatorLabel = cancelRequest.requestedBy === 'rider' ? 'Rider' : 'Driver';
+          const visibleDeposit = ride.visibleDeposit || initialRide.visibleDeposit || 0;
+          return (
+            <div style={{
+              background: urgent ? 'rgba(255,82,82,0.16)' : 'rgba(255,82,82,0.12)',
+              border: `1px solid ${urgent ? 'rgba(255,82,82,0.5)' : 'rgba(255,82,82,0.3)'}`,
+              borderRadius: 16, padding: '16px', marginBottom: 10,
+              animation: 'actionPulse 2s ease-in-out infinite',
+            }}>
+              <style>{`@keyframes actionPulse { 0%,100%{box-shadow:none} 50%{box-shadow:0 0 16px rgba(255,82,82,0.2)} }`}</style>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>
+                  {initiatorLabel} wants to cancel
+                </div>
+                <div style={{
+                  fontFamily: FONTS.mono, fontSize: 14, fontWeight: 700,
+                  color: urgent ? '#FF5252' : '#FFD740',
+                }}>
+                  {countdown}
+                </div>
+              </div>
+              {cancelRequest.reason && (
+                <div style={{ fontSize: 13, color: '#bbb', marginBottom: 12, lineHeight: 1.4 }}>
+                  &ldquo;{cancelRequest.reason}&rdquo;
+                </div>
+              )}
+              {isDriver ? (
+                <>
+                  <div style={{ fontSize: 12, color: '#888', marginBottom: 12, lineHeight: 1.5 }}>
+                    Agree → no charge, you go free.<br />
+                    Decline → you keep the ${visibleDeposit.toFixed(2)} deposit.<br />
+                    Don&rsquo;t respond → ride cancels at 0:00, deposit refunded to rider minus platform fee.
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      disabled={cancelDeclining || cancelConfirmSubmitting}
+                      onClick={async () => {
+                        setCancelConfirmSubmitting(true);
+                        try {
+                          await fetch(`/api/rides/${rideId}/cancel`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ agreeToCancel: true }),
+                          });
+                        } finally {
+                          setCancelConfirmSubmitting(false);
+                        }
+                      }}
+                      style={{
+                        flex: 1, padding: 12, borderRadius: 100, border: 'none',
+                        background: '#FF5252', color: '#fff', fontSize: 14, fontWeight: 700,
+                        cursor: 'pointer', fontFamily: 'var(--font-body)',
+                        opacity: cancelDeclining || cancelConfirmSubmitting ? 0.5 : 1,
+                      }}
+                    >
+                      Agree — no charge
+                    </button>
+                    <button
+                      disabled={cancelDeclining || cancelConfirmSubmitting || visibleDeposit <= 0}
+                      onClick={async () => {
+                        setCancelDeclining(true);
+                        try {
+                          await fetch(`/api/rides/${rideId}/cancel-request/decline`, {
+                            method: 'POST',
+                          });
+                        } finally {
+                          setCancelDeclining(false);
+                        }
+                      }}
+                      style={{
+                        flex: 1, padding: 12, borderRadius: 100,
+                        border: '1px solid rgba(255,179,0,0.4)', background: 'transparent',
+                        color: '#FFB300', fontSize: 13, fontWeight: 700,
+                        cursor: visibleDeposit > 0 ? 'pointer' : 'not-allowed',
+                        fontFamily: 'var(--font-body)',
+                        opacity: cancelDeclining || cancelConfirmSubmitting ? 0.5 : 1,
+                      }}
+                    >
+                      {cancelDeclining ? '...' : `Decline & keep $${visibleDeposit.toFixed(2)}`}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 12, color: '#888', lineHeight: 1.5 }}>
+                  Waiting for the driver to respond. If they don&rsquo;t answer within {countdown},
+                  your ride cancels automatically and we refund your deposit minus the platform fee.
+                </div>
+              )}
             </div>
-            <div style={{ fontSize: 13, color: '#bbb', marginBottom: 12, lineHeight: 1.4 }}>
-              {cancelRequest.message}{cancelRequest.reason ? ` — "${cancelRequest.reason}"` : ''}
+          );
+        })()}
+
+        {/* Ride details pills — Down Bad, driver only, non-default values only */}
+        {isDriver && ride.rideDetails && ride.status !== 'cancelled' && (
+          ride.rideDetails.additionalPassengers > 0 || ride.rideDetails.kids > 0 || ride.rideDetails.luggage !== 'none'
+        ) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '12px 16px', background: 'rgba(255,255,255,0.04)', borderRadius: 12 }}>
+            <div style={{ width: '100%', fontSize: 11, color: '#666', marginBottom: 4, letterSpacing: 1, textTransform: 'uppercase', fontFamily: "'Space Mono', monospace" }}>
+              Ride Details
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                onClick={async () => {
-                  await fetch(`/api/rides/${rideId}/cancel`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ agreeToCancel: true }),
-                  });
-                  setCancelRequest(null);
-                  setRide(prev => ({ ...prev, status: 'cancelled' }));
-                }}
-                style={{
-                  flex: 1, padding: 12, borderRadius: 100, border: 'none',
-                  background: '#FF5252', color: '#fff', fontSize: 14, fontWeight: 700,
-                  cursor: 'pointer', fontFamily: 'var(--font-body)',
-                }}
-              >
-                Agree — Cancel Ride
-              </button>
-              <button
-                onClick={() => setCancelRequest(null)}
-                style={{
-                  flex: 1, padding: 12, borderRadius: 100,
-                  border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
-                  color: '#bbb', fontSize: 14, fontWeight: 600,
-                  cursor: 'pointer', fontFamily: 'var(--font-body)',
-                }}
-              >
-                Keep Riding
-              </button>
-            </div>
+            {ride.rideDetails.additionalPassengers > 0 && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.7)', background: 'rgba(255,255,255,0.1)', padding: '3px 10px', borderRadius: 100 }}>
+                +{ride.rideDetails.additionalPassengers} passenger{ride.rideDetails.additionalPassengers > 1 ? 's' : ''}
+              </span>
+            )}
+            {ride.rideDetails.kids > 0 && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(251,191,36,0.9)', background: 'rgba(251,191,36,0.1)', padding: '3px 10px', borderRadius: 100 }}>
+                👶 {ride.rideDetails.kids} car seat{ride.rideDetails.kids > 1 ? 's' : ''}
+              </span>
+            )}
+            {ride.rideDetails.luggage === 'bag' && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.7)', background: 'rgba(255,255,255,0.1)', padding: '3px 10px', borderRadius: 100 }}>
+                🎒 Bag
+              </span>
+            )}
+            {ride.rideDetails.luggage === 'trunk' && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(251,146,60,0.9)', background: 'rgba(251,146,60,0.1)', padding: '3px 10px', borderRadius: 100 }}>
+                📦 Trunk needed
+              </span>
+            )}
           </div>
+        )}
+
+        {/* Sum Extra reference — Down Bad rides only, hidden after cancel */}
+        {ride.sumExtra && ride.status !== 'cancelled' && (
+          <SumExtraBlock
+            text={ride.sumExtra.text}
+            mediaUrl={ride.sumExtra.mediaUrl}
+            mediaType={ride.sumExtra.mediaType}
+            isDriver={isDriver}
+          />
         )}
 
         {/* Dynamic content based on status and role */}
@@ -2224,6 +2668,167 @@ export default function ActiveRideClient({
         </div>
         </div>{/* end scrollable inner */}
       </div>
+
+      {/* Rider-only post-cancel choice overlay. Founder rule: a cancelled
+          ride means the post is dead by default; re-broadcast is opt-in.
+          We pause the auto-redirect for ~12s so the rider can pick. */}
+      {riderHasRebroadcastOption && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 100,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div style={{
+            width: '100%', maxWidth: 420,
+            background: COLORS.card,
+            borderRadius: 24,
+            padding: '28px 22px',
+            textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>{'❌'}</div>
+            <div style={{
+              fontSize: 24, fontWeight: 800, color: COLORS.white,
+              marginBottom: 8, fontFamily: FONTS.display, letterSpacing: 0.5,
+            }}>
+              Ride cancelled
+            </div>
+            <div style={{
+              fontSize: 14, color: COLORS.grayLight, lineHeight: 1.5, marginBottom: 20,
+            }}>
+              Want us to keep looking? We&rsquo;ll re-broadcast your request to other drivers in your area.
+            </div>
+            <button
+              type="button"
+              onClick={handleRebroadcast}
+              disabled={rebroadcasting}
+              style={{
+                width: '100%', padding: '14px', borderRadius: 100, border: 'none',
+                background: COLORS.green, color: COLORS.black,
+                fontSize: 15, fontWeight: 800, cursor: 'pointer',
+                fontFamily: FONTS.body, marginBottom: 10,
+                opacity: rebroadcasting ? 0.5 : 1,
+              }}
+            >
+              {rebroadcasting ? 'Broadcasting...' : 'Find another driver'}
+            </button>
+            <button
+              type="button"
+              onClick={() => window.location.replace('/rider/home')}
+              disabled={rebroadcasting}
+              style={{
+                width: '100%', padding: '14px', borderRadius: 100,
+                border: '1px solid rgba(255,255,255,0.15)',
+                background: 'transparent', color: COLORS.grayLight,
+                fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                fontFamily: FONTS.body,
+              }}
+            >
+              Back to home
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel confirmation modal — replaces native confirm() so the
+          canceller sees a proper sheet with optional reason input + a
+          clear "actually cancel" gate. */}
+      {cancelConfirmOpen && (() => {
+        const { needsApproval, label } = cancelConfirmOpen;
+        const visibleDeposit = ride.visibleDeposit || initialRide.visibleDeposit || 0;
+        return (
+          <div
+            onClick={() => !cancelConfirmSubmitting && setCancelConfirmOpen(null)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 100,
+              background: 'rgba(0,0,0,0.7)',
+              display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%', maxWidth: 480,
+                background: COLORS.card,
+                borderTopLeftRadius: 24, borderTopRightRadius: 24,
+                padding: '24px 20px max(24px, env(safe-area-inset-bottom))',
+                boxShadow: '0 -8px 32px rgba(0,0,0,0.5)',
+              }}
+            >
+              <div style={{
+                width: 36, height: 4, borderRadius: 4, background: 'rgba(255,255,255,0.15)',
+                margin: '0 auto 16px',
+              }} />
+              <div style={{
+                fontSize: 22, fontWeight: 700, color: COLORS.white,
+                marginBottom: 8, fontFamily: FONTS.display, letterSpacing: 0.5,
+              }}>
+                {needsApproval ? 'Request to cancel?' : 'Cancel this ride?'}
+              </div>
+              <div style={{
+                fontSize: 14, color: COLORS.grayLight, lineHeight: 1.5, marginBottom: 16,
+              }}>
+                {needsApproval ? (
+                  <>
+                    Driver is on the way. They&rsquo;ll have the option to <strong>agree</strong> (no charge) or <strong>decline</strong> and keep your ${visibleDeposit.toFixed(2)} deposit as a cancellation fee.
+                    <br /><br />
+                    If they don&rsquo;t respond in time, your ride cancels automatically and you&rsquo;re refunded the deposit minus a small platform fee.
+                  </>
+                ) : (
+                  <>You won&rsquo;t be charged. The ride goes back to your home and {isDriver ? 'the rider' : 'you'} can find another match.</>
+                )}
+              </div>
+              <textarea
+                value={cancelConfirmReason}
+                onChange={(e) => setCancelConfirmReason(e.target.value)}
+                placeholder="Reason (optional) — helps with feedback"
+                rows={2}
+                disabled={cancelConfirmSubmitting}
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  padding: '10px 12px', borderRadius: 10,
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  background: 'rgba(255,255,255,0.04)',
+                  color: COLORS.white, fontSize: 13,
+                  fontFamily: FONTS.body, resize: 'none', marginBottom: 16,
+                }}
+              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setCancelConfirmOpen(null)}
+                  disabled={cancelConfirmSubmitting}
+                  style={{
+                    flex: 1, padding: 12, borderRadius: 100,
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    background: 'transparent', color: COLORS.grayLight,
+                    fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                    fontFamily: FONTS.body,
+                  }}
+                >
+                  Keep ride
+                </button>
+                <button
+                  type="button"
+                  onClick={submitCancelConfirm}
+                  disabled={cancelConfirmSubmitting}
+                  style={{
+                    flex: 1, padding: 12, borderRadius: 100, border: 'none',
+                    background: COLORS.red, color: COLORS.white,
+                    fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                    fontFamily: FONTS.body,
+                    opacity: cancelConfirmSubmitting ? 0.5 : 1,
+                  }}
+                >
+                  {cancelConfirmSubmitting ? '...' : (needsApproval ? 'Send request' : label)}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Chat bubble — visible from OTW through ride end */}
       {['otw', 'here', 'confirming', 'active', 'ended'].includes(ride.status) && !chatOpen && (
@@ -2449,6 +3054,31 @@ export default function ActiveRideClient({
                   Waiting for rider to accept ${ride.proposedPrice}...
                 </div>
               )}
+              {/* Driver: request rider's exact pickup location before going OTW */}
+              {!locationRequested ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setLocationRequested(true);
+                    await fetch(`/api/rides/${rideId}/request-location`, { method: 'POST' }).catch(() => {});
+                  }}
+                  style={{
+                    width: '100%', padding: 9, borderRadius: 100, marginBottom: 8,
+                    border: '1px solid rgba(68,138,255,0.25)', background: 'rgba(68,138,255,0.06)',
+                    color: COLORS.blue, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    fontFamily: FONTS.body, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  }}
+                >
+                  <span>📍</span> Where&apos;s my rider?
+                </button>
+              ) : (
+                <div style={{
+                  textAlign: 'center', padding: '6px 0', marginBottom: 8,
+                  fontSize: 11, color: COLORS.gray,
+                }}>
+                  Waiting for rider to share location...
+                </div>
+              )}
               <ActionButton
                 label="OTW"
                 color={COLORS.green}
@@ -2550,6 +3180,19 @@ export default function ActiveRideClient({
               )}
               <StatusMessage text="Heading to rider..." />
               {renderDriverAddOnPanel()}
+              {/* Rider pinged for ETA — pulse banner for driver */}
+              {driverLocationRequested && (
+                <div style={{
+                  padding: '8px 14px', borderRadius: 12, marginBottom: 8,
+                  background: 'rgba(255,145,0,0.1)', border: '1px solid rgba(255,145,0,0.25)',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <span style={{ fontSize: 14 }}>📍</span>
+                  <span style={{ fontSize: 12, color: COLORS.orange, fontWeight: 600 }}>
+                    Rider wants your ETA — GPS is broadcasting
+                  </span>
+                </div>
+              )}
               {/* Request rider's live GPS */}
               {!locationRequested ? (
                 <button
@@ -3146,11 +3789,39 @@ export default function ActiveRideClient({
                 </div>
               </div>
             ) : (
-              <StatusMessage text="Pull Up sent — waiting for driver to go OTW..." />
+              <>
+                <StatusMessage text="Pull Up sent — waiting for driver to go OTW..." />
+                {/* Rider: ask driver when they're heading out */}
+                {!etaPingPending ? (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setEtaPingPending(true);
+                      await fetch(`/api/rides/${rideId}/request-driver-location`, { method: 'POST' }).catch(() => {});
+                      setTimeout(() => setEtaPingPending(false), 20000);
+                    }}
+                    style={{
+                      width: '100%', padding: 9, borderRadius: 100, marginBottom: 6,
+                      border: '1px solid rgba(255,145,0,0.2)', background: 'rgba(255,145,0,0.06)',
+                      color: COLORS.orange, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      fontFamily: FONTS.body, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    }}
+                  >
+                    <span>📍</span> HMU — when are you heading out?
+                  </button>
+                ) : (
+                  <div style={{
+                    textAlign: 'center', padding: '6px 0', marginBottom: 6,
+                    fontSize: 11, color: COLORS.gray,
+                  }}>
+                    Pinged driver — waiting...
+                  </div>
+                )}
+              </>
             )}
             {ride.addOns && ride.addOns.length > 0 && renderAddOnSummary()}
             {renderAddServicesButton()}
-            <CancelButton rideId={rideId} label="Cancel Ride" onCancelled={() => setRide(prev => ({ ...prev, status: 'cancelled' }))} />
+            <CancelButton label="Cancel Ride" onClick={openCancelConfirm} busy={cancelConfirmSubmitting} />
           </>
         ) : (
           <>
@@ -3195,7 +3866,7 @@ export default function ActiveRideClient({
             }} />
             {ride.addOns && ride.addOns.length > 0 && renderAddOnSummary()}
             {renderAddServicesButton()}
-            <CancelButton rideId={rideId} label="Cancel" onCancelled={() => setRide(prev => ({ ...prev, status: 'cancelled' }))} />
+            <CancelButton label="Cancel" onClick={openCancelConfirm} busy={cancelConfirmSubmitting} />
           </>
         );
 
@@ -3216,9 +3887,36 @@ export default function ActiveRideClient({
               </div>
             )}
             <StatusMessage text="Driver is on the way" />
+            {/* Rider: ping driver for live location when ETA isn't showing or page just refreshed */}
+            {!etaPingPending ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  setEtaPingPending(true);
+                  await fetch(`/api/rides/${rideId}/request-driver-location`, { method: 'POST' }).catch(() => {});
+                  // Auto-reset after 15s so rider can ping again if needed
+                  setTimeout(() => setEtaPingPending(false), 15000);
+                }}
+                style={{
+                  width: '100%', padding: 9, borderRadius: 100, marginBottom: 6,
+                  border: '1px solid rgba(255,145,0,0.3)', background: 'rgba(255,145,0,0.08)',
+                  color: COLORS.orange, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  fontFamily: FONTS.body, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}
+              >
+                <span>📍</span> Where&apos;s my driver?
+              </button>
+            ) : (
+              <div style={{
+                textAlign: 'center', padding: '6px 0', marginBottom: 6,
+                fontSize: 11, color: COLORS.gray,
+              }}>
+                Pinging driver location...
+              </div>
+            )}
             {ride.addOns.length > 0 && renderAddOnSummary()}
             {renderAddServicesButton()}
-            <CancelButton rideId={rideId} label="Request Cancel" needsApproval onCancelled={() => setRide(prev => ({ ...prev, status: 'cancelled' }))} />
+            <CancelButton label="Request Cancel" needsApproval onClick={openCancelConfirm} busy={cancelConfirmSubmitting} />
           </>
         );
 
@@ -3356,8 +4054,10 @@ export default function ActiveRideClient({
                 <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.white }}>${Number(ride.agreedPrice || 0).toFixed(2)}</span>
               </div>
 
-              {/* Extras with remove buttons */}
-              {confirmGrouped.length > 0 && (
+              {/* Extras list — deposit_only hides this here since extras are already
+                  Stripe-charged and shown struck-through in the card section below.
+                  Legacy full-fare keeps the remove buttons (capture not yet taken). */}
+              {confirmGrouped.length > 0 && ride.pricingModeKey !== 'deposit_only' && (
                 <>
                   <div style={{ fontSize: 10, color: COLORS.orange, textTransform: 'uppercase', letterSpacing: 1.5, fontFamily: FONTS.mono, marginTop: 8, marginBottom: 4 }}>
                     Extras — tap to remove
@@ -3373,27 +4073,83 @@ export default function ActiveRideClient({
                 </>
               )}
 
-              {/* Total line */}
-              <div style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                paddingTop: 10, marginTop: 10,
-                borderTop: '1px solid rgba(255,255,255,0.1)',
-              }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: COLORS.white }}>
-                  Total charged
-                </span>
-                <span style={{
-                  fontFamily: FONTS.mono, fontSize: 22, fontWeight: 700, color: COLORS.green,
+              {ride.pricingModeKey === 'deposit_only' ? (() => {
+                const depositAmt = Number(ride.visibleDeposit || 0);
+                const cashDue = Math.max(0, Number(ride.agreedPrice || 0) - depositAmt);
+                const brand = ride.riderPaymentBrand;
+                const last4 = ride.riderPaymentLast4;
+                const pmLabel = brand
+                  ? brand === 'cashapp' ? 'Cash App Pay'
+                  : brand === 'visa' ? `Visa ••••${last4 || ''}`
+                  : brand === 'mastercard' ? `Mastercard ••••${last4 || ''}`
+                  : brand === 'amex' ? `Amex ••••${last4 || ''}`
+                  : brand === 'discover' ? `Discover ••••${last4 || ''}`
+                  : last4 ? `Card ••••${last4}` : 'Card'
+                  : last4 ? `Card ••••${last4}` : 'Card';
+                const totalCardCharged = depositAmt + confirmExtras;
+                return (
+                  <>
+                    <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '10px 0' }} />
+                    {/* Section header: already charged to card */}
+                    <div style={{ fontSize: 10, color: COLORS.gray, textTransform: 'uppercase', letterSpacing: 1.2, fontFamily: FONTS.mono, marginBottom: 4 }}>
+                      Paid via {pmLabel}
+                    </div>
+                    {/* Deposit Paid — struck through (already captured) */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' }}>
+                      <span style={{ fontSize: 13, color: COLORS.gray }}>Deposit Paid</span>
+                      <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.gray, textDecoration: 'line-through' }}>${depositAmt.toFixed(2)}</span>
+                    </div>
+                    {/* Extras Paid — each confirmed extra, struck through */}
+                    {confirmGrouped.map(g => (
+                      <div key={g.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' }}>
+                        <span style={{ fontSize: 13, color: COLORS.gray }}>{g.name}{g.qty > 1 ? ` ×${g.qty}` : ''} Paid</span>
+                        <span style={{ fontFamily: FONTS.mono, fontSize: 13, color: COLORS.gray, textDecoration: 'line-through' }}>${g.total.toFixed(2)}</span>
+                      </div>
+                    ))}
+                    {/* Cash Due Now — what they hand the driver */}
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '8px 10px', marginTop: 8,
+                      background: 'rgba(255,193,7,0.10)', borderRadius: 10,
+                      border: '1px solid rgba(255,193,7,0.25)',
+                    }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#FFC107' }}>
+                        💵 Cash Due Now
+                      </span>
+                      <span style={{ fontFamily: FONTS.mono, fontSize: 20, fontWeight: 800, color: '#FFC107' }}>${cashDue.toFixed(2)}</span>
+                    </div>
+                  </>
+                );
+              })() : (
+                /* Legacy full-fare: full amount captured on card. */
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  paddingTop: 10, marginTop: 10,
+                  borderTop: '1px solid rgba(255,255,255,0.1)',
                 }}>
-                  ${confirmTotal.toFixed(2)}
-                </span>
-              </div>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: COLORS.white }}>
+                    Total charged
+                  </span>
+                  <span style={{
+                    fontFamily: FONTS.mono, fontSize: 22, fontWeight: 700, color: COLORS.green,
+                  }}>
+                    ${confirmTotal.toFixed(2)}
+                  </span>
+                </div>
+              )}
             </div>
 
-            {/* Confirm button — shows amount. GPS is required at tap to
-                supplement the rider's explicit consent for chargeback defense. */}
+            {/* Confirm button — for deposit_only the label shows the CASH amount
+                the rider is handing the driver, not the deposit (already secured).
+                Subtitle reminds them the deposit will be captured on their card.
+                GPS required at tap for chargeback defense. */}
             <ActionButton
-              label={`I'm In — Pay $${confirmTotal.toFixed(2)}`}
+              label={ride.pricingModeKey === 'deposit_only'
+                ? `I'm In — $${Math.max(0, Number(ride.agreedPrice || 0) - Number(ride.visibleDeposit || 0)).toFixed(2)} Cash Paid`
+                : `I'm In — Pay $${confirmTotal.toFixed(2)}`}
+              subtitle={ride.pricingModeKey === 'deposit_only'
+                ? `$${(Number(ride.visibleDeposit || 0) + confirmExtras).toFixed(2)} total charged to card`
+                : undefined}
               color={COLORS.green}
               onPress={async () => {
                 setLoading(true);
@@ -3519,68 +4275,62 @@ export default function ActiveRideClient({
 
   // ── Driver payout summary ──
   function renderDriverPayout() {
+    const b = ride.breakdown;
+    const youEarned = b?.youEarned ?? Number(ride.driverPayoutAmount || 0);
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {ride.isCash && isDriver ? (
-          /* Cash ride — show collect banner, no Stripe payout info */
-          <div style={{
-            background: 'rgba(255,193,7,0.12)', border: '1px solid rgba(255,193,7,0.3)',
-            borderRadius: 16, padding: '20px 16px', textAlign: 'center',
-          }}>
-            <div style={{ fontSize: 13, color: '#FFC107', opacity: 0.7, marginBottom: 4 }}>Cash ride complete</div>
-            <div style={{
-              fontFamily: FONTS.mono, fontSize: 42, fontWeight: 700,
-              color: '#FFC107', lineHeight: 1.1,
-            }}>
-              ${(Number(ride.agreedPrice || 0) + Number(ride.addOnTotal || 0)).toFixed(2)}
-            </div>
-            <div style={{ fontSize: 13, color: '#FFC107', opacity: 0.7, marginTop: 8 }}>
-              💵 Collect this from rider — not added to your balance
-            </div>
+        {/* You earned — bold headline */}
+        <div style={{
+          backgroundColor: COLORS.card,
+          borderRadius: 16,
+          padding: '20px 16px',
+          textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 13, color: COLORS.grayLight, marginBottom: 4 }}>
+            You earned
           </div>
-        ) : (
-          /* Digital ride — show Stripe payout info */
           <div style={{
-            backgroundColor: COLORS.card,
-            borderRadius: 16,
-            padding: '20px 16px',
-            textAlign: 'center',
+            fontFamily: FONTS.mono,
+            fontSize: 42,
+            fontWeight: 700,
+            color: COLORS.green,
+            lineHeight: 1.1,
           }}>
-            <div style={{ fontSize: 13, color: COLORS.grayLight, marginBottom: 4 }}>
-              You earned
+            ${Number(youEarned || 0).toFixed(2)}
+          </div>
+          {ride.isCash && (
+            <div style={{ fontSize: 13, color: '#FFC107', opacity: 0.85, marginTop: 8 }}>
+              💵 Cash ride — collected at pickup
             </div>
-            <div style={{
-              fontFamily: FONTS.mono,
-              fontSize: 42,
-              fontWeight: 700,
-              color: COLORS.green,
-              lineHeight: 1.1,
-            }}>
-              ${Number(ride.driverPayoutAmount || 0).toFixed(2)}
-            </div>
-            <div style={{
-              fontSize: 13,
-              color: COLORS.gray,
-              marginTop: 8,
-              fontFamily: FONTS.mono,
-            }}>
-              HMU took: ${Number(ride.platformFeeAmount || 0).toFixed(2)}
-            </div>
-            {ride.platformFeeAmount === 0 && ride.driverPayoutAmount > 0 && (
+          )}
+        </div>
+
+        {/* Driver's breakdown — driverRows from the ride's PricingStrategy. */}
+        {b && (
+          <>
+            <BreakdownCard
+              rows={b.driverRows}
+              extrasFailed={b.extras.filter(e => e.chargeStatus === 'failed').length}
+            />
+            {b.modeKey === 'deposit_only' && !ride.isCash && (
               <div style={{
-                marginTop: 8,
-                fontSize: 14,
-                color: COLORS.green,
-                fontWeight: 600,
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '10px 14px', borderRadius: 12,
+                background: 'rgba(255,193,7,0.08)',
+                border: '1px solid rgba(255,193,7,0.2)',
               }}>
-                Daily cap hit — rest of today is ALL yours
+                <span style={{ fontSize: 18 }}>💵</span>
+                <span style={{ fontSize: 12, color: '#FFC107', lineHeight: 1.4 }}>
+                  <strong>Pull Up Cash is 0-fee</strong> — you keep every dollar. Fees only apply to the deposit.
+                </span>
               </div>
             )}
-          </div>
+          </>
         )}
 
         {/* Ride analytics summary */}
-        <RideAnalyticsSummary rideId={rideId} payout={ride.driverPayoutAmount} />
+        <RideAnalyticsSummary rideId={rideId} payout={youEarned} />
 
         <div style={{
           fontSize: 13,
@@ -3841,19 +4591,20 @@ export default function ActiveRideClient({
           {reviewSubmitting ? 'Confirming...' : hasDisputes ? 'CONFIRM & SUBMIT DISPUTES' : 'CONFIRM & PAY'}
         </button>
 
-        {/* Dispute entire ride link */}
+        {/* Dispute entire ride — low-prominence to reduce frivolous disputes */}
         {disputeWindowRemaining !== null && disputeWindowRemaining > 0 && (
           <button
             onClick={handleDispute}
             disabled={loading}
             style={{
-              width: '100%', padding: 12, borderRadius: 12,
-              border: `1px solid ${COLORS.red}`, backgroundColor: 'transparent',
-              color: COLORS.red, fontFamily: FONTS.body, fontSize: 14, fontWeight: 600,
-              cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1,
+              background: 'none', border: 'none', padding: '4px 0',
+              color: '#666', fontFamily: FONTS.body, fontSize: 12,
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.4 : 0.7,
+              textDecoration: 'underline', width: '100%', textAlign: 'center',
             }}
           >
-            Nah fam, that&apos;s not right
+            Report an issue
           </button>
         )}
       </div>
@@ -3866,10 +4617,13 @@ export default function ActiveRideClient({
       return renderBackHome('Thanks! Ride complete.');
     }
 
-    // Show add-on review if there are add-ons and not yet reviewed
-    if (ride.addOns.length > 0 && !reviewSubmitted) {
-      return renderAddOnReview();
-    }
+    // Per-add-on review used to gate the post-ride card. With per-extra
+    // Stripe captures at driver-confirm time, the rider already authorized
+    // each item live — a second post-ride confirmation is friction. Any
+    // post-ride dispute still goes through the existing "Nah fam, that's
+    // not right" button, which covers the same ground.
+
+    const b = ride.breakdown;
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -3885,28 +4639,27 @@ export default function ActiveRideClient({
           </div>
         )}
 
+        {/* What you paid — riderRows from the ride's PricingStrategy. */}
+        {b && (
+          <BreakdownCard rows={b.riderRows} audience="rider" extrasFailed={0} />
+        )}
+
         {renderRatingCards()}
 
-        {/* Dispute button */}
+        {/* Dispute link — intentionally low-prominence to reduce frivolous disputes */}
         {disputeWindowRemaining !== null && disputeWindowRemaining > 0 && (
           <button
             onClick={handleDispute}
             disabled={loading}
             style={{
-              width: '100%',
-              padding: '12px 16px',
-              borderRadius: 12,
-              border: '1px solid ' + COLORS.red,
-              backgroundColor: 'transparent',
-              color: COLORS.red,
-              fontFamily: FONTS.body,
-              fontSize: 14,
-              fontWeight: 600,
+              background: 'none', border: 'none', padding: '4px 0',
+              color: '#666', fontFamily: FONTS.body, fontSize: 12,
               cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.5 : 1,
+              opacity: loading ? 0.4 : 0.7,
+              textDecoration: 'underline', width: '100%', textAlign: 'center',
             }}
           >
-            Nah fam, that&apos;s not right
+            Report an issue
           </button>
         )}
       </div>
@@ -3997,6 +4750,95 @@ export default function ActiveRideClient({
 }
 
 // ── Sub-components ──
+
+function BreakdownCard({
+  rows,
+  audience = 'driver',
+  extrasFailed,
+}: {
+  rows: { label: string; value: number; role: 'amount' | 'muted' | 'fee' | 'total' }[];
+  audience?: 'driver' | 'rider';
+  extrasFailed: number;
+}) {
+  const visible = rows;
+  const heading = audience === 'driver' ? 'WHAT YOU EARNED' : 'WHAT YOU PAID';
+
+  return (
+    <div style={{
+      backgroundColor: COLORS.card,
+      borderRadius: 16,
+      padding: '16px',
+    }}>
+      <div style={{
+        fontSize: 11,
+        color: COLORS.grayLight,
+        letterSpacing: 1,
+        marginBottom: 12,
+        fontFamily: FONTS.display,
+      }}>
+        {heading}
+      </div>
+
+      {visible.map((row, idx) => {
+        const isTotal = row.role === 'total';
+        const isMuted = row.role === 'muted';
+        const isFee = row.role === 'fee';
+        // Divider before the total row, and before the first fee row.
+        const prevRole = idx > 0 ? visible[idx - 1].role : null;
+        const showDivider = (isTotal && prevRole !== 'total') ||
+          (isFee && prevRole !== 'fee' && prevRole !== null);
+
+        return (
+          <div key={`${row.label}-${idx}`}>
+            {showDivider && (
+              <div style={{
+                height: 1,
+                background: 'rgba(255,255,255,0.08)',
+                margin: '10px 0',
+              }} />
+            )}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              padding: isTotal ? '6px 0' : '5px 0',
+            }}>
+              <span style={{
+                fontSize: isTotal ? 15 : 13,
+                color: isMuted ? COLORS.gray : isFee ? COLORS.orange : COLORS.grayLight,
+                fontWeight: isTotal ? 600 : 400,
+              }}>
+                {row.label}
+              </span>
+              <span style={{
+                fontFamily: FONTS.mono,
+                fontSize: isTotal ? 18 : 14,
+                color: isMuted ? COLORS.gray : isFee ? COLORS.orange : '#fff',
+                fontWeight: isTotal ? 700 : 500,
+              }}>
+                {isFee ? `−$${Number(row.value || 0).toFixed(2)}` : `$${Number(row.value || 0).toFixed(2)}`}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+
+      {extrasFailed > 0 && (
+        <div style={{
+          marginTop: 10,
+          padding: '8px 10px',
+          background: 'rgba(244,67,54,0.10)',
+          border: '1px solid rgba(244,67,54,0.30)',
+          borderRadius: 8,
+          fontSize: 12,
+          color: COLORS.red,
+        }}>
+          {extrasFailed} extra{extrasFailed === 1 ? '' : 's'} failed to charge — not included in total
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ActionButton({
   label,
@@ -4330,10 +5172,63 @@ function getStatusNotificationData(
     case 'completed':
       return { message: 'Ride Complete', emoji: '\u2705', color: '#00E676', sub: 'Thanks for riding with HMU!' };
     case 'cancelled':
-      return { message: 'Ride Cancelled', emoji: '\u274C', color: '#FF5252' };
+      // Generic fallback when no cancelledBy hint is available. Callers that
+      // know which side cancelled should pass the side via the second arg of
+      // showStatusNotification \u2192 getStatusNotificationData and use the
+      // cancelled-by-other variant from buildCancelledNotification below.
+      return isDriver
+        ? { message: 'Ride Cancelled', emoji: '\u274C', color: '#FF5252', sub: 'Back to your home \u2014 find another rider' }
+        : { message: 'Your ride was cancelled', emoji: '\u274C', color: '#FF5252', sub: 'Find another driver from your home' };
     default:
       return null;
   }
+}
+
+// Cancellation notification builder. Three audiences:
+//   1. The canceller themselves \u2014 success-toned, auto-dismissing toast.
+//      They tapped Cancel; they don't need a sticky red wall telling them
+//      what they just did. The toast confirms it landed and auto-redirects.
+//   2. The other side (someone else cancelled the ride they were on) \u2014
+//      sticky red banner with the reason; they must acknowledge.
+//   3. Timeout / system resolution \u2014 sticky banner explaining money split
+//      so the rider sees their refund and the driver sees the zero.
+function buildCancelledNotification(
+  isDriver: boolean,
+  cancelledByOther: boolean,
+  reason?: string | null,
+  resolution?: string | null,
+): { message: string; emoji: string; color: string; sub?: string; persistent: boolean } {
+  if (cancelledByOther) {
+    const message = isDriver
+      ? 'Rider cancelled the ride'
+      : 'Driver cancelled your ride';
+    return {
+      message,
+      emoji: '\u274C',
+      color: '#FF5252',
+      sub: reason || 'Tap anywhere to continue',
+      persistent: true,
+    };
+  }
+  // Local user is the canceller.
+  if (resolution === 'timeout_no_response') {
+    // Special case: driver was unreachable. Show the rider their refund
+    // outcome (sticky); the driver gets an explanatory message too.
+    return {
+      message: 'Ride Cancelled',
+      emoji: '\u23F1\uFE0F',
+      color: '#FF9100',
+      sub: reason || 'Driver did not respond in time',
+      persistent: true,
+    };
+  }
+  return {
+    message: 'Ride cancelled',
+    emoji: '\u2705',
+    color: '#00E676',
+    sub: reason || 'Heading back home...',
+    persistent: false,
+  };
 }
 
 // ── COO Button component ──
@@ -4884,53 +5779,31 @@ function GeoBlockedHelp({ onRetry }: { onRetry: () => void }) {
 }
 
 // ── Cancel Button component ──
-function CancelButton({ rideId, label, needsApproval, onCancelled }: {
-  rideId: string;
+// Thin presentational button. The actual cancel — including the
+// confirmation modal, API call, and side-aware UI feedback — is owned by
+// the parent ActiveRideClient so we can render one modal regardless of
+// which CancelButton instance was tapped.
+function CancelButton({ label, needsApproval, onClick, busy }: {
   label: string;
   needsApproval?: boolean;
-  onCancelled: () => void;
+  onClick: (needsApproval: boolean, label: string) => void;
+  busy?: boolean;
 }) {
-  const [cancelling, setCancelling] = useState(false);
-
-  async function handleCancel() {
-    if (needsApproval) {
-      if (!confirm('The driver is already on the way. Request cancellation? The driver must agree.')) return;
-    } else {
-      if (!confirm('Cancel this ride?')) return;
-    }
-
-    setCancelling(true);
-    try {
-      const res = await fetch(`/api/rides/${rideId}/cancel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'Rider cancelled' }),
-      });
-      const data = await res.json();
-      if (data.status === 'cancelled') {
-        onCancelled();
-      } else if (data.needsDriverApproval) {
-        alert('Cancel request sent to driver. Waiting for their response...');
-      }
-    } catch { /* silent */ }
-    setCancelling(false);
-  }
-
   return (
     <button
       type="button"
-      onClick={handleCancel}
-      disabled={cancelling}
+      onClick={() => onClick(!!needsApproval, label)}
+      disabled={busy}
       style={{
         width: '100%', padding: '12px', marginTop: '8px',
         borderRadius: '100px', border: '1px solid rgba(255,82,82,0.3)',
         background: 'transparent', color: '#FF5252',
         fontSize: '14px', fontWeight: 600, cursor: 'pointer',
         fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-        opacity: cancelling ? 0.5 : 1,
+        opacity: busy ? 0.5 : 1,
       }}
     >
-      {cancelling ? 'Cancelling...' : label}
+      {busy ? 'Cancelling...' : label}
     </button>
   );
 }
@@ -5034,6 +5907,89 @@ function RideAnalyticsSummary({ rideId, payout }: { rideId: string; payout: numb
           <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>
             avg ${analytics.comparison.areaAvgPerMile.toFixed(2)}/mi
           </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── SumExtraBlock — Down Bad rides only ──────────────────────────────────────
+// Compact collapsible reference card so both parties always know what the
+// rider is bringing. Collapses to a one-liner after first view.
+function SumExtraBlock({
+  text,
+  mediaUrl,
+  mediaType,
+  isDriver,
+}: {
+  text: string;
+  mediaUrl: string;
+  mediaType: 'photo' | 'video';
+  isDriver: boolean;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,255,255,0.1)',
+      borderRadius: 14,
+      marginBottom: 10,
+      overflow: 'hidden',
+    }}>
+      {/* Header row — always visible */}
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer',
+        }}
+      >
+        <span style={{ fontSize: 18, flexShrink: 0 }}>😮‍💨</span>
+        <span style={{
+          flex: 1, textAlign: 'left', fontSize: 13, color: '#ddd', fontWeight: 600,
+          fontFamily: "'DM Sans', sans-serif",
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {isDriver ? 'Sum Extra from rider' : 'Your sum extra'}: {text}
+        </span>
+        <span style={{ fontSize: 11, color: '#666', flexShrink: 0 }}>{expanded ? '▲' : '▼'}</span>
+      </button>
+
+      {/* Expanded body */}
+      {expanded && (
+        <div style={{ padding: '0 14px 14px', display: 'flex', gap: 12 }}>
+          {/* Thumbnail */}
+          <div style={{
+            width: 72, height: 72, borderRadius: 10, overflow: 'hidden', flexShrink: 0,
+            background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.08)',
+          }}>
+            {mediaType === 'video' ? (
+              <video
+                src={mediaUrl}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                autoPlay
+                loop
+                muted
+                playsInline
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={mediaUrl}
+                alt="Sum extra"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            )}
+          </div>
+          {/* Text */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, color: '#888', marginBottom: 4, fontFamily: "'Space Mono', monospace", letterSpacing: 1, textTransform: 'uppercase' }}>
+              {isDriver ? 'Rider Is Offering' : 'What you\'re bringing'}
+            </div>
+            <div style={{ fontSize: 14, color: '#fff', lineHeight: 1.5 }}>{text}</div>
+          </div>
         </div>
       )}
     </div>
