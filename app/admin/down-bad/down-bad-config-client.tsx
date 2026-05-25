@@ -13,6 +13,7 @@ interface DownBadConfig {
   sum_extra_max_chars: number;
   require_min_rides: number;
   require_min_chill_score: number;
+  expiry_hours: number;
 }
 
 interface DownBadDisclaimer {
@@ -29,6 +30,7 @@ const DEFAULT_CONFIG: DownBadConfig = {
   sum_extra_max_chars: 120,
   require_min_rides: 0,
   require_min_chill_score: 0,
+  expiry_hours: 4,
 };
 
 const DEFAULT_DISCLAIMER: DownBadDisclaimer = {
@@ -255,6 +257,31 @@ export default function DownBadConfigClient() {
               step={5}
               format={(v) => v === 0 ? 'No gate' : `${v}%`}
               onChange={(v) => setConfig((c) => ({ ...c, require_min_chill_score: v }))}
+            />
+
+            <Divider />
+
+            {/* Post expiry */}
+            <div className="space-y-1">
+              <div className="text-xs font-semibold uppercase tracking-widest text-neutral-500">Post Lifecycle</div>
+            </div>
+
+            <SliderRow
+              label="Post expiry window"
+              help="How long a Down Bad post stays active before it auto-expires. Shorter = more urgent feel. Longer = more driver coverage."
+              value={config.expiry_hours}
+              min={0.25}
+              max={24}
+              step={0.25}
+              format={(v) => {
+                const totalMins = Math.round(v * 60);
+                const h = Math.floor(totalMins / 60);
+                const m = totalMins % 60;
+                if (h === 0) return `${m}m`;
+                if (m === 0) return `${h}h`;
+                return `${h}h ${m}m`;
+              }}
+              onChange={(v) => setConfig((c) => ({ ...c, expiry_hours: v }))}
             />
 
             <button
