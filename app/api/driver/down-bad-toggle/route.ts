@@ -7,13 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getPlatformConfig } from '@/lib/platform-config/get';
-import Stripe from 'stripe';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-02-25.clover',
-  httpClient: Stripe.createFetchHttpClient(),
-});
-const isMock = process.env.STRIPE_MOCK === 'true';
+import { isMock } from '@/lib/stripe/client';
 
 async function getDriver(clerkId: string) {
   const rows = await sql`
