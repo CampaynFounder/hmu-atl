@@ -70,19 +70,6 @@ export async function GET(req: NextRequest) {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     }),
-
-    ping('voipms', async () => {
-      if (!process.env.VOIPMS_API_USERNAME || !process.env.VOIPMS_API_PASSWORD) {
-        throw new Error('VoIP.ms credentials not set');
-      }
-      const url = new URL('https://voip.ms/api/v1/rest.php');
-      url.searchParams.set('api_username', process.env.VOIPMS_API_USERNAME);
-      url.searchParams.set('api_password', process.env.VOIPMS_API_PASSWORD);
-      url.searchParams.set('method', 'getBalance');
-      const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
-      const data = await res.json() as { status: string };
-      if (data.status !== 'success') throw new Error(`VoIP.ms status: ${data.status}`);
-    }),
   ]);
 
   const results = Object.fromEntries(settled);
