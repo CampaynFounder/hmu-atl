@@ -33,6 +33,7 @@ interface ProfileData {
   vehiclePhotoUrl: string;
   licensePlate: string;
   plateState: string;
+  vehicleMpg: number | null;
   acceptDirectBookings: boolean;
   minRiderChillScore: number;
   requireOgStatus: boolean;
@@ -1096,12 +1097,12 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
           )}
         </Section>
 
-        {/* License Plate */}
-        <Section id="vehicle" title="License Plate">
+        {/* Vehicle Info */}
+        <Section id="vehicle" title="Vehicle Info">
           <div style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
-            Riders see this when you&apos;re close. Update anytime if you switch cars.
+            Riders see your plate when you&apos;re close. MPG is used to calculate your gas cost per mile.
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
             <input
               type="text"
               value={data.licensePlate}
@@ -1146,6 +1147,39 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
+          </div>
+          <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>Miles per gallon (MPG)</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input
+              type="number"
+              min={1}
+              max={200}
+              step={1}
+              value={data.vehicleMpg ?? ''}
+              onChange={(e) => setData(d => ({ ...d, vehicleMpg: e.target.value ? Number(e.target.value) : null }))}
+              onBlur={() => {
+                if (data.vehicleMpg !== profile.vehicleMpg) {
+                  fetch('/api/drivers/booking-settings', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vehicle_mpg: data.vehicleMpg }),
+                  });
+                  setSaved('MPG saved');
+                  setTimeout(() => setSaved(''), 2000);
+                }
+              }}
+              placeholder="e.g. 28"
+              style={{
+                width: 100, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 12, padding: '12px 14px', color: '#fff', fontSize: 16,
+                fontFamily: "var(--font-mono, 'Space Mono', monospace)", outline: 'none',
+              }}
+            />
+            <div style={{ fontSize: 12, color: '#666' }}>
+              {data.vehicleMpg
+                ? `≈ $${(3.50 / data.vehicleMpg).toFixed(2)}/mile at $3.50/gal`
+                : 'Set your MPG to use the gas calculator'}
+            </div>
           </div>
         </Section>
 
