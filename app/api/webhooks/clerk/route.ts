@@ -117,7 +117,17 @@ export async function POST(req: Request) {
 
   if (eventType === 'user.updated') {
     try {
-      const data = evt.data;
+      type UserPayload = {
+        id: string;
+        email_addresses?: Array<{ email_address?: string }>;
+        first_name?: string | null;
+        last_name?: string | null;
+        public_metadata?: Record<string, unknown>;
+        unsafe_metadata?: Record<string, unknown>;
+        phone_numbers?: Array<{ phone_number: string; verification?: { status?: string } | null }>;
+        external_accounts?: Array<{ verification?: { status?: string } | null }>;
+      };
+      const data = evt.data as UserPayload;
       const { id, email_addresses, first_name, last_name, public_metadata, unsafe_metadata } = data;
 
       // Keep existing metadata-driven status sync for already-created users.
@@ -178,7 +188,7 @@ export async function POST(req: Request) {
       const { user: newUser, created } = await createUser({
         clerk_id: id,
         profile_type: profileType,
-        phone: verifiedPhone,
+        phone: verifiedPhone ?? null,
         signup_source: signupSource,
         referred_by_driver_id: referredByDriverId,
         market_id: marketId,
@@ -233,12 +243,12 @@ export async function POST(req: Request) {
       }
 
       // Provision Stripe Customer + Connect account now that the user is real.
-      const email = email_addresses?.[0]?.email_address || '';
-      const name = `${first_name || ''} ${last_name || ''}`.trim() || 'User';
+      const email = email_addresses?.[0]?.email_address ?? '';
+      const name = `${first_name ?? ''} ${last_name ?? ''}`.trim() || 'User';
 
       let stripeCustomerId: string | undefined;
       try {
-        stripeCustomerId = await createCustomer({ clerkId: id, email, name });
+        stripeCustomerId = await createCustomer({ clerkId: id, email: email || '', name });
       } catch (stripeErr) {
         console.error('[WEBHOOK] Stripe customer creation failed:', stripeErr);
       }
@@ -246,7 +256,7 @@ export async function POST(req: Request) {
       let stripeAccountId: string | undefined;
       if (profileType === 'driver') {
         try {
-          stripeAccountId = await createConnectAccount({ clerkId: id, email });
+          stripeAccountId = await createConnectAccount({ clerkId: id, email: email || '' });
         } catch (stripeErr) {
           console.error('[WEBHOOK] Stripe Connect creation failed:', stripeErr);
         }
@@ -286,7 +296,7 @@ export async function POST(req: Request) {
       // covers the case where opt-in was set earlier (future unsafe_metadata
       // channel). Never blocks signup.
       try {
-        if (profileType === 'driver' || profileType === 'rider') {
+        if ((profileType === 'driver' || profileType === 'rider') && verifiedPhone) {
           await scheduleFirstMessageForUser({
             userId: newUser.id,
             phone: verifiedPhone,
