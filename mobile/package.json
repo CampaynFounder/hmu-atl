@@ -15,6 +15,7 @@
     "expo-auth-session": "~56.0.12",
     "expo-constants": "~56.0.16",
     "expo-font": "^56.0.5",
+    "expo-haptics": "^56.0.3",
     "expo-linking": "~56.0.12",
     "expo-location": "~56.0.14",
     "expo-notifications": "~56.0.14",
