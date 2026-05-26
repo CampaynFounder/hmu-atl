@@ -16,10 +16,10 @@ const ATTRIB_MAX_AGE_S = 60 * 60 * 24 * 30;
 const KNOWN_MARKET_SUBDOMAINS = new Set(['atl', 'nola']);
 
 // Static market centers used for apex-domain geo-routing. Cloudflare populates
-// req.geo.latitude/longitude from IP. We find the nearest market within its
-// radius and redirect to that subdomain. Falls back to 'atl' if the user is
-// out-of-range or geo is unavailable (dev, VPN, etc.).
-// Update this list whenever a new market goes live with a Clerk satellite.
+// request.cf with lat/lng from IP. We find the nearest live market within its
+// radius and redirect to that subdomain. Returns null when the user is
+// out-of-range — they stay on the apex and see the waitlist/coming-soon page.
+// Update whenever a new market goes live with a Clerk satellite.
 const MARKET_CENTERS = [
   { slug: 'atl',  lat: 33.7490, lng: -84.3880, radiusMiles: 60 },
   { slug: 'nola', lat: 29.9511, lng: -90.0715, radiusMiles: 50 },
@@ -34,22 +34,21 @@ function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: 
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function detectMarketFromGeo(req: NextRequest): string {
-  // Cloudflare Workers populates request.cf with geo data (latitude/longitude
-  // as strings). NextRequest doesn't expose this in its TS types; use cast.
-  // Falls back to 'atl' in local dev (no CF headers) and for out-of-range IPs.
+// Returns the nearest live market slug, or null if the user is out-of-range.
+// Null means "show the apex waitlist page" — never silently assign ATL.
+function detectMarketFromGeo(req: NextRequest): string | null {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cf = (req as any).cf as { latitude?: string; longitude?: string } | undefined;
   const lat = parseFloat(cf?.latitude ?? '');
   const lng = parseFloat(cf?.longitude ?? '');
-  if (!isFinite(lat) || !isFinite(lng)) return 'atl';
-  let best = 'atl';
+  if (!isFinite(lat) || !isFinite(lng)) return null; // local dev, VPN, no geo
+  let best: string | null = null;
   let minDist = Infinity;
   for (const m of MARKET_CENTERS) {
     const d = haversineDistanceMiles(lat, lng, m.lat, m.lng);
     if (d < m.radiusMiles && d < minDist) { minDist = d; best = m.slug; }
   }
-  return best;
+  return best; // null = Memphis, Dallas, etc. — out of every live market's range
 }
 
 // Extract a trusted market slug from the Host header. Returns null unless the
@@ -249,12 +248,27 @@ export default clerkMiddleware(async (auth, req) => {
       || path.startsWith('/_next/')
       || path.startsWith('/.well-known/');
     if (!skipApexRedirect) {
-      // 307 (temporary) so browsers don't cache and geo can change per-request.
-      // detectMarketFromGeo uses Cloudflare's IP geolocation to pick the
-      // nearest live market; falls back to 'atl' for out-of-range / no-geo.
+      // Geo-route in-market users to their subdomain (where Clerk auth works).
+      // Out-of-range users (Memphis, Dallas, etc.) get null → stay on the apex
+      // and see the coming-soon/waitlist page. Never silently redirect to ATL.
       const marketSlug = detectMarketFromGeo(req);
-      const target = `https://${marketSlug}.hmucashride.com${path}${req.nextUrl.search}`;
-      return NextResponse.redirect(target, 307);
+      if (marketSlug) {
+        // 307 = temporary, not cached — geo can change on next visit.
+        return NextResponse.redirect(
+          `https://${marketSlug}.hmucashride.com${path}${req.nextUrl.search}`,
+          307,
+        );
+      }
+      // No market match: stamp x-market-slug=none so the apex page knows it's
+      // serving an out-of-market visitor and can show the waitlist UI.
+      // Also forward the Cloudflare city name so the page can say
+      // "HMU isn't in Memphis yet" instead of a generic message.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cfCity = ((req as any).cf as { city?: string } | undefined)?.city ?? '';
+      const h = new Headers(req.headers);
+      h.set('x-market-slug', 'none');
+      if (cfCity) h.set('x-cf-city', cfCity);
+      return NextResponse.next({ request: { headers: h } });
     }
   }
 
