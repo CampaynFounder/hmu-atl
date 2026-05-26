@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-import { Ratelimit } from '@upstash/ratelimit';
-import { Redis } from '@upstash/redis';
-
-const ratelimit = new Ratelimit({
-  redis: Redis.fromEnv(),
-  limiter: Ratelimit.slidingWindow(10, '1 m'),
-  prefix: 'push-token',
-});
+import { checkRateLimit } from '@/lib/rate-limit/check';
 
 // POST /api/users/push-token
 // Called by native app on each launch to register/refresh the Expo push token.
@@ -19,8 +12,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { success } = await ratelimit.limit(clerkId);
-  if (!success) {
+  const limit = await checkRateLimit({ key: `push-token:${clerkId}`, limit: 10, windowSeconds: 60 });
+  if (!limit.ok) {
     return NextResponse.json({ error: 'Rate limited' }, { status: 429 });
   }
 
