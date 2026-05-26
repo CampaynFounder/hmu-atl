@@ -1,0 +1,58 @@
+name: Smoke Tests
+
+# Fires automatically after a successful staging deploy, and on-demand for any
+# env/market combo via workflow_dispatch (or the admin portal trigger button).
+
+on:
+  workflow_run:
+    workflows: ['Deploy → Staging']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      env:
+        description: 'Environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options: [staging, production]
+      market:
+        description: 'Market'
+        required: true
+        default: 'atl'
+        type: choice
+        options: [atl, nola, hou, dal, mem]
+
+concurrency:
+  group: smoke-${{ github.event.inputs.env || 'staging' }}-${{ github.event.inputs.market || 'atl' }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: >-
+      Smoke (${{ github.event.inputs.env || 'staging' }} /
+      ${{ github.event.inputs.market || 'atl' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    environment:
+      name: ${{ github.event.inputs.env || 'staging' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run smoke suite
+        env:
+          SMOKE_WEBHOOK_SECRET: ${{ secrets.SMOKE_WEBHOOK_SECRET }}
+        run: |
+          node scripts/smoke-test.mjs \
+            --env    "${{ github.event.inputs.env    || 'staging' }}" \
+            --market "${{ github.event.inputs.market || 'atl'     }}" \
+            --commit "${{ github.event.workflow_run.head_sha || github.sha }}"
