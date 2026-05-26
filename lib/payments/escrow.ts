@@ -2,7 +2,7 @@ import { stripe } from '@/lib/stripe/connect';
 import { sql } from '@/lib/db/client';
 import { getDailyEarnings } from './fee-calculator';
 import { getDriverEnrollment, updateEnrollmentProgress, isDriverInFreeWindow, getOfferProgress } from '@/lib/db/enrollment-offers';
-import { calculateAddOnTotal } from '@/lib/db/service-menu';
+import { calculateUnsettledAddOnTotal } from '@/lib/db/service-menu';
 import { resolvePricingStrategy } from './strategies';
 import type { PricingStrategy } from './strategies';
 import { getDepositOnlyConfig, calculateExtrasFeeCents } from './strategies/deposit-only';
@@ -174,8 +174,10 @@ export async function captureRiderPayment(rideId: string, options?: { strategy?:
   const userRows = await sql`SELECT tier FROM users WHERE id = ${ride.driver_id} LIMIT 1`;
   const tier = ((userRows[0] as Record<string, unknown>)?.tier as string) || 'free';
 
-  // Calculate confirmed add-on total
-  const addOnTotal = await calculateAddOnTotal(rideId);
+  // Only bundle extras that haven't already been charged via their own PI.
+  // Extras with stripe_payment_intent_id are settled separately by
+  // captureExtraPayment() and must not be included here (double-charge).
+  const addOnTotal = await calculateUnsettledAddOnTotal(rideId);
   const addOnReserve = Number(ride.add_on_reserve ?? 0);
   const totalRideAmount = Number(ride.final_agreed_price) + addOnTotal;
 
@@ -675,12 +677,9 @@ export async function captureExtraPayment(params: {
     return { status: 'skipped', reason: 'cash_ride' };
   }
 
-  // Only deposit_only mode does per-extra captures. legacy_full_fare settles
-  // extras at the main Start-Ride capture against the add-on reserve.
-  const strategy = await resolvePricingStrategy(ride.driver_id as string);
-  if (strategy.modeKey !== 'deposit_only') {
-    return { status: 'skipped', reason: `strategy_${strategy.modeKey}` };
-  }
+  // Every confirmed extra gets its own Stripe PI regardless of pricing mode.
+  // The main ride capture (captureRiderPayment) uses calculateUnsettledAddOnTotal
+  // which excludes extras that already have a PI, so there is no double-charge.
 
   const addOnRows = await sql`
     SELECT id, subtotal, status, stripe_payment_intent_id, stripe_charge_status
