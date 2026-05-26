@@ -24,6 +24,13 @@ function getVerifiedPhone(data: { phone_numbers?: Array<{ phone_number: string; 
   return null;
 }
 
+// Returns true if the user authenticated via a verified OAuth provider (Google,
+// Apple, etc.). OAuth users are identity-verified through the provider — they
+// should not be gated behind SMS phone verification.
+function hasVerifiedOAuth(data: { external_accounts?: Array<{ verification?: { status?: string } | null }> }): boolean {
+  return (data.external_accounts || []).some((ea) => ea.verification?.status === 'verified');
+}
+
 // Force dynamic rendering (don't pre-render at build time)
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -64,8 +71,9 @@ export async function POST(req: Request) {
     return new Response('Invalid signature', { status: 400 });
   }
 
-  // Handle events
-  const eventType = evt.type;
+  // Handle events. Mutable so OAuth user.created can fall through to the
+  // user.updated handler without duplicating the row-creation logic.
+  let eventType = evt.type;
 
   // Idempotency: claim the svix message id for events whose handlers have
   // counter-style side effects (sign_in_count++, first-return SMS). Svix
@@ -85,15 +93,26 @@ export async function POST(req: Request) {
     }
   }
 
-  // user.created: log only. We DELIBERATELY do not create the Neon row here
-  // because phone is not yet verified — unverified signups are treated as bots
-  // and excluded from admin analytics. Row creation happens on user.updated
-  // the first time a verified phone appears.
+  // user.created: defer OTP/email signups until a verified phone appears on
+  // user.updated (bot-filter). OAuth signups (Google, Apple) are verified
+  // through the provider and MUST be processed immediately — they will never
+  // have an SMS-verified phone, so user.updated would defer them forever,
+  // leaving them as ghost Clerk accounts with no Neon row.
   if (eventType === 'user.created') {
-    console.log('[WEBHOOK] user.created - deferring Neon row until phone verified:', {
+    if (!hasVerifiedOAuth(evt.data as Parameters<typeof hasVerifiedOAuth>[0])) {
+      console.log('[WEBHOOK] user.created - OTP/email signup, deferring until phone verified:', {
+        clerkId: evt.data.id,
+      });
+      return new Response('Deferred until phone verified', { status: 200 });
+    }
+    // OAuth user — fall through to user.updated handling below by re-labeling
+    // the event type. The data shape is identical between user.created and
+    // user.updated so the same code path handles both correctly.
+    console.log('[WEBHOOK] user.created - OAuth signup, processing immediately:', {
       clerkId: evt.data.id,
     });
-    return new Response('Deferred until phone verified', { status: 200 });
+    // Intentional fall-through: the user.updated block below handles the rest.
+    eventType = 'user.updated';
   }
 
   if (eventType === 'user.updated') {
@@ -111,11 +130,15 @@ export async function POST(req: Request) {
         return new Response('User updated', { status: 200 });
       }
 
-      // No Neon row yet — create one only if phone is now verified.
+      // No Neon row yet — create one if phone is verified (OTP path) OR the user
+      // authenticated via OAuth (Google/Apple). OAuth users have no SMS phone but
+      // are identity-verified through the provider. Without this, user.updated
+      // defers them indefinitely, producing ghost Clerk accounts with no Neon row.
       const verifiedPhone = getVerifiedPhone(data as any);
-      if (!verifiedPhone) {
-        console.log('[WEBHOOK] user.updated - no verified phone yet, still deferring:', { clerkId: id });
-        return new Response('Deferred until phone verified', { status: 200 });
+      const isOAuthUser = hasVerifiedOAuth(data as any);
+      if (!verifiedPhone && !isOAuthUser) {
+        console.log('[WEBHOOK] user.updated - no verified identity, still deferring:', { clerkId: id });
+        return new Response('Deferred until verified', { status: 200 });
       }
 
       // Read attribution from unsafeMetadata (set by sign-up page).
