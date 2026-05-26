@@ -176,11 +176,14 @@ export async function POST(
   // Tell the offer board to close.
   void broadcastBlastEvent(blastId, 'blast_cancelled', { blastId });
 
-  // Tell HMU'd drivers their request is gone + write rejected events.
+  // Tell all notified drivers their request is gone + write rejected events.
+  // Include every driver who received the blast notification, not just those who HMU'd —
+  // pending drivers still have countdown timers running and must be told the blast is dead.
   const interestedRows = await sql`
     SELECT driver_id FROM blast_driver_targets
      WHERE blast_id = ${blastId}
-       AND (hmu_at IS NOT NULL OR selected_at IS NOT NULL)
+       AND notified_at IS NOT NULL
+       AND rejected_at IS NULL
   `;
   const interestedIds: string[] = [];
   for (const r of interestedRows) {
