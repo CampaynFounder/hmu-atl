@@ -15,6 +15,43 @@ const ATTRIB_MAX_AGE_S = 60 * 60 * 24 * 30;
 // domains or typos spoof a market. New markets: add the slug here.
 const KNOWN_MARKET_SUBDOMAINS = new Set(['atl', 'nola']);
 
+// Static market centers used for apex-domain geo-routing. Cloudflare populates
+// req.geo.latitude/longitude from IP. We find the nearest market within its
+// radius and redirect to that subdomain. Falls back to 'atl' if the user is
+// out-of-range or geo is unavailable (dev, VPN, etc.).
+// Update this list whenever a new market goes live with a Clerk satellite.
+const MARKET_CENTERS = [
+  { slug: 'atl',  lat: 33.7490, lng: -84.3880, radiusMiles: 60 },
+  { slug: 'nola', lat: 29.9511, lng: -90.0715, radiusMiles: 50 },
+] as const;
+
+function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3958.8;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function detectMarketFromGeo(req: NextRequest): string {
+  // Cloudflare Workers populates request.cf with geo data (latitude/longitude
+  // as strings). NextRequest doesn't expose this in its TS types; use cast.
+  // Falls back to 'atl' in local dev (no CF headers) and for out-of-range IPs.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cf = (req as any).cf as { latitude?: string; longitude?: string } | undefined;
+  const lat = parseFloat(cf?.latitude ?? '');
+  const lng = parseFloat(cf?.longitude ?? '');
+  if (!isFinite(lat) || !isFinite(lng)) return 'atl';
+  let best = 'atl';
+  let minDist = Infinity;
+  for (const m of MARKET_CENTERS) {
+    const d = haversineDistanceMiles(lat, lng, m.lat, m.lng);
+    if (d < m.radiusMiles && d < minDist) { minDist = d; best = m.slug; }
+  }
+  return best;
+}
+
 // Extract a trusted market slug from the Host header. Returns null unless the
 // host is a known market subdomain (atl.hmucashride.com, nola.hmucashride.com,
 // …). Multi-level subdomains like clerk.atl.hmucashride.com produce null —
@@ -212,8 +249,12 @@ export default clerkMiddleware(async (auth, req) => {
       || path.startsWith('/_next/')
       || path.startsWith('/.well-known/');
     if (!skipApexRedirect) {
-      const target = `https://atl.hmucashride.com${path}${req.nextUrl.search}`;
-      return NextResponse.redirect(target, 308);
+      // 307 (temporary) so browsers don't cache and geo can change per-request.
+      // detectMarketFromGeo uses Cloudflare's IP geolocation to pick the
+      // nearest live market; falls back to 'atl' for out-of-range / no-geo.
+      const marketSlug = detectMarketFromGeo(req);
+      const target = `https://${marketSlug}.hmucashride.com${path}${req.nextUrl.search}`;
+      return NextResponse.redirect(target, 307);
     }
   }
 
