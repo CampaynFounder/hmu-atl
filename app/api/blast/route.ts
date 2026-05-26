@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
     }
 
     const userRows = await runQuery('lookup_user_by_clerk_id', () => sql`
-      SELECT u.id, u.gender, u.account_status,
+      SELECT u.id, u.gender, u.account_status, u.profile_type,
         COALESCE(rp.thumbnail_url, rp.avatar_url) AS photo_url,
         rp.stripe_customer_id, rp.display_name
       FROM users u
@@ -154,6 +154,10 @@ export async function POST(req: NextRequest) {
     const user = userRows[0] as Record<string, unknown>;
     const riderId = user.id as string;
     const riderGender = (user.gender as string | null) ?? null;
+
+    if (user.profile_type !== 'rider') {
+      return NextResponse.json({ error: 'Only riders can create blasts' }, { status: 403 });
+    }
 
     if (user.account_status !== 'active') {
       return NextResponse.json({ error: 'Account must be active to send a blast' }, { status: 403 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export type MarketStatus = 'setup' | 'soft_launch' | 'live' | 'paused';
 const STATUSES: MarketStatus[] = ['setup', 'soft_launch', 'live', 'paused'];
@@ -44,6 +44,19 @@ export default function MarketsClient({ initialMarkets }: { initialMarkets: Admi
   const [markets, setMarkets] = useState<AdminMarket[]>(initialMarkets);
   const [saving, setSaving] = useState<string | null>(null);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [highlightSlug, setHighlightSlug] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const created = params.get('created');
+    if (created) {
+      setHighlightSlug(created);
+      setToast({ kind: 'ok', text: `Market '${created}' created — set status when ready` });
+      window.history.replaceState({}, '', window.location.pathname);
+      setTimeout(() => setHighlightSlug(null), 4000);
+      setTimeout(() => setToast(null), 5000);
+    }
+  }, []);
 
   async function changeStatus(id: string, nextStatus: MarketStatus) {
     const market = markets.find(m => m.id === id);
@@ -82,13 +95,27 @@ export default function MarketsClient({ initialMarkets }: { initialMarkets: Admi
 
   return (
     <div style={{ padding: 24, color: 'var(--admin-text)' }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>Markets</h1>
-        <p style={{ color: 'var(--admin-text-dim)', fontSize: 13 }}>
-          Lifecycle status per market. <strong>setup</strong> = seeded, not public.
-          <strong> soft_launch</strong> = pilot (signups allowed). <strong>live</strong> = public.
-          <strong> paused</strong> = temporarily disabled.
-        </p>
+      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>Markets</h1>
+          <p style={{ color: 'var(--admin-text-dim)', fontSize: 13, margin: 0 }}>
+            <strong>setup</strong> = seeded, not public.&nbsp;
+            <strong>soft_launch</strong> = pilot (signups allowed).&nbsp;
+            <strong>live</strong> = public.&nbsp;
+            <strong>paused</strong> = temporarily disabled.
+          </p>
+        </div>
+        <a
+          href="/admin/markets/new"
+          style={{
+            padding: '9px 18px', borderRadius: 8, textDecoration: 'none',
+            background: '#00E676', color: '#080808',
+            fontWeight: 700, fontSize: 13, letterSpacing: 0.3,
+            whiteSpace: 'nowrap', flexShrink: 0,
+          }}
+        >
+          + Add Market
+        </a>
       </div>
 
       <div style={{
@@ -110,7 +137,14 @@ export default function MarketsClient({ initialMarkets }: { initialMarkets: Admi
           </thead>
           <tbody>
             {markets.map(m => (
-              <tr key={m.id} style={{ borderBottom: '1px solid var(--admin-border)' }}>
+              <tr
+                key={m.id}
+                style={{
+                  borderBottom: '1px solid var(--admin-border)',
+                  transition: 'background 0.4s',
+                  background: highlightSlug === m.slug ? 'rgba(0,230,118,0.07)' : undefined,
+                }}
+              >
                 <td style={tdStyle}>
                   <div style={{ fontWeight: 600 }}>{m.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--admin-text-dim)' }}>

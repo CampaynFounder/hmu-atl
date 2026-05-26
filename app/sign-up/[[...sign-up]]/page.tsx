@@ -7,15 +7,20 @@ import { MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver'
 import { getMarketBranding } from '@/lib/markets/branding';
 
 interface Props {
-  searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string; mode?: string; draft?: string; handle?: string; blastDraftId?: string }>;
+  searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string; mode?: string; draft?: string; handle?: string; blastDraftId?: string; market?: string }>;
 }
 
 export default async function SignUpPage({ searchParams }: Props) {
-  const [{ type, returnTo, cash, persona, funnel_stage, mode, draft, handle, blastDraftId }, h] = await Promise.all([
+  const [{ type, returnTo, cash, persona, funnel_stage, mode, draft, handle, blastDraftId, market: marketParam }, h] = await Promise.all([
     searchParams,
     headers(),
   ]);
-  const marketSlug = h.get(MARKET_SLUG_HEADER) || DEFAULT_MARKET_SLUG;
+  // Explicit ?market= param wins over the subdomain header. This lets any
+  // shareable link carry market context (e.g. /sign-up?type=driver&market=nola).
+  // Format-validated here; webhook falls back to 'atl' if slug doesn't resolve.
+  const marketSlug = (marketParam && /^[a-z0-9-]+$/.test(marketParam) ? marketParam : null)
+    || h.get(MARKET_SLUG_HEADER)
+    || DEFAULT_MARKET_SLUG;
   const brand = getMarketBranding(marketSlug);
 
   const callbackParams = new URLSearchParams();

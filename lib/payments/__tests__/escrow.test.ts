@@ -25,6 +25,7 @@ vi.mock('@/lib/db/enrollment-offers', () => ({
 
 vi.mock('@/lib/db/service-menu', () => ({
   calculateAddOnTotal: vi.fn().mockResolvedValue(0),
+  calculateUnsettledAddOnTotal: vi.fn().mockResolvedValue(0),
 }));
 
 import { holdRiderPayment, cancelPaymentHold, partialCaptureNoShow } from '../escrow';

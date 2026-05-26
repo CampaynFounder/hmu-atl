@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface AddOn {
   id: string;
@@ -24,6 +24,13 @@ const C = { green: '#00E676', black: '#080808', card: '#141414', white: '#fff', 
 export default function DriverAddOnApproval({ rideId, addOns, agreedPrice, onUpdated }: Props) {
   const [acting, setActing] = useState<string | null>(null);
   const [actingAll, setActingAll] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  useEffect(() => {
+    if (!feedback) return;
+    const t = setTimeout(() => setFeedback(null), 5000);
+    return () => clearTimeout(t);
+  }, [feedback]);
 
   const pendingItems = addOns.filter(a => a.status === 'pending_driver');
   const confirmedItems = addOns.filter(a => a.status === 'confirmed' || a.status === 'adjusted');
@@ -54,7 +61,7 @@ export default function DriverAddOnApproval({ rideId, addOns, agreedPrice, onUpd
   const hasActionItems = pendingItems.length > 0 || removalPending.length > 0;
   if (!hasActionItems && confirmedItems.length === 0) return null;
 
-  async function handleAction(addOnId: string, action: string) {
+  async function handleAction(addOnId: string, action: string, subtotal?: number) {
     setActing(addOnId + action);
     try {
       const res = await fetch(`/api/rides/${rideId}/add-ons`, {
@@ -64,6 +71,13 @@ export default function DriverAddOnApproval({ rideId, addOns, agreedPrice, onUpd
       });
       const data = await res.json();
       if (res.ok && data.addOns) onUpdated(data.addOns, data.total);
+      if (action === 'confirm') {
+        if (data.payment?.status === 'failed') {
+          setFeedback({ type: 'error', message: data.payment.errorMessage || 'Payment failed — ask for cash instead' });
+        } else if (res.ok) {
+          setFeedback({ type: 'success', message: subtotal != null ? `Payment collected — $${subtotal.toFixed(2)}` : 'Payment collected' });
+        }
+      }
     } catch { /* handled by parent */ }
     setActing(null);
   }
@@ -78,6 +92,15 @@ export default function DriverAddOnApproval({ rideId, addOns, agreedPrice, onUpd
       });
       const data = await res.json();
       if (res.ok && data.addOns) onUpdated(data.addOns, data.total);
+      if (res.ok) {
+        const r = data.results as { succeeded: number; failed: number } | undefined;
+        if (r && r.failed > 0) {
+          setFeedback({ type: 'error', message: `${r.failed} payment${r.failed === 1 ? '' : 's'} failed — ask for cash` });
+        } else {
+          const count = r?.succeeded ?? pendingItems.length;
+          setFeedback({ type: 'success', message: `${count} payment${count === 1 ? '' : 's'} collected` });
+        }
+      }
     } catch { /* */ }
     setActingAll(false);
   }
@@ -135,7 +158,7 @@ export default function DriverAddOnApproval({ rideId, addOns, agreedPrice, onUpd
                 ${g.totalSub.toFixed(2)}
               </span>
               <button
-                onClick={() => handleAction(g.lastId, 'confirm')}
+                onClick={() => handleAction(g.lastId, 'confirm', g.totalSub)}
                 disabled={acting === g.lastId + 'confirm'}
                 style={{
                   background: C.green, color: C.black, border: 'none', borderRadius: 100,
@@ -260,6 +283,26 @@ export default function DriverAddOnApproval({ rideId, addOns, agreedPrice, onUpd
           ${(Number(agreedPrice || 0) + confirmedTotal).toFixed(2)}
         </span>
       </div>
+
+      {/* Payment feedback toast */}
+      {feedback && (
+        <div style={{
+          marginTop: 10,
+          padding: '8px 12px',
+          borderRadius: 10,
+          background: feedback.type === 'success' ? 'rgba(0,230,118,0.12)' : 'rgba(255,82,82,0.12)',
+          border: `1px solid ${feedback.type === 'success' ? 'rgba(0,230,118,0.3)' : 'rgba(255,82,82,0.3)'}`,
+          fontSize: 12,
+          fontWeight: 600,
+          color: feedback.type === 'success' ? C.green : C.red,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}>
+          <span>{feedback.type === 'success' ? '✓' : '✕'}</span>
+          {feedback.message}
+        </div>
+      )}
     </div>
   );
 }

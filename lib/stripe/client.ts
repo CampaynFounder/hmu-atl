@@ -1,23 +1,32 @@
-// Stripe Client with Mock Support
-// Handles Customer + Connect account creation with STRIPE_MOCK flag
+// Central Stripe client — import { stripeClient, isMock } from here.
+// Always uses createFetchHttpClient() for CF Workers compatibility.
+// Lazy-initialized so the module is safe to import during build.
 
 import Stripe from 'stripe';
 
-// Lazy initialization - only create Stripe client when actually used (not during build)
-let stripe: Stripe | null = null;
+let _stripe: Stripe | null = null;
 function getStripe(): Stripe {
-  if (!stripe && process.env.STRIPE_SECRET_KEY) {
-    stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  if (!_stripe && process.env.STRIPE_SECRET_KEY) {
+    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
       apiVersion: '2026-02-25.clover',
+      httpClient: Stripe.createFetchHttpClient(),
     });
   }
-  if (!stripe) {
-    throw new Error('STRIPE_SECRET_KEY not configured');
-  }
-  return stripe;
+  if (!_stripe) throw new Error('STRIPE_SECRET_KEY not configured');
+  return _stripe;
 }
 
-const IS_MOCK = process.env.STRIPE_MOCK === 'true';
+// Proxy so callers get a stable reference and getStripe() fires on first use.
+export const stripeClient = new Proxy({} as Stripe, {
+  get(_t, prop) {
+    return (getStripe() as unknown as Record<string | symbol, unknown>)[prop];
+  },
+});
+
+export const isMock = process.env.STRIPE_MOCK === 'true';
+
+// Keep IS_MOCK for any existing internal callers in this file.
+const IS_MOCK = isMock;
 
 // Mock ID generators
 function generateMockCustomerId(): string {
@@ -169,4 +178,5 @@ export async function createTransfer(params: {
   return transfer.id;
 }
 
-export { stripe };
+// Legacy export — prefer stripeClient for new callers.
+export { stripeClient as stripe };

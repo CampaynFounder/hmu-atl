@@ -285,3 +285,24 @@ export async function calculateAddOnTotal(rideId: string): Promise<number> {
   `;
   return Number(rows[0]?.total ?? 0);
 }
+
+// Sum of confirmed/adjusted extras that have NOT yet been settled via their
+// own Stripe PaymentIntent. Used by the main ride capture so it only bundles
+// extras that captureExtraPayment() hasn't already charged separately.
+// Extras with a PI (stripe_payment_intent_id IS NOT NULL) are excluded —
+// they've already been collected and must not be double-captured.
+export async function calculateUnsettledAddOnTotal(rideId: string): Promise<number> {
+  const rows = await sql`
+    SELECT COALESCE(SUM(
+      CASE
+        WHEN status = 'confirmed' THEN subtotal
+        WHEN status = 'adjusted' THEN COALESCE(rider_adjusted_amount, subtotal)
+        ELSE 0
+      END
+    ), 0) as total
+    FROM ride_add_ons
+    WHERE ride_id = ${rideId}
+      AND stripe_payment_intent_id IS NULL
+  `;
+  return Number(rows[0]?.total ?? 0);
+}

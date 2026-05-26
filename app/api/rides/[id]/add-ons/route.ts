@@ -148,6 +148,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  let confirmAllResults: { succeeded: number; failed: number } | undefined;
   try {
     const { userId: clerkId } = await auth();
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -264,6 +265,7 @@ export async function PATCH(
           }
         }
 
+        confirmAllResults = { succeeded, failed };
         publishRideUpdate(rideId, 'add_ons_confirmed_all', { succeeded, failed }).catch(() => {});
         notifyUser(otherPartyId, 'ride_update', {
           rideId, type: 'add_ons_confirmed_all',
@@ -336,7 +338,7 @@ export async function PATCH(
     await sql`UPDATE rides SET add_on_total = ${total} WHERE id = ${rideId}`;
 
     const addOns = await getRideAddOns(rideId);
-    return NextResponse.json({ addOns, total });
+    return NextResponse.json({ addOns, total, ...(confirmAllResults && { results: confirmAllResults }) });
   } catch (error) {
     console.error('Update ride add-on error:', error);
     return NextResponse.json({ error: 'Failed to update add-on' }, { status: 500 });

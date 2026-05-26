@@ -15,6 +15,46 @@ const ATTRIB_MAX_AGE_S = 60 * 60 * 24 * 30;
 // domains or typos spoof a market. New markets: add the slug here.
 const KNOWN_MARKET_SUBDOMAINS = new Set(['atl', 'nola']);
 
+// Market geo centers used for apex routing. Two behaviors:
+//   redirect:true  → send user to {slug}.hmucashride.com (only ATL — has existing
+//                    users + Clerk primary, so the subdomain is load-bearing)
+//   redirect:false → stamp x-market-slug header, serve them on apex
+//                    (requires hmucashride.com to be a Clerk satellite)
+//
+// New markets: add with redirect:false. No Clerk satellite per-market needed.
+const MARKET_CENTERS = [
+  { slug: 'atl',  lat: 33.7490, lng: -84.3880, radiusMiles: 60, redirect: true  },
+  { slug: 'nola', lat: 29.9511, lng: -90.0715, radiusMiles: 50, redirect: false },
+] as const;
+
+function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3958.8;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+type MarketCenter = typeof MARKET_CENTERS[number];
+
+// Returns the nearest live market (with its redirect flag), or null if
+// the user is out of every market's radius (Memphis, Dallas, etc.).
+function detectMarketFromGeo(req: NextRequest): MarketCenter | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cf = (req as any).cf as { latitude?: string; longitude?: string } | undefined;
+  const lat = parseFloat(cf?.latitude ?? '');
+  const lng = parseFloat(cf?.longitude ?? '');
+  if (!isFinite(lat) || !isFinite(lng)) return null;
+  let best: MarketCenter | null = null;
+  let minDist = Infinity;
+  for (const m of MARKET_CENTERS) {
+    const d = haversineDistanceMiles(lat, lng, m.lat, m.lng);
+    if (d < m.radiusMiles && d < minDist) { minDist = d; best = m; }
+  }
+  return best;
+}
+
 // Extract a trusted market slug from the Host header. Returns null unless the
 // host is a known market subdomain (atl.hmucashride.com, nola.hmucashride.com,
 // …). Multi-level subdomains like clerk.atl.hmucashride.com produce null —
@@ -212,8 +252,31 @@ export default clerkMiddleware(async (auth, req) => {
       || path.startsWith('/_next/')
       || path.startsWith('/.well-known/');
     if (!skipApexRedirect) {
-      const target = `https://atl.hmucashride.com${path}${req.nextUrl.search}`;
-      return NextResponse.redirect(target, 308);
+      const market = detectMarketFromGeo(req);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cfCity = ((req as any).cf as { city?: string } | undefined)?.city ?? '';
+      const h = new Headers(req.headers);
+      if (cfCity) h.set('x-cf-city', cfCity);
+
+      if (market?.redirect) {
+        // ATL: redirect to its subdomain. Existing ATL users have sessions
+        // scoped there, and atl.hmucashride.com is the Clerk primary domain.
+        return NextResponse.redirect(
+          `https://${market.slug}.hmucashride.com${path}${req.nextUrl.search}`,
+          307,
+        );
+      } else if (market) {
+        // In-market but no subdomain required (NOLA, and all future markets).
+        // Stamp the market slug so layout/sign-up know which market this is.
+        // Clerk satellite mode uses hmucashride.com as the domain — no per-market
+        // subdomain or Clerk satellite config needed beyond the apex registration.
+        h.set('x-market-slug', market.slug);
+        return NextResponse.next({ request: { headers: h } });
+      } else {
+        // Out of every live market (Memphis, Dallas…): show waitlist page.
+        h.set('x-market-slug', 'none');
+        return NextResponse.next({ request: { headers: h } });
+      }
     }
   }
 

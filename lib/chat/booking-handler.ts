@@ -254,13 +254,19 @@ export function calculateUberComparison(args: {
   };
 }
 
-async function geocode(address: string): Promise<{ lat: number; lng: number; name: string } | null> {
+async function geocode(
+  address: string,
+  options?: { bbox?: string; citySuffix?: string },
+): Promise<{ lat: number; lng: number; name: string } | null> {
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
   if (!token) return null;
-  const query = address.toLowerCase().includes('atlanta') || address.toLowerCase().includes(', ga')
-    ? address : `${address}, Atlanta, GA`;
+  const suffix = options?.citySuffix ?? 'Atlanta, GA';
+  const lower = address.toLowerCase();
+  const alreadyLocalized = lower.includes(suffix.split(',')[0].toLowerCase()) || lower.includes(', ga') || lower.includes(', la');
+  const query = alreadyLocalized ? address : `${address}, ${suffix}`;
   const encoded = encodeURIComponent(query);
-  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${token}&country=us&bbox=-84.8,33.5,-84.1,34.1&limit=1&types=address,poi,place,neighborhood,locality`;
+  const bboxParam = options?.bbox ? `&bbox=${options.bbox}` : '';
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${token}&country=us${bboxParam}&limit=1&types=address,poi,place,neighborhood,locality`;
   const res = await fetch(url);
   if (!res.ok) return null;
   const data = await res.json();
@@ -272,6 +278,7 @@ async function geocode(address: string): Promise<{ lat: number; lng: number; nam
 
 export async function getMapboxRoute(
   pickup: string, dropoff: string, stops?: string[],
+  marketOptions?: { bbox?: string; citySuffix?: string },
 ): Promise<{
   distanceMiles: number; durationMinutes: number;
   pickup: { address: string; lat: number; lng: number };
@@ -281,13 +288,13 @@ export async function getMapboxRoute(
 }> {
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
   if (!token) throw new Error('Mapbox not configured');
-  const [pickupGeo, dropoffGeo] = await Promise.all([geocode(pickup), geocode(dropoff)]);
+  const [pickupGeo, dropoffGeo] = await Promise.all([geocode(pickup, marketOptions), geocode(dropoff, marketOptions)]);
   if (!pickupGeo) throw new Error(`Could not find pickup location: ${pickup}`);
   if (!dropoffGeo) throw new Error(`Could not find dropoff location: ${dropoff}`);
   const waypoints: { lat: number; lng: number; address: string }[] = [{ ...pickupGeo, address: pickupGeo.name }];
   let stopGeos: { lat: number; lng: number; address: string }[] = [];
   if (stops?.length) {
-    const geocoded = await Promise.all(stops.map(s => geocode(s)));
+    const geocoded = await Promise.all(stops.map(s => geocode(s, marketOptions)));
     stopGeos = geocoded.filter((g): g is NonNullable<typeof g> => g !== null).map(g => ({ ...g, address: g.name }));
     waypoints.push(...stopGeos);
   }

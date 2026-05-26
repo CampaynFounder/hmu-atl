@@ -224,15 +224,21 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Determine if this render is happening on a Clerk satellite subdomain.
-  // Host comes from middleware-stamped x-market-slug (trusted allowlist) — we
-  // only treat a request as a satellite when it's a KNOWN non-primary market.
-  // ATL requests pass through with ClerkProvider in default (primary) mode, so
-  // existing ATL behavior is byte-for-byte unchanged.
+  // Determine if this render is happening on a Clerk satellite.
+  // ATL (the Clerk primary) runs in default mode — no change.
+  // All other markets (NOLA, future cities) run as Clerk satellites.
+  //
+  // Satellite domain = the ACTUAL host the user is on, not ${slug}.hmucashride.com.
+  // This supports both:
+  //   a) nola.hmucashride.com  — classic per-market subdomain (legacy NOLA)
+  //   b) hmucashride.com       — apex satellite (new markets, no subdomain needed)
+  //      Requires hmucashride.com to be registered in Clerk dashboard → Satellites.
   const h = await headers();
   const slug = h.get(MARKET_SLUG_HEADER);
-  const isSatellite = slug !== null && slug !== 'atl';
-  const satelliteHost = isSatellite && slug ? `${slug}.hmucashride.com` : null;
+  const actualHost = h.get('host')?.toLowerCase().split(':')[0] || '';
+  const isSatellite = slug !== null && slug !== 'atl' && slug !== 'none';
+  // Use the actual host so Clerk's handshake targets the right domain.
+  const satelliteHost = isSatellite ? (actualHost || `${slug}.hmucashride.com`) : null;
 
   const clerkProps = isSatellite && satelliteHost
     ? {

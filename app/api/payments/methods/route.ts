@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import Stripe from 'stripe';
+import { stripeClient as stripe } from '@/lib/stripe/client';
 import { sql } from '@/lib/db/client';
-
-function getStripe() {
-  return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2026-02-25.clover' });
-}
 
 // GET — list saved payment methods
 export async function GET() {
@@ -18,7 +14,6 @@ export async function GET() {
   const customerId = rows[0]?.stripe_customer_id;
   if (!customerId) return NextResponse.json({ success: true, paymentMethods: [] });
 
-  const stripe = getStripe();
   const methods = await stripe.paymentMethods.list({
     customer: customerId,
     type: 'card',
@@ -54,8 +49,6 @@ export async function POST(request: NextRequest) {
 
   const user = rows[0] as { id: string; stripe_customer_id: string | null };
   let customerId = user.stripe_customer_id;
-
-  const stripe = getStripe();
 
   if (!customerId) {
     const customer = await stripe.customers.create({
