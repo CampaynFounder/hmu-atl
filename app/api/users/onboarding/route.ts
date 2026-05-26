@@ -130,8 +130,9 @@ export async function POST(request: NextRequest) {
         const headerMarketSlug = request.headers.get(MARKET_SLUG_HEADER);
         const marketSlug = metaMarketSlug || headerMarketSlug || DEFAULT_MARKET_SLUG;
         try {
-          const market = await resolveMarketBySlug(marketSlug);
-          marketId = market?.market_id || null;
+          const market = await resolveMarketBySlug(marketSlug)
+            ?? (marketSlug !== DEFAULT_MARKET_SLUG ? await resolveMarketBySlug(DEFAULT_MARKET_SLUG) : null);
+          marketId = market?.market_id ?? null;
         } catch {
           console.warn('[ONBOARDING] market resolution failed for slug:', marketSlug);
         }
