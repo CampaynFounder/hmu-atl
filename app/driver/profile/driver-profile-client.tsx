@@ -1562,7 +1562,7 @@ function DownBadToggleRow({ initialValue }: { initialValue: boolean }) {
 
   const handleToggleOn = () => {
     if (!hasPaymentMethod) {
-      setError('Link a payment method above before enabling Down Bad.');
+      setError('Complete your payout setup before enabling Down Bad.');
       setTimeout(() => setError(''), 4000);
       return;
     }
@@ -1617,7 +1617,7 @@ function DownBadToggleRow({ initialValue }: { initialValue: boolean }) {
           <div className="dp-row-label">Down Bad rides</div>
           <div className="dp-row-sub">
             {hasPaymentMethod === false
-              ? 'Link a payment method above to enable'
+              ? 'Complete payout setup above to enable'
               : accepts
               ? 'You\'re in the Down Bad deck — swipe at /driver/down-bad'
               : 'Opt in to receive Down Bad posts from riders'}

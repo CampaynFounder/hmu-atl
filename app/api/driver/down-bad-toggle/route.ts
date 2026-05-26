@@ -1,7 +1,7 @@
 // GET  — returns { acceptsDownBad, hasPaymentMethod, disclaimerText }
 // PATCH — body { accepts: boolean }
-//   accepts: true  → requires payment method; sets flag + timestamp
-//   accepts: false → clears flag; no payment gate
+//   accepts: true  → requires payout (Connect) onboarding complete; sets flag + timestamp
+//   accepts: false → clears flag; no gate
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
@@ -9,7 +9,10 @@ import { sql } from '@/lib/db/client';
 import { getPlatformConfig } from '@/lib/platform-config/get';
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2026-02-25.clover' });
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2026-02-25.clover',
+  httpClient: Stripe.createFetchHttpClient(),
+});
 const isMock = process.env.STRIPE_MOCK === 'true';
 
 async function getDriver(clerkId: string) {
@@ -29,18 +32,11 @@ async function getDriver(clerkId: string) {
   };
 }
 
-async function checkPaymentMethod(stripeCustomerId: string | null): Promise<boolean> {
+// Down Bad facilitation fee is captured from the rider at Start Ride —
+// drivers only need their payout (Connect) account ready, not a billing card.
+function checkPayoutReady(stripeOnboardingComplete: boolean): boolean {
   if (isMock) return true;
-  if (!stripeCustomerId) return false;
-  try {
-    const methods = await stripe.paymentMethods.list({
-      customer: stripeCustomerId,
-      limit: 1,
-    });
-    return methods.data.length > 0;
-  } catch {
-    return false;
-  }
+  return stripeOnboardingComplete === true;
 }
 
 export async function GET() {
@@ -50,14 +46,14 @@ export async function GET() {
   const driver = await getDriver(clerkId);
   if (!driver) return NextResponse.json({ error: 'Driver profile required' }, { status: 403 });
 
-  const [hasPaymentMethod, disclaimer] = await Promise.all([
-    checkPaymentMethod(driver.stripe_customer_id),
+  const [payoutReady, disclaimer] = await Promise.all([
+    Promise.resolve(checkPayoutReady(driver.stripe_onboarding_complete)),
     getPlatformConfig('down_bad.disclaimer', { rider_text: '', driver_text: '' }),
   ]);
 
   return NextResponse.json({
     acceptsDownBad: driver.accepts_down_bad ?? false,
-    hasPaymentMethod,
+    hasPaymentMethod: payoutReady,
     disclaimerText: (disclaimer as { driver_text?: string }).driver_text ?? '',
   });
 }
@@ -79,10 +75,9 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (body.accepts) {
-    const hasMethod = await checkPaymentMethod(driver.stripe_customer_id);
-    if (!hasMethod) {
+    if (!checkPayoutReady(driver.stripe_onboarding_complete)) {
       return NextResponse.json(
-        { error: 'Link a payment method before enabling Down Bad' },
+        { error: 'Complete your payout setup before enabling Down Bad' },
         { status: 422 },
       );
     }
