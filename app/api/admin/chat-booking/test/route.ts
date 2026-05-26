@@ -16,6 +16,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
+import { resolveMarketForUser } from '@/lib/markets/resolver';
+import { getMarketMapbox } from '@/lib/markets/mapbox';
 import { checkDriverAvailability } from '@/lib/schedule/conflicts';
 import {
   BookingDraft,
@@ -76,6 +78,9 @@ export async function POST(req: NextRequest) {
   const driver = driverRows[0] as Record<string, unknown>;
   const pricing = (driver.pricing || {}) as Record<string, unknown>;
   const areas = Array.isArray(driver.areas) ? driver.areas : [];
+
+  const driverMarket = await resolveMarketForUser(driver.user_id as string);
+  const marketMapbox = getMarketMapbox(driverMarket.slug);
 
   const cfg = await getChatBookingConfig();
   const step = body.currentStep || 'trip_details';
@@ -141,7 +146,7 @@ ${getStepInstructions(step, driver)}`;
         break;
       case 'calculate_route':
         try {
-          result = await getMapboxRoute(args.pickup, args.dropoff, args.stops);
+          result = await getMapboxRoute(args.pickup, args.dropoff, args.stops, marketMapbox);
           Object.assign(extractedAccum, { route: result });
         } catch (e) {
           result = { error: 'Could not calculate route', detail: e instanceof Error ? e.message : 'unknown' };

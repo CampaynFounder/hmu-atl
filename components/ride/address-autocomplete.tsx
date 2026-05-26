@@ -15,12 +15,12 @@ interface AddressAutocompleteProps {
   onSelect: (address: ValidatedAddress) => void;
   onClear?: () => void;
   proximity?: { lat: number; lng: number };
+  bbox?: string;
   required?: boolean;
   value?: ValidatedAddress | null;
 }
 
 const MAPBOX_BASE = 'https://api.mapbox.com/search/searchbox/v1';
-const ATLANTA_BBOX = '-84.8,33.5,-84.1,34.1';
 
 // generateUUID() is unavailable in in-app browsers (Instagram, TikTok,
 // Facebook WebViews). Fall back to a Math.random UUID v4 so the component
@@ -42,6 +42,7 @@ export function AddressAutocomplete({
   onSelect,
   onClear,
   proximity,
+  bbox,
   required = false,
   value,
 }: AddressAutocompleteProps) {
@@ -81,11 +82,12 @@ export function AddressAutocomplete({
         access_token: token,
         session_token: sessionTokenRef.current,
         country: 'us',
-        bbox: ATLANTA_BBOX,
         limit: '6',
         types: 'address,poi,place,neighborhood,locality',
         language: 'en',
       });
+
+      if (bbox) params.set('bbox', bbox);
 
       if (proximity) {
         params.set('proximity', `${proximity.lng},${proximity.lat}`);
@@ -108,7 +110,7 @@ export function AddressAutocomplete({
     } finally {
       setLoading(false);
     }
-  }, [proximity]);
+  }, [proximity, bbox]);
 
   const handleInputChange = (val: string) => {
     setQuery(val);

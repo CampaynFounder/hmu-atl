@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { checkDriverAvailability } from '@/lib/schedule/conflicts';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
+import { getMarketMapbox } from '@/lib/markets/mapbox';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 import { logSuspectEvent } from '@/lib/admin/suspect-events';
 import {
@@ -136,6 +137,7 @@ export async function POST(req: NextRequest) {
     // The rider never sees the zone token — display strings stay bare.
     const driverMarket = await resolveMarketForUser(driverUserId);
     const marketTz = driverMarket.timezone;
+    const marketMapbox = getMarketMapbox(driverMarket.slug);
 
     // Admin kill-switch. Client has an SSR-rendered flag that prevents the chat
     // modal from opening in the first place, but we re-check server-side so a
@@ -214,7 +216,7 @@ ${getStepInstructions(step, driver)}`;
 
           case 'calculate_route': {
             try {
-              const routeData = await getMapboxRoute(args.pickup, args.dropoff, args.stops);
+              const routeData = await getMapboxRoute(args.pickup, args.dropoff, args.stops, marketMapbox);
               result = routeData;
             } catch (e) {
               result = { error: 'Could not calculate route', detail: e instanceof Error ? e.message : 'unknown' };

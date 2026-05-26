@@ -3,9 +3,6 @@
 
 const MAPBOX_BASE = 'https://api.mapbox.com/search/searchbox/v1';
 
-// Atlanta metro bounding box
-const ATLANTA_BBOX = '-84.8,33.5,-84.1,34.1';
-
 export interface SuggestResult {
   name: string;
   full_address: string;
@@ -23,7 +20,8 @@ export interface RetrieveResult {
 export async function suggestAddresses(
   query: string,
   sessionToken: string,
-  proximity?: { lat: number; lng: number }
+  proximity?: { lat: number; lng: number },
+  bbox?: string,
 ): Promise<SuggestResult[]> {
   if (!query || query.length < 2) return [];
 
@@ -35,11 +33,12 @@ export async function suggestAddresses(
     access_token: token,
     session_token: sessionToken,
     country: 'us',
-    bbox: ATLANTA_BBOX,
     limit: '6',
     types: 'address,poi,place,neighborhood,locality',
     language: 'en',
   });
+
+  if (bbox) params.set('bbox', bbox);
 
   if (proximity) {
     params.set('proximity', `${proximity.lng},${proximity.lat}`);

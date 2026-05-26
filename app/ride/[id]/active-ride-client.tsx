@@ -657,6 +657,18 @@ export default function ActiveRideClient({
         }
         break;
       }
+      case 'add_on_payment_failed': {
+        // Stripe charge on the extra failed — refresh so driver panel reflects the failure
+        fetch(`/api/rides/${rideId}/add-ons`).then(r => r.json()).then(d => {
+          if (d.addOns) setRide(prev => ({ ...prev, addOns: d.addOns, addOnTotal: Number(d.total ?? 0) }));
+        }).catch(() => {});
+        if (isDriver) {
+          const errMsg = (data as { errorMessage?: string }).errorMessage;
+          showNotification(errMsg || 'Payment failed — ask rider for cash', '❌', COLORS.red);
+          if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
+        }
+        break;
+      }
       case 'removal_requested': {
         // Rider wants to remove an add-on — driver must approve
         fetch(`/api/rides/${rideId}/add-ons`).then(r => r.json()).then(d => {
