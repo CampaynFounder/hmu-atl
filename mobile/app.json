@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "HMU ATL",
+    "slug": "hmu-atl",
+    "version": "1.0.0",
+    "scheme": "hmuatl",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#080808",
+    "splash": {
+      "backgroundColor": "#080808"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.hmucashride.atl",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "HMU ATL uses your location to find nearby drivers and track rides.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "HMU ATL uses your location in the background to track active rides.",
+        "NSCameraUsageDescription": "HMU ATL needs camera access to record your driver intro video."
+      }
+    },
+    "android": {
+      "package": "com.hmucashride.atl",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#080808"
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "HMU ATL uses your location to find nearby drivers and track active rides."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#00E676",
+          "sounds": []
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
