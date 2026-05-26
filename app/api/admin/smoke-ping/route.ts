@@ -36,7 +36,8 @@ export async function GET(req: NextRequest) {
           Authorization: `Basic ${Buffer.from(`${keyName}:${keySecret}`).toString('base64')}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ capability: '{"smoke:test":["subscribe"]}', ttl: 5000 }),
+        // Ably requires keyName and timestamp in the request body
+        body: JSON.stringify({ keyName, timestamp: Date.now(), capability: '{"smoke:test":["subscribe"]}', ttl: 5000 }),
         signal: AbortSignal.timeout(8000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
