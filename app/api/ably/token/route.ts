@@ -16,8 +16,11 @@ export async function POST(req: NextRequest) {
     const userId = userRow.id;
 
     // Build capability — what channels this token can access
+    // Grant both DB user ID and Clerk user ID channels so native app clients
+    // (which only have the Clerk ID) can subscribe to their notification channel.
     const capability: Record<string, string[]> = {
       [`user:${userId}:notify`]: ['subscribe', 'publish'],
+      [`user:${clerkId}:notify`]: ['subscribe', 'publish'],
     };
 
     // Grant admin:feed subscribe for admin users
@@ -41,9 +44,20 @@ export async function POST(req: NextRequest) {
       capability['market:*:drivers_available'] = ['subscribe'];
     }
 
-    // If rideId provided, scope to that ride channel
-    if (rideId) {
-      // Verify user is part of this ride
+    // Auto-grant all active ride channels — native app clients don't pass rideId
+    // since they use a singleton Ably client initialized before ride context is known.
+    const activeRideRows = await sql`
+      SELECT id FROM rides
+      WHERE (driver_id = ${userId} OR rider_id = ${userId})
+        AND status NOT IN ('completed', 'cancelled')
+      LIMIT 20
+    `;
+    for (const row of activeRideRows) {
+      capability[`ride:${(row as { id: string }).id}`] = ['subscribe', 'publish', 'presence'];
+    }
+
+    // If rideId provided, verify membership and grant (covers explicit web requests too)
+    if (rideId && !capability[`ride:${rideId}`]) {
       const rideRows = await sql`
         SELECT id FROM rides
         WHERE id = ${rideId} AND (driver_id = ${userId} OR rider_id = ${userId})
@@ -54,8 +68,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Blast offer-board channel — only the rider who owns the blast can subscribe.
-    if (blastId) {
+    // Auto-grant active blast channels for the user
+    const activeBlastRows = await sql`
+      SELECT id FROM hmu_posts
+      WHERE user_id = ${userId} AND post_type = 'blast' AND status = 'active'
+      LIMIT 10
+    `;
+    for (const row of activeBlastRows) {
+      capability[`blast:${(row as { id: string }).id}`] = ['subscribe'];
+    }
+
+    // Blast offer-board channel — explicit blastId from web clients
+    if (blastId && !capability[`blast:${blastId}`]) {
       const blastRows = await sql`
         SELECT 1 FROM hmu_posts
          WHERE id = ${blastId} AND post_type = 'blast' AND user_id = ${userId}

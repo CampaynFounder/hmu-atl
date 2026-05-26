@@ -30,5 +30,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "videos", ".open-next", ".wrangler", "coverage"]
+  "exclude": ["node_modules", "mobile", "videos", ".open-next", ".wrangler", "coverage"]
 }

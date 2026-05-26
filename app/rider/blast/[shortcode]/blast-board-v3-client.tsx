@@ -116,11 +116,11 @@ export default function BlastSwipeDeckClient({
     channelName: `blast:${blastId}`,
     blastId,
     onMessage: (msg) => {
-      if (
-        msg.name === 'blast_cancelled' ||
-        msg.name === 'blast_bumped' ||
-        msg.name === 'target_notified'
-      ) {
+      if (msg.name === 'blast_cancelled') {
+        router.replace('/rider/browse/blast');
+        return;
+      }
+      if (msg.name === 'blast_bumped' || msg.name === 'target_notified') {
         void refresh();
       }
     },
@@ -128,8 +128,9 @@ export default function BlastSwipeDeckClient({
 
   const handleCancel = useCallback(async () => {
     if (!confirm('Cancel this blast?')) return;
+    const res = await fetch(`/api/blast/${blastId}/cancel`, { method: 'POST' });
+    if (!res.ok) return;
     track('blast_cancelled_by_rider', { blastId });
-    await fetch(`/api/blast/${blastId}/cancel`, { method: 'POST' });
     router.push('/rider/browse/blast');
   }, [blastId, router]);
 
