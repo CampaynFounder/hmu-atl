@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAbly } from '@/hooks/use-ably';
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
@@ -37,6 +37,7 @@ interface Booking {
 interface DashboardData {
   view: string;
   bookings: Booking[];
+  vehicleMpg: number | null;
   summary: { total: number; today: number; rides: number; blocked: number; newSinceLastView: number };
 }
 
@@ -50,6 +51,10 @@ export default function DriverDashboardClient() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [smsText, setSmsText] = useState('');
   const [sendingSms, setSendingSms] = useState<string | null>(null);
+  const [gasPrice, setGasPrice] = useState('');
+  const [gasOpen, setGasOpen] = useState(false);
+  const [gasFocused, setGasFocused] = useState(false);
+  const prevGasResult = useRef<string | null>(null);
 
   const fetchDashboard = useCallback(async () => {
     try {
@@ -155,6 +160,150 @@ export default function DriverDashboardClient() {
           </div>
         </div>
       )}
+
+      {/* Gas cost calculator */}
+      <style>{`
+        @keyframes gasResultIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes gasPanelFadeIn {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        .gas-btn:active { transform: scale(0.985); }
+      `}</style>
+      <div style={{ padding: '0 20px 16px' }}>
+        <button
+          className="gas-btn"
+          onClick={() => setGasOpen(o => !o)}
+          style={{
+            width: '100%', background: COLORS.card,
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: gasOpen ? '12px 12px 0 0' : 12,
+            padding: '12px 16px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            color: COLORS.white, fontFamily: FONTS.body,
+            transition: 'border-radius 0.25s ease, background 0.15s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 18 }}>⛽</span>
+            <div style={{ textAlign: 'left' }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>Gas Check</div>
+              <div style={{ fontSize: 11, color: COLORS.gray }}>
+                {data?.vehicleMpg
+                  ? `${data.vehicleMpg} MPG · see your cost per mile`
+                  : 'Set your MPG in profile to calculate'}
+              </div>
+            </div>
+          </div>
+          <span style={{
+            fontSize: 12, color: COLORS.gray,
+            display: 'inline-block',
+            transform: gasOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.25s ease',
+          }}>▼</span>
+        </button>
+
+        {/* Animated panel — always in DOM, toggled via max-height + opacity */}
+        <div style={{
+          overflow: 'hidden',
+          maxHeight: gasOpen ? 320 : 0,
+          opacity: gasOpen ? 1 : 0,
+          transition: 'max-height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease',
+        }}>
+          <div style={{
+            background: COLORS.card, border: '1px solid rgba(255,255,255,0.06)',
+            borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '16px',
+            animation: gasOpen ? 'gasPanelFadeIn 0.25s ease' : 'none',
+          }}>
+            {!data?.vehicleMpg ? (
+              <div style={{ fontSize: 13, color: COLORS.gray, textAlign: 'center', paddingBottom: 4 }}>
+                Add your MPG in{' '}
+                <a href="/driver/profile" style={{ color: COLORS.green, textDecoration: 'none', fontWeight: 600 }}>
+                  Profile → Vehicle Info
+                </a>{' '}
+                to use this calculator.
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 8 }}>What did you pay per gallon?</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                  <div style={{ position: 'relative', flex: 1 }}>
+                    <span style={{
+                      position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)',
+                      color: gasFocused ? COLORS.green : COLORS.gray,
+                      fontSize: 16, fontFamily: FONTS.mono, pointerEvents: 'none',
+                      transition: 'color 0.15s ease',
+                    }}>$</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={gasPrice}
+                      onChange={e => setGasPrice(e.target.value)}
+                      onFocus={() => setGasFocused(true)}
+                      onBlur={() => setGasFocused(false)}
+                      placeholder="3.45"
+                      style={{
+                        width: '100%', background: '#1a1a1a',
+                        border: `1px solid ${gasFocused ? 'rgba(0,230,118,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        boxShadow: gasFocused ? '0 0 0 3px rgba(0,230,118,0.08)' : 'none',
+                        borderRadius: 10, padding: '10px 14px 10px 28px', color: COLORS.white,
+                        fontSize: 18, fontFamily: FONTS.mono, outline: 'none', boxSizing: 'border-box',
+                        transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+                      }}
+                    />
+                  </div>
+                  <div style={{ fontSize: 12, color: COLORS.gray, flexShrink: 0 }}>/ gal</div>
+                </div>
+
+                {gasPrice && Number(gasPrice) > 0 && (() => {
+                  const costPerMile = Number(gasPrice) / data.vehicleMpg!;
+                  const suggestedMin = Math.ceil(costPerMile * 100) / 100;
+                  const resultKey = `${gasPrice}-${data.vehicleMpg}`;
+                  const isNew = prevGasResult.current !== resultKey;
+                  prevGasResult.current = resultKey;
+                  return (
+                    <div
+                      key={resultKey}
+                      style={{
+                        display: 'flex', gap: 8,
+                        animation: isNew ? 'gasResultIn 0.22s cubic-bezier(0.34,1.56,0.64,1) both' : 'none',
+                      }}
+                    >
+                      <div style={{
+                        flex: 1, background: '#1a1a1a', borderRadius: 10, padding: '10px 12px',
+                        transition: 'transform 0.15s ease',
+                      }}>
+                        <div style={{ fontSize: 10, color: COLORS.gray, fontFamily: FONTS.mono, marginBottom: 4 }}>GAS COST / MILE</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: COLORS.orange, fontFamily: FONTS.display }}>
+                          ${costPerMile.toFixed(2)}
+                        </div>
+                      </div>
+                      <div style={{
+                        flex: 1, background: '#1a1a1a', borderRadius: 10, padding: '10px 12px',
+                        transition: 'transform 0.15s ease',
+                      }}>
+                        <div style={{ fontSize: 10, color: COLORS.gray, fontFamily: FONTS.mono, marginBottom: 4 }}>MIN CHARGE / MILE</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: COLORS.green, fontFamily: FONTS.display }}>
+                          ${suggestedMin.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div style={{ fontSize: 11, color: COLORS.gray, marginTop: 12, textAlign: 'center' }}>
+                  Based on your {data.vehicleMpg} MPG ·{' '}
+                  <a href="/driver/profile#vehicle" style={{ color: COLORS.green, textDecoration: 'none' }}>update MPG</a>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Bookings list */}
       <div style={{ padding: '0 20px' }}>

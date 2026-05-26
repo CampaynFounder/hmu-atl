@@ -11,9 +11,15 @@ export async function GET(req: NextRequest) {
     const { userId: clerkId } = await auth();
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    const userRows = await sql`
+      SELECT u.id, dp.vehicle_info
+      FROM users u
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      WHERE u.clerk_id = ${clerkId} LIMIT 1
+    `;
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     const driverId = (userRows[0] as { id: string }).id;
+    const vehicleMpg = ((userRows[0] as { vehicle_info?: Record<string, unknown> }).vehicle_info?.vehicle_mpg as number) || null;
 
     const view = req.nextUrl.searchParams.get('view') || 'today';
     const now = new Date();
@@ -108,6 +114,7 @@ export async function GET(req: NextRequest) {
       rangeStart: rangeStart.toISOString(),
       rangeEnd: rangeEnd.toISOString(),
       bookings: result,
+      vehicleMpg,
       summary: {
         total: bookings.length,
         today: todayBookings.length,

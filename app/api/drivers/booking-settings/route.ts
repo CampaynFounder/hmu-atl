@@ -33,6 +33,8 @@ export async function PATCH(req: NextRequest) {
     advance_notice_hours?: number;
     /** Driver's deposit floor (deposit_only pricing mode). NULL clears it. */
     deposit_floor?: number | null;
+    /** Vehicle fuel efficiency — used in gas cost calculator. */
+    vehicle_mpg?: number | null;
   };
   try {
     body = await req.json();
@@ -56,6 +58,23 @@ export async function PATCH(req: NextRequest) {
         vehicle_info = jsonb_set(
           jsonb_set(COALESCE(vehicle_info, '{}')::jsonb, '{license_plate}', ${JSON.stringify(body.license_plate)}::jsonb),
           '{plate_state}', ${JSON.stringify(body.plate_state || 'GA')}::jsonb
+        ),
+        updated_at = NOW()
+      WHERE user_id = ${userId}
+    `;
+  }
+
+  // Save vehicle MPG to vehicle_info JSONB
+  if (body.vehicle_mpg !== undefined) {
+    if (body.vehicle_mpg !== null && (typeof body.vehicle_mpg !== 'number' || body.vehicle_mpg <= 0 || body.vehicle_mpg > 200)) {
+      return NextResponse.json({ error: 'vehicle_mpg must be a positive number up to 200' }, { status: 400 });
+    }
+    await sql`
+      UPDATE driver_profiles SET
+        vehicle_info = jsonb_set(
+          COALESCE(vehicle_info, '{}')::jsonb,
+          '{vehicle_mpg}',
+          ${JSON.stringify(body.vehicle_mpg)}::jsonb
         ),
         updated_at = NOW()
       WHERE user_id = ${userId}
