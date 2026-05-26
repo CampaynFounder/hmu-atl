@@ -15,14 +15,16 @@ const ATTRIB_MAX_AGE_S = 60 * 60 * 24 * 30;
 // domains or typos spoof a market. New markets: add the slug here.
 const KNOWN_MARKET_SUBDOMAINS = new Set(['atl', 'nola']);
 
-// Static market centers used for apex-domain geo-routing. Cloudflare populates
-// request.cf with lat/lng from IP. We find the nearest live market within its
-// radius and redirect to that subdomain. Returns null when the user is
-// out-of-range — they stay on the apex and see the waitlist/coming-soon page.
-// Update whenever a new market goes live with a Clerk satellite.
+// Market geo centers used for apex routing. Two behaviors:
+//   redirect:true  → send user to {slug}.hmucashride.com (only ATL — has existing
+//                    users + Clerk primary, so the subdomain is load-bearing)
+//   redirect:false → stamp x-market-slug header, serve them on apex
+//                    (requires hmucashride.com to be a Clerk satellite)
+//
+// New markets: add with redirect:false. No Clerk satellite per-market needed.
 const MARKET_CENTERS = [
-  { slug: 'atl',  lat: 33.7490, lng: -84.3880, radiusMiles: 60 },
-  { slug: 'nola', lat: 29.9511, lng: -90.0715, radiusMiles: 50 },
+  { slug: 'atl',  lat: 33.7490, lng: -84.3880, radiusMiles: 60, redirect: true  },
+  { slug: 'nola', lat: 29.9511, lng: -90.0715, radiusMiles: 50, redirect: false },
 ] as const;
 
 function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -34,21 +36,23 @@ function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: 
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Returns the nearest live market slug, or null if the user is out-of-range.
-// Null means "show the apex waitlist page" — never silently assign ATL.
-function detectMarketFromGeo(req: NextRequest): string | null {
+type MarketCenter = typeof MARKET_CENTERS[number];
+
+// Returns the nearest live market (with its redirect flag), or null if
+// the user is out of every market's radius (Memphis, Dallas, etc.).
+function detectMarketFromGeo(req: NextRequest): MarketCenter | null {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cf = (req as any).cf as { latitude?: string; longitude?: string } | undefined;
   const lat = parseFloat(cf?.latitude ?? '');
   const lng = parseFloat(cf?.longitude ?? '');
-  if (!isFinite(lat) || !isFinite(lng)) return null; // local dev, VPN, no geo
-  let best: string | null = null;
+  if (!isFinite(lat) || !isFinite(lng)) return null;
+  let best: MarketCenter | null = null;
   let minDist = Infinity;
   for (const m of MARKET_CENTERS) {
     const d = haversineDistanceMiles(lat, lng, m.lat, m.lng);
-    if (d < m.radiusMiles && d < minDist) { minDist = d; best = m.slug; }
+    if (d < m.radiusMiles && d < minDist) { minDist = d; best = m; }
   }
-  return best; // null = Memphis, Dallas, etc. — out of every live market's range
+  return best;
 }
 
 // Extract a trusted market slug from the Host header. Returns null unless the
@@ -248,27 +252,31 @@ export default clerkMiddleware(async (auth, req) => {
       || path.startsWith('/_next/')
       || path.startsWith('/.well-known/');
     if (!skipApexRedirect) {
-      // Geo-route in-market users to their subdomain (where Clerk auth works).
-      // Out-of-range users (Memphis, Dallas, etc.) get null → stay on the apex
-      // and see the coming-soon/waitlist page. Never silently redirect to ATL.
-      const marketSlug = detectMarketFromGeo(req);
-      if (marketSlug) {
-        // 307 = temporary, not cached — geo can change on next visit.
-        return NextResponse.redirect(
-          `https://${marketSlug}.hmucashride.com${path}${req.nextUrl.search}`,
-          307,
-        );
-      }
-      // No market match: stamp x-market-slug=none so the apex page knows it's
-      // serving an out-of-market visitor and can show the waitlist UI.
-      // Also forward the Cloudflare city name so the page can say
-      // "HMU isn't in Memphis yet" instead of a generic message.
+      const market = detectMarketFromGeo(req);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cfCity = ((req as any).cf as { city?: string } | undefined)?.city ?? '';
       const h = new Headers(req.headers);
-      h.set('x-market-slug', 'none');
       if (cfCity) h.set('x-cf-city', cfCity);
-      return NextResponse.next({ request: { headers: h } });
+
+      if (market?.redirect) {
+        // ATL: redirect to its subdomain. Existing ATL users have sessions
+        // scoped there, and atl.hmucashride.com is the Clerk primary domain.
+        return NextResponse.redirect(
+          `https://${market.slug}.hmucashride.com${path}${req.nextUrl.search}`,
+          307,
+        );
+      } else if (market) {
+        // In-market but no subdomain required (NOLA, and all future markets).
+        // Stamp the market slug so layout/sign-up know which market this is.
+        // Clerk satellite mode uses hmucashride.com as the domain — no per-market
+        // subdomain or Clerk satellite config needed beyond the apex registration.
+        h.set('x-market-slug', market.slug);
+        return NextResponse.next({ request: { headers: h } });
+      } else {
+        // Out of every live market (Memphis, Dallas…): show waitlist page.
+        h.set('x-market-slug', 'none');
+        return NextResponse.next({ request: { headers: h } });
+      }
     }
   }
 
