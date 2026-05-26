@@ -23,8 +23,35 @@ const KNOWN_MARKET_SUBDOMAINS = new Set(['atl', 'nola']);
 //
 // New markets: add with redirect:false. No Clerk satellite per-market needed.
 const MARKET_CENTERS = [
-  { slug: 'atl',  lat: 33.7490, lng: -84.3880, radiusMiles: 60, redirect: true  },
-  { slug: 'nola', lat: 29.9511, lng: -90.0715, radiusMiles: 50, redirect: false },
+  { slug: 'atl',   lat: 33.7490, lng: -84.3880, radiusMiles: 60, redirect: true  },
+  { slug: 'nola',  lat: 29.9511, lng: -90.0715, radiusMiles: 50, redirect: false },
+  // Georgia
+  { slug: 'aug',   lat: 33.4735, lng: -82.0105, radiusMiles: 30, redirect: false },
+  { slug: 'macon', lat: 32.8407, lng: -83.6324, radiusMiles: 30, redirect: false },
+  { slug: 'sav',   lat: 32.0809, lng: -81.0912, radiusMiles: 30, redirect: false },
+  { slug: 'vld',   lat: 30.8327, lng: -83.2785, radiusMiles: 25, redirect: false },
+  { slug: 'csg',   lat: 32.4610, lng: -84.9877, radiusMiles: 25, redirect: false },
+  // Florida
+  { slug: 'tpa',   lat: 27.9506, lng: -82.4572, radiusMiles: 40, redirect: false },
+  { slug: 'mia',   lat: 26.0000, lng: -80.2000, radiusMiles: 40, redirect: false },
+  { slug: 'orl',   lat: 28.5383, lng: -81.3792, radiusMiles: 35, redirect: false },
+  // Tennessee
+  { slug: 'mem',   lat: 35.1495, lng: -90.0490, radiusMiles: 40, redirect: false },
+  { slug: 'bna',   lat: 36.1627, lng: -86.7816, radiusMiles: 40, redirect: false },
+  { slug: 'knx',   lat: 35.9606, lng: -83.9207, radiusMiles: 30, redirect: false },
+  { slug: 'cha',   lat: 35.0456, lng: -85.3097, radiusMiles: 30, redirect: false },
+  // Alabama
+  { slug: 'bhm',   lat: 33.5186, lng: -86.8104, radiusMiles: 35, redirect: false },
+  { slug: 'mgm',   lat: 32.3668, lng: -86.3000, radiusMiles: 30, redirect: false },
+  // Texas
+  { slug: 'hou',   lat: 29.7604, lng: -95.3698, radiusMiles: 50, redirect: false },
+  { slug: 'dfw',   lat: 32.7767, lng: -96.7970, radiusMiles: 50, redirect: false },
+  // Southeast / Midwest
+  { slug: 'clt',   lat: 35.2271, lng: -80.8431, radiusMiles: 35, redirect: false },
+  { slug: 'chi',   lat: 41.8781, lng: -87.6298, radiusMiles: 45, redirect: false },
+  { slug: 'dtw',   lat: 42.3314, lng: -83.0458, radiusMiles: 40, redirect: false },
+  { slug: 'stl',   lat: 38.6270, lng: -90.1994, radiusMiles: 40, redirect: false },
+  { slug: 'cin',   lat: 39.1031, lng: -84.5120, radiusMiles: 35, redirect: false },
 ] as const;
 
 function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
