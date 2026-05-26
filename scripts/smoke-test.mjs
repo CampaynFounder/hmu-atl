@@ -58,7 +58,7 @@ const checks = [
   () => runCheck('health', () => expectStatus(HEALTH_URL, 200)),
 
   // 2. Auth guard — a protected route must return 401 with no credentials
-  () => runCheck('auth.guard', () => expectStatus(`${BASE_URL}/api/rides`, 401)),
+  () => runCheck('auth.guard', () => expectStatus(`${BASE_URL}/api/driver/down-bad-toggle`, 401)),
 
   // 3-7. Vendor pings — routed through smoke-ping endpoint (SMOKE_WEBHOOK_SECRET auth)
   () => runCheck('vendors', async () => {
