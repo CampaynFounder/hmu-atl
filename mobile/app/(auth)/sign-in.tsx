@@ -22,7 +22,7 @@ export default function SignIn() {
     setError(null);
     try {
       await signIn!.create({ strategy: 'phone_code', identifier: phone });
-      const phoneFactor = signIn!.supportedFirstFactors?.find((f): f is Extract<typeof f, { strategy: 'phone_code' }> => f.strategy === 'phone_code');
+      const phoneFactor = signIn!.supportedFirstFactors?.find((f: { strategy: string }) => f.strategy === 'phone_code') as { strategy: 'phone_code'; phoneNumberId: string } | undefined;
       if (!phoneFactor || !('phoneNumberId' in phoneFactor)) throw new Error('Phone sign-in not available');
       await signIn!.prepareFirstFactor({ strategy: 'phone_code', phoneNumberId: phoneFactor.phoneNumberId });
       setStep('code');
