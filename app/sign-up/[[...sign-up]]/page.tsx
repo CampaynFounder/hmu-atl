@@ -1,10 +1,14 @@
 // Sign Up Page — type-aware branding for riders vs drivers
+import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { SignUp } from '@clerk/nextjs';
 import { SignUpTypeStore } from './type-store';
 import { InAppBrowserGate } from '@/components/auth/in-app-browser-gate';
 import { MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver';
 import { getMarketBranding } from '@/lib/markets/branding';
+
+// Clerk prohibits <SignUp> on satellite domains — auth must happen on the primary.
+const CLERK_PRIMARY_HOST = 'atl.hmucashride.com';
 
 interface Props {
   searchParams: Promise<{ type?: string; returnTo?: string; cash?: string; persona?: string; funnel_stage?: string; mode?: string; draft?: string; handle?: string; blastDraftId?: string; market?: string }>;
@@ -15,6 +19,26 @@ export default async function SignUpPage({ searchParams }: Props) {
     searchParams,
     headers(),
   ]);
+
+  // Clerk disallows <SignUp> on satellite domains. Redirect to primary so the
+  // handshake originates from atl.hmucashride.com, then Clerk bounces back.
+  // We force ?market=<satellite_slug> so the primary tags the user correctly.
+  const satelliteSlug = h.get(MARKET_SLUG_HEADER);
+  if (satelliteSlug && satelliteSlug !== 'atl' && satelliteSlug !== 'none') {
+    const dest = new URL(`https://${CLERK_PRIMARY_HOST}/sign-up`);
+    if (type) dest.searchParams.set('type', type);
+    if (returnTo) dest.searchParams.set('returnTo', returnTo);
+    if (cash) dest.searchParams.set('cash', cash);
+    if (persona) dest.searchParams.set('persona', persona);
+    if (funnel_stage) dest.searchParams.set('funnel_stage', funnel_stage);
+    if (mode) dest.searchParams.set('mode', mode);
+    if (draft) dest.searchParams.set('draft', draft);
+    if (handle) dest.searchParams.set('handle', handle);
+    if (blastDraftId) dest.searchParams.set('blastDraftId', blastDraftId);
+    dest.searchParams.set('market', satelliteSlug);
+    redirect(dest.toString());
+  }
+
   // Explicit ?market= param wins over the subdomain header. This lets any
   // shareable link carry market context (e.g. /sign-up?type=driver&market=nola).
   // Format-validated here; webhook falls back to 'atl' if slug doesn't resolve.

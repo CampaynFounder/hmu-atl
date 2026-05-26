@@ -1,6 +1,6 @@
 // GET  — returns { acceptsDownBad, hasPaymentMethod, disclaimerText }
 // PATCH — body { accepts: boolean }
-//   accepts: true  → requires payout (Connect) onboarding complete; sets flag + timestamp
+//   accepts: true  → requires payout ready (Connect onboarded or bank linked); sets flag + timestamp
 //   accepts: false → clears flag; no gate
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -11,7 +11,8 @@ import { isMock } from '@/lib/stripe/client';
 
 async function getDriver(clerkId: string) {
   const rows = await sql`
-    SELECT u.id, dp.stripe_customer_id, dp.accepts_down_bad, dp.stripe_onboarding_complete
+    SELECT u.id, dp.stripe_customer_id, dp.accepts_down_bad, dp.stripe_onboarding_complete,
+           dp.payout_setup_complete
     FROM users u
     JOIN driver_profiles dp ON dp.user_id = u.id
     WHERE u.clerk_id = ${clerkId}
@@ -23,14 +24,18 @@ async function getDriver(clerkId: string) {
     stripe_customer_id: string | null;
     accepts_down_bad: boolean;
     stripe_onboarding_complete: boolean;
+    payout_setup_complete: boolean;
   };
 }
 
-// Down Bad facilitation fee is captured from the rider at Start Ride —
-// drivers only need their payout (Connect) account ready, not a billing card.
-function checkPayoutReady(stripeOnboardingComplete: boolean): boolean {
+// Down Bad facilitation fee goes to the platform, not the driver — the driver
+// gets paid for the ride itself via the normal Stripe payout flow.
+// Accept either flag: stripe_onboarding_complete (set by webhook) or
+// payout_setup_complete (set by payout-setup route when bank account is linked),
+// since webhook delivery can lag behind the driver completing onboarding.
+function checkPayoutReady(driver: { stripe_onboarding_complete: boolean; payout_setup_complete: boolean }): boolean {
   if (isMock) return true;
-  return stripeOnboardingComplete === true;
+  return driver.stripe_onboarding_complete === true || driver.payout_setup_complete === true;
 }
 
 export async function GET() {
@@ -41,7 +46,7 @@ export async function GET() {
   if (!driver) return NextResponse.json({ error: 'Driver profile required' }, { status: 403 });
 
   const [payoutReady, disclaimer] = await Promise.all([
-    Promise.resolve(checkPayoutReady(driver.stripe_onboarding_complete)),
+    Promise.resolve(checkPayoutReady(driver)),
     getPlatformConfig('down_bad.disclaimer', { rider_text: '', driver_text: '' }),
   ]);
 
@@ -69,7 +74,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (body.accepts) {
-    if (!checkPayoutReady(driver.stripe_onboarding_complete)) {
+    if (!checkPayoutReady(driver)) {
       return NextResponse.json(
         { error: 'Complete your payout setup before enabling Down Bad' },
         { status: 422 },

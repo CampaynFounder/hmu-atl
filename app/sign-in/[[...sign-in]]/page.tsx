@@ -1,14 +1,33 @@
 // Sign In Page — type-aware branding for riders vs drivers
+import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { SignIn } from '@clerk/nextjs';
 import { SignUpTypeStore } from '../../sign-up/[[...sign-up]]/type-store';
 import { InAppBrowserGate } from '@/components/auth/in-app-browser-gate';
+import { MARKET_SLUG_HEADER } from '@/lib/markets/resolver';
+
+const CLERK_PRIMARY_HOST = 'atl.hmucashride.com';
 
 interface Props {
   searchParams: Promise<{ type?: string; returnTo?: string; draft?: string; handle?: string }>;
 }
 
 export default async function SignInPage({ searchParams }: Props) {
-  const { type, returnTo, draft, handle } = await searchParams;
+  const [{ type, returnTo, draft, handle }, h] = await Promise.all([
+    searchParams,
+    headers(),
+  ]);
+
+  // Clerk disallows <SignIn> on satellite domains. Redirect to primary.
+  const satelliteSlug = h.get(MARKET_SLUG_HEADER);
+  if (satelliteSlug && satelliteSlug !== 'atl' && satelliteSlug !== 'none') {
+    const dest = new URL(`https://${CLERK_PRIMARY_HOST}/sign-in`);
+    if (type) dest.searchParams.set('type', type);
+    if (returnTo) dest.searchParams.set('returnTo', returnTo);
+    if (draft) { dest.searchParams.set('draft', draft); dest.searchParams.set('mode', 'express'); }
+    if (handle) dest.searchParams.set('handle', handle);
+    redirect(dest.toString());
+  }
 
   const callbackParams = new URLSearchParams();
   if (type) callbackParams.set('type', type);
