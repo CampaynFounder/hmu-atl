@@ -59,9 +59,8 @@ export async function GET(
       sql`
         WITH direct AS (
           SELECT
-            COUNT(*) FILTER (WHERE status = 'matched')::int            AS accepted,
-            COUNT(*) FILTER (WHERE status = 'declined_awaiting_rider')::int AS declined,
-            COUNT(*) FILTER (WHERE status = 'expired')::int            AS expired
+            COUNT(*) FILTER (WHERE status = 'matched')::int                 AS accepted,
+            COUNT(*) FILTER (WHERE status = 'declined_awaiting_rider')::int AS declined
           FROM hmu_posts
           WHERE target_driver_id = ${d.user_id}
             AND post_type = 'direct_booking'
@@ -75,8 +74,8 @@ export async function GET(
             AND bdt.notified_at IS NOT NULL
         )
         SELECT
-          (d.accepted + b.accepted)::int                                          AS total_accepted,
-          (d.accepted + d.declined + d.expired + b.accepted + b.passed)::int     AS total_offered
+          (d.accepted + b.accepted)::int                              AS total_accepted,
+          (d.accepted + d.declined + b.accepted + b.passed)::int     AS total_offered
         FROM direct d, blast b
       `,
       sql`
