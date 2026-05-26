@@ -1,14 +1,13 @@
-// Driver home — earnings summary, go-live toggle, push token registration.
-// APIs: GET /driver/earnings, GET /users/me, POST /users/push-token
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, RefreshControl, Platform, ActivityIndicator,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  RefreshControl, Platform, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import * as Notifications from 'expo-notifications';
+import { Ionicons } from '@expo/vector-icons';
+import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 
 interface Earnings {
@@ -17,7 +16,6 @@ interface Earnings {
   tier: string;
 }
 
-// Register Expo push token with the server once per session
 async function registerPushToken(token: string) {
   const expoPush = await Notifications.getExpoPushTokenAsync().catch(() => null);
   if (!expoPush) return;
@@ -51,8 +49,6 @@ export default function DriverHome() {
 
   useEffect(() => {
     void fetchEarnings();
-
-    // Register push token once per app session
     if (!tokenRegistered.current) {
       tokenRegistered.current = true;
       getToken().then((t) => { if (t) void registerPushToken(t); }).catch(() => {});
@@ -69,130 +65,165 @@ export default function DriverHome() {
 
   if (loading) {
     return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#00E676" />
+      <View style={s.loader}>
+        <ActivityIndicator size="large" color={colors.green} />
       </View>
     );
   }
 
   return (
     <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#00E676" />}
+      style={s.root}
+      contentContainerStyle={s.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.green} />}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Wassup, {handle}</Text>
-          {isFirst && (
-            <View style={styles.firstBadge}>
-              <Text style={styles.firstBadgeText}>HMU FIRST</Text>
-            </View>
-          )}
+      {/* Greeting */}
+      <View style={s.header}>
+        <View style={s.headerLeft}>
+          <Text style={s.greeting}>{handle.toUpperCase()}</Text>
+          <View style={[s.tierBadge, isFirst ? s.tierBadgeFirst : s.tierBadgeFree]}>
+            <Text style={[s.tierBadgeText, isFirst ? { color: colors.bg } : {}]}>
+              {isFirst ? 'HMU FIRST' : 'FREE TIER'}
+            </Text>
+          </View>
         </View>
-        <TouchableOpacity style={styles.requestsBtn} onPress={() => router.push('/(driver)/feed')}>
-          <Text style={styles.requestsBtnText}>View Requests →</Text>
+        <TouchableOpacity style={s.requestsBtn} onPress={() => router.push('/(driver)/feed')}>
+          <Text style={s.requestsBtnText}>REQUESTS</Text>
+          <Ionicons name="layers-outline" size={14} color={colors.bg} style={{ marginLeft: 4 }} />
         </TouchableOpacity>
       </View>
 
-      {/* Today earnings card */}
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>Today</Text>
-        <Text style={styles.bigAmount}>${earnings?.today.kept.toFixed(2) ?? '0.00'}</Text>
-        <Text style={styles.subLabel}>kept after fees</Text>
-        <View style={styles.row}>
-          <StatPill label="Rides" value={String(earnings?.today.rides ?? 0)} />
-          <StatPill label="Gross" value={`$${earnings?.today.gross.toFixed(2) ?? '0.00'}`} />
-          <StatPill label="Fees" value={`$${earnings?.today.fees.toFixed(2) ?? '0.00'}`} />
-        </View>
-        {earnings?.today.capHit && (
-          <View style={styles.capBanner}>
-            <Text style={styles.capBannerText}>Daily cap hit — fee-free until midnight 🎉</Text>
-          </View>
-        )}
-        {!earnings?.today.capHit && (
-          <CapBar used={earnings?.today.capUsed ?? 0} max={earnings?.today.capMax ?? 40} label="daily fee cap" />
-        )}
-      </View>
+      {/* Today card */}
+      <EarningsCard
+        label="TODAY"
+        kept={earnings?.today.kept ?? 0}
+        gross={earnings?.today.gross ?? 0}
+        fees={earnings?.today.fees ?? 0}
+        rides={earnings?.today.rides ?? 0}
+        capHit={earnings?.today.capHit ?? false}
+        capUsed={earnings?.today.capUsed ?? 0}
+        capMax={earnings?.today.capMax ?? 40}
+        capLabel="daily fee cap"
+      />
 
-      {/* Week earnings card */}
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>This Week</Text>
-        <Text style={styles.bigAmount}>${earnings?.week.kept.toFixed(2) ?? '0.00'}</Text>
-        <Text style={styles.subLabel}>kept after fees</Text>
-        <View style={styles.row}>
-          <StatPill label="Rides" value={String(earnings?.week.rides ?? 0)} />
-          <StatPill label="Gross" value={`$${earnings?.week.gross.toFixed(2) ?? '0.00'}`} />
-          <StatPill label="Fees" value={`$${earnings?.week.fees.toFixed(2) ?? '0.00'}`} />
-        </View>
-        {earnings?.week.capHit && (
-          <View style={styles.capBanner}>
-            <Text style={styles.capBannerText}>Weekly cap hit — fee-free until Monday 🎉</Text>
-          </View>
-        )}
-      </View>
+      {/* Week card */}
+      <EarningsCard
+        label="THIS WEEK"
+        kept={earnings?.week.kept ?? 0}
+        gross={earnings?.week.gross ?? 0}
+        fees={earnings?.week.fees ?? 0}
+        rides={earnings?.week.rides ?? 0}
+        capHit={earnings?.week.capHit ?? false}
+        capUsed={earnings?.week.capUsed ?? 0}
+        capMax={earnings?.week.capMax ?? 200}
+        capLabel="weekly fee cap"
+      />
 
       {/* HMU First upsell */}
       {!isFirst && (
-        <TouchableOpacity style={styles.upsell} onPress={() => router.push('/(driver)/payout-setup')}>
-          <Text style={styles.upsellTitle}>Go HMU First</Text>
-          <Text style={styles.upsellBody}>Lower fee cap ($25/day), instant payouts. $9.99/mo</Text>
-          <Text style={styles.upsellCta}>Upgrade →</Text>
+        <TouchableOpacity style={s.upsell} onPress={() => router.push('/(driver)/payout-setup')}>
+          <View style={s.upsellHeader}>
+            <Text style={s.upsellTitle}>GO HMU FIRST</Text>
+            <Text style={s.upsellBadge}>$9.99/mo</Text>
+          </View>
+          <Text style={s.upsellBody}>Lower fee cap ($25/day), instant payouts, priority support.</Text>
+          <View style={s.upsellCta}>
+            <Text style={s.upsellCtaText}>UPGRADE</Text>
+            <Ionicons name="arrow-forward" size={14} color={colors.green} />
+          </View>
         </TouchableOpacity>
       )}
     </ScrollView>
   );
 }
 
-function StatPill({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.pill}>
-      <Text style={styles.pillValue}>{value}</Text>
-      <Text style={styles.pillLabel}>{label}</Text>
-    </View>
-  );
-}
+function EarningsCard({
+  label, kept, gross, fees, rides,
+  capHit, capUsed, capMax, capLabel,
+}: {
+  label: string; kept: number; gross: number; fees: number; rides: number;
+  capHit: boolean; capUsed: number; capMax: number; capLabel: string;
+}) {
+  const pct = Math.min(1, capUsed / capMax);
+  const barColor = pct > 0.8 ? colors.red : pct > 0.5 ? colors.amber : colors.green;
 
-function CapBar({ used, max, label }: { used: number; max: number; label: string }) {
-  const pct = Math.min(1, used / max);
-  const color = pct > 0.8 ? '#FF4444' : pct > 0.5 ? '#FFB300' : '#00E676';
   return (
-    <View style={styles.capWrap}>
-      <View style={styles.capTrack}>
-        <View style={[styles.capFill, { width: `${pct * 100}%`, backgroundColor: color }]} />
+    <View style={[s.card, shadow.card]}>
+      <Text style={s.cardLabel}>{label}</Text>
+      <Text style={s.bigAmount}>${kept.toFixed(2)}</Text>
+      <Text style={s.subLabel}>kept after fees</Text>
+
+      <View style={s.pillRow}>
+        <Pill label="RIDES" value={String(rides)} />
+        <Pill label="GROSS" value={`$${gross.toFixed(2)}`} />
+        <Pill label="FEES" value={`$${fees.toFixed(2)}`} />
       </View>
-      <Text style={styles.capText}>${used.toFixed(2)} / ${max} {label}</Text>
+
+      {capHit ? (
+        <View style={s.capBanner}>
+          <Text style={s.capBannerText}>🎉 Cap hit — fee-free for the rest of the period</Text>
+        </View>
+      ) : (
+        <View style={s.capWrap}>
+          <View style={s.capTrack}>
+            <View style={[s.capFill, { width: `${pct * 100}%` as any, backgroundColor: barColor }]} />
+          </View>
+          <Text style={s.capText}>${capUsed.toFixed(2)} / ${capMax} {capLabel}</Text>
+        </View>
+      )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#080808' },
-  content: { padding: 16, paddingBottom: 40 },
-  loader: { flex: 1, backgroundColor: '#080808', alignItems: 'center', justifyContent: 'center' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, paddingTop: 12 },
-  greeting: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 4 },
-  firstBadge: { backgroundColor: '#FFB300', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, alignSelf: 'flex-start' },
-  firstBadgeText: { fontSize: 9, fontWeight: '800', color: '#000', letterSpacing: 1 },
-  requestsBtn: { backgroundColor: '#00E676', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
-  requestsBtnText: { fontSize: 13, fontWeight: '700', color: '#000' },
-  card: { backgroundColor: '#18181b', borderRadius: 20, padding: 20, marginBottom: 16, borderWidth: 1, borderColor: '#27272a' },
-  cardLabel: { fontSize: 12, color: '#555', fontWeight: '600', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 },
-  bigAmount: { fontSize: 40, fontWeight: '900', color: '#fff', marginBottom: 2 },
-  subLabel: { fontSize: 13, color: '#555', marginBottom: 16 },
-  row: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  pill: { flex: 1, backgroundColor: '#27272a', borderRadius: 10, padding: 10, alignItems: 'center' },
-  pillValue: { fontSize: 15, fontWeight: '700', color: '#fff', marginBottom: 2 },
-  pillLabel: { fontSize: 11, color: '#555' },
-  capBanner: { backgroundColor: '#00E676/10', borderRadius: 8, padding: 10 },
-  capBannerText: { fontSize: 13, color: '#00E676', fontWeight: '600', textAlign: 'center' },
-  capWrap: { gap: 6 },
-  capTrack: { height: 4, backgroundColor: '#27272a', borderRadius: 2, overflow: 'hidden' },
+function Pill({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={s.pill}>
+      <Text style={s.pillValue}>{value}</Text>
+      <Text style={s.pillLabel}>{label}</Text>
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: spacing.xl, paddingBottom: 48 },
+  loader: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
+
+  // Header
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: spacing.xxl, paddingTop: spacing.md },
+  headerLeft: { gap: spacing.xs },
+  greeting: { fontFamily: fonts.display, fontSize: 36, color: colors.textPrimary, lineHeight: 38 },
+  tierBadge: { alignSelf: 'flex-start', borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  tierBadgeFree: { backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border },
+  tierBadgeFirst: { backgroundColor: colors.green },
+  tierBadgeText: { fontFamily: fonts.mono, fontSize: 10, fontWeight: '700', color: colors.textTertiary, letterSpacing: 1 },
+  requestsBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.green, borderRadius: radius.pill, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm + 2 },
+  requestsBtnText: { fontFamily: fonts.mono, fontSize: 11, fontWeight: '700', color: colors.bg, letterSpacing: 1 },
+
+  // Card
+  card: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.xl, marginBottom: spacing.lg, borderWidth: 1, borderColor: colors.border },
+  cardLabel: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 3, marginBottom: spacing.sm, textTransform: 'uppercase' },
+  bigAmount: { fontFamily: fonts.display, fontSize: 52, color: colors.green, lineHeight: 54, marginBottom: 2 },
+  subLabel: { fontFamily: fonts.body, fontSize: 13, color: colors.textTertiary, marginBottom: spacing.lg },
+
+  pillRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
+  pill: { flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.cardInner, padding: spacing.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
+  pillValue: { fontFamily: fonts.display, fontSize: 18, color: colors.textPrimary, marginBottom: 2 },
+  pillLabel: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1 },
+
+  capBanner: { backgroundColor: colors.greenDim, borderRadius: radius.tag, padding: spacing.md, borderWidth: 1, borderColor: colors.greenBorder },
+  capBannerText: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.green, textAlign: 'center' },
+  capWrap: { gap: spacing.xs },
+  capTrack: { height: 4, backgroundColor: colors.cardAlt, borderRadius: 2, overflow: 'hidden' },
   capFill: { height: '100%', borderRadius: 2 },
-  capText: { fontSize: 11, color: '#555' },
-  upsell: { backgroundColor: '#18181b', borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#FFB300/30' },
-  upsellTitle: { fontSize: 17, fontWeight: '800', color: '#FFB300', marginBottom: 4 },
-  upsellBody: { fontSize: 14, color: '#888', marginBottom: 12, lineHeight: 20 },
-  upsellCta: { fontSize: 14, fontWeight: '700', color: '#FFB300' },
+  capText: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint },
+
+  // HMU First upsell
+  upsell: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.xl, borderWidth: 1, borderColor: colors.amberBorder },
+  upsellHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
+  upsellTitle: { fontFamily: fonts.display, fontSize: 22, color: colors.amber },
+  upsellBadge: { fontFamily: fonts.mono, fontSize: 11, color: colors.amber, letterSpacing: 0.5 },
+  upsellBody: { fontFamily: fonts.body, fontSize: 14, color: colors.textTertiary, lineHeight: 20, marginBottom: spacing.lg },
+  upsellCta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  upsellCtaText: { fontFamily: fonts.mono, fontSize: 12, color: colors.green, fontWeight: '700', letterSpacing: 1 },
 });

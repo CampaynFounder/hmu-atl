@@ -1,12 +1,12 @@
 import { Tabs } from 'expo-router';
-import { View, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { colors, fonts } from '@/lib/theme';
 
-function TabIcon({ focused, active, inactive }: { focused: boolean; active: string; inactive: string }) {
-  // Simple text-based icons until we add a proper icon library
-  return (
-    <View style={styles.iconWrap}>
-      <View style={[styles.dot, focused && styles.dotActive]} />
-    </View>
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+function tabIcon(active: IoniconName, inactive: IoniconName) {
+  return ({ focused, color }: { focused: boolean; color: string }) => (
+    <Ionicons name={focused ? active : inactive} size={22} color={color} />
   );
 }
 
@@ -17,26 +17,50 @@ export default function DriverLayout() {
         headerShown: false,
         tabBarStyle: {
           backgroundColor: '#0e0e0e',
-          borderTopColor: '#18181b',
+          borderTopColor: colors.border,
           borderTopWidth: 1,
-          height: 60,
-          paddingBottom: 8,
+          height: 64,
+          paddingBottom: 10,
+          paddingTop: 8,
         },
-        tabBarActiveTintColor: '#00E676',
-        tabBarInactiveTintColor: '#555',
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarActiveTintColor: colors.green,
+        tabBarInactiveTintColor: colors.textFaint,
+        tabBarLabelStyle: {
+          fontFamily: fonts.mono,
+          fontSize: 9,
+          letterSpacing: 0.8,
+          marginTop: 2,
+        },
       }}
     >
-      <Tabs.Screen name="home" options={{ title: 'Home' }} />
-      <Tabs.Screen name="feed" options={{ title: 'Requests' }} />
-      <Tabs.Screen name="dashboard" options={{ title: 'Earnings' }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+      <Tabs.Screen
+        name="home"
+        options={{
+          title: 'HOME',
+          tabBarIcon: tabIcon('home', 'home-outline'),
+        }}
+      />
+      <Tabs.Screen
+        name="feed"
+        options={{
+          title: 'REQUESTS',
+          tabBarIcon: tabIcon('layers', 'layers-outline'),
+        }}
+      />
+      <Tabs.Screen
+        name="dashboard"
+        options={{
+          title: 'EARNINGS',
+          tabBarIcon: tabIcon('cash', 'cash-outline'),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'PROFILE',
+          tabBarIcon: tabIcon('person', 'person-outline'),
+        }}
+      />
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  iconWrap: { alignItems: 'center', justifyContent: 'center', width: 24, height: 24 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#555' },
-  dotActive: { backgroundColor: '#00E676', width: 8, height: 8, borderRadius: 4 },
-});

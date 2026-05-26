@@ -4,6 +4,9 @@
   "main": "expo-router/entry",
   "dependencies": {
     "@clerk/clerk-expo": "^2.19.31",
+    "@expo-google-fonts/bebas-neue": "^0.4.1",
+    "@expo-google-fonts/dm-sans": "^0.4.2",
+    "@expo-google-fonts/space-mono": "^0.4.2",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@sentry/react-native": "~7.11.0",
     "react-native-safe-area-context": "~5.7.0",
@@ -14,6 +17,7 @@
     "ably": "^2.21.0",
     "expo": "~56.0.5",
     "expo-constants": "~56.0.16",
+    "expo-font": "^56.0.5",
     "expo-linking": "~56.0.12",
     "expo-location": "~56.0.14",
     "expo-notifications": "~56.0.14",

@@ -5,6 +5,7 @@ import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
+import { colors, fonts, radius, spacing } from '@/lib/theme';
 
 export default function SignIn() {
   const { signIn, setActive, isLoaded } = useSignIn();
@@ -51,75 +52,100 @@ export default function SignIn() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <View style={styles.inner}>
-        <Text style={styles.logo}>HMU ATL</Text>
-        <Text style={styles.tagline}>Your ride, your way.</Text>
+    <KeyboardAvoidingView style={s.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={s.inner}>
+        {/* Logo */}
+        <Text style={s.logo}>HMU ATL</Text>
+        <Text style={s.tagline}>
+          {step === 'phone' ? 'Enter your number to get in' : 'Check your texts'}
+        </Text>
 
         {step === 'phone' ? (
           <>
             <TextInput
-              style={styles.input}
+              style={s.input}
               placeholder="+1 (404) 555-0000"
-              placeholderTextColor="#555"
+              placeholderTextColor={colors.textFaint}
               keyboardType="phone-pad"
               value={phone}
               onChangeText={setPhone}
               autoComplete="tel"
             />
-            <TouchableOpacity style={styles.btn} onPress={sendCode} disabled={loading || !phone}>
-              {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.btnText}>Send Code</Text>}
+            <TouchableOpacity
+              style={[s.btn, (!phone || loading) && s.btnDisabled]}
+              onPress={sendCode}
+              disabled={loading || !phone}
+            >
+              {loading
+                ? <ActivityIndicator color={colors.bg} />
+                : <Text style={s.btnText}>SEND CODE</Text>
+              }
             </TouchableOpacity>
           </>
         ) : (
           <>
             <TextInput
-              style={styles.input}
+              style={s.input}
               placeholder="6-digit code"
-              placeholderTextColor="#555"
+              placeholderTextColor={colors.textFaint}
               keyboardType="number-pad"
               value={code}
               onChangeText={setCode}
               autoComplete="one-time-code"
             />
-            <TouchableOpacity style={styles.btn} onPress={verifyCode} disabled={loading || code.length < 6}>
-              {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.btnText}>Verify</Text>}
+            <TouchableOpacity
+              style={[s.btn, (code.length < 6 || loading) && s.btnDisabled]}
+              onPress={verifyCode}
+              disabled={loading || code.length < 6}
+            >
+              {loading
+                ? <ActivityIndicator color={colors.bg} />
+                : <Text style={s.btnText}>VERIFY</Text>
+              }
             </TouchableOpacity>
-            <TouchableOpacity style={styles.ghost} onPress={() => setStep('phone')}>
-              <Text style={styles.ghostText}>← Change number</Text>
+            <TouchableOpacity style={s.ghost} onPress={() => setStep('phone')}>
+              <Text style={s.ghostText}>← Change number</Text>
             </TouchableOpacity>
           </>
         )}
 
-        {error && <Text style={styles.error}>{error}</Text>}
+        {error && (
+          <View style={s.errorBox}>
+            <Text style={s.errorText}>{error}</Text>
+          </View>
+        )}
 
-        <TouchableOpacity style={styles.ghost} onPress={() => router.push('/(auth)/sign-up')}>
-          <Text style={styles.ghostText}>No account? Sign up</Text>
+        <TouchableOpacity style={s.ghost} onPress={() => router.push('/(auth)/sign-up')}>
+          <Text style={s.ghostText}>No account? Sign up →</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#080808' },
-  inner: { flex: 1, justifyContent: 'center', padding: 24 },
-  logo: { fontSize: 36, fontWeight: '900', color: '#00E676', textAlign: 'center', letterSpacing: 2, marginBottom: 8 },
-  tagline: { fontSize: 14, color: '#555', textAlign: 'center', marginBottom: 40 },
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
+  inner: { flex: 1, justifyContent: 'center', padding: spacing.xxl, gap: spacing.sm },
+
+  logo: { fontFamily: fonts.display, fontSize: 52, color: colors.green, textAlign: 'center', letterSpacing: 4, marginBottom: spacing.xs },
+  tagline: { fontFamily: fonts.mono, fontSize: 12, color: colors.textFaint, textAlign: 'center', letterSpacing: 1, marginBottom: spacing.xxl },
+
   input: {
-    backgroundColor: '#18181b', color: '#fff', borderRadius: 12,
-    paddingHorizontal: 16, paddingVertical: 14, fontSize: 16,
-    borderWidth: 1, borderColor: '#27272a', marginBottom: 12,
+    backgroundColor: colors.card, color: colors.textPrimary,
+    borderRadius: radius.cardInner, paddingHorizontal: spacing.lg,
+    paddingVertical: 15, fontFamily: fonts.body, fontSize: 16,
+    borderWidth: 1, borderColor: colors.borderStrong,
   },
   btn: {
-    backgroundColor: '#00E676', borderRadius: 12,
-    paddingVertical: 15, alignItems: 'center', marginBottom: 12,
+    backgroundColor: colors.green, borderRadius: radius.pill,
+    paddingVertical: 16, alignItems: 'center',
   },
-  btnText: { color: '#000', fontWeight: '700', fontSize: 16 },
-  ghost: { alignItems: 'center', paddingVertical: 12 },
-  ghostText: { color: '#555', fontSize: 14 },
-  error: { color: '#FF4444', textAlign: 'center', fontSize: 13, marginTop: 8 },
+  btnDisabled: { opacity: 0.4 },
+  btnText: { fontFamily: fonts.monoBold, fontSize: 14, color: colors.bg, letterSpacing: 1.5 },
+
+  ghost: { alignItems: 'center', paddingVertical: spacing.md },
+  ghostText: { fontFamily: fonts.body, color: colors.textFaint, fontSize: 14 },
+
+  errorBox: { backgroundColor: colors.redDim, borderRadius: radius.tag, padding: spacing.md, borderWidth: 1, borderColor: colors.redBorder },
+  errorText: { fontFamily: fonts.body, color: colors.red, fontSize: 13, textAlign: 'center' },
 });

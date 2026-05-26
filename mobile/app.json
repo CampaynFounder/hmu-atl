@@ -23,7 +23,7 @@
     "android": {
       "package": "com.hmucashride.atl",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/android-icon-foreground.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#080808"
       },
       "permissions": [
