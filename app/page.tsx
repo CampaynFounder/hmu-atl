@@ -1,5 +1,6 @@
 import { headers } from 'next/headers';
 import HomePageClient from './home-client';
+import OutOfMarketPage from './out-of-market';
 import { getPageContent } from '@/lib/cms/queries';
 import { getMarketBranding } from '@/lib/markets/branding';
 import { MARKET_SLUG_HEADER } from '@/lib/markets/resolver';
@@ -10,7 +11,16 @@ export default async function HomePage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const [params, h] = await Promise.all([searchParams, headers()]);
-  const brand = getMarketBranding(h.get(MARKET_SLUG_HEADER));
+  const marketSlug = h.get(MARKET_SLUG_HEADER);
+
+  // 'none' is stamped by middleware when the user's IP is outside every live
+  // market's geo radius. Show the expansion waitlist instead of ATL content.
+  if (marketSlug === 'none') {
+    const city = h.get('x-cf-city') ?? undefined;
+    return <OutOfMarketPage city={city} />;
+  }
+
+  const brand = getMarketBranding(marketSlug);
   const utmFunnel = typeof params.utm_funnel === 'string' ? params.utm_funnel : undefined;
   const utmSource = typeof params.utm_source === 'string' ? params.utm_source : undefined;
   const utmCampaign = typeof params.utm_campaign === 'string' ? params.utm_campaign : undefined;
