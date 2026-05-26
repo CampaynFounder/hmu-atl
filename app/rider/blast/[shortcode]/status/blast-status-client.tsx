@@ -207,7 +207,8 @@ export default function BlastStatusClient({
     if (!confirm('Cancel this blast? HMU\'d drivers will be notified.')) return;
     setCancelling(true);
     try {
-      await fetch(`/api/blast/${blastId}/cancel`, { method: 'POST' });
+      const res = await fetch(`/api/blast/${blastId}/cancel`, { method: 'POST' });
+      if (!res.ok) throw new Error('cancel failed');
       track('blast_cancelled_by_rider', { blastId, from: 'status_board' });
       router.replace('/rider/browse/blast');
     } catch {
