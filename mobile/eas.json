@@ -6,6 +6,7 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "image": "macos-sonoma-14.6-xcode-16.2",
       "ios": {
         "simulator": false
       }

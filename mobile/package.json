@@ -13,6 +13,7 @@
     "ably": "^2.21.0",
     "expo": "~56.0.5",
     "expo-auth-session": "~56.0.12",
+    "expo-build-properties": "^56.0.15",
     "expo-constants": "~56.0.16",
     "expo-dev-client": "^56.0.16",
     "expo-font": "^56.0.5",
