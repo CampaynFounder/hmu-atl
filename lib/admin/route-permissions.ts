@@ -87,6 +87,8 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/markets',             rule: { kind: 'permission', slug: 'admin.markets' } },
   { pattern: '/admin/feature-flags',       rule: { kind: 'permission', slug: 'admin.flags' } },
   { pattern: '/admin/hmu-config',          rule: { kind: 'permission', slug: 'admin.hmuconfig' } },
+  { pattern: '/admin/direct-booking-config', rule: { kind: 'permission', slug: 'admin.hmuconfig' } }, // shares the hmuconfig slug — same admin cohort
+  { pattern: '/admin/payments',            rule: { kind: 'permission', slug: 'admin.payments' } },
   { pattern: '/admin/blast-config',        rule: { kind: 'permission', slug: 'admin.blastconfig' } },
   { pattern: '/admin/onboarding-config',   rule: { kind: 'permission', slug: 'admin.onboarding' } },
   { pattern: '/admin/realtime-notifications', rule: { kind: 'permission', slug: 'admin.banners' } },
