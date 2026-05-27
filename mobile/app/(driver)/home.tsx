@@ -157,22 +157,32 @@ export default function DriverHome() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [activeRideId, setActiveRideId] = useState<string | null>(null);
+  const [activeRideStatus, setActiveRideStatus] = useState<string | null>(null);
   const tokenRegistered = useRef(false);
 
   const fetchAll = useCallback(async () => {
     try {
       const token = await getToken();
       setAuthToken(token);
-      const [analyticsData, meData, balanceData] = await Promise.allSettled([
+      const [analyticsData, meData, balanceData, activeData] = await Promise.allSettled([
         apiClient<AnalyticsResponse>('/driver/analytics', token),
         apiClient<UserMeResponse>('/users/me', token),
         apiClient<BalanceResponse>('/driver/balance', token),
+        apiClient<{ hasActiveRide: boolean; rideId?: string; status?: string }>('/rides/active', token),
       ]);
       if (analyticsData.status === 'fulfilled') setTimeseries(analyticsData.value.timeseries ?? []);
       if (meData.status === 'fulfilled' && meData.value.driverHandle) {
         setDriverHandle(meData.value.driverHandle);
       }
       if (balanceData.status === 'fulfilled') setBalance(balanceData.value);
+      if (activeData.status === 'fulfilled' && activeData.value.hasActiveRide) {
+        setActiveRideId(activeData.value.rideId ?? null);
+        setActiveRideStatus(activeData.value.status ?? null);
+      } else {
+        setActiveRideId(null);
+        setActiveRideStatus(null);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -221,6 +231,26 @@ export default function DriverHome() {
           <Ionicons name="layers-outline" size={13} color={colors.bg} style={{ marginLeft: 4 }} />
         </DepthButton>
       </View>
+
+      {/* Active ride banner */}
+      {activeRideId && (
+        <TouchableOpacity
+          style={s.activeBanner}
+          activeOpacity={0.85}
+          onPress={() => {
+            haptic(Haptics.ImpactFeedbackStyle.Medium);
+            router.push({ pathname: '/(driver)/ride/active' as any, params: { rideId: activeRideId } });
+          }}
+        >
+          <PulseDot />
+          <Text style={s.activeBannerText}>RIDE IN PROGRESS</Text>
+          <View style={{ flex: 1 }} />
+          <Text style={s.activeBannerStatus}>
+            {activeRideStatus ? activeRideStatus.toUpperCase().replace('_', ' ') : 'ACTIVE'}
+          </Text>
+          <Ionicons name="arrow-forward" size={14} color={colors.green} style={{ marginLeft: 6 }} />
+        </TouchableOpacity>
+      )}
 
       {/* Unified wallet card */}
       {balance
@@ -638,6 +668,29 @@ function AnimatedBarChart({ bars }: { bars: BarPoint[] }) {
   );
 }
 
+function PulseDot() {
+  const scale = useRef(new Animated.Value(1)).current;
+  const opacity = useRef(new Animated.Value(0.8)).current;
+  useEffect(() => {
+    Animated.loop(Animated.sequence([
+      Animated.parallel([
+        Animated.timing(scale, { toValue: 1.9, duration: 750, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0, duration: 750, useNativeDriver: true }),
+      ]),
+      Animated.parallel([
+        Animated.timing(scale, { toValue: 1, duration: 0, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.8, duration: 0, useNativeDriver: true }),
+      ]),
+    ])).start();
+  }, []);
+  return (
+    <View style={{ width: 10, height: 10, marginRight: 8 }}>
+      <Animated.View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.green, position: 'absolute', transform: [{ scale }], opacity }} />
+      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.green, position: 'absolute' }} />
+    </View>
+  );
+}
+
 function DepthButton({ onPress, style, children }: { onPress: () => void; style?: object; children: React.ReactNode }) {
   const scale = useRef(new Animated.Value(1)).current;
   const pressIn = () => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 50, bounciness: 0 }).start();
@@ -677,6 +730,16 @@ const s = StyleSheet.create({
   upsellBody: { fontFamily: fonts.body, fontSize: 14, color: colors.textTertiary, lineHeight: 20, marginBottom: spacing.lg },
   upsellCta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   upsellCtaText: { fontFamily: fonts.mono, fontSize: 12, color: colors.green, letterSpacing: 1 },
+
+  activeBanner: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.greenDim, borderRadius: radius.card,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    borderWidth: 1, borderColor: colors.greenBorder,
+    marginBottom: spacing.lg,
+  },
+  activeBannerText: { fontFamily: fonts.mono, fontSize: 11, color: colors.green, letterSpacing: 1.5 },
+  activeBannerStatus: { fontFamily: fonts.mono, fontSize: 10, color: colors.green, letterSpacing: 1 },
 });
 
 // ── Wallet card styles ────────────────────────────────────────────────────────

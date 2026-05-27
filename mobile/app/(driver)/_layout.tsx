@@ -59,6 +59,10 @@ export default function DriverLayout() {
         options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
+        name="ride/active"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
         name="dashboard"
         options={{ href: null, headerShown: false }}
       />

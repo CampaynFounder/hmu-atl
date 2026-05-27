@@ -8,6 +8,7 @@ import {
   StyleSheet, RefreshControl, ActivityIndicator, Alert,
 } from 'react-native';
 import { useAuth, useUser } from '@clerk/clerk-expo';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
@@ -35,6 +36,7 @@ interface BlastRequest {
 export default function DriverFeed() {
   const { getToken } = useAuth();
   const { user } = useUser();
+  const router = useRouter();
   const [requests, setRequests] = useState<BlastRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -66,6 +68,13 @@ export default function DriverFeed() {
     onMessage: (msg) => {
       if (msg.name === 'blast_invite' || msg.name === 'blast_cancelled') {
         void fetchRequests();
+      }
+      if (msg.name === 'blast_match_won') {
+        const d = msg.data as Record<string, unknown>;
+        const rideId = d?.rideId as string | undefined;
+        if (rideId) {
+          router.push({ pathname: '/(driver)/ride/active' as any, params: { rideId } });
+        }
       }
     },
   });

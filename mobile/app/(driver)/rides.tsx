@@ -137,6 +137,13 @@ export default function DriverRides() {
     });
   }
 
+  function openActiveRide(rideId: string) {
+    router.push({
+      pathname: '/(driver)/ride/active' as any,
+      params: { rideId },
+    });
+  }
+
   // Find the active ride record from history list (if loaded)
   const activeRecord = active?.hasActiveRide
     ? rides.find((r) => r.id === active.rideId) ?? null
@@ -181,13 +188,11 @@ export default function DriverRides() {
         ListHeaderComponent={
           <>
             {/* Active ride banner */}
-            {active?.hasActiveRide && (
+            {active?.hasActiveRide && active.rideId && (
               <ActiveRideBanner
                 activeRide={active}
                 record={activeRecord}
-                onPress={() => {
-                  if (activeRecord) openRide(activeRecord);
-                }}
+                onPress={() => openActiveRide(active.rideId!)}
               />
             )}
 
