@@ -9,6 +9,8 @@ import { useFonts } from 'expo-font';
 import { BebasNeue_400Regular } from '@expo-google-fonts/bebas-neue';
 import { DMSans_400Regular, DMSans_500Medium, DMSans_600SemiBold } from '@expo-google-fonts/dm-sans';
 import { SpaceMono_400Regular, SpaceMono_700Bold } from '@expo-google-fonts/space-mono';
+import { NotificationProvider } from '@/contexts/notifications';
+import { NotificationBanner } from '@/components/NotificationBanner';
 
 const tokenCache = {
   async getToken(key: string) { return SecureStore.getItemAsync(key); },
@@ -30,7 +32,14 @@ function AuthGate() {
     }
   }, [isLoaded, isSignedIn, segments]);
 
-  return <Slot />;
+  return (
+    <NotificationProvider>
+      <View style={{ flex: 1 }}>
+        <Slot />
+        <NotificationBanner />
+      </View>
+    </NotificationProvider>
+  );
 }
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? Constants.expoConfig?.extra?.clerkPublishableKey ?? '';
