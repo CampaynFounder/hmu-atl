@@ -48,7 +48,8 @@
         {
           "ios": {
             "deploymentTarget": "16.4",
-            "ccacheEnabled": false
+            "ccacheEnabled": false,
+            "usePrecompiledModules": false
           }
         }
       ],
