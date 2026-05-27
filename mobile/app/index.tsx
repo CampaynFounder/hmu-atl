@@ -39,7 +39,7 @@ export default function Index() {
                 `/markets/active-check?lat=${loc.coords.latitude}&lng=${loc.coords.longitude}`,
                 token,
               );
-              if (!market.isActive) {
+              if (market.isActive === false) {
                 router.replace({
                   pathname: '/not-in-market',
                   params: { area: market.displayName ?? 'Your area', slug: market.marketSlug ?? '' },
