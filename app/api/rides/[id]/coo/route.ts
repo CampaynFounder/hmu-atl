@@ -7,6 +7,7 @@ import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 import { getDriverMenuForRider } from '@/lib/db/service-menu';
 import { getHoldPolicy, calculateDepositAmount } from '@/lib/payments/hold-policy';
 import { driverAllowsCashOnly, resolvePricingStrategy } from '@/lib/payments/strategies';
+import { getPaymentsConfig, computeAddOnReserve } from '@/lib/payments/config';
 
 export async function POST(
   req: NextRequest,
@@ -92,15 +93,16 @@ export async function POST(
       return NextResponse.json({ error: 'No agreed price for this ride' }, { status: 400 });
     }
 
-    // Calculate add-on reserve based on driver's menu
+    // Calculate add-on reserve based on driver's menu and per-market config
     let addOnReserve = 0;
     try {
-      const driverMenu = await getDriverMenuForRider(ride.driver_id as string);
+      const [driverMenu, paymentsConfig] = await Promise.all([
+        getDriverMenuForRider(ride.driver_id as string),
+        getPaymentsConfig(null),
+      ]);
       if (driverMenu.length > 0) {
         const menuTotal = driverMenu.reduce((sum, item) => sum + Number(item.price ?? 0), 0);
-        // Reserve = menu total capped at $50 or 25% of ride price, whichever is greater
-        addOnReserve = Math.min(menuTotal, Math.max(50, agreedPrice * 0.25));
-        addOnReserve = Math.round(addOnReserve * 100) / 100;
+        addOnReserve = computeAddOnReserve(menuTotal, agreedPrice, paymentsConfig.addOnReserve);
       }
     } catch {
       // Non-critical — proceed without reserve
