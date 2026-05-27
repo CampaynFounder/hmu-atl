@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
+import { useNotifications } from '@/contexts/notifications';
 
 // Matches the camelCase shape returned by GET /api/drivers/requests
 interface BlastRequest {
@@ -52,6 +53,7 @@ export default function DriverFeed() {
   const [token, setToken] = useState<string | null>(null);
 
   const driverId = user?.publicMetadata?.databaseId as string | undefined;
+  const { registerFeedRefresh } = useNotifications();
 
   useEffect(() => {
     getToken().then(setToken).catch(() => {});
@@ -69,6 +71,12 @@ export default function DriverFeed() {
   }, [getToken]);
 
   useEffect(() => { void fetchRequests(); }, [fetchRequests]);
+
+  // Register with the global notification context so events arriving while the
+  // driver is on a different screen (e.g. ride/active) still clear stale cards.
+  useEffect(() => {
+    return registerFeedRefresh(() => { void fetchRequests(); });
+  }, [fetchRequests, registerFeedRefresh]);
 
   useAbly({
     channelName: driverId ? `user:${driverId}:notify` : null,
