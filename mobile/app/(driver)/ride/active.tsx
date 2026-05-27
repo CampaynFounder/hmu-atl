@@ -65,6 +65,13 @@ interface AddOn {
   quantity: number;
 }
 
+interface PendingAddOn {
+  id: string;
+  name: string;
+  subtotal: number;
+  quantity: number;
+}
+
 // ── Status config ─────────────────────────────────────────────────────────────
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string; border: string }> = {
@@ -143,6 +150,11 @@ export default function ActiveRideScreen() {
   // Add-ons
   const [addOns, setAddOns] = useState<AddOn[]>([]);
 
+  // Extras approval sheet
+  const [pendingAddOn, setPendingAddOn] = useState<PendingAddOn | null>(null);
+  const pendingAddOnSlide = useRef(new Animated.Value(300)).current;
+  const [approving, setApproving] = useState(false);
+
   // Card entrance animations
   const cardAnims = useRef([0, 1, 2, 3, 4, 5].map(() => ({
     opacity: new Animated.Value(0),
@@ -209,7 +221,26 @@ export default function ActiveRideScreen() {
     rideId,
     onMessage: (msg) => {
       if (msg.name === 'coo') {
-        setRide((prev) => prev ? { ...prev, cooAt: new Date().toISOString() } : prev);
+        const d = msg.data as Record<string, unknown>;
+        const pickup = d.pickup as { address?: string; latitude?: number; longitude?: number } | null;
+        const dropoff = d.dropoff as { address?: string; latitude?: number; longitude?: number } | null;
+        const rawStops = d.stops as Array<{ lat?: number; lng?: number; latitude?: number; longitude?: number; address?: string }> | null;
+        setRide((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            cooAt: new Date().toISOString(),
+            pickupAddress: pickup?.address ?? prev.pickupAddress,
+            pickupLat: pickup?.latitude ?? prev.pickupLat,
+            pickupLng: pickup?.longitude ?? prev.pickupLng,
+            dropoffAddress: dropoff?.address ?? prev.dropoffAddress,
+            dropoffLat: dropoff?.latitude ?? prev.dropoffLat,
+            dropoffLng: dropoff?.longitude ?? prev.dropoffLng,
+            stops: rawStops
+              ? rawStops.map(s => ({ lat: s.lat ?? s.latitude ?? 0, lng: s.lng ?? s.longitude ?? 0, address: s.address }))
+              : prev.stops,
+          };
+        });
       }
       if (msg.name === 'status_change') {
         const d = msg.data as Record<string, unknown>;
@@ -228,10 +259,24 @@ export default function ActiveRideScreen() {
       if (msg.name === 'confirm_start') {
         setRide((prev) => prev ? { ...prev, status: 'confirming' } : prev);
       }
+      if (msg.name === 'add_on_pending') {
+        const d = msg.data as Record<string, unknown>;
+        const ao = d.addOn as PendingAddOn | undefined;
+        if (ao?.id) {
+          setPendingAddOn(ao);
+          Animated.spring(pendingAddOnSlide, { toValue: 0, useNativeDriver: true, speed: 14, bounciness: 4 }).start();
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        }
+        void fetchAddOns();
+      }
       if (
         msg.name === 'add_on_added' ||
         msg.name === 'add_on_updated' ||
-        msg.name === 'add_on_removed'
+        msg.name === 'add_on_removed' ||
+        msg.name === 'add_on_confirmed' ||
+        msg.name === 'add_on_rejected' ||
+        msg.name === 'add_on_payment_failed' ||
+        msg.name === 'add_ons_confirmed_all'
       ) {
         void fetchAddOns();
       }
@@ -404,6 +449,50 @@ export default function ActiveRideScreen() {
     );
   }
 
+  function dismissAddOnSheet() {
+    Animated.spring(pendingAddOnSlide, { toValue: 300, useNativeDriver: true, speed: 14, bounciness: 0 }).start(() => {
+      setPendingAddOn(null);
+    });
+  }
+
+  async function approvePendingAddOn() {
+    if (!pendingAddOn || !rideId || approving) return;
+    setApproving(true);
+    try {
+      const t = await getToken();
+      await apiClient(`/rides/${rideId}/add-ons`, t, {
+        method: 'PATCH',
+        body: JSON.stringify({ add_on_id: pendingAddOn.id, action: 'confirm' }),
+      });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to confirm extra');
+    } finally {
+      setApproving(false);
+      dismissAddOnSheet();
+      void fetchAddOns();
+    }
+  }
+
+  async function rejectPendingAddOn() {
+    if (!pendingAddOn || !rideId || approving) return;
+    setApproving(true);
+    try {
+      const t = await getToken();
+      await apiClient(`/rides/${rideId}/add-ons`, t, {
+        method: 'PATCH',
+        body: JSON.stringify({ add_on_id: pendingAddOn.id, action: 'reject' }),
+      });
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to reject extra');
+    } finally {
+      setApproving(false);
+      dismissAddOnSheet();
+      void fetchAddOns();
+    }
+  }
+
   // ── Action button config ───────────────────────────────────────────────────
 
   function getActionConfig() {
@@ -482,6 +571,10 @@ export default function ActiveRideScreen() {
     ? ride.driverPayout
     : ride.agreedPrice;
 
+  const confirmedExtrasTotal = addOns
+    .filter(a => a.status === 'confirmed')
+    .reduce((sum, a) => sum + Number(a.item_price) * a.quantity, 0);
+
   const riderDisplayName = ride.riderHandle
     ? `@${ride.riderHandle}`
     : ride.riderFirstName ?? 'Rider';
@@ -514,7 +607,17 @@ export default function ActiveRideScreen() {
             <Text style={s.cardLabel}>
               {isEnded ? 'YOU EARNED' : ride.isCash ? 'CASH FARE' : 'AGREED PRICE'}
             </Text>
-            <Text style={s.payoutAmount}>${displayPayout.toFixed(2)}</Text>
+            {confirmedExtrasTotal > 0 ? (
+              <>
+                <Text style={s.payoutAmount}>${(displayPayout + confirmedExtrasTotal).toFixed(2)}</Text>
+                <View style={s.extrasBreakdown}>
+                  <Text style={s.extrasBreakdownLine}>BASE ${displayPayout.toFixed(2)}</Text>
+                  <Text style={[s.extrasBreakdownLine, { color: colors.amber }]}>+ EXTRAS ${confirmedExtrasTotal.toFixed(2)}</Text>
+                </View>
+              </>
+            ) : (
+              <Text style={s.payoutAmount}>${displayPayout.toFixed(2)}</Text>
+            )}
             {!ride.isCash && !isEnded && ride.platformFee > 0 && (
               <Text style={s.payoutSub}>
                 {`After ${(ride.platformFee / ride.agreedPrice * 100).toFixed(0)}% platform fee`}
@@ -666,7 +769,7 @@ export default function ActiveRideScreen() {
             <View style={{ flex: 1, marginLeft: spacing.md }}>
               <Text style={[s.waitTitle, { color: colors.amber }]}>WAITING FOR RIDER</Text>
               <Text style={s.waitBody}>
-                The rider needs to Pull Up — confirm payment and share their location.
+                Rider is entering their exact pickup location. You'll see it here once they confirm.
               </Text>
             </View>
           </View>
@@ -731,6 +834,45 @@ export default function ActiveRideScreen() {
               activeOpacity={0.85}
             >
               <Text style={s.submitLabel}>GO HOME</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      )}
+
+      {/* ── Extra approval sheet ── */}
+      {pendingAddOn && (
+        <Animated.View style={[s.ratingOverlay, { transform: [{ translateY: pendingAddOnSlide }] }]}>
+          <View style={[s.ratingSheet, { paddingBottom: insets.bottom + spacing.xl }]}>
+            <View style={[s.ratingHandle, { backgroundColor: colors.amberBorder }]} />
+            <Text style={[s.ratingTitle, { color: colors.amber }]}>RIDER WANTS TO ADD</Text>
+            <View style={s.addOnApprovalItem}>
+              <Text style={s.addOnApprovalName}>{pendingAddOn.name}</Text>
+              {pendingAddOn.quantity > 1 && (
+                <Text style={s.addOnApprovalQty}>×{pendingAddOn.quantity}</Text>
+              )}
+              <Text style={s.addOnApprovalPrice}>${Number(pendingAddOn.subtotal).toFixed(2)}</Text>
+            </View>
+            <Text style={s.ratingSub}>
+              Approving charges the rider's card immediately.
+            </Text>
+            <TouchableOpacity
+              style={[s.submitBtn, { backgroundColor: colors.green, marginTop: spacing.xl }]}
+              onPress={approvePendingAddOn}
+              disabled={approving}
+              activeOpacity={0.85}
+            >
+              {approving
+                ? <ActivityIndicator size="small" color={colors.bg} />
+                : <Text style={s.submitLabel}>APPROVE + CHARGE</Text>
+              }
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.submitBtn, { backgroundColor: colors.cardAlt, borderColor: colors.redBorder, borderWidth: 1, marginTop: spacing.md }]}
+              onPress={rejectPendingAddOn}
+              disabled={approving}
+              activeOpacity={0.85}
+            >
+              <Text style={[s.submitLabel, { color: colors.red }]}>DECLINE</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -967,6 +1109,19 @@ const s = StyleSheet.create({
   addOnStatusOk: { backgroundColor: colors.greenDim, borderColor: colors.greenBorder },
   addOnStatusPending: { backgroundColor: colors.amberDim, borderColor: colors.amberBorder },
   addOnStatusText: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1 },
+
+  extrasBreakdown: { flexDirection: 'row', gap: spacing.lg, marginBottom: spacing.sm },
+  extrasBreakdownLine: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 1 },
+
+  addOnApprovalItem: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.cardAlt, borderRadius: radius.cardInner,
+    padding: spacing.lg, marginVertical: spacing.lg,
+    borderWidth: 1, borderColor: colors.amberBorder, gap: spacing.sm,
+  },
+  addOnApprovalName: { flex: 1, fontFamily: fonts.body, fontSize: 16, color: colors.textPrimary },
+  addOnApprovalQty: { fontFamily: fonts.mono, fontSize: 11, color: colors.textFaint },
+  addOnApprovalPrice: { fontFamily: fonts.display, fontSize: 28, color: colors.amber },
 });
 
 const tl = StyleSheet.create({
