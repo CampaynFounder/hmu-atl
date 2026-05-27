@@ -67,10 +67,10 @@ export async function GET(req: NextRequest) {
   `.catch(() => [] as unknown[]);
 
   if (!rows.length) {
-    // Market slug not in DB yet — treat as inactive (not configured = not launched)
-    void captureWaitlist(userId, bestSlug);
+    // Market slug found by geo but not yet in DB — default to active.
+    // "not seeded" ≠ "not launched"; only an explicit is_active=false blocks users.
     return NextResponse.json({
-      isActive: false,
+      isActive: true,
       marketSlug: bestSlug,
       displayName: bestSlug.toUpperCase(),
     });

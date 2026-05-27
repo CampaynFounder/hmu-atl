@@ -28,7 +28,12 @@ export default function SignIn() {
       await signIn!.prepareFirstFactor({ strategy: 'phone_code', phoneNumberId: phoneFactor.phoneNumberId });
       setStep('code');
     } catch (e: any) {
-      setError(e.errors?.[0]?.message ?? 'Could not send code');
+      const msg: string = e.errors?.[0]?.message ?? 'Could not send code';
+      setError(msg);
+      // Rate-limited but may have already received a code — let them try entering it
+      if (msg.toLowerCase().includes('too many') || msg.toLowerCase().includes('rate')) {
+        setStep('code');
+      }
     } finally {
       setLoading(false);
     }
