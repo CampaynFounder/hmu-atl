@@ -339,7 +339,10 @@ function RiderCard({
             )}
           </Animated.View>
         </Pressable>
-        <Text style={c.swipeHint}>SWIPE UP FOR NEXT</Text>
+        <View style={c.swipeHintRow}>
+          <Ionicons name="chevron-up" size={12} color={colors.textFaint} />
+          <Text style={c.swipeHint}>NEXT RIDER</Text>
+        </View>
       </View>
     </View>
   );
@@ -394,12 +397,12 @@ const s = StyleSheet.create({
 const c = StyleSheet.create({
   card: {
     width: SCREEN_W,
-    backgroundColor: colors.bg,
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.xl,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomWidth: 3,
+    borderBottomColor: 'rgba(255,255,255,0.14)',
   },
 
   avatarWrap: { marginBottom: spacing.xl },
@@ -440,6 +443,7 @@ const c = StyleSheet.create({
   },
   hmuBtnSent: { backgroundColor: colors.textFaint, shadowOpacity: 0 },
   hmuBtnError: { backgroundColor: colors.red, shadowColor: colors.red },
-  hmuBtnText: { fontFamily: fonts.mono, fontSize: 14, color: colors.bg, letterSpacing: 2 },
-  swipeHint: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 2, marginTop: spacing.xs },
+  hmuBtnText: { fontFamily: fonts.mono, fontSize: 14, color: colors.bg, textAlign: 'center' },
+  swipeHintRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: spacing.sm, opacity: 0.6 },
+  swipeHint: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 1 },
 });

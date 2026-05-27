@@ -103,6 +103,10 @@ export default function DriverLayout() {
         options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
+        name="support"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
         name="advanced-settings"
         options={{ href: null, headerShown: false }}
       />

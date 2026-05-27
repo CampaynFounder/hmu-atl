@@ -67,6 +67,10 @@ export default function RiderLayout() {
         name="ride/active"
         options={{ href: null, headerShown: false }}
       />
+      <Tabs.Screen
+        name="support"
+        options={{ href: null, headerShown: false }}
+      />
     </Tabs>
   );
 }
