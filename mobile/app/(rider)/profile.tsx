@@ -117,7 +117,7 @@ export default function RiderProfileScreen() {
             label="My Rides"
             onPress={() => router.push('/(rider)/rides' as any)}
           />
-          <NavRow icon="help-circle-outline" label="Support" onPress={() => {}} last />
+          <NavRow icon="help-circle-outline" label="Support" onPress={() => router.push('/(rider)/support' as any)} last />
         </View>
 
         <TouchableOpacity style={s.signOutBtn} onPress={() => signOut()}>

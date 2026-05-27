@@ -124,7 +124,7 @@ export default function DriverProfileScreen() {
           badge={!payoutDone ? '!' : undefined}
           onPress={() => router.push('/(driver)/payout-setup' as any)}
         />
-        <NavRow icon="help-circle-outline" label="Support" onPress={() => {}} last />
+        <NavRow icon="help-circle-outline" label="Support" onPress={() => router.push('/(driver)/support' as any)} last />
       </View>
 
       <TouchableOpacity style={s.signOutBtn} onPress={() => signOut()}>

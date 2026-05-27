@@ -1,8 +1,10 @@
 // Auth gate: fetch /api/users/me to read profileType, then route to correct tab root.
+// Also runs a geo-based market check after auth — inactive markets show the coming-soon screen.
 import { useEffect, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
+import * as Location from 'expo-location';
 import { apiClient } from '@/lib/api';
 
 export default function Index() {
@@ -21,7 +23,36 @@ export default function Index() {
         );
         if (me.accountStatus === 'pending') {
           router.replace('/(auth)/pending');
-        } else if (me.profileType === 'driver') {
+          return;
+        }
+
+        // Geo-based market check — fail open on denied permission or API error
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted') {
+            const loc = await Promise.race([
+              Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low }),
+              new Promise<null>((res) => setTimeout(() => res(null), 4000)),
+            ]);
+            if (loc) {
+              const market = await apiClient<{ isActive: boolean; displayName: string; marketSlug: string | null }>(
+                `/markets/active-check?lat=${loc.coords.latitude}&lng=${loc.coords.longitude}`,
+                token,
+              );
+              if (!market.isActive) {
+                router.replace({
+                  pathname: '/not-in-market',
+                  params: { area: market.displayName ?? 'Your area', slug: market.marketSlug ?? '' },
+                } as never);
+                return;
+              }
+            }
+          }
+        } catch {
+          // Proceed normally if location or market check fails
+        }
+
+        if (me.profileType === 'driver') {
           router.replace('/(driver)/home');
         } else {
           router.replace('/(rider)/home');
