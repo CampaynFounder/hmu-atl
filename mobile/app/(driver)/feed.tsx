@@ -17,6 +17,12 @@ import { useAbly } from '@/hooks/use-ably';
 import { useNotifications } from '@/contexts/notifications';
 
 // Matches the camelCase shape returned by GET /api/drivers/requests
+interface Stop {
+  lat: number;
+  lng: number;
+  address?: string;
+}
+
 interface BlastRequest {
   id: string;
   type: 'blast' | 'direct' | 'open';
@@ -32,6 +38,8 @@ interface BlastRequest {
   dropoffAreaSlug: string | null;
   pickupAddress: string;
   destination: string;
+  stops: Stop[];
+  roundTrip: boolean;
   time: string;
   price: number;
   expiresAt: string;
@@ -262,6 +270,15 @@ function BlastCard({
         <Ionicons name="navigate-outline" size={13} color={colors.textFaint} style={{ marginRight: 4 }} />
         <Text style={s.area} numberOfLines={1}>{pickup} → {dropoff}</Text>
       </View>
+      {request.stops.length > 0 && (
+        <View style={s.stopsRow}>
+          <Ionicons name="git-branch-outline" size={12} color={colors.textFaint} style={{ marginRight: 4 }} />
+          <Text style={s.stopsText} numberOfLines={1}>
+            {request.stops.length} stop{request.stops.length > 1 ? 's' : ''}
+            {request.stops[0]?.address ? `: ${request.stops[0].address}` : ''}
+          </Text>
+        </View>
+      )}
 
       {/* ── Price ── */}
       <Text style={s.price}>${Number(request.price).toFixed(2)}</Text>
@@ -269,6 +286,7 @@ function BlastCard({
       {/* ── Meta chips ── */}
       <View style={s.metaRow}>
         {request.isCash && <MetaChip label="CASH" cash />}
+        {request.roundTrip && <MetaChip label="ROUND TRIP" accent />}
         {request.time && <MetaChip label={request.time} />}
         {request.riderChillScore > 0 && (
           <MetaChip label={`${Math.round(request.riderChillScore)} chill`} accent />
@@ -358,8 +376,10 @@ const s = StyleSheet.create({
   riderHandle: { fontFamily: fonts.mono, fontSize: 13, color: colors.textPrimary, letterSpacing: 0.3 },
   riderMeta: { fontFamily: fonts.body, fontSize: 11, color: colors.textFaint, marginTop: 2 },
 
-  routeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
+  routeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
   area: { fontFamily: fonts.body, fontSize: 13, color: colors.textTertiary, flex: 1 },
+  stopsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
+  stopsText: { fontFamily: fonts.body, fontSize: 11, color: colors.textFaint, flex: 1 },
 
   timerPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardAlt, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: colors.border },
   timerPillUrgent: { borderColor: colors.redBorder, backgroundColor: colors.redDim },

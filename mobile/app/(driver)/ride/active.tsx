@@ -20,6 +20,12 @@ import { useAbly } from '@/hooks/use-ably';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface Stop {
+  lat: number;
+  lng: number;
+  address?: string;
+}
+
 interface RideView {
   id: string;
   refCode: string | null;
@@ -30,7 +36,13 @@ interface RideView {
   isCash: boolean;
   cooAt: string | null;
   pickupAddress: string | null;
+  pickupLat: number | null;
+  pickupLng: number | null;
   dropoffAddress: string | null;
+  dropoffLat: number | null;
+  dropoffLng: number | null;
+  tripType: 'one_way' | 'round_trip';
+  stops: Stop[];
   riderHandle: string | null;
   riderFirstName: string | null;
   riderAvatarUrl: string | null;
@@ -157,7 +169,16 @@ export default function ActiveRideScreen() {
     if (!rideId) return;
     try {
       const t = await getToken();
-      const data = await apiClient<RideView>(`/rides/${rideId}/driver-view`, t);
+      const raw = await apiClient<RideView>(`/rides/${rideId}/driver-view`, t);
+      const data: RideView = {
+        ...raw,
+        pickupLat: raw.pickupLat ?? null,
+        pickupLng: raw.pickupLng ?? null,
+        dropoffLat: raw.dropoffLat ?? null,
+        dropoffLng: raw.dropoffLng ?? null,
+        tripType: raw.tripType ?? 'one_way',
+        stops: Array.isArray(raw.stops) ? raw.stops : [],
+      };
       setRide(data);
       if (data.status === 'ended' || data.status === 'completed') openRatingSheet();
     } catch (e: any) {
@@ -233,21 +254,38 @@ export default function ActiveRideScreen() {
     }).start();
   }
 
-  function openMapsNav(address: string | null) {
-    if (!address) return;
-    const q = encodeURIComponent(address);
+  function openMapsNav(
+    address: string | null,
+    coords?: { lat: number; lng: number } | null,
+  ) {
+    if (!address && !coords) return;
+    // Prefer coordinates — more precise, works for new streets & rural areas.
+    // Fall back to address text for direct bookings that have no lat/lng.
+    const appleTarget = coords
+      ? `${coords.lat},${coords.lng}`
+      : encodeURIComponent(address!);
+    const googleTarget = coords
+      ? `${coords.lat},${coords.lng}`
+      : encodeURIComponent(address!);
+    const wazeTarget = coords
+      ? `ll=${coords.lat},${coords.lng}`
+      : `q=${encodeURIComponent(address!)}`;
+    const androidTarget = coords
+      ? `${coords.lat},${coords.lng}`
+      : encodeURIComponent(address!);
+
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         { options: ['Apple Maps', 'Google Maps', 'Waze', 'Cancel'], cancelButtonIndex: 3 },
         (i) => {
-          if (i === 0) void Linking.openURL(`maps://?daddr=${q}`);
-          if (i === 1) void Linking.openURL(`comgooglemaps://?daddr=${q}&directionsmode=driving`);
-          if (i === 2) void Linking.openURL(`waze://?q=${q}&navigate=yes`);
+          if (i === 0) void Linking.openURL(`maps://?daddr=${appleTarget}`);
+          if (i === 1) void Linking.openURL(`comgooglemaps://?daddr=${googleTarget}&directionsmode=driving`);
+          if (i === 2) void Linking.openURL(`waze://?${wazeTarget}&navigate=yes`);
         },
       );
     } else {
-      void Linking.openURL(`geo:0,0?q=${q}`).catch(() =>
-        Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${q}`)
+      void Linking.openURL(`geo:0,0?q=${androidTarget}`).catch(() =>
+        Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${androidTarget}`)
       );
     }
   }
@@ -512,22 +550,41 @@ export default function ActiveRideScreen() {
                   <Text style={s.stopType}>PICKUP</Text>
                   <Text style={s.stopAddr}>{ride.pickupAddress ?? '—'}</Text>
                   {ride.pickupAddress && (
-                    <TouchableOpacity style={s.navBtn} onPress={() => openMapsNav(ride.pickupAddress)} activeOpacity={0.7}>
+                    <TouchableOpacity style={s.navBtn} onPress={() => openMapsNav(ride.pickupAddress, ride.pickupLat && ride.pickupLng ? { lat: ride.pickupLat, lng: ride.pickupLng } : null)} activeOpacity={0.7}>
                       <Ionicons name="navigate-outline" size={11} color={colors.green} />
                       <Text style={s.navBtnText}>NAVIGATE</Text>
                     </TouchableOpacity>
                   )}
                 </View>
               </View>
+              {/* Intermediate stops */}
+              {ride.stops.map((stop, idx) => (
+                <View key={idx} style={s.routeStop}>
+                  <View style={s.routeIconCol}>
+                    <View style={[s.dotFrom, { backgroundColor: colors.amber }]} />
+                    <View style={s.connector} />
+                  </View>
+                  <View style={s.routeTextCol}>
+                    <Text style={s.stopType}>STOP {idx + 1}</Text>
+                    <Text style={s.stopAddr}>{stop.address ?? `${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)}`}</Text>
+                    {(stop.address || (stop.lat && stop.lng)) && (
+                      <TouchableOpacity style={s.navBtn} onPress={() => openMapsNav(stop.address ?? null, { lat: stop.lat, lng: stop.lng })} activeOpacity={0.7}>
+                        <Ionicons name="navigate-outline" size={11} color={colors.green} />
+                        <Text style={s.navBtnText}>NAVIGATE</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              ))}
               <View style={s.routeStop}>
                 <View style={s.routeIconCol}>
                   <Ionicons name="location" size={13} color={colors.green} />
                 </View>
                 <View style={s.routeTextCol}>
-                  <Text style={s.stopType}>DROPOFF</Text>
+                  <Text style={s.stopType}>DROPOFF{ride.tripType === 'round_trip' ? ' (ROUND TRIP)' : ''}</Text>
                   <Text style={s.stopAddr}>{ride.dropoffAddress ?? '—'}</Text>
                   {ride.dropoffAddress && (
-                    <TouchableOpacity style={s.navBtn} onPress={() => openMapsNav(ride.dropoffAddress)} activeOpacity={0.7}>
+                    <TouchableOpacity style={s.navBtn} onPress={() => openMapsNav(ride.dropoffAddress, ride.dropoffLat && ride.dropoffLng ? { lat: ride.dropoffLat, lng: ride.dropoffLng } : null)} activeOpacity={0.7}>
                       <Ionicons name="navigate-outline" size={11} color={colors.green} />
                       <Text style={s.navBtnText}>NAVIGATE</Text>
                     </TouchableOpacity>

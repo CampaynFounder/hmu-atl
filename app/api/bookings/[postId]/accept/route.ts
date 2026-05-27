@@ -360,6 +360,19 @@ export async function POST(
         AND post_type IN ('rider_request', 'direct_booking')
     `;
 
+    // Resolve pickup/dropoff text: prefer the dedicated hmu_posts columns (set
+    // for direct bookings once this migration shipped); fall back to the JSONB
+    // fields that the NLP parser populates in time_window.
+    const pickupAddr = (post.pickup_address as string | null)
+      || (timeWindow.pickup as string | undefined)
+      || null;
+    const dropoffAddr = (post.dropoff_address as string | null)
+      || (timeWindow.dropoff as string | undefined)
+      || (timeWindow.destination as string | undefined)
+      || null;
+    const directTripType = timeWindow.round_trip === true ? 'round_trip' : 'one_way';
+    const directStops = Array.isArray(timeWindow.stops) ? timeWindow.stops : [];
+
     // Create ride record
     const refCode = generateRefCode();
     const rideRows = await sql`
@@ -367,22 +380,26 @@ export async function POST(
         driver_id, rider_id, status, amount, final_agreed_price,
         price_mode, price_accepted_at,
         hmu_post_id, agreement_summary,
+        pickup_address, dropoff_address,
+        trip_type, stops,
         dispute_window_minutes, is_cash, wait_minutes, ref_code
       ) VALUES (
         ${driverUserId}, ${riderId}, 'matched', ${price}, ${price},
         'proposed', NOW(),
         ${postId}, ${JSON.stringify({
           destination: timeWindow.destination || timeWindow.note || '',
-          pickup: timeWindow.pickup || '',
-          dropoff: timeWindow.dropoff || '',
+          pickup: pickupAddr || '',
+          dropoff: dropoffAddr || '',
           time: timeWindow.time || 'ASAP',
           resolvedTime: timeWindow.resolvedTime || directWindow.startAt,
           timeDisplay: timeWindow.timeDisplay || parseNaturalTime(String(timeWindow.time || ''), driverMarket.timezone).display,
-          stops: timeWindow.stops || 'none',
-          roundTrip: timeWindow.round_trip === true,
+          stops: directStops,
+          roundTrip: directTripType === 'round_trip',
           areas,
           price,
         })}::jsonb,
+        ${pickupAddr}, ${dropoffAddr},
+        ${directTripType}, ${JSON.stringify(directStops)}::jsonb,
         ${parseInt(process.env.DISPUTE_WINDOW_MINUTES || '5')},
         ${isCash},
         ${waitMinutes},
