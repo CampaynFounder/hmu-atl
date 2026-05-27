@@ -48,11 +48,19 @@ export default function DriverLayout() {
         }}
       />
       <Tabs.Screen
-        name="dashboard"
+        name="rides"
         options={{
-          title: 'EARNINGS',
-          tabBarIcon: tabIcon('cash', 'cash-outline'),
+          title: 'RIDES',
+          tabBarIcon: tabIcon('car', 'car-outline'),
         }}
+      />
+      <Tabs.Screen
+        name="ride/[id]"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="dashboard"
+        options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
         name="profile"
