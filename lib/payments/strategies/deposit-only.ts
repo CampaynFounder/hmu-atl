@@ -10,6 +10,7 @@
 //
 // Config lives in pricing_modes.config JSONB so admin can tune without deploy.
 
+import { getPaymentsConfig } from '@/lib/payments/config';
 import type {
   PricingStrategy,
   HoldInput,
@@ -67,10 +68,7 @@ export function calculateExtrasFeeCents(subtotalCents: number, config: DepositOn
 export function _clearDepositOnlyConfigCache(): void { /* no-op */ }
 
 export async function getDepositOnlyConfig(): Promise<DepositOnlyConfig> {
-  // Config now lives in platform_config under payments:global (via getPaymentsConfig).
-  // Imported lazily to avoid circular deps between strategy and config modules.
   try {
-    const { getPaymentsConfig } = await import('@/lib/payments/config');
     const cfg = await getPaymentsConfig();
     return { ...DEFAULT_DEPOSIT_ONLY_CONFIG, ...cfg.depositOnly };
   } catch (err) {

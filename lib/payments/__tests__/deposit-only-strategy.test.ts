@@ -3,6 +3,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const { sql } = vi.hoisted(() => ({ sql: vi.fn() }));
 vi.mock('@/lib/db/client', () => ({ sql, pool: null, transaction: vi.fn() }));
 
+// Mock getPaymentsConfig so tests control config without depending on sql format.
+const mockGetPaymentsConfig = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/payments/config', () => ({
+  getPaymentsConfig: mockGetPaymentsConfig,
+  computeAddOnReserve: vi.fn().mockReturnValue(0),
+  PAYMENTS_DEFAULTS: {},
+}));
+
 import {
   DepositOnlyStrategy,
   depositOnlyStrategy,
@@ -16,8 +24,7 @@ import {
 beforeEach(() => {
   sql.mockReset();
   _clearDepositOnlyConfigCache();
-  // Default: config row exists in DB with the launch values.
-  sql.mockResolvedValue([{ config: DEFAULT_DEPOSIT_ONLY_CONFIG }]);
+  mockGetPaymentsConfig.mockResolvedValue({ depositOnly: DEFAULT_DEPOSIT_ONLY_CONFIG });
 });
 
 describe('clampDeposit', () => {
@@ -63,32 +70,30 @@ describe('calculateDepositFeeCents', () => {
 });
 
 describe('getDepositOnlyConfig', () => {
-  it('returns the DB-stored config when the row exists', async () => {
-    sql.mockResolvedValueOnce([{
-      config: { feeFloorCents: 175, feePercent: 0.18, depositMin: 7, depositIncrement: 1, depositMaxPctOfFare: 0.4, noShowDriverPct: 1.0 },
-    }]);
+  it('returns the config stored via getPaymentsConfig', async () => {
+    mockGetPaymentsConfig.mockResolvedValueOnce({
+      depositOnly: { feeFloorCents: 175, feePercent: 0.18, depositMin: 7, depositIncrement: 1, depositMaxPctOfFare: 0.4, noShowDriverPct: 1.0, extrasFeePercent: 0.20 },
+    });
     const config = await getDepositOnlyConfig();
     expect(config.feeFloorCents).toBe(175);
     expect(config.feePercent).toBeCloseTo(0.18, 2);
     expect(config.depositMin).toBe(7);
   });
 
-  it('falls back to defaults when DB returns no rows', async () => {
-    sql.mockResolvedValueOnce([]);
+  it('falls back to defaults when getPaymentsConfig throws', async () => {
+    mockGetPaymentsConfig.mockRejectedValueOnce(new Error('connection refused'));
     const config = await getDepositOnlyConfig();
     expect(config).toEqual(DEFAULT_DEPOSIT_ONLY_CONFIG);
   });
 
-  it('falls back to defaults when DB throws', async () => {
-    sql.mockRejectedValueOnce(new Error('connection refused'));
+  it('merges returned depositOnly over DEFAULT_DEPOSIT_ONLY_CONFIG', async () => {
+    mockGetPaymentsConfig.mockResolvedValueOnce({
+      depositOnly: { feeFloorCents: 200 },
+    });
     const config = await getDepositOnlyConfig();
-    expect(config).toEqual(DEFAULT_DEPOSIT_ONLY_CONFIG);
-  });
-
-  it('parses config when DB returns a JSON string instead of object', async () => {
-    sql.mockResolvedValueOnce([{ config: JSON.stringify(DEFAULT_DEPOSIT_ONLY_CONFIG) }]);
-    const config = await getDepositOnlyConfig();
-    expect(config.feeFloorCents).toBe(150);
+    expect(config.feeFloorCents).toBe(200);
+    // Other defaults preserved
+    expect(config.feePercent).toBe(DEFAULT_DEPOSIT_ONLY_CONFIG.feePercent);
   });
 });
 
