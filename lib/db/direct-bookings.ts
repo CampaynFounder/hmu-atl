@@ -168,10 +168,22 @@ export async function createDirectBookingPost(params: {
   dropoffAreaSlug: string | null;
   dropoffInMarket: boolean;
   timeWindow: Record<string, unknown>;
+  pickupAddress?: string | null;
+  dropoffAddress?: string | null;
+  tripType?: 'one_way' | 'round_trip';
   isCash?: boolean;
   expiryMinutes?: number;
 }): Promise<HmuPost> {
   const expiry = params.expiryMinutes ?? 15;
+  const tripType = params.tripType ?? 'one_way';
+  // Derive from timeWindow when not explicitly supplied
+  const pickupAddr = params.pickupAddress
+    ?? (params.timeWindow.pickup as string | undefined)
+    ?? null;
+  const dropoffAddr = params.dropoffAddress
+    ?? (params.timeWindow.dropoff as string | undefined)
+    ?? (params.timeWindow.destination as string | undefined)
+    ?? null;
   const result = await sql`
     INSERT INTO hmu_posts (
       user_id,
@@ -183,6 +195,9 @@ export async function createDirectBookingPost(params: {
       areas,
       price,
       time_window,
+      pickup_address,
+      dropoff_address,
+      trip_type,
       status,
       target_driver_id,
       booking_expires_at,
@@ -198,6 +213,9 @@ export async function createDirectBookingPost(params: {
       ${params.areas},
       ${params.price},
       ${JSON.stringify(params.timeWindow)},
+      ${pickupAddr},
+      ${dropoffAddr},
+      ${tripType},
       'active',
       ${params.driverUserId},
       NOW() + make_interval(mins := ${expiry}),

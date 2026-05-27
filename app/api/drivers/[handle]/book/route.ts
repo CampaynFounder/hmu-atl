@@ -296,6 +296,7 @@ export async function POST(
     dropoffAreaSlug: route.dropoff_area_slug,
     dropoffInMarket: route.dropoff_in_market,
     timeWindow: resolvedTimeWindow,
+    tripType: isRoundTrip ? 'round_trip' : 'one_way',
     isCash: resolvedIsCash,
     expiryMinutes,
   });

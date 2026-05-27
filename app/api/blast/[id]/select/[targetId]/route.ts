@@ -86,7 +86,7 @@ export async function POST(
        AND expires_at > NOW()
      RETURNING id, price, pickup_address, dropoff_address,
                pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
-               scheduled_for, trip_type, areas, time_window
+               scheduled_for, trip_type, stops, areas, time_window
   `;
   if (!claim.length) {
     return NextResponse.json(
@@ -200,6 +200,8 @@ export async function POST(
   // Create the ride row. Mirror the shape used by /api/bookings/[postId]/accept.
   const refCode = generateRefCode();
   const timeWindow = (post.time_window as Record<string, unknown>) ?? {};
+  const postStops = (post.stops as unknown[]) ?? [];
+  const postTripType = (post.trip_type as string) === 'round_trip' ? 'round_trip' : 'one_way';
   const rideRows = await sql`
     INSERT INTO rides (
       driver_id, rider_id, status, amount, final_agreed_price,
@@ -207,7 +209,8 @@ export async function POST(
       hmu_post_id, agreement_summary,
       dispute_window_minutes, is_cash, ref_code,
       pickup_address, pickup_lat, pickup_lng,
-      dropoff_address, dropoff_lat, dropoff_lng
+      dropoff_address, dropoff_lat, dropoff_lng,
+      trip_type, stops
     ) VALUES (
       ${driverId}, ${riderId}, 'matched', ${finalPrice}, ${finalPrice},
       'proposed', NOW(),
@@ -216,7 +219,7 @@ export async function POST(
         source: 'blast',
         pickup: post.pickup_address,
         dropoff: post.dropoff_address,
-        tripType: post.trip_type,
+        tripType: postTripType,
         scheduledFor: post.scheduled_for,
         timeDisplay: timeWindow.scheduledFor ?? 'ASAP',
       })}::jsonb,
@@ -224,7 +227,8 @@ export async function POST(
       FALSE,
       ${refCode},
       ${post.pickup_address}, ${post.pickup_lat}, ${post.pickup_lng},
-      ${post.dropoff_address}, ${post.dropoff_lat}, ${post.dropoff_lng}
+      ${post.dropoff_address}, ${post.dropoff_lat}, ${post.dropoff_lng},
+      ${postTripType}, ${JSON.stringify(postStops)}::jsonb
     )
     RETURNING id, ref_code
   `;

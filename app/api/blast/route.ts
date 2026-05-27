@@ -74,6 +74,7 @@ async function runQuery<T = any[]>(name: string, fn: () => Promise<T>): Promise<
 interface BlastBody {
   pickup?: { lat?: number; lng?: number; address?: string };
   dropoff?: { lat?: number; lng?: number; address?: string };
+  stops?: Array<{ lat: number; lng: number; address?: string }>;
   // Accept both snake_case (legacy) and camelCase (client BlastCreateInput)
   trip_type?: 'one_way' | 'round_trip';
   tripType?: 'one_way' | 'round_trip';
@@ -497,6 +498,7 @@ export async function POST(req: NextRequest) {
         id, user_id, post_type, status, areas, shortcode, price, time_window,
         pickup_lat, pickup_lng, pickup_address,
         dropoff_lat, dropoff_lng, dropoff_address,
+        stops,
         trip_type, scheduled_for, storage_requested, driver_preference,
         market_id, expires_at
       ) VALUES (
@@ -512,6 +514,7 @@ export async function POST(req: NextRequest) {
         })}::jsonb,
         ${pickupLat}, ${pickupLng}, ${body.pickup?.address ?? null},
         ${dropoffLat}, ${dropoffLng}, ${body.dropoff?.address ?? null},
+        ${JSON.stringify(body.stops ?? [])}::jsonb,
         ${tripType}, ${scheduledFor}, ${storageRequested}, ${driverPreference},
         ${market.market_id}, ${expiresAt}
       )

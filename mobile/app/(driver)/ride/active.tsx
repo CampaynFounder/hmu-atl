@@ -20,6 +20,12 @@ import { useAbly } from '@/hooks/use-ably';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface Stop {
+  lat: number;
+  lng: number;
+  address?: string;
+}
+
 interface RideView {
   id: string;
   refCode: string | null;
@@ -31,6 +37,8 @@ interface RideView {
   cooAt: string | null;
   pickupAddress: string | null;
   dropoffAddress: string | null;
+  tripType: 'one_way' | 'round_trip';
+  stops: Stop[];
   riderHandle: string | null;
   riderFirstName: string | null;
   riderAvatarUrl: string | null;
@@ -157,7 +165,12 @@ export default function ActiveRideScreen() {
     if (!rideId) return;
     try {
       const t = await getToken();
-      const data = await apiClient<RideView>(`/rides/${rideId}/driver-view`, t);
+      const raw = await apiClient<RideView>(`/rides/${rideId}/driver-view`, t);
+      const data: RideView = {
+        ...raw,
+        tripType: raw.tripType ?? 'one_way',
+        stops: Array.isArray(raw.stops) ? raw.stops : [],
+      };
       setRide(data);
       if (data.status === 'ended' || data.status === 'completed') openRatingSheet();
     } catch (e: any) {
@@ -519,12 +532,31 @@ export default function ActiveRideScreen() {
                   )}
                 </View>
               </View>
+              {/* Intermediate stops */}
+              {ride.stops.map((stop, idx) => (
+                <View key={idx} style={s.routeStop}>
+                  <View style={s.routeIconCol}>
+                    <View style={[s.dotFrom, { backgroundColor: colors.amber }]} />
+                    <View style={s.connector} />
+                  </View>
+                  <View style={s.routeTextCol}>
+                    <Text style={s.stopType}>STOP {idx + 1}</Text>
+                    <Text style={s.stopAddr}>{stop.address ?? `${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)}`}</Text>
+                    {stop.address && (
+                      <TouchableOpacity style={s.navBtn} onPress={() => openMapsNav(stop.address!)} activeOpacity={0.7}>
+                        <Ionicons name="navigate-outline" size={11} color={colors.green} />
+                        <Text style={s.navBtnText}>NAVIGATE</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              ))}
               <View style={s.routeStop}>
                 <View style={s.routeIconCol}>
                   <Ionicons name="location" size={13} color={colors.green} />
                 </View>
                 <View style={s.routeTextCol}>
-                  <Text style={s.stopType}>DROPOFF</Text>
+                  <Text style={s.stopType}>DROPOFF{ride.tripType === 'round_trip' ? ' (ROUND TRIP)' : ''}</Text>
                   <Text style={s.stopAddr}>{ride.dropoffAddress ?? '—'}</Text>
                   {ride.dropoffAddress && (
                     <TouchableOpacity style={s.navBtn} onPress={() => openMapsNav(ride.dropoffAddress)} activeOpacity={0.7}>
