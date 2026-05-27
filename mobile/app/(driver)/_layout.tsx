@@ -99,6 +99,34 @@ export default function DriverLayout() {
         options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
+        name="advanced-settings"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="advanced/rider-quality"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="advanced/pricing"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="advanced/down-bad"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="advanced/availability"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="advanced/home-base"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="advanced/media"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'PROFILE',

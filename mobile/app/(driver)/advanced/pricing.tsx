@@ -1,0 +1,257 @@
+// Pricing & Rates — minimum ride, base rate, hourly, out-of-town, deposit floor.
+// Rates → PATCH /api/users/profile { pricing: { minimum, base_rate, hourly, out_of_town } }
+// Deposit floor → PATCH /api/drivers/booking-settings { deposit_floor }
+
+import { useEffect, useRef, useState } from 'react';
+import {
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
+  TextInput, ActivityIndicator, KeyboardAvoidingView, Platform,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '@clerk/clerk-expo';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
+import { apiClient } from '@/lib/api';
+
+interface PricingData {
+  pricing: {
+    minimum?: number;
+    base_rate?: number;
+    hourly?: number;
+    out_of_town?: number;
+  };
+  depositFloor: number | null;
+}
+
+export default function PricingScreen() {
+  const { getToken } = useAuth();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const [minimum, setMinimum] = useState('');
+  const [baseRate, setBaseRate] = useState('');
+  const [hourly, setHourly] = useState('');
+  const [outOfTown, setOutOfTown] = useState('');
+  const [depositFloor, setDepositFloor] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const t = await getToken();
+        const d = await apiClient<PricingData>('/driver/profile', t);
+        setMinimum(d.pricing?.minimum ? String(d.pricing.minimum) : '');
+        setBaseRate(d.pricing?.base_rate ? String(d.pricing.base_rate) : '');
+        setHourly(d.pricing?.hourly ? String(d.pricing.hourly) : '');
+        setOutOfTown(d.pricing?.out_of_town ? String(d.pricing.out_of_town) : '');
+        setDepositFloor(d.depositFloor != null ? String(d.depositFloor) : '');
+      } catch {}
+      finally { setLoading(false); }
+    })();
+  }, [getToken]);
+
+  function flash() {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function savePricing(key: string, rawVal: string) {
+    const num = parseFloat(rawVal);
+    if (isNaN(num) || num < 0) return;
+    setSaving(true);
+    try {
+      const t = await getToken();
+      await apiClient('/users/profile', t, {
+        method: 'PATCH',
+        body: JSON.stringify({ profile_type: 'driver', pricing: { [key]: num } }),
+      });
+      flash();
+    } catch {}
+    finally { setSaving(false); }
+  }
+
+  async function saveDepositFloor(rawVal: string) {
+    const num = rawVal === '' ? null : parseFloat(rawVal);
+    if (num !== null && (isNaN(num) || num < 0)) return;
+    setSaving(true);
+    try {
+      const t = await getToken();
+      await apiClient('/drivers/booking-settings', t, {
+        method: 'PATCH',
+        body: JSON.stringify({ deposit_floor: num }),
+      });
+      flash();
+    } catch {}
+    finally { setSaving(false); }
+  }
+
+  if (loading) {
+    return (
+      <View style={[s.center, { paddingTop: insets.top }]}>
+        <ActivityIndicator size="large" color={colors.green} />
+      </View>
+    );
+  }
+
+  return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={[s.root, { paddingTop: insets.top }]}>
+        <View style={s.navbar}>
+          <TouchableOpacity onPress={() => router.back()} style={s.backBtn} activeOpacity={0.7}>
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={s.navTitle}>PRICING & RATES</Text>
+          <View style={s.savingSlot}>
+            {saving && <ActivityIndicator size="small" color={colors.green} />}
+            {!saving && saved && <Text style={s.savedText}>SAVED</Text>}
+          </View>
+        </View>
+
+        <ScrollView
+          contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 40 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={s.hint}>Set to 0 to leave a rate unset. Riders see these on your profile.</Text>
+
+          {/* Rates */}
+          <SectionHeader label="RIDE RATES" />
+          <View style={[s.card, shadow.card]}>
+            <PriceRow
+              label="MINIMUM RIDE"
+              sub="Don't take rides below this price"
+              value={minimum}
+              onChangeText={setMinimum}
+              onBlur={() => savePricing('minimum', minimum)}
+            />
+            <Divider />
+            <PriceRow
+              label="30-MIN BASE RATE"
+              sub="Short trips around your area"
+              value={baseRate}
+              onChangeText={setBaseRate}
+              onBlur={() => savePricing('base_rate', baseRate)}
+            />
+            <Divider />
+            <PriceRow
+              label="HOURLY RATE"
+              sub="Multi-stop or longer distance"
+              value={hourly}
+              onChangeText={setHourly}
+              onBlur={() => savePricing('hourly', hourly)}
+            />
+            <Divider />
+            <PriceRow
+              label="OUT-OF-TOWN / HR"
+              sub="Rides outside your usual area"
+              value={outOfTown}
+              onChangeText={setOutOfTown}
+              onBlur={() => savePricing('out_of_town', outOfTown)}
+            />
+          </View>
+
+          {/* Deposit Floor */}
+          <SectionHeader label="DEPOSIT FLOOR" hint="The minimum deposit a rider must put down to book you. Leave blank for the platform default." />
+          <View style={[s.card, shadow.card]}>
+            <PriceRow
+              label="MIN DEPOSIT"
+              sub="Platform default: $5"
+              value={depositFloor}
+              onChangeText={setDepositFloor}
+              onBlur={() => saveDepositFloor(depositFloor)}
+              placeholder="Platform default"
+            />
+          </View>
+        </ScrollView>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+function SectionHeader({ label, hint }: { label: string; hint?: string }) {
+  return (
+    <View style={s.sectionHeader}>
+      <Text style={s.sectionLabel}>{label}</Text>
+      {hint && <Text style={s.sectionHint}>{hint}</Text>}
+    </View>
+  );
+}
+
+function PriceRow({
+  label, sub, value, onChangeText, onBlur, placeholder = '$0',
+}: {
+  label: string; sub: string; value: string;
+  onChangeText: (v: string) => void; onBlur: () => void; placeholder?: string;
+}) {
+  return (
+    <View style={s.priceRow}>
+      <View style={s.priceLabelCol}>
+        <Text style={s.priceLabel}>{label}</Text>
+        <Text style={s.priceSub}>{sub}</Text>
+      </View>
+      <View style={s.priceInputWrap}>
+        <Text style={s.dollarSign}>$</Text>
+        <TextInput
+          style={s.priceInput}
+          value={value}
+          onChangeText={onChangeText}
+          onBlur={onBlur}
+          placeholder={placeholder}
+          placeholderTextColor={colors.textFaint}
+          keyboardType="decimal-pad"
+          returnKeyType="done"
+        />
+      </View>
+    </View>
+  );
+}
+
+function Divider() {
+  return <View style={s.divider} />;
+}
+
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
+  center: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
+  navbar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  backBtn: {
+    width: 40, height: 40, alignItems: 'center', justifyContent: 'center',
+    borderRadius: radius.pill, backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border,
+  },
+  navTitle: { fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary, letterSpacing: 2 },
+  savingSlot: { width: 60, alignItems: 'flex-end' },
+  savedText: { fontFamily: fonts.mono, fontSize: 10, color: colors.green, letterSpacing: 1 },
+  content: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg },
+  hint: { fontFamily: fonts.body, fontSize: 13, color: colors.textFaint, marginBottom: spacing.sm, lineHeight: 20 },
+  sectionHeader: { marginTop: spacing.xl, marginBottom: spacing.sm, paddingHorizontal: 2 },
+  sectionLabel: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 3 },
+  sectionHint: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint, marginTop: 4, lineHeight: 18 },
+  card: {
+    backgroundColor: colors.card, borderRadius: radius.card,
+    borderWidth: 1, borderColor: colors.border, overflow: 'hidden',
+  },
+  divider: { height: 1, backgroundColor: colors.border, marginHorizontal: spacing.lg },
+  priceRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+  },
+  priceLabelCol: { flex: 1, marginRight: spacing.md },
+  priceLabel: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 2 },
+  priceSub: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint, marginTop: 2 },
+  priceInputWrap: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  dollarSign: { fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.textSecondary },
+  priceInput: {
+    fontFamily: fonts.bodyMedium, fontSize: 18, color: colors.textPrimary,
+    minWidth: 64, textAlign: 'right',
+    borderBottomWidth: 1, borderBottomColor: colors.borderStrong,
+    paddingBottom: 2,
+  },
+});
