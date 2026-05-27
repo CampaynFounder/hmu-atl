@@ -194,14 +194,14 @@ function BlastCard({
         {request.rider_handle && (
           <MetaChip label={`@${request.rider_handle}`} />
         )}
-        {request.distance_from_pickup_mi !== null && (
-          <MetaChip label={`${request.distance_from_pickup_mi.toFixed(1)} mi`} />
+        {request.distance_from_pickup_mi != null && (
+          <MetaChip label={`${Number(request.distance_from_pickup_mi).toFixed(1)} mi`} />
         )}
         {request.time_window && (
           <MetaChip label={request.time_window} />
         )}
-        {request.match_score !== null && (
-          <MetaChip label={`${Math.round(request.match_score * 100)}% match`} accent />
+        {request.match_score != null && (
+          <MetaChip label={`${Math.round(Number(request.match_score) * 100)}% match`} accent />
         )}
       </View>
 
