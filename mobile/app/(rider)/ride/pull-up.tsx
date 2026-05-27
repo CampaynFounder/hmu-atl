@@ -225,7 +225,7 @@ export default function PullUpScreen() {
         }),
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace(`/(rider)/ride/${rideId}` as any);
+      router.replace(`/(rider)/ride/active?rideId=${rideId}` as any);
     } catch (e: any) {
       setError(e.message ?? 'Failed to submit details');
     } finally {

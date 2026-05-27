@@ -1,0 +1,546 @@
+// Rider active ride screen — live ride tracking + extras selection.
+// Route: /(rider)/ride/active?rideId=<uuid>
+// Rider can add extras from driver's menu (matched/otw states).
+// "I'm In" confirms the rider is in the car → final charge captured.
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
+  Animated, ActivityIndicator, Alert, Image,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useAuth } from '@clerk/clerk-expo';
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
+import { apiClient } from '@/lib/api';
+import { useAbly } from '@/hooks/use-ably';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface RideView {
+  id: string;
+  refCode: string | null;
+  status: string;
+  agreedPrice: number;
+  isCash: boolean;
+  cooAt: string | null;
+  pickupAddress: string | null;
+  dropoffAddress: string | null;
+  tripType: 'one_way' | 'round_trip';
+  addOnTotal: number;
+  driverHandle: string | null;
+  driverFirstName: string | null;
+  driverAvatarUrl: string | null;
+  driverChillScore: number;
+  driverCompletedRides: number;
+  otwAt: string | null;
+  hereAt: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
+interface MenuItem {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  category: string | null;
+}
+
+interface AddOn {
+  id: string;
+  item_name: string;
+  item_price: number;
+  status: string;
+  quantity: number;
+}
+
+// ── Status config ─────────────────────────────────────────────────────────────
+
+const STATUS_META: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  matched:    { label: 'DRIVER ACCEPTED',  color: colors.amber, bg: colors.amberDim,  border: colors.amberBorder },
+  otw:        { label: 'DRIVER EN ROUTE',  color: colors.blue,  bg: colors.blueDim,   border: colors.blueBorder  },
+  here:       { label: 'DRIVER ARRIVED',   color: colors.green, bg: colors.greenDim,  border: colors.greenBorder },
+  confirming: { label: 'STARTING RIDE',    color: colors.green, bg: colors.greenDim,  border: colors.greenBorder },
+  active:     { label: 'ON THE WAY',       color: colors.green, bg: colors.greenDim,  border: colors.greenBorder },
+  in_progress:{ label: 'ON THE WAY',       color: colors.green, bg: colors.greenDim,  border: colors.greenBorder },
+  ended:      { label: 'RIDE COMPLETE',    color: colors.textTertiary, bg: colors.cardAlt, border: colors.border },
+  cancelled:  { label: 'CANCELLED',        color: colors.red,   bg: colors.redDim,    border: colors.redBorder   },
+};
+
+function statusMeta(s: string) {
+  return STATUS_META[s] ?? { label: s.toUpperCase(), color: colors.textFaint, bg: colors.cardAlt, border: colors.border };
+}
+
+// ── Screen ────────────────────────────────────────────────────────────────────
+
+export default function RiderActiveScreen() {
+  const { getToken } = useAuth();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { rideId } = useLocalSearchParams<{ rideId: string }>();
+
+  const [ride, setRide] = useState<RideView | null>(null);
+  const [menu, setMenu] = useState<MenuItem[]>([]);
+  const [addOns, setAddOns] = useState<AddOn[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [addingItem, setAddingItem] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+
+  const [showMenu, setShowMenu] = useState(false);
+  const menuSlide = useRef(new Animated.Value(400)).current;
+
+  // Keep token fresh
+  useEffect(() => {
+    getToken().then(setToken).catch(() => {});
+    const interval = setInterval(() => getToken().then(setToken).catch(() => {}), 55_000);
+    return () => clearInterval(interval);
+  }, [getToken]);
+
+  const fetchRide = useCallback(async () => {
+    if (!rideId) return;
+    try {
+      const t = await getToken();
+      const data = await apiClient<RideView>(`/rides/${rideId}/rider-view`, t);
+      setRide(data);
+      if (data.status === 'ended' || data.status === 'completed') {
+        router.replace(`/(rider)/ride/${rideId}` as any);
+      }
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to load ride');
+    } finally {
+      setLoading(false);
+    }
+  }, [rideId, getToken]);
+
+  const fetchMenu = useCallback(async () => {
+    if (!rideId) return;
+    try {
+      const t = await getToken();
+      const data = await apiClient<{ menu: MenuItem[] }>(`/rides/${rideId}/menu`, t);
+      setMenu(data.menu ?? []);
+    } catch {
+      // Driver may have no menu — not an error
+    }
+  }, [rideId, getToken]);
+
+  const fetchAddOns = useCallback(async () => {
+    if (!rideId) return;
+    try {
+      const t = await getToken();
+      const data = await apiClient<{ addOns: AddOn[] }>(`/rides/${rideId}/add-ons`, t);
+      setAddOns(data.addOns ?? []);
+    } catch {}
+  }, [rideId, getToken]);
+
+  useEffect(() => {
+    void fetchRide();
+    void fetchMenu();
+    void fetchAddOns();
+  }, []);
+
+  // Live updates
+  useAbly({
+    channelName: rideId ? `ride:${rideId}` : null,
+    token,
+    rideId,
+    onMessage: (msg) => {
+      if (msg.name === 'status_change') {
+        const d = msg.data as Record<string, unknown>;
+        const newStatus = d.status as string;
+        setRide((prev) => prev ? { ...prev, status: newStatus } : prev);
+        if (newStatus === 'otw') setRide((prev) => prev ? { ...prev, otwAt: new Date().toISOString() } : prev);
+        if (newStatus === 'here') setRide((prev) => prev ? { ...prev, hereAt: new Date().toISOString() } : prev);
+        if (newStatus === 'active') setRide((prev) => prev ? { ...prev, startedAt: new Date().toISOString() } : prev);
+        if (newStatus === 'ended' || newStatus === 'completed') {
+          router.replace(`/(rider)/ride/${rideId}` as any);
+        }
+      }
+      if (
+        msg.name === 'add_on_confirmed' ||
+        msg.name === 'add_on_rejected' ||
+        msg.name === 'add_on_removed' ||
+        msg.name === 'add_on_payment_failed'
+      ) {
+        void fetchAddOns();
+      }
+    },
+  });
+
+  function openMenu() {
+    setShowMenu(true);
+    Animated.spring(menuSlide, { toValue: 0, useNativeDriver: true, speed: 14, bounciness: 4 }).start();
+  }
+
+  function closeMenu() {
+    Animated.spring(menuSlide, { toValue: 400, useNativeDriver: true, speed: 14, bounciness: 0 }).start(() => {
+      setShowMenu(false);
+    });
+  }
+
+  async function addExtra(item: MenuItem) {
+    if (!rideId || addingItem) return;
+    setAddingItem(item.id);
+    try {
+      const t = await getToken();
+      await apiClient(`/rides/${rideId}/add-ons`, t, {
+        method: 'POST',
+        body: JSON.stringify({ menu_item_id: item.id, quantity: 1 }),
+      });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void fetchAddOns();
+    } catch (e: any) {
+      Alert.alert('Could not add extra', e.message ?? 'Try again');
+    } finally {
+      setAddingItem(null);
+    }
+  }
+
+  async function removeExtra(addOnId: string) {
+    if (!rideId) return;
+    try {
+      const t = await getToken();
+      await apiClient(`/rides/${rideId}/add-ons`, t, {
+        method: 'PATCH',
+        body: JSON.stringify({ add_on_id: addOnId, action: 'remove' }),
+      });
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      void fetchAddOns();
+    } catch {}
+  }
+
+  if (loading) {
+    return (
+      <View style={[s.center, { paddingTop: insets.top }]}>
+        <ActivityIndicator size="large" color={colors.green} />
+      </View>
+    );
+  }
+
+  if (!ride) {
+    return (
+      <View style={[s.center, { paddingTop: insets.top }]}>
+        <Text style={s.errorText}>{error ?? 'Ride not found'}</Text>
+      </View>
+    );
+  }
+
+  const meta = statusMeta(ride.status);
+  const driverName = ride.driverHandle ? `@${ride.driverHandle}` : ride.driverFirstName ?? 'Driver';
+  const isPreRide = ['matched', 'otw', 'here'].includes(ride.status);
+  const confirmedExtras = addOns.filter(a => a.status === 'confirmed');
+  const pendingExtras = addOns.filter(a => a.status === 'pending_driver');
+  const confirmedTotal = confirmedExtras.reduce((s, a) => s + Number(a.item_price) * a.quantity, 0);
+  const totalWithExtras = ride.agreedPrice + confirmedTotal;
+
+  // Items not already queued
+  const alreadyAdded = new Set(addOns.filter(a => a.status !== 'rejected').map(a => a.item_name));
+  const availableMenu = menu.filter(m => !alreadyAdded.has(m.name));
+
+  return (
+    <View style={[s.root, { paddingTop: insets.top }]}>
+      {/* Navbar */}
+      <View style={s.navbar}>
+        <TouchableOpacity onPress={() => router.back()} style={s.backBtn} activeOpacity={0.7}>
+          <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+        </TouchableOpacity>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={s.navTitle}>YOUR RIDE</Text>
+          {ride.refCode && <Text style={s.navRef}>REF: {ride.refCode}</Text>}
+        </View>
+        <View style={[s.statusPill, { backgroundColor: meta.bg, borderColor: meta.border }]}>
+          <Text style={[s.statusLabel, { color: meta.color }]}>{meta.label}</Text>
+        </View>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 100 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Fare card */}
+        <View style={[s.card, shadow.card]}>
+          <Text style={s.cardLabel}>{ride.isCash ? 'CASH FARE' : 'AGREED PRICE'}</Text>
+          {confirmedTotal > 0 ? (
+            <>
+              <Text style={s.fareAmount}>${totalWithExtras.toFixed(2)}</Text>
+              <View style={s.extrasRow}>
+                <Text style={s.extrasLine}>BASE ${ride.agreedPrice.toFixed(2)}</Text>
+                <Text style={[s.extrasLine, { color: colors.amber }]}>+ EXTRAS ${confirmedTotal.toFixed(2)}</Text>
+              </View>
+            </>
+          ) : (
+            <Text style={s.fareAmount}>${ride.agreedPrice.toFixed(2)}</Text>
+          )}
+          {pendingExtras.length > 0 && (
+            <View style={s.pendingNote}>
+              <Ionicons name="time-outline" size={12} color={colors.amber} />
+              <Text style={s.pendingNoteText}>{pendingExtras.length} extra{pendingExtras.length > 1 ? 's' : ''} pending driver approval</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Route card */}
+        <View style={[s.card, shadow.card]}>
+          <Text style={s.cardLabel}>ROUTE</Text>
+          <View style={s.routeRow}>
+            <View style={s.routeDot} />
+            <Text style={s.routeAddr} numberOfLines={2}>{ride.pickupAddress ?? 'Pickup'}</Text>
+          </View>
+          <View style={s.routeLine} />
+          <View style={s.routeRow}>
+            <View style={[s.routeDot, s.routeDotDest]} />
+            <Text style={s.routeAddr} numberOfLines={2}>
+              {ride.dropoffAddress ?? 'Dropoff'}{ride.tripType === 'round_trip' ? ' (ROUND TRIP)' : ''}
+            </Text>
+          </View>
+        </View>
+
+        {/* Driver card */}
+        <View style={[s.card, shadow.card]}>
+          <Text style={s.cardLabel}>DRIVER</Text>
+          <View style={s.driverRow}>
+            <DriverAvatar url={ride.driverAvatarUrl} name={driverName} />
+            <View style={{ flex: 1, marginLeft: spacing.md }}>
+              <Text style={s.driverName}>{driverName}</Text>
+              <View style={s.driverMeta}>
+                {ride.driverChillScore > 0 && (
+                  <Text style={s.driverMetaText}>{Math.round(ride.driverChillScore)} chill</Text>
+                )}
+                {ride.driverCompletedRides > 0 && (
+                  <Text style={s.driverMetaText}>{ride.driverCompletedRides} rides</Text>
+                )}
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Extras card */}
+        {addOns.length > 0 && (
+          <View style={[s.card, shadow.card]}>
+            <Text style={s.cardLabel}>EXTRAS</Text>
+            {addOns.map((a, i) => (
+              <View key={a.id} style={[s.addOnRow, i === 0 && { borderTopWidth: 0 }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.addOnName}>{a.item_name}</Text>
+                  {a.quantity > 1 && <Text style={s.addOnQty}>×{a.quantity}</Text>}
+                </View>
+                <Text style={s.addOnPrice}>${(Number(a.item_price) * a.quantity).toFixed(2)}</Text>
+                <View style={[
+                  s.addOnStatus,
+                  a.status === 'confirmed' && s.addOnStatusOk,
+                  a.status === 'pending_driver' && s.addOnStatusPending,
+                  a.status === 'rejected' && s.addOnStatusRejected,
+                ]}>
+                  <Text style={[
+                    s.addOnStatusText,
+                    a.status === 'confirmed' && { color: colors.green },
+                    a.status === 'pending_driver' && { color: colors.amber },
+                    a.status === 'rejected' && { color: colors.red },
+                  ]}>
+                    {a.status === 'confirmed' ? 'CONFIRMED' :
+                     a.status === 'pending_driver' ? 'PENDING' :
+                     a.status === 'rejected' ? 'DECLINED' :
+                     a.status.replace(/_/g, ' ').toUpperCase()}
+                  </Text>
+                </View>
+                {a.status === 'pending_driver' && isPreRide && (
+                  <TouchableOpacity onPress={() => removeExtra(a.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Ionicons name="close-circle" size={16} color={colors.textFaint} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Add extras CTA */}
+        {isPreRide && menu.length > 0 && (
+          <TouchableOpacity style={[s.addExtrasCta, shadow.card]} onPress={openMenu} activeOpacity={0.85}>
+            <Ionicons name="add-circle-outline" size={16} color={colors.green} />
+            <Text style={s.addExtrasLabel}>ADD EXTRAS</Text>
+            {availableMenu.length > 0 && (
+              <Text style={s.addExtrasCount}>{availableMenu.length} available</Text>
+            )}
+          </TouchableOpacity>
+        )}
+
+        {error && (
+          <View style={s.errorBox}>
+            <Ionicons name="alert-circle" size={14} color={colors.red} />
+            <Text style={s.errorText2}>{error}</Text>
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Menu sheet */}
+      {showMenu && (
+        <Animated.View style={[s.overlay, { transform: [{ translateY: menuSlide }] }]}>
+          <View style={[s.sheet, { paddingBottom: insets.bottom + spacing.xl }]}>
+            <View style={s.sheetHandle} />
+            <View style={s.sheetHeader}>
+              <Text style={s.sheetTitle}>DRIVER EXTRAS</Text>
+              <TouchableOpacity onPress={closeMenu} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {availableMenu.length === 0 ? (
+                <Text style={s.noItems}>All available extras have been added.</Text>
+              ) : (
+                availableMenu.map((item) => (
+                  <View key={item.id} style={s.menuItem}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.menuItemName}>{item.name}</Text>
+                      {item.description && (
+                        <Text style={s.menuItemDesc} numberOfLines={2}>{item.description}</Text>
+                      )}
+                    </View>
+                    <Text style={s.menuItemPrice}>${Number(item.price).toFixed(2)}</Text>
+                    <TouchableOpacity
+                      style={s.addBtn}
+                      onPress={() => addExtra(item)}
+                      disabled={addingItem === item.id}
+                      activeOpacity={0.8}
+                    >
+                      {addingItem === item.id
+                        ? <ActivityIndicator size="small" color={colors.bg} />
+                        : <Text style={s.addBtnLabel}>ADD</Text>
+                      }
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </Animated.View>
+      )}
+    </View>
+  );
+}
+
+// ── Driver avatar ─────────────────────────────────────────────────────────────
+
+function DriverAvatar({ url, name }: { url: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+  const letter = (name ?? '?')[0].toUpperCase();
+  if (url && !failed) {
+    return <Image source={{ uri: url }} style={s.avatar} onError={() => setFailed(true)} />;
+  }
+  return (
+    <View style={[s.avatar, s.avatarFallback]}>
+      <Text style={s.avatarLetter}>{letter}</Text>
+    </View>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
+  center: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
+  errorText: { fontFamily: fonts.body, fontSize: 14, color: colors.textFaint },
+
+  navbar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  backBtn: {
+    width: 40, height: 40, alignItems: 'center', justifyContent: 'center',
+    borderRadius: radius.pill, backgroundColor: colors.cardAlt,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  navTitle: { fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary, letterSpacing: 2 },
+  navRef: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1, marginTop: 2 },
+  statusPill: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1 },
+  statusLabel: { fontFamily: fonts.mono, fontSize: 9, letterSpacing: 1 },
+
+  content: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg },
+  card: {
+    backgroundColor: colors.card, borderRadius: radius.card,
+    padding: spacing.xl, marginBottom: spacing.lg,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  cardLabel: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 3, marginBottom: spacing.md },
+
+  fareAmount: { fontFamily: fonts.display, fontSize: 48, color: colors.green, lineHeight: 52, marginBottom: 4 },
+  extrasRow: { flexDirection: 'row', gap: spacing.lg, marginBottom: spacing.sm },
+  extrasLine: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 1 },
+  pendingNote: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm,
+  },
+  pendingNoteText: { fontFamily: fonts.mono, fontSize: 9, color: colors.amber, letterSpacing: 1 },
+
+  routeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, marginBottom: 4 },
+  routeDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.textFaint, marginTop: 5 },
+  routeDotDest: { backgroundColor: colors.green },
+  routeLine: { width: 1, height: 18, backgroundColor: colors.border, marginLeft: 3.5, marginBottom: 4 },
+  routeAddr: { flex: 1, fontFamily: fonts.body, fontSize: 14, color: colors.textPrimary, lineHeight: 20 },
+
+  driverRow: { flexDirection: 'row', alignItems: 'center' },
+  avatar: { width: 44, height: 44, borderRadius: 22 },
+  avatarFallback: { backgroundColor: colors.cardAlt, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border },
+  avatarLetter: { fontFamily: fonts.display, fontSize: 22, color: colors.green },
+  driverName: { fontFamily: fonts.mono, fontSize: 14, color: colors.textPrimary },
+  driverMeta: { flexDirection: 'row', gap: spacing.md, marginTop: 4 },
+  driverMetaText: { fontFamily: fonts.body, fontSize: 11, color: colors.textFaint },
+
+  addOnRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border,
+  },
+  addOnName: { fontFamily: fonts.body, fontSize: 13, color: colors.textPrimary },
+  addOnQty: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, marginTop: 2 },
+  addOnPrice: { fontFamily: fonts.mono, fontSize: 12, color: colors.green },
+  addOnStatus: {
+    borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3,
+    backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border,
+  },
+  addOnStatusOk: { backgroundColor: colors.greenDim, borderColor: colors.greenBorder },
+  addOnStatusPending: { backgroundColor: colors.amberDim, borderColor: colors.amberBorder },
+  addOnStatusRejected: { backgroundColor: colors.redDim, borderColor: colors.redBorder },
+  addOnStatusText: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1 },
+
+  addExtrasCta: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.card, borderRadius: radius.card,
+    padding: spacing.xl, marginBottom: spacing.lg,
+    borderWidth: 1, borderColor: colors.greenBorder,
+  },
+  addExtrasLabel: { flex: 1, fontFamily: fonts.mono, fontSize: 12, color: colors.green, letterSpacing: 1 },
+  addExtrasCount: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint },
+
+  errorBox: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.redDim, borderRadius: radius.cardInner,
+    padding: spacing.md, borderWidth: 1, borderColor: colors.redBorder, marginBottom: spacing.md,
+  },
+  errorText2: { fontFamily: fonts.body, fontSize: 13, color: colors.red, flex: 1 },
+
+  overlay: {
+    position: 'absolute', left: 0, right: 0, bottom: 0, top: '30%',
+    backgroundColor: colors.bg, borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card,
+    borderTopWidth: 1, borderTopColor: colors.border,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 20,
+  },
+  sheet: { flex: 1, paddingHorizontal: spacing.xl },
+  sheetHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginVertical: spacing.md },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.lg },
+  sheetTitle: { fontFamily: fonts.mono, fontSize: 12, color: colors.textSecondary, letterSpacing: 2 },
+  noItems: { fontFamily: fonts.body, fontSize: 14, color: colors.textFaint, textAlign: 'center', paddingVertical: spacing.xl },
+  menuItem: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  menuItemName: { fontFamily: fonts.body, fontSize: 14, color: colors.textPrimary },
+  menuItemDesc: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint, marginTop: 2, lineHeight: 18 },
+  menuItemPrice: { fontFamily: fonts.mono, fontSize: 13, color: colors.green },
+  addBtn: {
+    backgroundColor: colors.green, borderRadius: radius.pill,
+    paddingHorizontal: 16, paddingVertical: 8,
+  },
+  addBtnLabel: { fontFamily: fonts.mono, fontSize: 10, color: colors.bg, letterSpacing: 1 },
+});

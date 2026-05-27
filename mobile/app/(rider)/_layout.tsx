@@ -63,6 +63,10 @@ export default function RiderLayout() {
         name="ride/pull-up"
         options={{ href: null, headerShown: false }}
       />
+      <Tabs.Screen
+        name="ride/active"
+        options={{ href: null, headerShown: false }}
+      />
     </Tabs>
   );
 }

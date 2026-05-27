@@ -87,7 +87,7 @@ export default function RiderHome() {
           <Text style={s.cardTitle}>Ride in progress</Text>
           <TouchableOpacity
             style={[s.ctaBtn, { backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border }]}
-            onPress={() => router.push(`/(rider)/ride/${active!.rideId}` as any)}
+            onPress={() => router.push(`/(rider)/ride/active?rideId=${active!.rideId}` as any)}
             activeOpacity={0.85}
           >
             <Ionicons name="car" size={14} color={colors.textPrimary} />
