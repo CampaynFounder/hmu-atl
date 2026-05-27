@@ -2,9 +2,9 @@
 // APIs: GET /drivers/requests, POST /blast/{id}/hmu, POST /blast/{id}/pass
 // Ably: user:{driverId}:notify → blast_invite triggers refetch
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity,
+  View, Text, FlatList, TouchableOpacity, Image,
   StyleSheet, RefreshControl, ActivityIndicator, Alert,
 } from 'react-native';
 import { useAuth, useUser } from '@clerk/clerk-expo';
@@ -14,23 +14,29 @@ import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
 
+// Matches the camelCase shape returned by GET /api/drivers/requests
 interface BlastRequest {
   id: string;
-  post_type: 'blast';
-  status: string;
-  price: number;
-  expires_at: string;
-  created_at: string;
-  pickup_area_slug: string | null;
-  dropoff_area_slug: string | null;
-  rider_name: string;
-  rider_handle: string | null;
-  time_window: string | null;
-  distance_from_pickup_mi: number | null;
-  match_score: number | null;
+  type: 'blast' | 'direct' | 'open';
+  locked: boolean;
   targetId: string | null;
-  hmu_at: string | null;
-  passed_at: string | null;
+  riderName: string;
+  riderHandle: string | null;
+  riderAvatarUrl: string | null;
+  riderChillScore: number;
+  riderCompletedRides: number;
+  isCash: boolean;
+  pickupAreaSlug: string | null;
+  dropoffAreaSlug: string | null;
+  pickupAddress: string;
+  destination: string;
+  time: string;
+  price: number;
+  expiresAt: string;
+  createdAt: string;
+  riderOnline: boolean;
+  // local-only: set after driver taps HMU so the card flips immediately
+  _hmuAt?: string;
 }
 
 export default function DriverFeed() {
@@ -86,7 +92,7 @@ export default function DriverFeed() {
     try {
       const t = await getToken();
       await apiClient(`/blast/${request.id}/hmu`, t, { method: 'POST' });
-      setRequests((prev) => prev.map((r) => r.id === request.id ? { ...r, hmu_at: new Date().toISOString() } : r));
+      setRequests((prev) => prev.map((r) => r.id === request.id ? { ...r, _hmuAt: new Date().toISOString() } : r));
     } catch (e: any) {
       Alert.alert('Could not HMU', e.message ?? 'Try again');
     } finally {
@@ -115,7 +121,7 @@ export default function DriverFeed() {
     );
   }
 
-  const active = requests.filter((r) => !r.passed_at);
+  const active = requests.filter((r) => !r._hmuAt);
 
   return (
     <View style={s.root}>
@@ -164,48 +170,71 @@ function BlastCard({
   onHmu: () => void;
   onPass: () => void;
 }) {
-  const alreadyHmd = !!request.hmu_at;
-  const msLeft = new Date(request.expires_at).getTime() - Date.now();
-  const minsLeft = Math.max(0, Math.floor(msLeft / 60000));
-  const secsLeft = Math.max(0, Math.floor((msLeft % 60000) / 1000));
+  const alreadyHmd = !!request._hmuAt;
+
+  // Live countdown — recalculates every second
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const msLeft = Math.max(0, new Date(request.expiresAt).getTime() - now);
+  const minsLeft = Math.floor(msLeft / 60000);
+  const secsLeft = Math.floor((msLeft % 60000) / 1000);
   const isUrgent = minsLeft < 5;
-  const timer = `${minsLeft}:${String(secsLeft).padStart(2, '0')}`;
+  const isExpired = msLeft === 0;
+  const timer = isExpired ? 'EXPIRED' : `${minsLeft}:${String(secsLeft).padStart(2, '0')}`;
+
+  const pickup = request.pickupAddress || request.pickupAreaSlug || 'Pickup';
+  const dropoff = request.destination || request.dropoffAreaSlug || 'Dropoff';
 
   return (
     <View style={[s.card, shadow.card]}>
-      {/* Route row */}
-      <View style={s.routeRow}>
-        <View style={s.routeInfo}>
-          <Ionicons name="navigate-outline" size={13} color={colors.textFaint} style={{ marginRight: 4 }} />
-          <Text style={s.area} numberOfLines={1}>
-            {request.pickup_area_slug ?? 'Pickup'} → {request.dropoff_area_slug ?? 'Dropoff'}
+      {/* ── Rider row ── */}
+      <View style={s.riderRow}>
+        <RiderAvatar url={request.riderAvatarUrl} name={request.riderHandle ?? request.riderName} />
+        <View style={s.riderInfo}>
+          <Text style={s.riderHandle} numberOfLines={1}>
+            {request.riderHandle ? `@${request.riderHandle}` : request.riderName}
+          </Text>
+          {request.riderCompletedRides > 0 && (
+            <Text style={s.riderMeta}>{request.riderCompletedRides} rides</Text>
+          )}
+        </View>
+        <View style={[s.timerPill, isUrgent && s.timerPillUrgent, isExpired && s.timerPillExpired]}>
+          {!isExpired && (
+            <Ionicons
+              name="time-outline"
+              size={11}
+              color={isUrgent ? colors.red : colors.textFaint}
+              style={{ marginRight: 4 }}
+            />
+          )}
+          <Text style={[s.timerText, isUrgent && s.timerTextUrgent, isExpired && s.timerTextExpired]}>
+            {timer}
           </Text>
         </View>
-        <View style={[s.timerPill, isUrgent && s.timerPillUrgent]}>
-          <Text style={[s.timerText, isUrgent && s.timerTextUrgent]}>{timer}</Text>
-        </View>
       </View>
 
-      {/* Price */}
-      <Text style={s.price}>${request.price}</Text>
+      {/* ── Route ── */}
+      <View style={s.routeRow}>
+        <Ionicons name="navigate-outline" size={13} color={colors.textFaint} style={{ marginRight: 4 }} />
+        <Text style={s.area} numberOfLines={1}>{pickup} → {dropoff}</Text>
+      </View>
 
-      {/* Meta chips */}
+      {/* ── Price ── */}
+      <Text style={s.price}>${Number(request.price).toFixed(2)}</Text>
+
+      {/* ── Meta chips ── */}
       <View style={s.metaRow}>
-        {request.rider_handle && (
-          <MetaChip label={`@${request.rider_handle}`} />
-        )}
-        {request.distance_from_pickup_mi != null && (
-          <MetaChip label={`${Number(request.distance_from_pickup_mi).toFixed(1)} mi`} />
-        )}
-        {request.time_window && (
-          <MetaChip label={request.time_window} />
-        )}
-        {request.match_score != null && (
-          <MetaChip label={`${Math.round(Number(request.match_score) * 100)}% match`} accent />
+        {request.isCash && <MetaChip label="CASH" cash />}
+        {request.time && <MetaChip label={request.time} />}
+        {request.riderChillScore > 0 && (
+          <MetaChip label={`${Math.round(request.riderChillScore)} chill`} accent />
         )}
       </View>
 
-      {/* Actions */}
+      {/* ── Actions ── */}
       <View style={s.actions}>
         {alreadyHmd ? (
           <View style={s.hmdConfirm}>
@@ -218,9 +247,9 @@ function BlastCard({
               <Text style={s.passBtnText}>PASS</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[s.hmuBtn, acting && s.disabled]}
+              style={[s.hmuBtn, (acting || isExpired) && s.disabled]}
               onPress={onHmu}
-              disabled={acting}
+              disabled={acting || isExpired}
             >
               {acting
                 ? <ActivityIndicator size="small" color={colors.bg} />
@@ -234,10 +263,29 @@ function BlastCard({
   );
 }
 
-function MetaChip({ label, accent }: { label: string; accent?: boolean }) {
+function RiderAvatar({ url, name }: { url: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+  const letter = (name ?? '?')[0].toUpperCase();
+  if (url && !failed) {
+    return (
+      <Image
+        source={{ uri: url }}
+        style={s.avatar}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
   return (
-    <View style={[s.chip, accent && s.chipAccent]}>
-      <Text style={[s.chipText, accent && s.chipTextAccent]}>{label}</Text>
+    <View style={[s.avatar, s.avatarFallback]}>
+      <Text style={s.avatarLetter}>{letter}</Text>
+    </View>
+  );
+}
+
+function MetaChip({ label, accent, cash }: { label: string; accent?: boolean; cash?: boolean }) {
+  return (
+    <View style={[s.chip, accent && s.chipAccent, cash && s.chipCash]}>
+      <Text style={[s.chipText, accent && s.chipTextAccent, cash && s.chipTextCash]}>{label}</Text>
     </View>
   );
 }
@@ -260,21 +308,34 @@ const s = StyleSheet.create({
 
   card: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.xl, borderWidth: 1, borderColor: colors.borderStrong },
 
-  routeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
-  routeInfo: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: spacing.sm },
+  // Rider row: avatar + name/rides + timer
+  riderRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.lg },
+  avatar: { width: 46, height: 46, borderRadius: 23 },
+  avatarFallback: { backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  avatarLetter: { fontFamily: fonts.display, fontSize: 24, color: colors.green },
+  riderInfo: { flex: 1 },
+  riderHandle: { fontFamily: fonts.mono, fontSize: 13, color: colors.textPrimary, letterSpacing: 0.3 },
+  riderMeta: { fontFamily: fonts.body, fontSize: 11, color: colors.textFaint, marginTop: 2 },
+
+  routeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
   area: { fontFamily: fonts.body, fontSize: 13, color: colors.textTertiary, flex: 1 },
-  timerPill: { backgroundColor: colors.cardAlt, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: colors.border },
+
+  timerPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardAlt, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: colors.border },
   timerPillUrgent: { borderColor: colors.redBorder, backgroundColor: colors.redDim },
+  timerPillExpired: { borderColor: colors.border, backgroundColor: colors.cardAlt },
   timerText: { fontFamily: fonts.mono, fontSize: 12, color: colors.textFaint },
   timerTextUrgent: { color: colors.red },
+  timerTextExpired: { color: colors.textFaint },
 
   price: { fontFamily: fonts.display, fontSize: 44, color: colors.green, lineHeight: 46, marginBottom: spacing.sm },
 
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.lg },
   chip: { backgroundColor: colors.cardAlt, borderRadius: radius.sm, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: colors.border },
   chipAccent: { backgroundColor: colors.greenDim, borderColor: colors.greenBorder },
+  chipCash: { backgroundColor: colors.cashDim, borderColor: colors.cashBorder },
   chipText: { fontFamily: fonts.mono, fontSize: 10, color: colors.textTertiary },
   chipTextAccent: { color: colors.green },
+  chipTextCash: { color: colors.cash },
 
   actions: { flexDirection: 'row', gap: spacing.sm },
   passBtn: { flex: 1, paddingVertical: 14, borderRadius: radius.pill, backgroundColor: colors.cardAlt, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
