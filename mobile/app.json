@@ -41,6 +41,7 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/withCxxFlags",
       "expo-secure-store",
       [
         "expo-build-properties",
