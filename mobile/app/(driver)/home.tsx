@@ -252,6 +252,23 @@ export default function DriverHome() {
         </TouchableOpacity>
       )}
 
+      {/* Find Riders */}
+      <DepthButton
+        onPress={() => { haptic(Haptics.ImpactFeedbackStyle.Medium); router.push('/(driver)/find-riders'); }}
+        style={s.findRidersCard}
+      >
+        <View style={s.findRidersInner}>
+          <View style={s.findRidersIconWrap}>
+            <Ionicons name="search" size={20} color={colors.green} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.findRidersTitle}>FIND RIDERS</Text>
+            <Text style={s.findRidersSub}>Browse riders in your market — send an HMU</Text>
+          </View>
+          <Ionicons name="arrow-forward" size={16} color={colors.green} />
+        </View>
+      </DepthButton>
+
       {/* Unified wallet card */}
       {balance
         ? (
@@ -730,6 +747,23 @@ const s = StyleSheet.create({
   upsellBody: { fontFamily: fonts.body, fontSize: 14, color: colors.textTertiary, lineHeight: 20, marginBottom: spacing.lg },
   upsellCta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   upsellCtaText: { fontFamily: fonts.mono, fontSize: 12, color: colors.green, letterSpacing: 1 },
+
+  findRidersCard: {
+    backgroundColor: colors.card, borderRadius: radius.card,
+    borderWidth: 1, borderColor: colors.greenBorder,
+    marginBottom: spacing.lg,
+  },
+  findRidersInner: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: spacing.xl, paddingVertical: spacing.lg, gap: spacing.md,
+  },
+  findRidersIconWrap: {
+    width: 40, height: 40, borderRadius: radius.cardInner,
+    backgroundColor: colors.greenDim, alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  },
+  findRidersTitle: { fontFamily: fonts.display, fontSize: 22, color: colors.green, lineHeight: 24 },
+  findRidersSub: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint, marginTop: 2, lineHeight: 16 },
 
   activeBanner: {
     flexDirection: 'row', alignItems: 'center',
