@@ -27,6 +27,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/growth', label: 'Growth', icon: '📈' },
       { href: '/admin/money', label: 'Revenue', icon: '💰' },
       { href: '/admin/pricing', label: 'Pricing', icon: '⚙️' },
+      { href: '/admin/payments', label: 'Payments Config', icon: '💳' },
       { href: '/admin/schedule', label: 'Schedules', icon: '📅' },
     ],
   },

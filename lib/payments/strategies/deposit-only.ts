@@ -10,7 +10,7 @@
 //
 // Config lives in pricing_modes.config JSONB so admin can tune without deploy.
 
-import { sql } from '@/lib/db/client';
+import { getPaymentsConfig } from '@/lib/payments/config';
 import type {
   PricingStrategy,
   HoldInput,
@@ -64,33 +64,17 @@ export function calculateExtrasFeeCents(subtotalCents: number, config: DepositOn
   return Math.max(0, Math.round(subtotalCents * config.extrasFeePercent));
 }
 
-let configCache: { config: DepositOnlyConfig; cachedAt: number } | null = null;
-const CACHE_TTL_MS = 60_000;
+/** Test/dev helper: no-op — cache is now inside getPlatformConfig. */
+export function _clearDepositOnlyConfigCache(): void { /* no-op */ }
 
 export async function getDepositOnlyConfig(): Promise<DepositOnlyConfig> {
-  if (configCache && Date.now() - configCache.cachedAt < CACHE_TTL_MS) {
-    return configCache.config;
-  }
   try {
-    const rows = await sql`
-      SELECT config FROM pricing_modes WHERE mode_key = 'deposit_only' LIMIT 1
-    `;
-    if (rows.length > 0) {
-      const raw = (rows[0] as Record<string, unknown>).config;
-      const dbConfig = (typeof raw === 'string' ? JSON.parse(raw) : raw) as Partial<DepositOnlyConfig>;
-      const merged: DepositOnlyConfig = { ...DEFAULT_DEPOSIT_ONLY_CONFIG, ...dbConfig };
-      configCache = { config: merged, cachedAt: Date.now() };
-      return merged;
-    }
+    const cfg = await getPaymentsConfig();
+    return { ...DEFAULT_DEPOSIT_ONLY_CONFIG, ...cfg.depositOnly };
   } catch (err) {
     console.error('[deposit-only] config load failed, using defaults:', err);
+    return DEFAULT_DEPOSIT_ONLY_CONFIG;
   }
-  return DEFAULT_DEPOSIT_ONLY_CONFIG;
-}
-
-/** Test/dev helper: drop the config cache. */
-export function _clearDepositOnlyConfigCache(): void {
-  configCache = null;
 }
 
 /**

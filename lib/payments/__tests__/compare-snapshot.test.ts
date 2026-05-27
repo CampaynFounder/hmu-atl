@@ -3,13 +3,21 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const { sql } = vi.hoisted(() => ({ sql: vi.fn() }));
 vi.mock('@/lib/db/client', () => ({ sql, pool: null, transaction: vi.fn() }));
 
+// Mock getPaymentsConfig — compare-snapshot reads config via getDepositOnlyConfig.
+const mockGetPaymentsConfig = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/payments/config', () => ({
+  getPaymentsConfig: mockGetPaymentsConfig,
+  computeAddOnReserve: vi.fn().mockReturnValue(0),
+  PAYMENTS_DEFAULTS: {},
+}));
+
 import { _clearDepositOnlyConfigCache, DEFAULT_DEPOSIT_ONLY_CONFIG } from '../strategies/deposit-only';
 import { getCompareSnapshot } from '../strategies/compare-snapshot';
 
 beforeEach(() => {
   sql.mockReset();
   _clearDepositOnlyConfigCache();
-  sql.mockResolvedValue([{ config: DEFAULT_DEPOSIT_ONLY_CONFIG }]);
+  mockGetPaymentsConfig.mockResolvedValue({ depositOnly: DEFAULT_DEPOSIT_ONLY_CONFIG });
 });
 
 describe('getCompareSnapshot', () => {
@@ -43,15 +51,9 @@ describe('getCompareSnapshot', () => {
   });
 
   it('reflects a tuned config with no code change (proves single source of truth)', async () => {
-    sql.mockResolvedValue([
-      {
-        config: {
-          ...DEFAULT_DEPOSIT_ONLY_CONFIG,
-          feePercent: 0.15,
-          feeFloorCents: 200,
-        },
-      },
-    ]);
+    mockGetPaymentsConfig.mockResolvedValueOnce({
+      depositOnly: { ...DEFAULT_DEPOSIT_ONLY_CONFIG, feePercent: 0.15, feeFloorCents: 200 },
+    });
     const snap = await getCompareSnapshot(20);
     // 20% → 15%, floor $1.50 → $2.00. $8 deposit → 0.15 × 800 = 120 cents; floor 200 wins.
     expect(snap.gridCells.feeShare).toBe('15% of deposit (min $2.00)');
