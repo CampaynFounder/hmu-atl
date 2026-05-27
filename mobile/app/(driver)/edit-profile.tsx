@@ -434,6 +434,23 @@ export default function EditProfileScreen() {
           />
         </View>
 
+        {/* ── ADVANCED SETTINGS ── */}
+        <SectionHeader label="ADVANCED" />
+        <TouchableOpacity
+          style={[s.card, s.advancedRow, shadow.card]}
+          onPress={() => router.push('/(driver)/advanced-settings')}
+          activeOpacity={0.7}
+        >
+          <View style={s.advancedIcon}>
+            <Ionicons name="settings" size={16} color={colors.textFaint} />
+          </View>
+          <View style={s.advancedText}>
+            <Text style={s.advancedLabel}>Advanced Settings</Text>
+            <Text style={s.advancedSub}>Pricing, rider gates, Down Bad, schedule, home base</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+        </TouchableOpacity>
+
       </ScrollView>
     </View>
   );
@@ -545,6 +562,19 @@ const s = StyleSheet.create({
   chipActive: { backgroundColor: colors.greenDim, borderColor: colors.greenBorder },
   chipText: { fontFamily: fonts.mono, fontSize: 11, color: colors.textTertiary },
   chipTextActive: { color: colors.green },
+
+  advancedRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: spacing.md,
+  },
+  advancedIcon: {
+    width: 32, height: 32, borderRadius: radius.cardInner,
+    backgroundColor: colors.cardAlt, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: colors.border,
+  },
+  advancedText: { flex: 1 },
+  advancedLabel: { fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.textPrimary },
+  advancedSub: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint, marginTop: 2 },
 
   waitRow: {
     flexDirection: 'row', gap: spacing.sm,
