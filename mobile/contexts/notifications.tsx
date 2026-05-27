@@ -174,22 +174,70 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         break;
       }
 
-      case 'blast_match_won':
-      case 'booking_accepted': {
+      case 'blast_match_won': {
+        const matchedRideId = data?.rideId as string | undefined;
         enqueue({
           id: `matched-${Date.now()}`,
           type: 'matched',
           title: 'MATCHED',
           body: "You got the ride — let's go!",
-          route: '/(driver)/ride/active',
+          route: matchedRideId ? `/(driver)/ride/active?rideId=${matchedRideId}` : '/(driver)/ride/active',
           timestamp: Date.now(),
         });
         triggerFeedRefresh();
         break;
       }
 
+      case 'booking_accepted': {
+        const acceptedRideId = data?.rideId as string | undefined;
+        enqueue({
+          id: `accepted-${Date.now()}`,
+          type: 'matched',
+          title: 'DRIVER ACCEPTED',
+          body: 'Share your exact pickup so your driver can navigate to you.',
+          route: acceptedRideId ? `/(rider)/ride/pull-up?rideId=${acceptedRideId}` : '/(rider)/home',
+          timestamp: Date.now(),
+        });
+        break;
+      }
+
       case 'ride_update': {
         const status = data?.status as string | undefined;
+        const updateType = data?.type as string | undefined;
+
+        if (updateType === 'add_on_confirmed') {
+          enqueue({
+            id: `addon-ok-${Date.now()}`,
+            type: 'ride_status',
+            title: 'EXTRA CONFIRMED',
+            body: (data?.message as string) || 'Driver confirmed your add-on.',
+            route: rideId ? `/(rider)/ride/${rideId}` : undefined,
+            timestamp: Date.now(),
+          });
+          break;
+        }
+        if (updateType === 'add_on_rejected') {
+          enqueue({
+            id: `addon-no-${Date.now()}`,
+            type: 'cancelled',
+            title: 'EXTRA DECLINED',
+            body: (data?.message as string) || 'Driver declined your add-on.',
+            route: rideId ? `/(rider)/ride/${rideId}` : undefined,
+            timestamp: Date.now(),
+          });
+          break;
+        }
+        if (updateType === 'add_on_payment_failed') {
+          enqueue({
+            id: `addon-fail-${Date.now()}`,
+            type: 'cancelled',
+            title: 'PAYMENT FAILED',
+            body: (data?.message as string) || 'Card declined for this extra.',
+            route: rideId ? `/(rider)/ride/${rideId}` : undefined,
+            timestamp: Date.now(),
+          });
+          break;
+        }
 
         if (status === 'cancelled') {
           enqueue({
