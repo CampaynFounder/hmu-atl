@@ -99,6 +99,10 @@ export default function DriverLayout() {
         options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
+        name="find-riders"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
         name="advanced-settings"
         options={{ href: null, headerShown: false }}
       />
