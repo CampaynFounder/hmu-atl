@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet,
   RefreshControl, ActivityIndicator,
-  Animated, Easing, Pressable,
+  Animated, Easing, Pressable, TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -10,6 +10,14 @@ import { useAuth } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+
+// Rating codes are strings, not numeric
+const RATING_META: Record<string, { emoji: string; label: string; color: string }> = {
+  chill:        { emoji: '✅', label: 'CHILL',        color: colors.green },
+  cool_af:      { emoji: '😎', label: 'COOL AF',      color: colors.blue  },
+  kinda_creepy: { emoji: '👀', label: 'KINDA CREEPY', color: colors.amber },
+  weirdo:       { emoji: '🚩', label: 'WEIRDO',       color: colors.red   },
+};
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -209,7 +217,12 @@ export default function DriverRides() {
           </View>
         }
         renderItem={({ item, index }) => (
-          <AnimatedRideRow ride={item} index={index} onPress={() => openRide(item)} />
+          <AnimatedRideRow
+            ride={item}
+            index={index}
+            onPress={() => openRide(item)}
+            onRateNow={() => openActiveRide(item.id)}
+          />
         )}
       />
     </View>
@@ -297,11 +310,12 @@ function ActiveRideBanner({
 // ── AnimatedRideRow ───────────────────────────────────────────────────────────
 
 function AnimatedRideRow({
-  ride, index, onPress,
+  ride, index, onPress, onRateNow,
 }: {
   ride: RideRecord;
   index: number;
   onPress: () => void;
+  onRateNow: () => void;
 }) {
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(8)).current;
@@ -364,15 +378,24 @@ function AnimatedRideRow({
                 {ride.is_cash ? 'CASH' : 'DIGITAL'}
               </Text>
             </View>
-            {ride.rider_rating != null && (
-              <View style={[r.pill, { backgroundColor: colors.cardAlt, borderColor: colors.border }]}>
-                <Ionicons name="star" size={9} color={colors.amber} />
-                <Text style={[r.pillText, { color: colors.amber, marginLeft: 3 }]}>
-                  {Number(ride.rider_rating).toFixed(1)}
-                </Text>
-              </View>
-            )}
+            {ride.rider_rating != null && (() => {
+              const rm = RATING_META[String(ride.rider_rating)];
+              return rm ? (
+                <View style={[r.pill, { backgroundColor: colors.cardAlt, borderColor: colors.border }]}>
+                  <Text style={r.pillText}>{rm.emoji} </Text>
+                  <Text style={[r.pillText, { color: rm.color }]}>{rm.label}</Text>
+                </View>
+              ) : null;
+            })()}
           </View>
+
+          {/* Rate Now prompt — only for ended rides driver hasn't rated */}
+          {ride.status === 'ended' && ride.driver_rating == null && (
+            <TouchableOpacity style={r.rateNowBtn} onPress={onRateNow} activeOpacity={0.8}>
+              <Text style={r.rateNowText}>RATE RIDER</Text>
+              <Ionicons name="chevron-forward" size={11} color={colors.amber} />
+            </TouchableOpacity>
+          )}
         </View>
       </Pressable>
     </Animated.View>
@@ -463,4 +486,11 @@ const r = StyleSheet.create({
   pillsRow: { flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' },
   pill: { flexDirection: 'row', alignItems: 'center', borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1 },
   pillText: { fontFamily: fonts.mono, fontSize: 9, letterSpacing: 0.5 },
+  rateNowBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: spacing.sm,
+    backgroundColor: colors.amberDim, borderRadius: radius.pill,
+    paddingHorizontal: spacing.md, paddingVertical: 6, alignSelf: 'flex-start',
+    borderWidth: 1, borderColor: colors.amberBorder,
+  },
+  rateNowText: { fontFamily: fonts.monoBold, fontSize: 9, color: colors.amber, letterSpacing: 1 },
 });

@@ -39,9 +39,13 @@ export async function GET(
         r.driver_id,
         r.rider_id,
         COALESCE(rp.handle, rp.display_name, rp.first_name) AS rider_handle,
-        rp.first_name AS rider_first_name
+        rp.first_name   AS rider_first_name,
+        COALESCE(rp.thumbnail_url, rp.avatar_url) AS rider_avatar_url,
+        u2.chill_score  AS rider_chill_score,
+        u2.completed_rides AS rider_completed_rides
       FROM rides r
       LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
+      LEFT JOIN users u2          ON u2.id = r.rider_id
       WHERE r.id = ${rideId}
         AND (r.driver_id = ${userId} OR r.rider_id = ${userId})
       LIMIT 1
@@ -68,6 +72,9 @@ export async function GET(
       dropoffAddress: r.dropoff_address ?? null,
       riderHandle: r.rider_handle ?? null,
       riderFirstName: r.rider_first_name ?? null,
+      riderAvatarUrl: r.rider_avatar_url ?? null,
+      riderChillScore: Number(r.rider_chill_score ?? 0),
+      riderCompletedRides: Number(r.rider_completed_rides ?? 0),
       createdAt: r.created_at,
       startedAt: r.started_at ?? null,
       endedAt: r.ended_at ?? null,

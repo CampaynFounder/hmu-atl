@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  Animated, Alert, ActivityIndicator, Pressable,
+  Animated, Alert, ActivityIndicator, Pressable, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -32,6 +32,9 @@ interface RideView {
   dropoffAddress: string | null;
   riderHandle: string | null;
   riderFirstName: string | null;
+  riderAvatarUrl: string | null;
+  riderChillScore: number;
+  riderCompletedRides: number;
   createdAt: string;
   startedAt: string | null;
   endedAt: string | null;
@@ -351,10 +354,21 @@ export default function ActiveRideScreen() {
     );
   }
 
-  if (!ride || !rideId) {
+  if (!rideId) {
     return (
       <View style={[s.center, { paddingTop: insets.top }]}>
-        <Text style={s.errorText}>Ride not found</Text>
+        <Text style={s.errorText}>No ride ID — navigate here from the feed</Text>
+      </View>
+    );
+  }
+
+  if (!ride) {
+    return (
+      <View style={[s.center, { paddingTop: insets.top }]}>
+        <TouchableOpacity onPress={() => { setError(null); setLoading(true); void fetchRide(); }}>
+          <Text style={s.errorText}>{error ?? 'Ride not found'}</Text>
+          <Text style={[s.errorText, { fontSize: 11, marginTop: 8, color: colors.textFaint }]}>Tap to retry</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -381,7 +395,12 @@ export default function ActiveRideScreen() {
         <TouchableOpacity onPress={() => router.back()} style={s.backBtn} activeOpacity={0.7}>
           <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={s.navTitle}>ACTIVE RIDE</Text>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={s.navTitle}>ACTIVE RIDE</Text>
+          {ride.refCode && (
+            <Text style={s.navRef}>REF: {ride.refCode}</Text>
+          )}
+        </View>
         <View style={[s.statusPill, { backgroundColor: meta.bg, borderColor: meta.border }]}>
           <Text style={[s.statusLabel, { color: meta.color }]}>{meta.label}</Text>
         </View>
@@ -398,11 +417,9 @@ export default function ActiveRideScreen() {
               {isEnded ? 'YOU EARNED' : ride.isCash ? 'CASH FARE' : 'AGREED PRICE'}
             </Text>
             <Text style={s.payoutAmount}>${displayPayout.toFixed(2)}</Text>
-            {!ride.isCash && !isEnded && (
+            {!ride.isCash && !isEnded && ride.platformFee > 0 && (
               <Text style={s.payoutSub}>
-                {ride.platformFee > 0
-                  ? `After ${(ride.platformFee / ride.agreedPrice * 100).toFixed(0)}% platform fee`
-                  : 'No platform fee on this ride'}
+                {`After ${(ride.platformFee / ride.agreedPrice * 100).toFixed(0)}% platform fee`}
               </Text>
             )}
             <View style={[s.typePill, ride.isCash
@@ -454,12 +471,18 @@ export default function ActiveRideScreen() {
           <>
             <Text style={s.cardLabel}>RIDER</Text>
             <View style={s.riderRow}>
-              <View style={s.avatar}>
-                <Text style={s.avatarLetter}>
-                  {(ride.riderHandle ?? ride.riderFirstName ?? '?')[0].toUpperCase()}
-                </Text>
+              <RiderAvatar url={ride.riderAvatarUrl} name={riderDisplayName} />
+              <View style={{ flex: 1, marginLeft: spacing.md }}>
+                <Text style={s.riderName}>{riderDisplayName}</Text>
+                <View style={s.riderMeta}>
+                  {ride.riderChillScore > 0 && (
+                    <Text style={s.riderMetaText}>{Math.round(ride.riderChillScore)} chill</Text>
+                  )}
+                  {ride.riderCompletedRides > 0 && (
+                    <Text style={s.riderMetaText}>{ride.riderCompletedRides} rides</Text>
+                  )}
+                </View>
               </View>
-              <Text style={s.riderName}>{riderDisplayName}</Text>
             </View>
           </>
         )}
@@ -591,6 +614,27 @@ export default function ActiveRideScreen() {
   );
 }
 
+// ── Rider avatar ──────────────────────────────────────────────────────────────
+
+function RiderAvatar({ url, name }: { url: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+  const letter = (name ?? '?')[0].toUpperCase();
+  if (url && !failed) {
+    return (
+      <Image
+        source={{ uri: url }}
+        style={s.avatar}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+  return (
+    <View style={[s.avatar, s.avatarFallback]}>
+      <Text style={s.avatarLetter}>{letter}</Text>
+    </View>
+  );
+}
+
 // ── Timeline row ──────────────────────────────────────────────────────────────
 
 function TLRow({ icon, label, value, active, last }: {
@@ -628,6 +672,7 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border,
   },
   navTitle: { fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary, letterSpacing: 2 },
+  navRef: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1, marginTop: 2 },
   statusPill: { borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 1 },
   statusLabel: { fontFamily: fonts.mono, fontSize: 10, letterSpacing: 1 },
 
@@ -656,13 +701,17 @@ const s = StyleSheet.create({
   stopType: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1.5, marginBottom: 4 },
   stopAddr: { fontFamily: fonts.body, fontSize: 14, color: colors.textPrimary, lineHeight: 20 },
 
-  riderRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  avatar: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: colors.cardAlt,
-    alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border,
+  riderRow: { flexDirection: 'row', alignItems: 'center' },
+  avatar: { width: 48, height: 48, borderRadius: 24 },
+  avatarFallback: {
+    backgroundColor: colors.cardAlt,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: colors.border,
   },
   avatarLetter: { fontFamily: fonts.display, fontSize: 24, color: colors.green },
   riderName: { fontFamily: fonts.mono, fontSize: 14, color: colors.textPrimary, letterSpacing: 0.5 },
+  riderMeta: { flexDirection: 'row', gap: spacing.md, marginTop: 4 },
+  riderMetaText: { fontFamily: fonts.body, fontSize: 11, color: colors.textFaint },
 
   waitBox: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, padding: spacing.md },
   waitTitle: { fontFamily: fonts.mono, fontSize: 10, letterSpacing: 2, marginBottom: 6 },

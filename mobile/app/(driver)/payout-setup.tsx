@@ -1,45 +1,84 @@
-// Payout setup — opens Stripe Connect onboarding in a browser.
-// No IAP. HMU First subscription also opens the web checkout.
+// Driver payout setup — Stripe Connect onboarding via account link.
+//
+// Flow:
+//   1. GET /api/driver/payout-setup → check current status
+//   2. POST /api/driver/stripe/onboarding-link → get account link URL
+//   3. WebBrowser.openAuthSessionAsync(url, 'hmuatl://') → Stripe-hosted onboarding
+//   4. Stripe redirects to hmuatl://payout-complete → OS returns control here
+//   5. Refresh status
+//
+// Platform fee is set in admin → Pricing page (deposit-only: feePercent + feeFloorCents).
+// Rider payment → platform (destination charge) → driver Connect account.
+// application_fee_amount captured at Start Ride per captureRiderPayment() in lib/payments/escrow.ts.
+
+import { useCallback, useEffect, useState } from 'react';
+import {
+  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
+import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 
 WebBrowser.maybeCompleteAuthSession();
 
-export default function PayoutSetup() {
-  const { getToken } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [stripeStatus, setStripeStatus] = useState<string | null>(null);
+interface PayoutStatus {
+  stripeAccountId: string | null;
+  stripeComplete: boolean;
+  stripeAccount: {
+    last4: string | null;
+    type: string | null;
+    bank: string | null;
+    instantEligible: boolean;
+  } | null;
+  setupComplete: boolean;
+  nextStep: 'stripe_onboarding' | 'add_payout_method' | 'complete';
+}
 
-  useEffect(() => {
-    async function checkStatus() {
-      try {
-        const token = await getToken();
-        const profile = await apiClient<{ stripeAccountId?: string; payoutEnabled?: boolean }>(
-          '/users/profile', token,
-        );
-        if (profile.stripeAccountId) {
-          setStripeStatus(profile.payoutEnabled ? 'active' : 'pending');
-        } else {
-          setStripeStatus('none');
-        }
-      } catch { setStripeStatus('none'); }
-    }
-    void checkStatus();
+export default function PayoutSetup() {
+  const insets = useSafeAreaInsets();
+  const { getToken } = useAuth();
+  const router = useRouter();
+
+  const [status, setStatus] = useState<PayoutStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [opening, setOpening] = useState(false);
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const t = await getToken();
+      const data = await apiClient<PayoutStatus>('/driver/payout-setup', t);
+      setStatus(data);
+    } catch { /* keep prior state */ }
+    finally { setLoading(false); }
   }, [getToken]);
 
-  async function openStripeOnboarding() {
-    setLoading(true);
+  useEffect(() => { void fetchStatus(); }, [fetchStatus]);
+
+  async function openOnboarding() {
+    setOpening(true);
     try {
-      const token = await getToken();
-      const { url } = await apiClient<{ url: string }>('/driver/stripe/onboarding-link', token, { method: 'POST' });
-      await WebBrowser.openBrowserAsync(url);
+      const t = await getToken();
+      const { url } = await apiClient<{ url: string }>('/driver/stripe/onboarding-link', t, { method: 'POST' });
+
+      // openAuthSessionAsync waits for the OS to redirect back to hmuatl://
+      // after Stripe onboarding completes. openBrowserAsync doesn't capture
+      // the return redirect, so we use the auth-session variant here.
+      const result = await WebBrowser.openAuthSessionAsync(url, 'hmuatl://');
+
+      if (result.type === 'success' || result.type === 'dismiss') {
+        // Refresh status regardless — Stripe may have updated the account
+        setLoading(true);
+        await fetchStatus();
+      }
     } catch (e: any) {
-      // no-op — user closed browser
+      // user closed browser or network error — non-critical
+      console.warn('[payout-setup] openOnboarding error:', e?.message);
     } finally {
-      setLoading(false);
+      setOpening(false);
     }
   }
 
@@ -48,45 +87,175 @@ export default function PayoutSetup() {
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Payout Setup</Text>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Stripe Connect</Text>
-        {stripeStatus === null && <ActivityIndicator color="#00E676" style={{ marginTop: 8 }} />}
-        {stripeStatus === 'active' && <Text style={styles.activeText}>✓ Payout account active</Text>}
-        {stripeStatus === 'pending' && <Text style={styles.pendingText}>⏳ Account under review</Text>}
-        {stripeStatus === 'none' && (
-          <>
-            <Text style={styles.cardBody}>Connect your bank or debit card to receive ride payouts.</Text>
-            <TouchableOpacity style={styles.btn} onPress={openStripeOnboarding} disabled={loading}>
-              {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.btnText}>Set Up Payouts</Text>}
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>HMU First — $9.99/mo</Text>
-        <Text style={styles.cardBody}>Lower daily fee cap ($25), instant payouts. Sign up on our website.</Text>
-        <TouchableOpacity style={styles.btnGold} onPress={openHmuFirstUpgrade}>
-          <Text style={styles.btnGoldText}>Upgrade on Web →</Text>
+    <View style={[s.root, { paddingTop: insets.top }]}>
+      {/* Navbar */}
+      <View style={s.nav}>
+        <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
+        <Text style={s.navTitle}>PAYOUT SETUP</Text>
+        <View style={s.navSpacer} />
       </View>
+
+      {loading ? (
+        <View style={s.loadingWrap}>
+          <ActivityIndicator size="large" color={colors.green} />
+        </View>
+      ) : (
+        <View style={s.content}>
+          {/* Stripe Connect card */}
+          <View style={[s.card, shadow.card]}>
+            <Text style={s.sectionLabel}>STRIPE CONNECT</Text>
+            <Text style={s.cardTitle}>Bank or Debit Card</Text>
+
+            {status?.setupComplete ? (
+              <>
+                <View style={s.statusRow}>
+                  <Ionicons name="checkmark-circle" size={16} color={colors.green} />
+                  <Text style={s.statusGreen}>Payout account active</Text>
+                </View>
+                {status.stripeAccount && (
+                  <View style={s.accountInfo}>
+                    {status.stripeAccount.bank && (
+                      <Text style={s.accountLine}>{status.stripeAccount.bank}</Text>
+                    )}
+                    {status.stripeAccount.last4 && (
+                      <Text style={s.accountLine}>
+                        {status.stripeAccount.type === 'card' ? 'Card' : 'Account'} ending ···{status.stripeAccount.last4}
+                      </Text>
+                    )}
+                    {status.stripeAccount.instantEligible && (
+                      <Text style={s.instantBadge}>Instant payout eligible</Text>
+                    )}
+                  </View>
+                )}
+                <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={openOnboarding} disabled={opening}>
+                  {opening
+                    ? <ActivityIndicator size="small" color={colors.green} />
+                    : <Text style={s.btnSecondaryText}>UPDATE PAYOUT METHOD</Text>}
+                </TouchableOpacity>
+              </>
+            ) : status?.nextStep === 'stripe_onboarding' || status?.nextStep === 'add_payout_method' ? (
+              <>
+                {status?.stripeComplete && !status?.setupComplete && (
+                  <View style={s.statusRow}>
+                    <Ionicons name="time-outline" size={16} color={colors.amber} />
+                    <Text style={s.statusAmber}>Account under review — add a payout method</Text>
+                  </View>
+                )}
+                <Text style={s.cardBody}>
+                  Connect your bank or debit card to receive ride payouts directly.
+                </Text>
+                <TouchableOpacity style={s.btn} onPress={openOnboarding} disabled={opening}>
+                  {opening
+                    ? <ActivityIndicator color={colors.bg} />
+                    : <Text style={s.btnText}>SET UP PAYOUTS</Text>}
+                </TouchableOpacity>
+              </>
+            ) : (
+              <Text style={s.cardBody}>Loading…</Text>
+            )}
+          </View>
+
+          {/* How it works */}
+          <View style={[s.card, shadow.card]}>
+            <Text style={s.sectionLabel}>HOW IT WORKS</Text>
+            <Text style={s.cardTitle}>Destination Charges</Text>
+            <Text style={s.cardBody}>
+              Rider pays HMU ATL via card. At Start Ride, funds transfer directly to your Stripe balance — minus the platform fee. You cash out any time.
+            </Text>
+            <View style={s.feeRow}>
+              <Ionicons name="cash-outline" size={14} color={colors.textFaint} />
+              <Text style={s.feeText}>Platform takes a small fee per ride. Admin-configurable.</Text>
+            </View>
+          </View>
+
+          {/* HMU First upgrade */}
+          <View style={[s.card, shadow.card]}>
+            <Text style={s.sectionLabel}>UPGRADE</Text>
+            <Text style={s.cardTitle}>HMU First — $9.99/mo</Text>
+            <Text style={s.cardBody}>
+              Lower daily fee cap ($25) and instant payouts. Sign up on our website.
+            </Text>
+            <TouchableOpacity style={s.btnGold} onPress={openHmuFirstUpgrade}>
+              <Text style={s.btnGoldText}>UPGRADE ON WEB</Text>
+              <Ionicons name="arrow-forward" size={14} color={colors.amber} style={{ marginLeft: 6 }} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#080808', padding: 16, paddingTop: 24 },
-  title: { fontSize: 24, fontWeight: '800', color: '#fff', marginBottom: 20 },
-  card: { backgroundColor: '#18181b', borderRadius: 20, padding: 20, marginBottom: 16, borderWidth: 1, borderColor: '#27272a' },
-  cardTitle: { fontSize: 16, fontWeight: '700', color: '#fff', marginBottom: 8 },
-  cardBody: { fontSize: 14, color: '#888', marginBottom: 16, lineHeight: 20 },
-  activeText: { fontSize: 15, color: '#00E676', fontWeight: '700', marginTop: 4 },
-  pendingText: { fontSize: 15, color: '#FFB300', fontWeight: '700', marginTop: 4 },
-  btn: { backgroundColor: '#00E676', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  btnText: { color: '#000', fontWeight: '700', fontSize: 15 },
-  btnGold: { backgroundColor: '#18181b', borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#FFB300' },
-  btnGoldText: { color: '#FFB300', fontWeight: '700', fontSize: 15 },
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
+
+  nav: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  backBtn: { padding: spacing.xs },
+  navTitle: {
+    flex: 1, textAlign: 'center', fontFamily: fonts.mono,
+    fontSize: 13, color: colors.textPrimary, letterSpacing: 1.5,
+  },
+  navSpacer: { width: 30 },
+
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  content: { padding: spacing.xl, gap: spacing.md },
+
+  card: {
+    backgroundColor: colors.card, borderRadius: radius.card,
+    padding: spacing.xl, borderWidth: 1, borderColor: colors.borderStrong,
+  },
+  sectionLabel: {
+    fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint,
+    letterSpacing: 2, marginBottom: spacing.xs,
+  },
+  cardTitle: {
+    fontFamily: fonts.display, fontSize: 22, color: colors.textPrimary,
+    marginBottom: spacing.sm,
+  },
+  cardBody: {
+    fontFamily: fonts.body, fontSize: 14, color: colors.textTertiary,
+    lineHeight: 22, marginBottom: spacing.lg,
+  },
+
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm },
+  statusGreen: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.green },
+  statusAmber: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.amber, flex: 1 },
+
+  accountInfo: { marginBottom: spacing.lg, gap: 4 },
+  accountLine: { fontFamily: fonts.mono, fontSize: 12, color: colors.textTertiary },
+  instantBadge: {
+    fontFamily: fonts.mono, fontSize: 10, color: colors.green,
+    letterSpacing: 0.5, marginTop: 4,
+  },
+
+  feeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
+    marginTop: -spacing.sm,
+  },
+  feeText: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint, flex: 1 },
+
+  btn: {
+    backgroundColor: colors.green, borderRadius: radius.pill,
+    paddingVertical: 14, alignItems: 'center',
+  },
+  btnText: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.bg, letterSpacing: 1 },
+
+  btnSecondary: {
+    backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.greenBorder,
+  },
+  btnSecondaryText: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.green, letterSpacing: 1 },
+
+  btnGold: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    borderRadius: radius.pill, paddingVertical: 14,
+    borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberDim,
+  },
+  btnGoldText: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.amber, letterSpacing: 1 },
 });

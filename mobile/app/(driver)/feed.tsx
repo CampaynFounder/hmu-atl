@@ -1,12 +1,13 @@
 // Driver requests feed — incoming blast requests.
-// APIs: GET /drivers/requests, POST /blast/{id}/hmu, POST /blast/{id}/pass
-// Ably: user:{driverId}:notify → blast_invite triggers refetch
+// APIs: GET /drivers/requests, POST /bookings/{id}/accept, POST /bookings/{id}/decline
+// Ably: user:{driverId}:notify → blast_invite / blast_expired triggers refetch
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Image,
   StyleSheet, RefreshControl, ActivityIndicator, Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,6 +41,7 @@ interface BlastRequest {
 }
 
 export default function DriverFeed() {
+  const insets = useSafeAreaInsets();
   const { getToken } = useAuth();
   const { user } = useUser();
   const router = useRouter();
@@ -72,10 +74,32 @@ export default function DriverFeed() {
     channelName: driverId ? `user:${driverId}:notify` : null,
     token,
     onMessage: (msg) => {
-      if (msg.name === 'blast_invite' || msg.name === 'blast_cancelled') {
+      // direct_booking_request fires when a rider specifically books this driver.
+      // blast_invite fires when the market fan-out includes this driver.
+      if (
+        msg.name === 'blast_invite' ||
+        msg.name === 'blast_cancelled' ||
+        msg.name === 'direct_booking_request'
+      ) {
         void fetchRequests();
       }
+      if (msg.name === 'blast_expired') {
+        const d = msg.data as Record<string, unknown>;
+        const blastId = d?.blastId as string | undefined;
+        if (blastId) {
+          setRequests((prev) => prev.filter((r) => r.id !== blastId));
+        }
+      }
+      // blast request: rider selected this driver
       if (msg.name === 'blast_match_won') {
+        const d = msg.data as Record<string, unknown>;
+        const rideId = d?.rideId as string | undefined;
+        if (rideId) {
+          router.push({ pathname: '/(driver)/ride/active' as any, params: { rideId } });
+        }
+      }
+      // open rider_request: rider picked this driver from the interested pool
+      if (msg.name === 'booking_accepted') {
         const d = msg.data as Record<string, unknown>;
         const rideId = d?.rideId as string | undefined;
         if (rideId) {
@@ -91,7 +115,13 @@ export default function DriverFeed() {
     setActing(request.id);
     try {
       const t = await getToken();
-      await apiClient(`/blast/${request.id}/hmu`, t, { method: 'POST' });
+      const res = await apiClient<{ status: string; rideId?: string }>(`/bookings/${request.id}/accept`, t, { method: 'POST' });
+      // Direct booking match — go straight to the active ride screen
+      if (res.rideId) {
+        router.push({ pathname: '/(driver)/ride/active' as any, params: { rideId: res.rideId } });
+        return;
+      }
+      // Blast / open request — flip card to HMU Sent state
       setRequests((prev) => prev.map((r) => r.id === request.id ? { ...r, _hmuAt: new Date().toISOString() } : r));
     } catch (e: any) {
       Alert.alert('Could not HMU', e.message ?? 'Try again');
@@ -101,16 +131,10 @@ export default function DriverFeed() {
   }
 
   async function handlePass(request: BlastRequest) {
-    setActing(request.id);
-    try {
-      const t = await getToken();
-      await apiClient(`/blast/${request.id}/pass`, t, { method: 'POST' });
-      setRequests((prev) => prev.filter((r) => r.id !== request.id));
-    } catch {
-      setRequests((prev) => prev.filter((r) => r.id !== request.id));
-    } finally {
-      setActing(null);
-    }
+    // Optimistically remove the card immediately
+    setRequests((prev) => prev.filter((r) => r.id !== request.id));
+    const t = await getToken();
+    apiClient(`/bookings/${request.id}/decline`, t, { method: 'POST' }).catch(() => {});
   }
 
   if (loading) {
@@ -124,7 +148,7 @@ export default function DriverFeed() {
   const active = requests.filter((r) => !r._hmuAt);
 
   return (
-    <View style={s.root}>
+    <View style={[s.root, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={s.header}>
         <Text style={s.title}>INCOMING REQUESTS</Text>
@@ -294,7 +318,7 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   loader: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
 
-  header: { flexDirection: 'row', alignItems: 'center', padding: spacing.xl, paddingTop: spacing.xl + spacing.xs, gap: spacing.sm },
+  header: { flexDirection: 'row', alignItems: 'center', padding: spacing.xl, gap: spacing.sm },
   title: { fontFamily: fonts.display, fontSize: 28, color: colors.textPrimary },
   countBadge: { backgroundColor: colors.green, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 },
   countText: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.bg },

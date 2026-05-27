@@ -1,16 +1,17 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { ColorValue } from 'react-native';
 import { colors, fonts } from '@/lib/theme';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 function tabIcon(active: IoniconName, inactive: IoniconName) {
-  return ({ focused, color }: { focused: boolean; color: string }) => (
-    <Ionicons name={focused ? active : inactive} size={22} color={color} />
+  return ({ focused, color }: { focused: boolean; color: ColorValue }) => (
+    <Ionicons name={focused ? active : inactive} size={22} color={color as string} />
   );
 }
 
-export default function DriverLayout() {
+export default function RiderLayout() {
   return (
     <Tabs
       screenOptions={{
@@ -41,13 +42,6 @@ export default function DriverLayout() {
         }}
       />
       <Tabs.Screen
-        name="feed"
-        options={{
-          title: 'REQUESTS',
-          tabBarIcon: tabIcon('layers', 'layers-outline'),
-        }}
-      />
-      <Tabs.Screen
         name="rides"
         options={{
           title: 'RIDES',
@@ -55,35 +49,15 @@ export default function DriverLayout() {
         }}
       />
       <Tabs.Screen
-        name="ride/[id]"
-        options={{ href: null, headerShown: false }}
-      />
-      <Tabs.Screen
-        name="ride/active"
-        options={{ href: null, headerShown: false }}
-      />
-      <Tabs.Screen
-        name="dashboard"
-        options={{ href: null, headerShown: false }}
-      />
-      <Tabs.Screen
-        name="edit-profile"
-        options={{ href: null, headerShown: false }}
-      />
-      <Tabs.Screen
-        name="menu"
-        options={{ href: null, headerShown: false }}
-      />
-      <Tabs.Screen
-        name="payout-setup"
-        options={{ href: null, headerShown: false }}
-      />
-      <Tabs.Screen
         name="profile"
         options={{
           title: 'PROFILE',
           tabBarIcon: tabIcon('person', 'person-outline'),
         }}
+      />
+      <Tabs.Screen
+        name="ride/[id]"
+        options={{ href: null, headerShown: false }}
       />
     </Tabs>
   );
