@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
              u.sign_in_count,
              u.first_return_at,
              COALESCE(dp.display_name, dp.first_name) AS driver_name,
-             dp.phone AS driver_phone,
+             COALESCE(dp.phone, u.phone) AS driver_phone,
              COALESCE(rp.display_name, rp.first_name) AS rider_name,
              rp.handle AS rider_handle,
              COALESCE(dp.stripe_onboarding_complete, false) AS stripe_onboarding_complete,

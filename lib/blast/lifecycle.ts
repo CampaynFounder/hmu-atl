@@ -14,6 +14,7 @@
 import { sql } from '@/lib/db/client';
 import { sendSms } from '@/lib/sms/textbee';
 import { renderTemplate } from '@/lib/sms/templates';
+import { notifyUser } from '@/lib/ably/server';
 import type { BlastEventSource, BlastEventType } from './types';
 
 // ============================================================================
@@ -356,6 +357,22 @@ export async function expireStaleTargets(opts: {
       data: { reason: 'per_target_window_elapsed', windowMinutes: win },
     });
     result.push({ blastId: row.blast_id, driverId: row.driver_id, targetId: row.target_id });
+
+    // Clear the driver's tentative calendar slot for this blast.
+    sql`
+      UPDATE driver_bookings
+         SET status = 'cancelled', updated_at = NOW()
+       WHERE status = 'tentative'
+         AND driver_id = ${row.driver_id}
+         AND details IS NOT NULL
+         AND details->>'postId' = ${row.blast_id}
+    `.catch(() => {});
+
+    // Notify driver so the feed card auto-dismisses in real time.
+    notifyUser(row.driver_id, 'blast_expired', {
+      blastId: row.blast_id,
+      targetId: row.target_id,
+    }).catch(() => {});
 
     // SMS: tell the driver their window closed on this ride.
     if (row.driver_phone) {
