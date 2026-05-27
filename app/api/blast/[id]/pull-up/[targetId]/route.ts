@@ -66,7 +66,7 @@ async function handlePost(
       p.id AS blast_id, p.user_id AS rider_id, p.status AS blast_status,
       p.price, p.pickup_address, p.pickup_lat, p.pickup_lng,
       p.dropoff_address, p.dropoff_lat, p.dropoff_lng,
-      p.scheduled_for, p.trip_type, p.time_window,
+      p.scheduled_for, p.trip_type, p.stops, p.time_window,
       p.deposit_payment_intent_id, p.deposit_amount, p.expires_at,
       bdt.id AS target_id, bdt.driver_id,
       bdt.hmu_at, bdt.selected_at, bdt.pull_up_at, bdt.rejected_at,
@@ -232,6 +232,8 @@ async function handlePost(
   // ── Create ride row ──
   const refCode = generateRefCode();
   const timeWindow = ((row.time_window as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+  const pullUpTripType = (row.trip_type as string) === 'round_trip' ? 'round_trip' : 'one_way';
+  const pullUpStops = (row.stops as unknown[]) ?? [];
   const rideRows = await sql`
     INSERT INTO rides (
       driver_id, rider_id, status, amount, final_agreed_price,
@@ -239,7 +241,8 @@ async function handlePost(
       hmu_post_id, agreement_summary,
       dispute_window_minutes, is_cash, ref_code,
       pickup_address, pickup_lat, pickup_lng,
-      dropoff_address, dropoff_lat, dropoff_lng
+      dropoff_address, dropoff_lat, dropoff_lng,
+      trip_type, stops
     ) VALUES (
       ${driverId}, ${riderId}, 'matched', ${finalPrice}, ${finalPrice},
       'proposed', NOW(),
@@ -248,7 +251,7 @@ async function handlePost(
         source: 'blast',
         pickup: row.pickup_address,
         dropoff: row.dropoff_address,
-        tripType: row.trip_type,
+        tripType: pullUpTripType,
         scheduledFor: row.scheduled_for,
         timeDisplay: timeWindow.scheduledFor ?? 'ASAP',
       })}::jsonb,
@@ -256,7 +259,8 @@ async function handlePost(
       FALSE,
       ${refCode},
       ${row.pickup_address}, ${row.pickup_lat}, ${row.pickup_lng},
-      ${row.dropoff_address}, ${row.dropoff_lat}, ${row.dropoff_lng}
+      ${row.dropoff_address}, ${row.dropoff_lat}, ${row.dropoff_lng},
+      ${pullUpTripType}, ${JSON.stringify(pullUpStops)}::jsonb
     )
     RETURNING id
   `;
