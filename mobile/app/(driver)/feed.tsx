@@ -90,6 +90,15 @@ export default function DriverFeed() {
           setRequests((prev) => prev.filter((r) => r.id !== blastId));
         }
       }
+      // Rider cancelled a matched ride while driver was still on the feed
+      if (msg.name === 'ride_update') {
+        const d = msg.data as Record<string, unknown>;
+        if (d?.status === 'cancelled') {
+          Alert.alert('Ride Cancelled', 'The rider cancelled this ride.', [{ text: 'OK' }]);
+          void fetchRequests();
+        }
+      }
+
       // blast request: rider selected this driver
       if (msg.name === 'blast_match_won') {
         const d = msg.data as Record<string, unknown>;

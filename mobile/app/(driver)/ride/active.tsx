@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Animated, Alert, ActivityIndicator, Pressable, Image,
+  Linking, ActionSheetIOS, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -43,6 +44,14 @@ interface RideView {
 }
 
 type RatingType = 'chill' | 'cool_af' | 'kinda_creepy' | 'weirdo';
+
+interface AddOn {
+  id: string;
+  item_name: string;
+  item_price: number;
+  status: string;
+  quantity: number;
+}
 
 // ── Status config ─────────────────────────────────────────────────────────────
 
@@ -115,8 +124,15 @@ export default function ActiveRideScreen() {
   const [submittingRating, setSubmittingRating] = useState(false);
   const ratingSlide = useRef(new Animated.Value(300)).current;
 
+  // Cancel overlay state
+  const [showCancel, setShowCancel] = useState(false);
+  const cancelSlide = useRef(new Animated.Value(300)).current;
+
+  // Add-ons
+  const [addOns, setAddOns] = useState<AddOn[]>([]);
+
   // Card entrance animations
-  const cardAnims = useRef([0, 1, 2, 3, 4].map(() => ({
+  const cardAnims = useRef([0, 1, 2, 3, 4, 5].map(() => ({
     opacity: new Animated.Value(0),
     y: new Animated.Value(16),
   }))).current;
@@ -127,6 +143,15 @@ export default function ActiveRideScreen() {
     const interval = setInterval(() => getToken().then(setToken).catch(() => {}), 55_000);
     return () => clearInterval(interval);
   }, [getToken]);
+
+  const fetchAddOns = useCallback(async () => {
+    if (!rideId) return;
+    try {
+      const t = await getToken();
+      const data = await apiClient<{ addOns: AddOn[] }>(`/rides/${rideId}/add-ons`, t);
+      setAddOns(data.addOns ?? []);
+    } catch {}
+  }, [rideId, getToken]);
 
   const fetchRide = useCallback(async () => {
     if (!rideId) return;
@@ -144,6 +169,7 @@ export default function ActiveRideScreen() {
 
   useEffect(() => {
     void fetchRide();
+    void fetchAddOns();
     Animated.stagger(
       65,
       cardAnims.map(({ opacity, y }) =>
@@ -176,9 +202,17 @@ export default function ActiveRideScreen() {
           return { ...prev, ...patch };
         });
         if (newStatus === 'ended' || newStatus === 'completed') openRatingSheet();
+        if (newStatus === 'cancelled') openCancelOverlay();
       }
       if (msg.name === 'confirm_start') {
         setRide((prev) => prev ? { ...prev, status: 'confirming' } : prev);
+      }
+      if (
+        msg.name === 'add_on_added' ||
+        msg.name === 'add_on_updated' ||
+        msg.name === 'add_on_removed'
+      ) {
+        void fetchAddOns();
       }
     },
   });
@@ -190,6 +224,32 @@ export default function ActiveRideScreen() {
     Animated.spring(ratingSlide, {
       toValue: 0, useNativeDriver: true, speed: 14, bounciness: 4,
     }).start();
+  }
+
+  function openCancelOverlay() {
+    setShowCancel(true);
+    Animated.spring(cancelSlide, {
+      toValue: 0, useNativeDriver: true, speed: 14, bounciness: 4,
+    }).start();
+  }
+
+  function openMapsNav(address: string | null) {
+    if (!address) return;
+    const q = encodeURIComponent(address);
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: ['Apple Maps', 'Google Maps', 'Waze', 'Cancel'], cancelButtonIndex: 3 },
+        (i) => {
+          if (i === 0) void Linking.openURL(`maps://?daddr=${q}`);
+          if (i === 1) void Linking.openURL(`comgooglemaps://?daddr=${q}&directionsmode=driving`);
+          if (i === 2) void Linking.openURL(`waze://?q=${q}&navigate=yes`);
+        },
+      );
+    } else {
+      void Linking.openURL(`geo:0,0?q=${q}`).catch(() =>
+        Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${q}`)
+      );
+    }
   }
 
   async function submitRating() {
@@ -451,6 +511,12 @@ export default function ActiveRideScreen() {
                 <View style={s.routeTextCol}>
                   <Text style={s.stopType}>PICKUP</Text>
                   <Text style={s.stopAddr}>{ride.pickupAddress ?? '—'}</Text>
+                  {ride.pickupAddress && (
+                    <TouchableOpacity style={s.navBtn} onPress={() => openMapsNav(ride.pickupAddress)} activeOpacity={0.7}>
+                      <Ionicons name="navigate-outline" size={11} color={colors.green} />
+                      <Text style={s.navBtnText}>NAVIGATE</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
               <View style={s.routeStop}>
@@ -460,6 +526,12 @@ export default function ActiveRideScreen() {
                 <View style={s.routeTextCol}>
                   <Text style={s.stopType}>DROPOFF</Text>
                   <Text style={s.stopAddr}>{ride.dropoffAddress ?? '—'}</Text>
+                  {ride.dropoffAddress && (
+                    <TouchableOpacity style={s.navBtn} onPress={() => openMapsNav(ride.dropoffAddress)} activeOpacity={0.7}>
+                      <Ionicons name="navigate-outline" size={11} color={colors.green} />
+                      <Text style={s.navBtnText}>NAVIGATE</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
             </View>
@@ -496,6 +568,37 @@ export default function ActiveRideScreen() {
             <TLRow icon="flag" label="ARRIVED" value={formatTime(ride.hereAt)} active={!!ride.hereAt} />
             <TLRow icon="checkmark-circle" label="STARTED" value={formatTime(ride.startedAt)} active={!!ride.startedAt} />
             <TLRow icon="stop-circle" label="ENDED" value={formatTime(ride.endedAt)} active={!!ride.endedAt} last />
+          </>
+        )}
+
+        {/* ── Extras card ── */}
+        {addOns.length > 0 && card(5,
+          <>
+            <Text style={s.cardLabel}>EXTRAS</Text>
+            {addOns.map((a, i) => (
+              <View key={a.id} style={[s.addOnRow, i === 0 && { borderTopWidth: 0 }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.addOnName} numberOfLines={1}>{a.item_name}</Text>
+                  {a.quantity > 1 && (
+                    <Text style={s.addOnQty}>×{a.quantity}</Text>
+                  )}
+                </View>
+                <Text style={s.addOnPrice}>${(Number(a.item_price) * a.quantity).toFixed(2)}</Text>
+                <View style={[
+                  s.addOnStatus,
+                  a.status === 'confirmed' && s.addOnStatusOk,
+                  a.status === 'pending_driver' && s.addOnStatusPending,
+                ]}>
+                  <Text style={[
+                    s.addOnStatusText,
+                    a.status === 'confirmed' && { color: colors.green },
+                    a.status === 'pending_driver' && { color: colors.amber },
+                  ]}>
+                    {a.status === 'confirmed' ? 'CONFIRMED' : a.status === 'pending_driver' ? 'PENDING' : a.status.replace(/_/g, ' ').toUpperCase()}
+                  </Text>
+                </View>
+              </View>
+            ))}
           </>
         )}
 
@@ -556,6 +659,24 @@ export default function ActiveRideScreen() {
             }
           </TouchableOpacity>
         </View>
+      )}
+
+      {/* ── Rider cancelled overlay ── */}
+      {showCancel && (
+        <Animated.View style={[s.ratingOverlay, { transform: [{ translateY: cancelSlide }] }]}>
+          <View style={[s.ratingSheet, { paddingBottom: insets.bottom + spacing.xl }]}>
+            <View style={[s.ratingHandle, { backgroundColor: colors.redBorder }]} />
+            <Text style={[s.ratingTitle, { color: colors.red }]}>RIDE CANCELLED</Text>
+            <Text style={s.ratingSub}>The rider cancelled this ride.</Text>
+            <TouchableOpacity
+              style={[s.submitBtn, { backgroundColor: colors.green, marginTop: spacing.xl }]}
+              onPress={() => router.replace('/(driver)/home')}
+              activeOpacity={0.85}
+            >
+              <Text style={s.submitLabel}>GO HOME</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
       )}
 
       {/* ── Rating overlay ── */}
@@ -765,6 +886,30 @@ const s = StyleSheet.create({
   submitLabel: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.bg, letterSpacing: 1.5 },
   skipBtn: { alignItems: 'center', paddingVertical: spacing.md },
   skipLabel: { fontFamily: fonts.mono, fontSize: 11, color: colors.textFaint, letterSpacing: 1 },
+
+  navBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    marginTop: 6, alignSelf: 'flex-start',
+    paddingVertical: 4, paddingHorizontal: 8,
+    borderRadius: radius.pill, borderWidth: 1,
+    borderColor: colors.greenBorder, backgroundColor: colors.greenDim,
+  },
+  navBtnText: { fontFamily: fonts.mono, fontSize: 9, color: colors.green, letterSpacing: 1 },
+
+  addOnRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border,
+  },
+  addOnName: { fontFamily: fonts.body, fontSize: 13, color: colors.textPrimary },
+  addOnQty: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, marginTop: 2 },
+  addOnPrice: { fontFamily: fonts.mono, fontSize: 12, color: colors.green },
+  addOnStatus: {
+    borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3,
+    backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border,
+  },
+  addOnStatusOk: { backgroundColor: colors.greenDim, borderColor: colors.greenBorder },
+  addOnStatusPending: { backgroundColor: colors.amberDim, borderColor: colors.amberBorder },
+  addOnStatusText: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1 },
 });
 
 const tl = StyleSheet.create({
