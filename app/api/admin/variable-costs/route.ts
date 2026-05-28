@@ -26,7 +26,7 @@ export async function GET() {
   const admin = await requireAdmin();
   if (!admin?.is_super) return unauthorized();
 
-  const raw = await getPlatformConfig(CONFIG_KEY, DEFAULTS as Record<string, unknown>);
+  const raw = await getPlatformConfig(CONFIG_KEY, DEFAULTS as unknown as Record<string, unknown>);
   const monthly = raw as unknown as VariableCosts;
   const totalMonthly = (monthly.cloudflare ?? 0) + (monthly.stripe ?? 0) + (monthly.clerk ?? 0) + (monthly.neon ?? 0);
 
@@ -38,7 +38,7 @@ export async function PATCH(req: NextRequest) {
   if (!admin?.is_super) return unauthorized();
 
   const body = await req.json().catch(() => ({})) as Partial<VariableCosts>;
-  const rawCurrent = await getPlatformConfig(CONFIG_KEY, DEFAULTS as Record<string, unknown>);
+  const rawCurrent = await getPlatformConfig(CONFIG_KEY, DEFAULTS as unknown as Record<string, unknown>);
   const current = rawCurrent as unknown as VariableCosts;
   const updated: VariableCosts = {
     cloudflare: Number(body.cloudflare ?? current.cloudflare ?? 0),
