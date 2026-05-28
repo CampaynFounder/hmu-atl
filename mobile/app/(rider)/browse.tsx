@@ -295,8 +295,13 @@ export default function BrowseDrivers() {
     if (areaFilter) {
       list = list.filter(d => d.areas.includes(areaFilter));
     }
+    // Acceptance rate filter — client-side since scalar subquery doesn't
+    // support a WHERE clause reference to the computed alias
+    if (accFilter > 0) {
+      list = list.filter(d => d.acceptanceRate == null || d.acceptanceRate >= accFilter);
+    }
     return list;
-  }, [drivers, query, areaFilter]);
+  }, [drivers, query, areaFilter, accFilter]);
 
   const buildUrl = useCallback((offset: number) => {
     let url = `/rider/browse/list?offset=${offset}&limit=${PAGE_SIZE}`;
