@@ -59,10 +59,13 @@ export default function FindRidersScreen() {
   const searchRef = useRef<TextInput>(null);
   const offsetRef = useRef(0);
 
-  // Card height = remaining viewport after navbar + insets
+  // Card height measured from the FlatList container via onLayout so that
+  // pagingEnabled snap always aligns perfectly regardless of search bar state.
   const NAVBAR_H = 52 + insets.top;
-  const SEARCH_BAR_H = searchVisible ? 48 : 0;
-  const CARD_H = SCREEN_H - NAVBAR_H - SEARCH_BAR_H - insets.bottom;
+  const [listHeight, setListHeight] = useState(
+    SCREEN_H - NAVBAR_H - insets.bottom,
+  );
+  const CARD_H = listHeight;
 
   async function loadPage(reset = false) {
     const offset = reset ? 0 : offsetRef.current;
@@ -213,30 +216,35 @@ export default function FindRidersScreen() {
           </Text>
         </View>
       ) : (
-        <FlatList
-          data={filtered}
-          keyExtractor={(item) => item.id}
-          pagingEnabled
-          showsVerticalScrollIndicator={false}
-          decelerationRate="fast"
-          snapToAlignment="start"
-          getItemLayout={(_, i) => ({ length: CARD_H, offset: CARD_H * i, index: i })}
-          renderItem={({ item }) => (
-            <RiderCard
-              rider={item}
-              cardHeight={CARD_H}
-              hmuStatus={hmuState[item.id] ?? 'idle'}
-              onHmu={() => sendHmu(item)}
-            />
-          )}
-          onEndReached={() => { if (!loadingMore) void loadPage(); }}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={loadingMore ? (
-            <View style={{ height: CARD_H, alignItems: 'center', justifyContent: 'center' }}>
-              <ActivityIndicator size="large" color={colors.green} />
-            </View>
-          ) : null}
-        />
+        <View
+          style={{ flex: 1 }}
+          onLayout={e => setListHeight(e.nativeEvent.layout.height)}
+        >
+          <FlatList
+            data={filtered}
+            keyExtractor={(item) => item.id}
+            pagingEnabled
+            showsVerticalScrollIndicator={false}
+            decelerationRate="fast"
+            snapToAlignment="start"
+            getItemLayout={(_, i) => ({ length: CARD_H, offset: CARD_H * i, index: i })}
+            renderItem={({ item }) => (
+              <RiderCard
+                rider={item}
+                cardHeight={CARD_H}
+                hmuStatus={hmuState[item.id] ?? 'idle'}
+                onHmu={() => sendHmu(item)}
+              />
+            )}
+            onEndReached={() => { if (!loadingMore) void loadPage(); }}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={loadingMore ? (
+              <View style={{ height: CARD_H, alignItems: 'center', justifyContent: 'center' }}>
+                <ActivityIndicator size="large" color={colors.green} />
+              </View>
+            ) : null}
+          />
+        </View>
       )}
     </View>
   );
@@ -401,8 +409,12 @@ const c = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.xl,
-    borderBottomWidth: 3,
-    borderBottomColor: 'rgba(255,255,255,0.14)',
+    // Top accent line signals "swipe up for next card"
+    borderTopWidth: 3,
+    borderTopColor: colors.greenBorder,
+    // Subtle bottom separator
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
 
   avatarWrap: { marginBottom: spacing.xl },

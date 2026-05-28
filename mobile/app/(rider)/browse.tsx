@@ -251,7 +251,13 @@ export default function BrowseDrivers() {
   const router = useRouter();
   const { getToken } = useAuth();
 
-  const CARD_H = SCREEN_H - insets.top - TAB_BAR_H;
+  // Use onLayout to measure the FlatList's actual available height.
+  // Static subtraction misses the topBar and filter chrome, causing items to
+  // be taller than the scroll window which breaks pagingEnabled snap.
+  const [listHeight, setListHeight] = useState(
+    SCREEN_H - insets.top - TAB_BAR_H - SEARCH_H - spacing.sm * 2,
+  );
+  const CARD_H = listHeight;
 
   const [drivers, setDrivers] = useState<DriverCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -289,8 +295,13 @@ export default function BrowseDrivers() {
     if (areaFilter) {
       list = list.filter(d => d.areas.includes(areaFilter));
     }
+    // Acceptance rate filter — client-side since scalar subquery doesn't
+    // support a WHERE clause reference to the computed alias
+    if (accFilter > 0) {
+      list = list.filter(d => d.acceptanceRate == null || d.acceptanceRate >= accFilter);
+    }
     return list;
-  }, [drivers, query, areaFilter]);
+  }, [drivers, query, areaFilter, accFilter]);
 
   const buildUrl = useCallback((offset: number) => {
     let url = `/rider/browse/list?offset=${offset}&limit=${PAGE_SIZE}`;
@@ -480,23 +491,28 @@ export default function BrowseDrivers() {
           </Text>
         </View>
       ) : (
-        <FlatList
-          data={filtered}
-          keyExtractor={item => item.handle}
-          renderItem={renderItem}
-          getItemLayout={getItemLayout}
-          pagingEnabled
-          snapToAlignment="start"
-          decelerationRate="fast"
-          showsVerticalScrollIndicator={false}
-          onEndReached={onEndReached}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={loadingMore ? (
-            <View style={[s.center, { height: CARD_H }]}>
-              <ActivityIndicator color={colors.green} />
-            </View>
-          ) : null}
-        />
+        <View
+          style={{ flex: 1 }}
+          onLayout={e => setListHeight(e.nativeEvent.layout.height)}
+        >
+          <FlatList
+            data={filtered}
+            keyExtractor={item => item.handle}
+            renderItem={renderItem}
+            getItemLayout={getItemLayout}
+            pagingEnabled
+            snapToAlignment="start"
+            decelerationRate="fast"
+            showsVerticalScrollIndicator={false}
+            onEndReached={onEndReached}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={loadingMore ? (
+              <View style={[s.center, { height: CARD_H }]}>
+                <ActivityIndicator color={colors.green} />
+              </View>
+            ) : null}
+          />
+        </View>
       )}
     </View>
   );
@@ -551,7 +567,12 @@ const s = StyleSheet.create({
   emptyBody: { fontFamily: fonts.body, fontSize: 13, color: colors.textFaint, textAlign: 'center' },
 
   // Card
-  card: { position: 'relative', overflow: 'hidden' },
+  card: {
+    position: 'relative', overflow: 'hidden',
+    // Green top accent — consistent brand frame on every card
+    borderTopWidth: 2,
+    borderTopColor: colors.greenBorder,
+  },
   fallbackBg: {
     backgroundColor: colors.cardAlt,
     alignItems: 'center', justifyContent: 'center',

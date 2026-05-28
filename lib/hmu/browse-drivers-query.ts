@@ -158,52 +158,46 @@ export async function queryBrowseDrivers(
                ))
              ELSE NULL
            END AS distance_mi,
-           -- Acceptance rate: combined direct + blast over 90 days.
-           -- Mirrors the formula in GET /api/driver/[handle].
-           -- Requires ≥3 resolved offers to avoid misleading "100%" rates
-           -- from drivers with only one or two requests.
-           acc.rate AS acceptance_rate
+           -- Acceptance rate: correlated scalar subquery (direct + blast, 90 days).
+           -- Scalar subquery is used instead of LATERAL JOIN for broader
+           -- compatibility with Neon's serverless driver.
+           -- Returns NULL when the driver has fewer than 3 resolved offers.
+           (
+             SELECT
+               CASE WHEN SUM(ac.offered) >= 3
+                    THEN ROUND(SUM(ac.accepted)::numeric / NULLIF(SUM(ac.offered), 0) * 100)::int
+                    ELSE NULL
+               END
+             FROM (
+               SELECT
+                 COUNT(*) FILTER (WHERE hp2.status = 'matched')            AS accepted,
+                 COUNT(*) FILTER (WHERE hp2.status IN ('matched', 'declined_awaiting_rider')) AS offered
+               FROM hmu_posts hp2
+               WHERE hp2.target_driver_id = dp.user_id
+                 AND hp2.post_type = 'direct_booking'
+                 AND hp2.created_at > NOW() - INTERVAL '90 days'
+               UNION ALL
+               SELECT
+                 COUNT(*) FILTER (WHERE bdt.hmu_at IS NOT NULL)                                                          AS accepted,
+                 COUNT(*) FILTER (WHERE bdt.hmu_at IS NOT NULL OR bdt.passed_at IS NOT NULL OR bdt.rejected_at IS NOT NULL) AS offered
+               FROM blast_driver_targets bdt
+               WHERE bdt.driver_id = dp.user_id
+                 AND bdt.notified_at IS NOT NULL
+                 AND bdt.created_at > NOW() - INTERVAL '90 days'
+             ) ac
+           ) AS acceptance_rate
     FROM driver_profiles dp
     JOIN users u ON u.id = dp.user_id
     LEFT JOIN hmu_posts hp ON hp.user_id = dp.user_id
       AND hp.post_type = 'driver_available'
       AND hp.status = 'active'
       AND hp.expires_at > NOW()
-    LEFT JOIN LATERAL (
-      SELECT
-        CASE WHEN SUM(ac.offered) >= 3
-             THEN ROUND(SUM(ac.accepted)::numeric / NULLIF(SUM(ac.offered), 0) * 100)::int
-             ELSE NULL
-        END AS rate
-      FROM (
-        SELECT
-          COUNT(*) FILTER (WHERE hp2.status = 'matched')            AS accepted,
-          COUNT(*) FILTER (WHERE hp2.status IN ('matched', 'declined_awaiting_rider')) AS offered
-        FROM hmu_posts hp2
-        WHERE hp2.target_driver_id = dp.user_id
-          AND hp2.post_type = 'direct_booking'
-          AND hp2.created_at > NOW() - INTERVAL '90 days'
-        UNION ALL
-        SELECT
-          COUNT(*) FILTER (WHERE bdt.hmu_at IS NOT NULL)                                                   AS accepted,
-          COUNT(*) FILTER (WHERE bdt.hmu_at IS NOT NULL OR bdt.passed_at IS NOT NULL OR bdt.rejected_at IS NOT NULL) AS offered
-        FROM blast_driver_targets bdt
-        WHERE bdt.driver_id = dp.user_id
-          AND bdt.notified_at IS NOT NULL
-          AND bdt.created_at > NOW() - INTERVAL '90 days'
-      ) ac
-    ) acc ON true
     WHERE dp.profile_visible = true
       AND u.account_status = 'active'
       AND (
         ${strictFilter}::text IS NULL
         OR (${strictFilter} = 'female' AND LOWER(dp.gender) IN ('female','woman'))
         OR (${strictFilter} = 'male'   AND LOWER(dp.gender) IN ('male','man'))
-      )
-      AND (
-        ${rider.minAcceptanceRate ?? null}::int IS NULL
-        OR acc.rate IS NULL
-        OR acc.rate >= ${rider.minAcceptanceRate ?? null}::int
       )
       AND (
         NOT ${rider.hasMediaOnly === true}::boolean
