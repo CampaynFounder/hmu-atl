@@ -5,49 +5,50 @@ const path = require('path');
 // On Xcode 26.2, hermes/hermes.h transitively requires folly/coro/Coroutine.h
 // during expo-modules-jsi's build-xcframework.sh inner xcodebuild.
 // Neither ReactNativeDependencies prebuilt nor RCT-Folly.podspec expose
-// folly/coro/*.h to the header search paths, so the preprocessor fails.
+// folly/coro/*.h, so the preprocessor fails.
 //
-// Fix: inject a Podfile post_install hook that writes a no-op stub at
-// Pods/Headers/Public/folly/coro/Coroutine.h. Package.swift's first search
-// path is publicHeaders = "$(PODS_ROOT)/Headers/Public", so the include
-// resolves without any Package.swift patching. FOLLY_CFG_NO_COROUTINES=1
-// (set by RCT-Folly compile flags) means no actual coroutine types are used.
+// Fix: inject into the existing Podfile post_install block (same pattern as
+// withCxxFlags) to write a no-op stub at Pods/Headers/Public/folly/coro/
+// Coroutine.h. Package.swift's first search path is publicHeaders =
+// "$(PODS_ROOT)/Headers/Public", so the include resolves without patching
+// Package.swift itself. FOLLY_CFG_NO_COROUTINES=1 means no actual
+// coroutine types are used — the file just needs to exist.
+//
+// Key fix vs. previous attempt: installer.sandbox.root is a Pathname, not
+// a String. File.join(Pathname, ...) raises TypeError — use .to_s explicitly.
+// Heredocs are avoided entirely. begin/rescue prevents pod install failure
+// if the stub creation ever errors.
 module.exports = function withExpoModulesJsiPatch(config) {
   return withDangerousMod(config, ['ios', async (config) => {
     const podfilePath = path.join(config.modRequest.platformProjectRoot, 'Podfile');
     if (!fs.existsSync(podfilePath)) return config;
 
     let contents = fs.readFileSync(podfilePath, 'utf8');
-
-    // Guard: only inject once
     if (contents.includes('folly-coro-coroutine-stub')) return config;
+    if (!contents.match(/post_install do \|installer\|/)) return config;
 
-    const hook = [
+    // Inject into the existing post_install block (same strategy as withCxxFlags).
+    // Uses .to_s on sandbox.root (Pathname) and avoids heredocs for reliability.
+    const lines = [
       '',
-      '# folly-coro-coroutine-stub: satisfy folly/coro/Coroutine.h include for ExpoModulesJSI',
-      'post_install do |installer|',
-      "  require 'fileutils'",
-      "  stub_dir = File.join(installer.sandbox.root, 'Headers', 'Public', 'folly', 'coro')",
-      '  FileUtils.mkdir_p(stub_dir)',
-      "  stub_path = File.join(stub_dir, 'Coroutine.h')",
-      '  unless File.exist?(stub_path)',
-      "    File.write(stub_path, <<~STUB)",
-      '      #pragma once',
-      '      /* Stub: folly/coro/Coroutine.h */',
-      '      /* RN sets FOLLY_CFG_NO_COROUTINES=1 - no coroutine types are consumed. */',
-      '      /* This file exists solely to satisfy the preprocessor include. */',
-      '      #if !defined(FOLLY_CFG_NO_COROUTINES) || !FOLLY_CFG_NO_COROUTINES',
-      '      # if __has_include(<coroutine>)',
-      '      #  include <coroutine>',
-      '      # endif',
-      '      #endif',
-      '    STUB',
+      '  # folly-coro-coroutine-stub',
+      '  begin',
+      "    require 'fileutils'",
+      "    __folly_stub = installer.sandbox.root.to_s + '/Headers/Public/folly/coro'",
+      '    FileUtils.mkdir_p(__folly_stub)',
+      "    File.write(__folly_stub + '/Coroutine.h', \"#pragma once\\n\") unless File.exist?(__folly_stub + '/Coroutine.h')",
+      '  rescue => e',
+      '    puts "[folly-coro-stub] #{e}"',
       '  end',
-      'end',
       '',
-    ].join('\n');
+    ];
+    const inject = lines.join('\n');
 
-    contents = contents + hook;
+    contents = contents.replace(
+      /post_install do \|installer\|/,
+      `post_install do |installer|${inject}`,
+    );
+
     fs.writeFileSync(podfilePath, contents);
     return config;
   }]);
