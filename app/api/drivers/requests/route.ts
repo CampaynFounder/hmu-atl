@@ -115,7 +115,13 @@ export async function GET() {
           )
         )
       )
-    ORDER BY p.created_at DESC
+    ORDER BY
+      -- 1. Highest price first — most lucrative ride for the driver
+      p.price DESC NULLS LAST,
+      -- 2. Soonest to expire first — most urgent, don't let good money time out
+      COALESCE(p.booking_expires_at, p.expires_at) ASC NULLS LAST,
+      -- 3. Newest as stable tiebreaker
+      p.created_at DESC
   `;
 
   // ── Blast requests — blasts where this driver was notified (initial fanout
@@ -157,7 +163,10 @@ export async function GET() {
     WHERE p.post_type = 'blast'
       AND p.status    = 'active'
       AND p.expires_at > NOW()
-    ORDER BY bdt.notified_at DESC
+    ORDER BY
+      p.price DESC NULLS LAST,
+      p.expires_at ASC NULLS LAST,
+      bdt.notified_at DESC
   `;
 
   const blastRequests = blastRows.map((row: Record<string, unknown>) => {

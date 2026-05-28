@@ -26,7 +26,21 @@ export default function SignUp() {
       await signUp!.preparePhoneNumberVerification();
       setStep('code');
     } catch (e: any) {
-      setError(e.errors?.[0]?.message ?? 'Could not start sign-up');
+      const clerkCode: string = e.errors?.[0]?.code ?? '';
+      const msg: string = e.errors?.[0]?.message ?? 'Could not start sign-up';
+      const isRateLimit = clerkCode === 'too_many_requests' ||
+        msg.toLowerCase().includes('too many') ||
+        msg.toLowerCase().includes('rate limit');
+      const alreadyExists = clerkCode === 'form_identifier_exists' ||
+        msg.toLowerCase().includes('already');
+      if (isRateLimit) {
+        setError(null);
+        setStep('code');
+      } else if (alreadyExists) {
+        setError('This number already has an account — tap Sign in below.');
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
