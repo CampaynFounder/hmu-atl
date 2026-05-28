@@ -159,7 +159,7 @@ export default function BlastBooking() {
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace({
-        pathname: '/(rider)/book/blast-board',
+        pathname: '/(rider)/book/blast-deck',
         params: {
           blastId: result.blastId,
           shortcode: result.shortcode,

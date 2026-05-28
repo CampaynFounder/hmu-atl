@@ -86,10 +86,11 @@ const chip = StyleSheet.create({
 
 // ── Driver card ───────────────────────────────────────────────────────────────
 
-function DriverCardView({ driver, cardH, onHmu }: {
+function DriverCardView({ driver, cardH, onHmu, onDownBad }: {
   driver: DriverCard;
   cardH: number;
   onHmu: (handle: string) => void;
+  onDownBad: (handle: string) => void;
 }) {
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
@@ -235,7 +236,11 @@ function DriverCardView({ driver, cardH, onHmu }: {
         </Animated.View>
 
         {driver.acceptsDownBad && (
-          <TouchableOpacity style={s.downBadLink} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={s.downBadLink}
+            activeOpacity={0.7}
+            onPress={() => onDownBad(driver.handle)}
+          >
             <Text style={s.downBadText}>Make a Down Bad offer ↓</Text>
           </TouchableOpacity>
         )}
@@ -369,7 +374,15 @@ export default function BrowseDrivers() {
   }
 
   const renderItem = useCallback(({ item }: { item: DriverCard }) => (
-    <DriverCardView driver={item} cardH={CARD_H} onHmu={handleHmu} />
+    <DriverCardView
+      driver={item}
+      cardH={CARD_H}
+      onHmu={handleHmu}
+      onDownBad={(handle) => router.push({
+        pathname: '/(rider)/book/down-bad',
+        params: { prefillHandle: handle },
+      } as never)}
+    />
   ), [CARD_H]);
 
   const getItemLayout = useCallback((_: unknown, index: number) => ({
