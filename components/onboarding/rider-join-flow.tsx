@@ -3,6 +3,7 @@
 import {
   useCallback, useEffect, useRef, useState, type KeyboardEvent, type ClipboardEvent,
 } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSignUp, useSignIn } from '@clerk/nextjs';
 import dynamic from 'next/dynamic';
@@ -448,6 +449,7 @@ export function RiderJoinFlow() {
           <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 15, color: 'rgba(255,255,255,0.5)', lineHeight: 1.6, margin: 0 }}>
             Peer-to-peer rides by and for Atlanta. No surge pricing. Real drivers you can trust.
           </p>
+          {/* ↑ apostrophes in JS string literals are fine — no JSX entity needed */}
 
           {locating && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -476,7 +478,7 @@ export function RiderJoinFlow() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <ErrorMsg msg={locError} />
               <p style={{ fontFamily: FONT_MONO, fontSize: 11, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5 }}>
-                We're expanding — sign up and we'll notify you when HMU hits your city.
+                We&apos;re expanding — sign up and we&apos;ll notify you when HMU hits your city.
               </p>
             </div>
           )}
@@ -489,12 +491,12 @@ export function RiderJoinFlow() {
 
           <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: 'rgba(255,255,255,0.25)', textAlign: 'center', letterSpacing: 0.5 }}>
             Already in the crew?{' '}
-            <a
+            <Link
               href="/sign-in"
               style={{ color: 'rgba(255,255,255,0.5)', textDecoration: 'underline' }}
             >
               Sign in →
-            </a>
+            </Link>
           </p>
         </div>
       )}
@@ -506,10 +508,10 @@ export function RiderJoinFlow() {
           <StepDots total={4} current={0} />
           <div>
             <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 40, color: '#fff', margin: 0, lineHeight: 1.1 }}>
-              WHAT'S YOUR NUMBER?
+              WHAT&apos;S YOUR NUMBER?
             </h2>
             <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, color: 'rgba(255,255,255,0.4)', marginTop: 8 }}>
-              We'll text you a code. No spam, ever.
+              We&apos;ll text you a code. No spam, ever.
             </p>
           </div>
 
@@ -596,7 +598,7 @@ export function RiderJoinFlow() {
               PUT A FACE TO IT.
             </h2>
             <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, color: 'rgba(255,255,255,0.4)', marginTop: 8 }}>
-              Drivers want to know who they're picking up. Optional — takes 10 seconds.
+              Drivers want to know who they&apos;re picking up. Optional — takes 10 seconds.
             </p>
           </div>
 
@@ -613,7 +615,7 @@ export function RiderJoinFlow() {
 
           <div>
             <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 52, color: GREEN, margin: 0, lineHeight: 1 }}>
-              YOU'RE IN
+              YOU&apos;RE IN
             </h1>
             <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 52, color: '#fff', margin: 0, lineHeight: 1 }}>
               THE CREW.
@@ -621,7 +623,7 @@ export function RiderJoinFlow() {
           </div>
 
           <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 15, color: 'rgba(255,255,255,0.5)', lineHeight: 1.6, maxWidth: 320 }}>
-            Welcome to Atlanta's crew-built ride network. Your driver is one HMU away.
+            Welcome to Atlanta&apos;s crew-built ride network. Your driver is one HMU away.
           </p>
 
           {market && (
