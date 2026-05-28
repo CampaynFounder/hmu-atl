@@ -89,9 +89,9 @@ const r = StyleSheet.create({
 function GuaranteeBanner({ isDepositMode }: { isDepositMode: boolean }) {
   const [expanded, setExpanded] = useState(false);
 
-  const accentColor  = isDepositMode ? '#E53935' : colors.green;
-  const dimColor     = isDepositMode ? 'rgba(229,57,53,0.1)' : colors.greenDim;
-  const borderColor  = isDepositMode ? 'rgba(229,57,53,0.3)' : colors.greenBorder;
+  const accentColor  = isDepositMode ? colors.red : colors.green;
+  const dimColor     = isDepositMode ? colors.redDim : colors.greenDim;
+  const borderColor  = isDepositMode ? colors.redBorder : colors.greenBorder;
   const icon: React.ComponentProps<typeof Ionicons>['name'] = isDepositMode ? 'shield-checkmark' : 'lock-closed';
 
   const headline = isDepositMode
@@ -332,14 +332,26 @@ export default function PaymentPreview() {
 
   const availDate = availableDate(clearingDays);
 
-  // Deposit mode calculations
+  // ── Deposit mode calculations ───────────────────────────────────────────────
   const deposit          = calcDeposit(fare, depositCfg);
   const depositStripeFee = Math.round((deposit * 0.029 + 0.30) * 100) / 100;
   const depositPlatform  = Math.round(deposit * depositCfg.feePercent * 100) / 100;
   const netDeposit       = Math.round((deposit - depositStripeFee - depositPlatform) * 100) / 100;
-  const cashAtPickup     = Math.round((fare - deposit + extras) * 100) / 100;
 
-  // Full fare calculations
+  // Extras go through Stripe — each has its own 2.9%+$0.30 + platform fee
+  const extrasStripeFee  = extras > 0 ? Math.round((extras * 0.029 + 0.30) * 100) / 100 : 0;
+  const extrasPlatform   = extras > 0 ? Math.round(extras * depositCfg.feePercent * 100) / 100 : 0;
+  const netExtras        = extras > 0 ? Math.round((extras - extrasStripeFee - extrasPlatform) * 100) / 100 : 0;
+
+  // Cash at pickup = base fare minus the deposit only — extras already paid via Stripe
+  const cashAtPickup = Math.round((fare - deposit) * 100) / 100;
+
+  // Total via Stripe (clears on clearing schedule)
+  const totalStripe = Math.round((netDeposit + netExtras) * 100) / 100;
+  // Grand total this ride
+  const grandTotal = Math.round((totalStripe + cashAtPickup) * 100) / 100;
+
+  // ── Full fare calculations ───────────────────────────────────────────────────
   const fullPayout = calculateDriverPayout(fare + extras, tier, 0, 0, 0);
 
   return (
@@ -402,62 +414,113 @@ export default function PaymentPreview() {
           </View>
         </Animated.View>
 
+        {/* ── Quick summary — right after inputs ── */}
+        {isDepositMode ? (
+          <Animated.View entering={FadeInUp.delay(140).duration(350)} style={s.quickSummary}>
+            <Text style={s.quickLabel}>YOUR EARNINGS AT A GLANCE</Text>
+            <View style={s.quickRow}>
+              <View style={s.quickItem}>
+                <Ionicons name="cash-outline" size={18} color={colors.green} />
+                <Text style={s.quickValue}>{fmt(cashAtPickup)}</Text>
+                <Text style={s.quickSub}>cash at pickup</Text>
+              </View>
+              <View style={s.quickDivider} />
+              <View style={s.quickItem}>
+                <Ionicons name="card-outline" size={18} color={colors.amber} />
+                <Text style={[s.quickValue, { color: colors.amber }]}>{fmt(totalStripe)}</Text>
+                <Text style={s.quickSub}>via Stripe by {availDate}</Text>
+              </View>
+              <View style={s.quickDivider} />
+              <View style={s.quickItem}>
+                <Ionicons name="wallet-outline" size={18} color={colors.textPrimary} />
+                <Text style={s.quickValue}>{fmt(grandTotal)}</Text>
+                <Text style={s.quickSub}>total earned</Text>
+              </View>
+            </View>
+          </Animated.View>
+        ) : (
+          <Animated.View entering={FadeInUp.delay(140).duration(350)} style={s.quickSummary}>
+            <Text style={s.quickLabel}>YOUR EARNINGS AT A GLANCE</Text>
+            <View style={[s.quickRow, { justifyContent: 'center' }]}>
+              <View style={s.quickItem}>
+                <Ionicons name="card-outline" size={18} color={colors.amber} />
+                <Text style={[s.quickValue, { color: colors.amber }]}>{fmt(fullPayout.driverReceives)}</Text>
+                <Text style={s.quickSub}>via Stripe by {availDate}</Text>
+              </View>
+            </View>
+          </Animated.View>
+        )}
+
+        {/* ── Detailed breakdown ── */}
         {isDepositMode ? (
           <>
-            {/* At booking */}
-            <Animated.View entering={FadeInUp.delay(160).duration(400)} style={[s.card, shadow.card]}>
-              <Text style={s.cardLabel}>RIDER PAYS AT BOOKING</Text>
-              <Row label="Deposit collected"       value={fmt(deposit)} />
-              <Row label="Stripe processing fee"   value={`- ${fmt(depositStripeFee)}`} sub="2.9% + $0.30 — Stripe charges this" dim />
-              <Row label="HMU platform fee"        value={`- ${fmt(depositPlatform)}`}  sub={`${(depositCfg.feePercent * 100).toFixed(0)}% of deposit`} dim />
-              <Row label="You receive via Stripe"  value={fmt(netDeposit)} accent />
-              <View style={s.availPill}>
-                <Ionicons name="time-outline" size={12} color={colors.amber} />
-                <Text style={s.availText}>
-                  Available by {availDate} · set by Stripe, not HMU
-                </Text>
-              </View>
-            </Animated.View>
-
-            {/* At pickup */}
-            <Animated.View entering={FadeInUp.delay(220).duration(400)} style={[s.card, shadow.card]}>
-              <Text style={s.cardLabel}>YOU COLLECT AT PICKUP (CASH)</Text>
-              <Row label="Ride fare"               value={fmt(fare)} />
-              <Row label="Deposit already paid"    value={`- ${fmt(deposit)}`} dim />
-              {extras > 0 && <Row label="Extras"  value={fmt(extras)} />}
-              <Row label="Cash from rider"         value={fmt(cashAtPickup)} accent />
-              <View style={[s.availPill, { backgroundColor: colors.greenDim, borderColor: colors.greenBorder }]}>
-                <Ionicons name="cash-outline" size={12} color={colors.green} />
-                <Text style={[s.availText, { color: colors.green }]}>
-                  Collect this in cash when you pull up — instant, no waiting
-                </Text>
-              </View>
-            </Animated.View>
-
-            {/* Total summary */}
-            <Animated.View entering={FadeInUp.delay(280).duration(400)} style={s.summaryCard}>
-              <Text style={s.summaryLabel}>TOTAL THIS RIDE</Text>
-              <Text style={s.summaryValue}>{fmt(netDeposit + cashAtPickup)}</Text>
-              <Text style={s.summarySub}>
-                {fmt(cashAtPickup)} cash now + {fmt(netDeposit)} via Stripe by {availDate}
-              </Text>
-            </Animated.View>
-          </>
-        ) : (
-          <>
-            <Animated.View entering={FadeInUp.delay(160).duration(400)} style={[s.card, shadow.card]}>
-              <Text style={s.cardLabel}>RIDER PAYS FULL FARE AT BOOKING</Text>
-              <Row label="Total collected"          value={fmt(fare + extras)} />
-              <Row label="Stripe processing fee"    value={`- ${fmt(fullPayout.stripeFee)}`}   sub="2.9% + $0.30 — Stripe charges this" dim />
-              <Row label="HMU platform fee"         value={`- ${fmt(fullPayout.platformFee)}`} sub={`${tier === 'hmu_first' ? '12' : '10'}% (${tier === 'hmu_first' ? 'HMU First' : 'Free'})`} dim />
-              <Row label="You receive via Stripe"   value={fmt(fullPayout.driverReceives)} accent />
+            {/* Deposit breakdown */}
+            <Animated.View entering={FadeInUp.delay(200).duration(400)} style={[s.card, shadow.card]}>
+              <Text style={s.cardLabel}>DEPOSIT — RIDER PAYS AT BOOKING</Text>
+              <Row label="Deposit collected"      value={fmt(deposit)} />
+              <Row label="Stripe processing fee"  value={`- ${fmt(depositStripeFee)}`} sub="2.9% + $0.30 — Stripe charges this" dim />
+              <Row label="HMU platform fee"       value={`- ${fmt(depositPlatform)}`}  sub={`${(depositCfg.feePercent * 100).toFixed(0)}% of deposit`} dim />
+              <Row label="You receive via Stripe" value={fmt(netDeposit)} accent />
               <View style={s.availPill}>
                 <Ionicons name="time-outline" size={12} color={colors.amber} />
                 <Text style={s.availText}>Available by {availDate} · set by Stripe, not HMU</Text>
               </View>
             </Animated.View>
 
-            <Animated.View entering={FadeInUp.delay(220).duration(400)} style={s.summaryCard}>
+            {/* Extras breakdown — only if extras > 0 */}
+            {extras > 0 && (
+              <Animated.View entering={FadeInUp.delay(240).duration(400)} style={[s.card, shadow.card]}>
+                <Text style={s.cardLabel}>EXTRAS — ALSO CHARGED VIA STRIPE</Text>
+                <Row label="Extras collected"       value={fmt(extras)} />
+                <Row label="Stripe processing fee"  value={`- ${fmt(extrasStripeFee)}`} sub="2.9% + $0.30 per charge" dim />
+                <Row label="HMU platform fee"       value={`- ${fmt(extrasPlatform)}`}  sub={`${(depositCfg.feePercent * 100).toFixed(0)}% of extras`} dim />
+                <Row label="You receive via Stripe" value={fmt(netExtras)} accent />
+                <View style={s.availPill}>
+                  <Ionicons name="time-outline" size={12} color={colors.amber} />
+                  <Text style={s.availText}>Same window — available by {availDate}</Text>
+                </View>
+              </Animated.View>
+            )}
+
+            {/* Cash at pickup */}
+            <Animated.View entering={FadeInUp.delay(280).duration(400)} style={[s.card, shadow.card]}>
+              <Text style={s.cardLabel}>CASH — COLLECT FROM RIDER AT PICKUP</Text>
+              <Row label="Agreed ride fare"        value={fmt(fare)} />
+              <Row label="Deposit already paid"    value={`- ${fmt(deposit)}`} dim />
+              <Row label="Cash you collect"        value={fmt(cashAtPickup)} accent />
+              <View style={[s.availPill, { backgroundColor: colors.greenDim, borderColor: colors.greenBorder }]}>
+                <Ionicons name="cash-outline" size={12} color={colors.green} />
+                <Text style={[s.availText, { color: colors.green }]}>
+                  Instant — in your hand when you pull up
+                </Text>
+              </View>
+            </Animated.View>
+
+            {/* Total reinforced */}
+            <Animated.View entering={FadeInUp.delay(320).duration(400)} style={s.summaryCard}>
+              <Text style={s.summaryLabel}>TOTAL THIS RIDE</Text>
+              <Text style={s.summaryValue}>{fmt(grandTotal)}</Text>
+              <Text style={s.summarySub}>
+                {fmt(cashAtPickup)} cash at pickup + {fmt(totalStripe)} via Stripe by {availDate}
+              </Text>
+            </Animated.View>
+          </>
+        ) : (
+          <>
+            <Animated.View entering={FadeInUp.delay(200).duration(400)} style={[s.card, shadow.card]}>
+              <Text style={s.cardLabel}>FULL FARE — RIDER PAYS AT BOOKING</Text>
+              <Row label="Total collected"         value={fmt(fare + extras)} />
+              <Row label="Stripe processing fee"   value={`- ${fmt(fullPayout.stripeFee)}`}   sub="2.9% + $0.30 — Stripe charges this" dim />
+              <Row label="HMU platform fee"        value={`- ${fmt(fullPayout.platformFee)}`} sub={`${tier === 'hmu_first' ? '12' : '10'}% (${tier === 'hmu_first' ? 'HMU First' : 'Free'})`} dim />
+              <Row label="You receive via Stripe"  value={fmt(fullPayout.driverReceives)} accent />
+              <View style={s.availPill}>
+                <Ionicons name="time-outline" size={12} color={colors.amber} />
+                <Text style={s.availText}>Available by {availDate} · set by Stripe, not HMU</Text>
+              </View>
+            </Animated.View>
+
+            {/* Total reinforced */}
+            <Animated.View entering={FadeInUp.delay(240).duration(400)} style={s.summaryCard}>
               <Text style={s.summaryLabel}>TOTAL THIS RIDE</Text>
               <Text style={s.summaryValue}>{fmt(fullPayout.driverReceives)}</Text>
               <Text style={s.summarySub}>Via Stripe by {availDate} — nothing to collect at pickup</Text>
@@ -531,6 +594,17 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.amberBorder, marginTop: spacing.sm,
   },
   availText: { fontFamily: fonts.mono, fontSize: 10, color: colors.amber, flex: 1 },
+
+  quickSummary: {
+    backgroundColor: colors.cardAlt, borderRadius: radius.card,
+    padding: spacing.lg, borderWidth: 1, borderColor: colors.borderStrong,
+  },
+  quickLabel: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 2, marginBottom: spacing.md },
+  quickRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  quickItem: { flex: 1, alignItems: 'center', gap: 4 },
+  quickValue: { fontFamily: fonts.display, fontSize: 22, color: colors.textPrimary },
+  quickSub: { fontFamily: fonts.mono, fontSize: 8, color: colors.textFaint, textAlign: 'center', letterSpacing: 0.5 },
+  quickDivider: { width: 1, height: 40, backgroundColor: colors.border },
 
   summaryCard: {
     backgroundColor: colors.greenDim, borderRadius: radius.card,

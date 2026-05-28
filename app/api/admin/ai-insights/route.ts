@@ -27,10 +27,7 @@ export async function POST(req: NextRequest) {
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
 
   // ── Gather context data ───────────────────────────────────────────────────
-
-  const marketFilter = marketSlug
-    ? sql`AND m.slug = ${marketSlug}`
-    : sql``;
+  // Note: use null-check pattern for market filter (no sql fragment interpolation)
 
   const [rideStats, revenueStats, growthStats, safetyStats, errorStats] = await Promise.all([
     // Ride completion stats
@@ -49,23 +46,23 @@ export async function POST(req: NextRequest) {
       JOIN users u ON u.id = r.rider_id
       LEFT JOIN markets m ON m.id = u.market_id
       WHERE r.created_at > ${since}
-        ${marketFilter}
+        AND (${marketSlug}::text IS NULL OR m.slug = ${marketSlug})
     `,
     // Revenue
     sql`
       SELECT
-        ROUND(SUM(r.final_agreed_price)::numeric, 2)   AS gmv,
-        ROUND(SUM(r.platform_fee_amount)::numeric, 2)  AS platform_revenue,
-        ROUND(SUM(r.stripe_fee_amount)::numeric, 2)    AS stripe_fees,
-        ROUND(SUM(r.driver_payout_amount)::numeric, 2) AS driver_payouts,
-        COUNT(*)::int                                   AS paid_rides
+        ROUND(COALESCE(SUM(r.final_agreed_price), 0)::numeric, 2)   AS gmv,
+        ROUND(COALESCE(SUM(r.platform_fee_amount), 0)::numeric, 2)  AS platform_revenue,
+        ROUND(COALESCE(SUM(r.stripe_fee_amount), 0)::numeric, 2)    AS stripe_fees,
+        ROUND(COALESCE(SUM(r.driver_payout_amount), 0)::numeric, 2) AS driver_payouts,
+        COUNT(*)::int                                                AS paid_rides
       FROM rides r
       JOIN users u ON u.id = r.rider_id
       LEFT JOIN markets m ON m.id = u.market_id
       WHERE r.created_at > ${since}
         AND r.status = 'completed'
         AND r.payment_captured = true
-        ${marketFilter}
+        AND (${marketSlug}::text IS NULL OR m.slug = ${marketSlug})
     `,
     // Growth
     sql`
@@ -75,12 +72,12 @@ export async function POST(req: NextRequest) {
       FROM users u
       LEFT JOIN markets m ON m.id = u.market_id
       WHERE u.created_at > ${since}
-        ${marketFilter}
+        AND (${marketSlug}::text IS NULL OR m.slug = ${marketSlug})
     `,
-    // Open safety events
+    // Open safety events — correct table is ride_safety_events
     sql`
       SELECT COUNT(*)::int AS open_safety_events
-      FROM safety_events
+      FROM ride_safety_events
       WHERE created_at > ${since} AND admin_resolved_at IS NULL
     `,
     // Ride errors (payment failures)

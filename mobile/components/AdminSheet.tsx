@@ -517,7 +517,7 @@ function RevenueSection({ days, market, token }: { days: DayFilter; market: Mark
 // ── SECTION: Messages ─────────────────────────────────────────────────────────
 
 function MessagesSection({ token }: { token: string | null }) {
-  const [threads, setThreads] = useState<{ phone: string; last_message: string; unread: number; last_at: string }[]>([]);
+  const [threads, setThreads] = useState<{ phone: string; last_message: string; unread: number; last_at: string; name?: string | null; profile_type?: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [convo, setConvo] = useState<{ direction: string; message: string; created_at: string }[]>([]);
@@ -551,7 +551,12 @@ function MessagesSection({ token }: { token: string | null }) {
           <Ionicons name="chevron-back" size={16} color={G} />
           <Text style={[sc.tag, { color: G }]}>ALL THREADS</Text>
         </TouchableOpacity>
-        <Text style={sc.rowTitle}>{selected}</Text>
+        <Text style={sc.rowTitle}>
+          {threads.find(t => t.phone === selected)?.name ?? selected}
+        </Text>
+        {threads.find(t => t.phone === selected)?.name && (
+          <Text style={sc.rowSub}>{selected}</Text>
+        )}
         {loadingConvo ? <LoadingCard /> : (
           <ScrollView style={{ flex: 1 }}>
             {convo.map((m, i) => (
@@ -601,12 +606,23 @@ function MessagesSection({ token }: { token: string | null }) {
         ? <EmptyState msg="NO MESSAGE THREADS" />
         : threads.map(t => (
           <TouchableOpacity key={t.phone} style={sc.row} onPress={() => void openThread(t.phone)} activeOpacity={0.8}>
-            <View style={[sc.avatar, { backgroundColor: colors.blueDim, borderColor: colors.blueBorder }]}>
-              <Ionicons name="chatbubble-outline" size={16} color={colors.blue} />
+            <View style={[sc.avatar, {
+              backgroundColor: t.profile_type === 'driver' ? colors.amberDim : colors.blueDim,
+              borderColor: t.profile_type === 'driver' ? colors.amberBorder : colors.blueBorder,
+            }]}>
+              <Ionicons
+                name={t.profile_type === 'driver' ? 'car-outline' : 'person-outline'}
+                size={16}
+                color={t.profile_type === 'driver' ? colors.amber : colors.blue}
+              />
             </View>
             <View style={{ flex: 1, gap: 2 }}>
-              <Text style={sc.rowTitle}>{t.phone}</Text>
-              <Text style={sc.rowSub} numberOfLines={1}>{t.last_message}</Text>
+              <Text style={sc.rowTitle}>
+                {t.name ? t.name : t.phone}
+              </Text>
+              <Text style={sc.rowSub} numberOfLines={1}>
+                {t.name ? t.phone : ''}{t.name ? ' · ' : ''}{t.last_message}
+              </Text>
             </View>
             {t.unread > 0 && (
               <View style={sc.badge}><Text style={sc.badgeText}>{t.unread}</Text></View>
