@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 16.0.0"
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -8,7 +9,8 @@
       "distribution": "internal",
       "ios": {
         "simulator": false,
-        "image": "macos-sequoia-15.6-xcode-26.2"
+        "image": "macos-sequoia-15.6-xcode-26.2",
+        "credentialsSource": "remote"
       }
     },
     "simulator": {
