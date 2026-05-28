@@ -50,7 +50,8 @@
           "ios": {
             "deploymentTarget": "16.4",
             "ccacheEnabled": false,
-            "usePrecompiledModules": false
+            "usePrecompiledModules": false,
+            "buildReactNativeFromSource": true
           }
         }
       ],
