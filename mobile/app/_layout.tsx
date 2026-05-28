@@ -1,3 +1,4 @@
+import '@/tasks/location-task'; // registers background task at module load — must be first
 import { ClerkProvider, useAuth } from '@clerk/clerk-expo';
 import * as SecureStore from 'expo-secure-store';
 import { Slot, useRouter, useSegments } from 'expo-router';

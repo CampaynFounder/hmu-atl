@@ -14,6 +14,7 @@ import { useAuth } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
+import { startRideTracking, stopRideTracking, refreshTrackingToken } from '@/lib/location-tracking';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
@@ -161,12 +162,20 @@ export default function ActiveRideScreen() {
     y: new Animated.Value(16),
   }))).current;
 
-  // Keep token fresh
+  // Keep token fresh — also refreshes the background location task's stored token
   useEffect(() => {
-    getToken().then(setToken).catch(() => {});
-    const interval = setInterval(() => getToken().then(setToken).catch(() => {}), 55_000);
+    const refresh = () => getToken().then(t => {
+      if (t) { setToken(t); refreshTrackingToken(t); }
+    }).catch(() => {});
+    refresh();
+    const interval = setInterval(refresh, 55_000);
     return () => clearInterval(interval);
   }, [getToken]);
+
+  // Stop background tracking when screen unmounts (cancelled, ended, or navigated away)
+  useEffect(() => {
+    return () => { void stopRideTracking(); };
+  }, []);
 
   const fetchAddOns = useCallback(async () => {
     if (!rideId) return;
@@ -253,8 +262,8 @@ export default function ActiveRideScreen() {
           if (typeof d.driverReceives === 'number') patch.driverPayout = d.driverReceives;
           return { ...prev, ...patch };
         });
-        if (newStatus === 'ended' || newStatus === 'completed') openRatingSheet();
-        if (newStatus === 'cancelled') openCancelOverlay();
+        if (newStatus === 'ended' || newStatus === 'completed') { void stopRideTracking(); openRatingSheet(); }
+        if (newStatus === 'cancelled') { void stopRideTracking(); openCancelOverlay(); }
       }
       if (msg.name === 'confirm_start') {
         setRide((prev) => prev ? { ...prev, status: 'confirming' } : prev);
@@ -368,6 +377,8 @@ export default function ActiveRideScreen() {
       const t = await getToken();
       await apiClient(`/rides/${rideId}/otw`, t, { method: 'POST' });
       setRide((prev) => prev ? { ...prev, status: 'otw', otwAt: new Date().toISOString() } : prev);
+      // Start background GPS so rider can track driver approach even if driver switches apps
+      if (t) void startRideTracking(rideId, t);
     } catch (e: any) {
       setError(e.message ?? 'Could not mark OTW');
     } finally {
@@ -436,6 +447,7 @@ export default function ActiveRideScreen() {
                 method: 'POST',
                 body: JSON.stringify(gps ? { driverLat: gps.lat, driverLng: gps.lng } : {}),
               });
+              void stopRideTracking();
               setRide((prev) => prev ? { ...prev, status: 'ended', endedAt: new Date().toISOString() } : prev);
               openRatingSheet();
             } catch (e: any) {
