@@ -32,9 +32,12 @@ export async function GET(request: NextRequest) {
   // One query joins the user with their driver handle so /d/[handle] can cheaply
   // check "is this page about me?" without a second fetch.
   const rows = await sql`
-    SELECT u.id, u.profile_type, u.account_status, dp.handle AS driver_handle
+    SELECT u.id, u.profile_type, u.account_status, u.is_admin,
+           dp.handle AS driver_handle,
+           ar.is_super
     FROM users u
     LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+    LEFT JOIN admin_roles ar ON ar.id = u.admin_role_id
     WHERE u.clerk_id = ${clerkId}
     LIMIT 1
   `;
@@ -84,11 +87,14 @@ export async function GET(request: NextRequest) {
     profile_type: string;
     account_status: string;
     driver_handle: string | null;
+    is_admin: boolean;
+    is_super: boolean | null;
   };
   return NextResponse.json({
     id: user.id,
     profileType: user.profile_type,
     accountStatus: user.account_status,
     driverHandle: user.driver_handle || null,
+    isSuperAdmin: !!(user.is_admin && user.is_super),
   });
 }

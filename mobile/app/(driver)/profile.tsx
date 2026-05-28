@@ -12,6 +12,8 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+import { useUserContext } from '@/contexts/UserContext';
+import { AdminSheet } from '@/components/AdminSheet';
 
 interface DriverProfile {
   id: string;
@@ -34,6 +36,8 @@ export default function DriverProfileScreen() {
   const insets = useSafeAreaInsets();
   const { getToken, signOut } = useAuth();
   const router = useRouter();
+  const { isSuperAdmin } = useUserContext();
+  const [adminVisible, setAdminVisible] = useState(false);
   const [profile, setProfile] = useState<DriverProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -74,7 +78,12 @@ export default function DriverProfileScreen() {
     >
       <Text style={s.pageTitle}>PROFILE</Text>
 
-      {/* Identity card */}
+      {/* Identity card — long press opens super admin sheet */}
+      <TouchableOpacity
+        activeOpacity={1}
+        onLongPress={() => isSuperAdmin && setAdminVisible(true)}
+        delayLongPress={600}
+      >
       <View style={[s.card, shadow.card]}>
         <View style={s.avatarWrap}>
           {profile?.vehicleInfo?.photoUrl ? (
@@ -104,7 +113,14 @@ export default function DriverProfileScreen() {
             <Ionicons name="chevron-forward" size={12} color={colors.amber} />
           </TouchableOpacity>
         )}
+        {isSuperAdmin && (
+          <View style={s.superBadge}>
+            <Text style={s.superBadgeText}>⚡ SUPER ADMIN</Text>
+          </View>
+        )}
       </View>
+      </TouchableOpacity>
+      <AdminSheet visible={adminVisible} onClose={() => setAdminVisible(false)} />
 
       {/* Stats */}
       <View style={s.statsRow}>
@@ -190,6 +206,11 @@ const s = StyleSheet.create({
   tierFree: { backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border },
   tierFirst: { backgroundColor: colors.green },
   tierText: { fontFamily: fonts.mono, fontSize: 10, color: colors.textTertiary, letterSpacing: 1 },
+  superBadge: {
+    marginTop: spacing.sm, backgroundColor: colors.greenDim, borderRadius: radius.pill,
+    paddingHorizontal: 12, paddingVertical: 4, borderWidth: 1, borderColor: colors.greenBorder,
+  },
+  superBadgeText: { fontFamily: fonts.mono, fontSize: 9, color: colors.green, letterSpacing: 1 },
   payoutWarning: {
     flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm,
     backgroundColor: colors.amberDim, borderRadius: radius.pill,
