@@ -337,13 +337,41 @@ export default function DirectBooking() {
               </View>
             )}
 
+            {/* Browse link — hidden once a driver is confirmed */}
+            {!driver && (
+              <Animated.View entering={FadeIn.delay(300).duration(400)} style={s.browseRow}>
+                <View style={s.browseDivider} />
+                <Text style={s.browseOr}>or</Text>
+                <View style={s.browseDivider} />
+              </Animated.View>
+            )}
+            {!driver && (
+              <TouchableOpacity
+                style={s.browseLink}
+                onPress={() => router.push('/(rider)/browse' as never)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="people-outline" size={16} color={colors.blue} />
+                <Text style={s.browseLinkText}>BROWSE ALL DRIVERS</Text>
+                <Ionicons name="chevron-forward" size={14} color={colors.blue} />
+              </TouchableOpacity>
+            )}
+
             {driver && (
               <Animated.View entering={FadeIn.duration(350)} style={[s.driverCard, shadow.card]}>
-                <View style={[s.driverAvatar, { backgroundColor: colors.blueDim, borderColor: colors.blueBorder }]}>
-                  <Text style={[s.driverAvatarLetter, { color: colors.blue }]}>
-                    {(driver.display_name ?? driver.handle)[0]?.toUpperCase()}
-                  </Text>
-                </View>
+                {driver.thumbnail_url ? (
+                  <Image
+                    source={{ uri: driver.thumbnail_url }}
+                    style={[s.driverAvatar, { borderWidth: 0 }]}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={[s.driverAvatar, { backgroundColor: colors.blueDim, borderColor: colors.blueBorder }]}>
+                    <Text style={[s.driverAvatarLetter, { color: colors.blue }]}>
+                      {(driver.display_name ?? driver.handle)[0]?.toUpperCase()}
+                    </Text>
+                  </View>
+                )}
                 <View style={s.driverInfo}>
                   <Text style={s.driverHandle}>@{driver.handle}</Text>
                   {driver.display_name && (
@@ -361,6 +389,7 @@ export default function DirectBooking() {
                 <Ionicons name="checkmark-circle" size={24} color={colors.blue} />
               </Animated.View>
             )}
+
           </Animated.View>
         )}
 
@@ -538,6 +567,20 @@ const s = StyleSheet.create({
     paddingVertical: 14, alignItems: 'center', justifyContent: 'center',
   },
   findBtnText: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.bg, letterSpacing: 1.5 },
+
+  // Browse all drivers link
+  browseRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+  },
+  browseDivider: { flex: 1, height: 1, backgroundColor: colors.border },
+  browseOr: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint },
+  browseLink: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: spacing.sm, paddingVertical: spacing.md,
+    backgroundColor: colors.blueDim, borderRadius: radius.pill,
+    borderWidth: 1, borderColor: colors.blueBorder,
+  },
+  browseLinkText: { fontFamily: fonts.monoBold, fontSize: 12, color: colors.blue, letterSpacing: 1.5 },
 
   // Search results dropdown
   resultsList: {

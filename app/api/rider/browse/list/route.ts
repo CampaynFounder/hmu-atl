@@ -44,6 +44,8 @@ export async function GET(req: NextRequest) {
   const areaFilter = req.nextUrl.searchParams.get('area') || null;
   const rawMaxPrice = req.nextUrl.searchParams.get('maxPrice');
   const maxPrice = rawMaxPrice ? Math.max(0, Number(rawMaxPrice)) : null;
+  const rawMinAcc = req.nextUrl.searchParams.get('minAcceptanceRate');
+  const minAcceptanceRate = rawMinAcc ? Math.min(100, Math.max(0, Number(rawMinAcc))) : null;
 
   let driverPreference: string | null = null;
   if (clerkId) {
@@ -58,7 +60,7 @@ export async function GET(req: NextRequest) {
   }
 
   const drivers = await queryBrowseDrivers(
-    { driverPreference, genderFilter, hasMediaOnly, fwuOnly, areaFilter, maxPrice, riderLat, riderLng },
+    { driverPreference, genderFilter, hasMediaOnly, fwuOnly, areaFilter, maxPrice, minAcceptanceRate, riderLat, riderLng },
     offset,
     limit,
   );

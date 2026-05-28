@@ -44,8 +44,24 @@ interface DriverCard {
   serviceIcons: string[];
   vehicleSummary: { label: string; maxRiders: number | null } | null;
   acceptsDownBad: boolean;
+  acceptanceRate: number | null;
   distanceMi: number | null;
   locationSource: 'live' | 'home' | 'pinned' | null;
+}
+
+const ACC_FILTER_OPTIONS = [
+  { label: 'ANY', value: 0 },
+  { label: '75%+', value: 75 },
+  { label: '90%+', value: 90 },
+] as const;
+
+type AccFilter = 0 | 75 | 90;
+
+function accColor(rate: number): string {
+  if (rate >= 90) return colors.green;
+  if (rate >= 75) return colors.amber;
+  if (rate >= 50) return colors.textTertiary;
+  return colors.red;
 }
 
 // ── Chip ─────────────────────────────────────────────────────────────────────
@@ -163,6 +179,14 @@ function DriverCardView({ driver, cardH, onHmu }: {
               <Text style={s.statText}>{driver.chillScore}%</Text>
             </View>
           )}
+          {driver.acceptanceRate != null && (
+            <View style={s.stat}>
+              <Ionicons name="checkmark-circle" size={11} color={accColor(driver.acceptanceRate)} />
+              <Text style={[s.statText, { color: accColor(driver.acceptanceRate) }]}>
+                {driver.acceptanceRate}%
+              </Text>
+            </View>
+          )}
           {driver.distanceMi != null && (
             <View style={s.stat}>
               <Ionicons
@@ -239,6 +263,7 @@ export default function BrowseDrivers() {
   const [query, setQuery] = useState('');
   const [areaFilter, setAreaFilter] = useState<string | null>(null);
   const [genderFilter, setGenderFilter] = useState<'any' | 'woman' | 'man'>('any');
+  const [accFilter, setAccFilter] = useState<AccFilter>(0);
 
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const hasLoaded = useRef(false);
@@ -271,8 +296,9 @@ export default function BrowseDrivers() {
     let url = `/rider/browse/list?offset=${offset}&limit=${PAGE_SIZE}`;
     if (coords) url += `&lat=${coords.lat}&lng=${coords.lng}`;
     if (genderFilter !== 'any') url += `&gender=${genderFilter === 'woman' ? 'female' : 'male'}`;
+    if (accFilter > 0) url += `&minAcceptanceRate=${accFilter}`;
     return url;
-  }, [coords, genderFilter]);
+  }, [coords, genderFilter, accFilter]);
 
   const load = useCallback(async (reset = false) => {
     if (reset) {
@@ -314,10 +340,10 @@ export default function BrowseDrivers() {
     }).catch(() => {});
   }, []);
 
-  // Refetch when coords arrive or gender filter changes
+  // Refetch when coords, gender filter, or acceptance rate filter changes
   useEffect(() => {
     if (hasLoaded.current) void load(true);
-  }, [coords, genderFilter]);
+  }, [coords, genderFilter, accFilter]);
 
   // Load on first focus only
   useFocusEffect(useCallback(() => {
@@ -390,6 +416,21 @@ export default function BrowseDrivers() {
       {searchOpen && (
         <Animated.View entering={FadeIn.duration(200)} style={s.filtersWrap}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filters}>
+            {/* Acceptance rate filter */}
+            {ACC_FILTER_OPTIONS.map(o => (
+              <TouchableOpacity
+                key={o.value}
+                style={[s.filterChip, accFilter === o.value && s.filterChipAccActive]}
+                onPress={() => { setAccFilter(o.value as AccFilter); void Haptics.selectionAsync(); }}
+              >
+                {o.value > 0 && <Ionicons name="checkmark-circle-outline" size={10} color={accFilter === o.value ? colors.amber : colors.textFaint} style={{ marginRight: 2 }} />}
+                <Text style={[s.filterChipText, accFilter === o.value && s.filterChipAccTextActive]}>
+                  {o.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            <View style={s.filterSep} />
+            {/* Gender filter */}
             {(['any', 'woman', 'man'] as const).map(g => (
               <TouchableOpacity
                 key={g}
@@ -401,6 +442,8 @@ export default function BrowseDrivers() {
                 </Text>
               </TouchableOpacity>
             ))}
+            {allAreas.length > 0 && <View style={s.filterSep} />}
+            {/* Area filter */}
             {allAreas.map(area => (
               <TouchableOpacity
                 key={area}
@@ -490,8 +533,11 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border,
   },
   filterChipActive: { backgroundColor: colors.greenDim, borderColor: colors.greenBorder },
+  filterChipAccActive: { backgroundColor: colors.amberDim, borderColor: colors.amberBorder },
   filterChipText: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1 },
   filterChipTextActive: { color: colors.green },
+  filterChipAccTextActive: { color: colors.amber },
+  filterSep: { width: 1, backgroundColor: colors.border, marginHorizontal: spacing.xs, alignSelf: 'stretch' },
 
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md },
   loadingText: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 2, marginTop: spacing.sm },

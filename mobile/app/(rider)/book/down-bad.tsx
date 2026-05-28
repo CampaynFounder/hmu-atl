@@ -141,10 +141,18 @@ export default function DownBadBooking() {
   const charCount = [...sumText].length;
   const maxChars = config.sumExtraMaxChars;
 
+  // Contact-info detection — matches API rule (max 4 digit groups) + phone patterns.
+  // Prevents riders and drivers from exchanging numbers off-platform.
+  const digitGroups = sumText.match(/\d+/g) ?? [];
+  const hasLongDigits = digitGroups.some(g => g.length >= 5);
+  const tooManyDigitGroups = digitGroups.length > 4;
+  const phoneRegex = /(\+?1[\s\-.]?)?(\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4})/;
+  const hasContactInfo = hasLongDigits || tooManyDigitGroups || phoneRegex.test(sumText);
+
   function validateStep(): boolean {
     if (step === 0) return !!pickup && !!dropoff;
     if (step === 1) return amount >= config.cashFloor && amount <= config.cashCeiling;
-    return sumText.trim().length > 0 && !!mediaUrl && !uploading;
+    return sumText.trim().length > 0 && !!mediaUrl && !uploading && !hasContactInfo;
   }
 
   async function advance() {
@@ -254,7 +262,7 @@ export default function DownBadBooking() {
           <Animated.View key="s1" entering={FadeInUp.duration(300)} style={s.stepWrap}>
             <Text style={s.stepTitle}>CASH OFFER</Text>
             <Text style={s.stepDesc}>
-              Cash goes to the driver on top of the ride fare. Min ${config.cashFloor}, max ${config.cashCeiling}.
+              Your cash bonus on top of the normal fare. More on the table = faster pull-up. Min ${config.cashFloor}, max ${config.cashCeiling}.
             </Text>
             <View style={[s.card, shadow.card]}>
               <Text style={s.cardLabel}>BONUS CASH</Text>
@@ -317,14 +325,14 @@ export default function DownBadBooking() {
           <Animated.View key="s2" entering={FadeInUp.duration(300)} style={s.stepWrap}>
             <Text style={s.stepTitle}>WHAT'S UP?</Text>
             <Text style={s.stepDesc}>
-              Tell drivers what you need. Keep it under {maxChars} characters. Photo required.
+              Tell drivers what's going on. No contact info — keep it on the platform. Photo required.
             </Text>
 
-            <View style={[s.card, shadow.card]}>
-              <Text style={s.cardLabel}>DESCRIBE IT</Text>
+            <View style={[s.card, shadow.card, hasContactInfo && { borderColor: colors.redBorder }]}>
+              <Text style={s.cardLabel}>WHAT'S THE SITUATION</Text>
               <TextInput
                 style={s.sumTextInput}
-                placeholder="e.g. need a ride to midtown asap, got groceries"
+                placeholder="e.g. stuck downtown with bags, need to get to Buckhead asap"
                 placeholderTextColor={colors.textFaint}
                 value={sumText}
                 onChangeText={t => { if ([...t].length <= maxChars) setSumText(t); }}
@@ -332,10 +340,24 @@ export default function DownBadBooking() {
                 maxLength={maxChars * 2}
                 returnKeyType="done"
               />
-              <Text style={[s.charCount, charCount >= maxChars && { color: colors.red }]}>
-                {charCount}/{maxChars}
-              </Text>
+              <View style={s.textFooter}>
+                <Text style={[s.charCount, charCount >= maxChars && { color: colors.red }]}>
+                  {charCount}/{maxChars}
+                </Text>
+                {hasContactInfo && (
+                  <Text style={s.contactWarn}>no contact info</Text>
+                )}
+              </View>
             </View>
+
+            {hasContactInfo && (
+              <Animated.View entering={FadeIn.duration(250)} style={s.contactBlock}>
+                <Ionicons name="shield-outline" size={14} color={colors.red} />
+                <Text style={s.contactBlockText}>
+                  Looks like contact info. Remove any phone numbers — exchange happens through HMU after match.
+                </Text>
+              </Animated.View>
+            )}
 
             <View style={[s.card, shadow.card]}>
               <Text style={s.cardLabel}>PHOTO (REQUIRED)</Text>
@@ -483,7 +505,17 @@ const s = StyleSheet.create({
     fontFamily: fonts.body, fontSize: 15, color: colors.textPrimary, lineHeight: 24,
     minHeight: 80, textAlignVertical: 'top',
   },
-  charCount: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, textAlign: 'right' },
+  textFooter: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs,
+  },
+  charCount: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint },
+  contactWarn: { fontFamily: fonts.mono, fontSize: 10, color: colors.red, letterSpacing: 0.5 },
+  contactBlock: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm,
+    backgroundColor: colors.redDim, borderRadius: radius.cardInner,
+    padding: spacing.md, borderWidth: 1, borderColor: colors.redBorder,
+  },
+  contactBlockText: { flex: 1, fontFamily: fonts.body, fontSize: 13, color: colors.red, lineHeight: 18 },
 
   photoPickBtn: {
     height: 140, borderRadius: radius.cardInner, alignItems: 'center', justifyContent: 'center',

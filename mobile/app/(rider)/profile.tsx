@@ -1,13 +1,14 @@
 // Rider profile hub — identity card, stats, account nav.
-// Loads from GET /api/rider/profile (handle/gender) + GET /api/rides/history (stats).
+// Loads from GET /api/rider/profile (handle/gender/avatarUrl) + GET /api/rides/history (stats).
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@clerk/clerk-expo';
+import { useFocusEffect } from 'expo-router';
+import { useAuth, useUser } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
@@ -16,6 +17,8 @@ import { apiClient } from '@/lib/api';
 interface RiderProfile {
   handle: string | null;
   gender: string | null;
+  avatarUrl: string | null;
+  displayName: string | null;
 }
 
 interface RideSummary {
@@ -27,11 +30,13 @@ interface RideSummary {
 export default function RiderProfileScreen() {
   const insets = useSafeAreaInsets();
   const { getToken, signOut } = useAuth();
+  const { user: clerkUser } = useUser();
   const router = useRouter();
   const [profile, setProfile] = useState<RiderProfile | null>(null);
   const [rides, setRides] = useState<RideSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const hasLoaded = useRef(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -43,10 +48,17 @@ export default function RiderProfileScreen() {
       setProfile(p);
       setRides(r.rides ?? []);
     } catch {}
-    finally { setLoading(false); setRefreshing(false); }
+    finally {
+      setLoading(false);
+      setRefreshing(false);
+      hasLoaded.current = true;
+    }
   }, [getToken]);
 
-  useEffect(() => { void fetchData(); }, [fetchData]);
+  useFocusEffect(useCallback(() => {
+    if (!hasLoaded.current) setLoading(true);
+    void fetchData();
+  }, [fetchData]));
 
   const onRefresh = useCallback(() => { setRefreshing(true); void fetchData(); }, [fetchData]);
 
@@ -59,8 +71,13 @@ export default function RiderProfileScreen() {
   }
 
   const handle = profile?.handle ?? 'rider';
+  const displayName = profile?.displayName ?? null;
   const completedRides = rides.filter(r => r.status === 'completed').length;
   const pendingRatings = rides.filter(r => r.status === 'ended' && r.driver_rating == null).length;
+
+  // Avatar: R2 URL from rider_profiles → Clerk imageUrl → initials
+  const avatarUri = profile?.avatarUrl ?? clerkUser?.imageUrl ?? null;
+  const avatarLetter = handle[0]?.toUpperCase() ?? '?';
 
   return (
     <View style={[s.root, { paddingTop: insets.top }]}>
@@ -74,12 +91,23 @@ export default function RiderProfileScreen() {
         {/* Identity card */}
         <View style={[s.card, shadow.card]}>
           <View style={s.avatarWrap}>
-            <View style={[s.avatar, s.avatarFallback]}>
-              <Text style={s.avatarLetter}>{handle[0]?.toUpperCase() ?? '?'}</Text>
-            </View>
+            {avatarUri ? (
+              <Image
+                source={{ uri: avatarUri }}
+                style={s.avatar}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={[s.avatar, s.avatarFallback]}>
+                <Text style={s.avatarLetter}>{avatarLetter}</Text>
+              </View>
+            )}
           </View>
+          {displayName && (
+            <Text style={s.displayName}>{displayName}</Text>
+          )}
           <Text style={s.handle}>@{handle}</Text>
-          <View style={[s.tierBadge]}>
+          <View style={s.tierBadge}>
             <Text style={s.tierText}>RIDER</Text>
           </View>
         </View>
@@ -98,7 +126,7 @@ export default function RiderProfileScreen() {
         {pendingRatings > 0 && (
           <TouchableOpacity
             style={s.ratePrompt}
-            onPress={() => router.push('/(rider)/rides' as any)}
+            onPress={() => router.push('/(rider)/rides' as never)}
             activeOpacity={0.8}
           >
             <Ionicons name="star-outline" size={14} color={colors.amber} />
@@ -115,9 +143,19 @@ export default function RiderProfileScreen() {
           <NavRow
             icon="car-outline"
             label="My Rides"
-            onPress={() => router.push('/(rider)/rides' as any)}
+            onPress={() => router.push('/(rider)/rides' as never)}
           />
-          <NavRow icon="help-circle-outline" label="Support" onPress={() => router.push('/(rider)/support' as any)} last />
+          <NavRow
+            icon="card-outline"
+            label="Payment Methods"
+            onPress={() => router.push('/(rider)/payment-methods' as never)}
+          />
+          <NavRow
+            icon="help-circle-outline"
+            label="Support"
+            onPress={() => router.push('/(rider)/support' as never)}
+            last
+          />
         </View>
 
         <TouchableOpacity style={s.signOutBtn} onPress={() => signOut()}>
@@ -180,6 +218,7 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.borderStrong,
   },
   avatarLetter: { fontFamily: fonts.display, fontSize: 38, color: colors.green },
+  displayName: { fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.textPrimary, marginBottom: 2 },
   handle: { fontFamily: fonts.display, fontSize: 26, color: colors.textPrimary, marginBottom: spacing.xs },
   tierBadge: {
     borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 4,

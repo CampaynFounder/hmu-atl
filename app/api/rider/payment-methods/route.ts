@@ -8,6 +8,51 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
 });
 const isMock = process.env.STRIPE_MOCK === 'true';
 
+export async function DELETE(request: Request) {
+  try {
+    const { userId: clerkId } = await auth();
+    if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+
+    const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const userId = (userRows[0] as { id: string }).id;
+
+    const pmRows = await sql`
+      SELECT stripe_payment_method_id FROM rider_payment_methods
+      WHERE id = ${id} AND rider_id = ${userId}
+      LIMIT 1
+    `;
+    if (!pmRows.length) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    const stripePmId = (pmRows[0] as { stripe_payment_method_id: string }).stripe_payment_method_id;
+
+    // Detach from Stripe so it can't be charged again
+    try {
+      await stripe.paymentMethods.detach(stripePmId);
+    } catch {
+      // Non-fatal — PM may already be detached; still clean up our DB row
+    }
+
+    await sql`DELETE FROM rider_payment_methods WHERE id = ${id} AND rider_id = ${userId}`;
+
+    // If deleted method was the default, promote the next card
+    await sql`
+      UPDATE rider_payment_methods SET is_default = true
+      WHERE rider_id = ${userId}
+        AND is_default = false
+        AND id = (SELECT id FROM rider_payment_methods WHERE rider_id = ${userId} ORDER BY created_at LIMIT 1)
+    `;
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error('Delete payment method error:', error);
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
+  }
+}
+
 export async function GET() {
   try {
     const { userId: clerkId } = await auth();

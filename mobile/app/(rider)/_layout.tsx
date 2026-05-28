@@ -83,6 +83,10 @@ export default function RiderLayout() {
         options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
+        name="payment-methods"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
         name="book/direct"
         options={{ href: null, headerShown: false }}
       />
