@@ -26,8 +26,8 @@ export async function GET() {
   const admin = await requireAdmin();
   if (!admin?.is_super) return unauthorized();
 
-  const costs = await getPlatformConfig<VariableCosts>(CONFIG_KEY, DEFAULTS as unknown as Record<string, unknown>);
-  const monthly = (costs as unknown as VariableCosts);
+  const raw = await getPlatformConfig(CONFIG_KEY, DEFAULTS as Record<string, unknown>);
+  const monthly = raw as unknown as VariableCosts;
   const totalMonthly = (monthly.cloudflare ?? 0) + (monthly.stripe ?? 0) + (monthly.clerk ?? 0) + (monthly.neon ?? 0);
 
   return NextResponse.json({ costs: monthly, totalMonthly, dailyCost: Number((totalMonthly / 30).toFixed(2)) });
@@ -38,12 +38,13 @@ export async function PATCH(req: NextRequest) {
   if (!admin?.is_super) return unauthorized();
 
   const body = await req.json().catch(() => ({})) as Partial<VariableCosts>;
-  const current = await getPlatformConfig<VariableCosts>(CONFIG_KEY, DEFAULTS as unknown as Record<string, unknown>);
+  const rawCurrent = await getPlatformConfig(CONFIG_KEY, DEFAULTS as Record<string, unknown>);
+  const current = rawCurrent as unknown as VariableCosts;
   const updated: VariableCosts = {
-    cloudflare: Number(body.cloudflare ?? (current as unknown as VariableCosts).cloudflare ?? 0),
-    stripe:     Number(body.stripe     ?? (current as unknown as VariableCosts).stripe     ?? 0),
-    clerk:      Number(body.clerk      ?? (current as unknown as VariableCosts).clerk      ?? 0),
-    neon:       Number(body.neon       ?? (current as unknown as VariableCosts).neon       ?? 0),
+    cloudflare: Number(body.cloudflare ?? current.cloudflare ?? 0),
+    stripe:     Number(body.stripe     ?? current.stripe     ?? 0),
+    clerk:      Number(body.clerk      ?? current.clerk      ?? 0),
+    neon:       Number(body.neon       ?? current.neon       ?? 0),
   };
 
   await sql`

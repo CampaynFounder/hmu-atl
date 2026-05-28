@@ -2,6 +2,18 @@
 // Triggered by long-pressing the profile identity card in rider/driver profiles.
 // All sections call real admin APIs. The AI section feeds app data to GPT-4o-mini.
 
+/** Safely parse a Postgres timestamp ("2026-05-28 16:36:35.123" or ISO) to ms. */
+function parseTs(raw: string | null | undefined): number {
+  if (!raw) return 0;
+  // Postgres returns "YYYY-MM-DD HH:MM:SS[.ms][+tz]" — normalise the space to T
+  // so every JS engine treats it as valid ISO 8601.
+  const iso = String(raw).trim().replace(' ', 'T');
+  // Append Z only when there is no existing offset (no +, no trailing Z)
+  const withTz = /[Zz]$|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : `${iso}Z`;
+  const ms = Date.parse(withTz);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView,
@@ -51,14 +63,15 @@ function EmptyState({ msg }: { msg: string }) {
 // ── Time / market filters ─────────────────────────────────────────────────────
 
 const TIME_OPTS = [
-  { label: 'TODAY', days: 1 },
-  { label: 'WEEK', days: 7 },
-  { label: 'MONTH', days: 30 },
+  { label: 'TODAY',    days: 1 },
+  { label: 'WEEK',     days: 7 },
+  { label: 'MONTH',    days: 30 },
+  { label: 'ALL TIME', days: 0 },
 ] as const;
 
 const MARKET_OPTS = ['all', 'atl', 'nola', 'bna', 'mem', 'tpa', 'mia', 'hou', 'dfw', 'clt'] as const;
 type MarketSlug = typeof MARKET_OPTS[number];
-type DayFilter = 1 | 7 | 30;
+type DayFilter = 0 | 1 | 7 | 30;
 
 // ── SECTION: Activity ─────────────────────────────────────────────────────────
 
@@ -74,24 +87,40 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
     async function load() {
       setLoading(true);
       try {
-        const params = new URLSearchParams({ days: String(days), limit: '30' });
-        if (market !== 'all') params.set('marketSlug', market);
-        const res = await apiClient<{ rides: typeof data }>(
-          `/admin/rides/history?${params}`, token,
+        const res = await apiClient<{ rides: { id: string; status: string; price?: number; amount?: number; pickup_address?: string; dropoff_address?: string; createdAt?: string; created_at?: string; refCode?: string; marketId?: string }[] }>(
+          '/admin/rides/history', token,
         );
-        // Aggregate from list
-        const rides = (res as unknown as { rides: { status: string; amount?: number; pickup_address?: string; dropoff_address?: string; created_at?: string; id?: string }[] }).rides ?? [];
-        const completed = rides.filter(r => r.status === 'completed').length;
+        const cutoff = days === 0 ? 0 : Date.now() - days * 86_400_000;
+        // Filter by time window client-side (server returns last 200 ordered by date).
+        // days===0 = ALL TIME: cutoff is 0 so nothing is filtered out.
+        // parseTs normalises Postgres "YYYY-MM-DD HH:MM:SS" to valid ISO 8601 so
+        // Date.parse works correctly in every JS engine (space → T, append Z).
+        const allRides = res.rides ?? [];
+        const rides = allRides.filter(r => {
+          if (cutoff === 0) return true; // ALL TIME — keep everything
+          const ts = parseTs(r.createdAt ?? r.created_at);
+          if (ts > 0 && ts < cutoff) return false;
+          return true; // market filtering via marketId would need server-side; omit for now
+        });
+        const completed = rides.filter(r => r.status === 'completed' || r.status === 'ended').length;
         const cancelled = rides.filter(r => r.status === 'cancelled').length;
         const total = rides.length;
         const avg_fare = completed > 0
-          ? rides.filter(r => r.status === 'completed').reduce((s, r) => s + (r.amount ?? 0), 0) / completed
+          ? rides.filter(r => r.status === 'completed' || r.status === 'ended')
+              .reduce((s, r) => s + (r.price ?? r.amount ?? 0), 0) / completed
           : 0;
         setData({
           total, completed, cancelled,
           fulfillment_rate: total > 0 ? Math.round(completed / (completed + cancelled) * 100) : 0,
           avg_fare: Math.round(avg_fare * 100) / 100,
-          rides: rides as { id: string; status: string; amount: number; pickup_address: string; dropoff_address: string; created_at: string }[],
+          rides: rides.map(r => ({
+            id: r.id ?? '',
+            status: r.status,
+            amount: r.price ?? r.amount ?? 0,
+            pickup_address: r.pickup_address ?? r.refCode ?? '',
+            dropoff_address: r.dropoff_address ?? '',
+            created_at: r.createdAt ?? r.created_at ?? '',
+          })),
         });
       } catch { setData(null); }
       finally { setLoading(false); }
@@ -107,7 +136,7 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
   };
 
   return (
-    <ScrollView contentContainerStyle={{ gap: spacing.md }}>
+    <ScrollView contentContainerStyle={{ gap: spacing.md }} keyboardShouldPersistTaps="handled">
       <View style={sc.statsGrid}>
         <StatCard label="TOTAL" value={String(data?.total ?? 0)} />
         <StatCard label="COMPLETED" value={String(data?.completed ?? 0)} accent />
@@ -141,30 +170,62 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
 
 // ── SECTION: Revenue ──────────────────────────────────────────────────────────
 
+interface PricingMode {
+  id: string;
+  modeKey: string;
+  displayName: string;
+  enabled: boolean;
+  isDefaultGlobal: boolean;
+  config: Record<string, unknown> | null;
+}
+
+interface PricingConfig {
+  id: string;
+  tier: string;
+  feeRate: number;
+  dailyCap: number;
+  weeklyCap: number;
+  peakMultiplier: number;
+  isActive: boolean;
+  marketId: string | null;
+}
+
 function RevenueSection({ days, market, token }: { days: DayFilter; market: MarketSlug; token: string | null }) {
   const [rev, setRev] = useState<{
     gmv: number; platform_revenue: number; stripe_fees: number; driver_payouts: number;
   } | null>(null);
   const [costs, setCosts] = useState({ cloudflare: 0, stripe: 0, clerk: 0, neon: 0 });
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [editingCosts, setEditingCosts] = useState(false);
+  const [savingCosts, setSavingCosts] = useState(false);
   const [loadingRev, setLoadingRev] = useState(true);
-  const [pricingMode, setPricingMode] = useState<'deposit' | 'full_fare'>('deposit');
+
+  // Pricing modes (deposit ↔ full fare)
+  const [modes, setModes] = useState<PricingMode[]>([]);
+  const [switchingMode, setSwitchingMode] = useState(false);
+
+  // Fee config (rate, caps)
+  const [configs, setConfigs] = useState<PricingConfig[]>([]);
+  const [editingFee, setEditingFee] = useState<PricingConfig | null>(null);
+  const [savingFee, setSavingFee] = useState(false);
+  const [feeError, setFeeError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
       setLoadingRev(true);
       try {
-        const params = new URLSearchParams({ days: String(days) });
-        if (market !== 'all') params.set('marketSlug', market);
-        const [moneyRes, costsRes] = await Promise.all([
+        const mktParam = market !== 'all' ? `?marketId=${market}` : '';
+        const [moneyRes, costsRes, modesRes, cfgRes] = await Promise.all([
           apiClient<{ gmv: number; platform_revenue: number; stripe_fees: number; driver_payouts: number }>(
-            `/admin/money?${params}`, token,
+            `/admin/money?days=${days === 0 ? 3650 : days}${market !== 'all' ? `&marketSlug=${market}` : ''}`, token,
           ),
           apiClient<{ costs: typeof costs }>('/admin/variable-costs', token),
+          apiClient<{ modes: PricingMode[] }>('/admin/pricing-modes', token),
+          apiClient<{ configs: PricingConfig[] }>(`/admin/pricing${mktParam}`, token),
         ]);
         setRev(moneyRes);
         setCosts(costsRes.costs ?? costs);
+        setModes(modesRes.modes ?? []);
+        setConfigs(cfgRes.configs?.filter(c => c.isActive) ?? []);
       } catch { setRev(null); }
       finally { setLoadingRev(false); }
     }
@@ -172,26 +233,66 @@ function RevenueSection({ days, market, token }: { days: DayFilter; market: Mark
   }, [days, market, token]);
 
   async function saveCosts() {
-    setSaving(true);
+    setSavingCosts(true);
     try {
-      await apiClient('/admin/variable-costs', token, {
-        method: 'PATCH', body: JSON.stringify(costs),
-      });
-      setEditing(false);
+      await apiClient('/admin/variable-costs', token, { method: 'PATCH', body: JSON.stringify(costs) });
+      setEditingCosts(false);
     } catch {}
-    finally { setSaving(false); }
+    finally { setSavingCosts(false); }
+  }
+
+  async function setDefaultMode(modeKey: string) {
+    setSwitchingMode(true);
+    try {
+      await apiClient('/admin/pricing-modes', token, {
+        method: 'PATCH',
+        body: JSON.stringify({ modeKey, isDefaultGlobal: true, enabled: true }),
+      });
+      setModes(prev => prev.map(m => ({ ...m, isDefaultGlobal: m.modeKey === modeKey })));
+    } catch {}
+    finally { setSwitchingMode(false); }
+  }
+
+  async function saveFeeConfig() {
+    if (!editingFee) return;
+    setSavingFee(true);
+    setFeeError(null);
+    try {
+      await apiClient('/admin/pricing', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          tier: editingFee.tier,
+          feeRate: editingFee.feeRate,
+          dailyCap: editingFee.dailyCap,
+          weeklyCap: editingFee.weeklyCap,
+          peakMultiplier: editingFee.peakMultiplier,
+          marketId: editingFee.marketId,
+          changeReason: 'Updated via mobile admin',
+        }),
+      });
+      setConfigs(prev => prev.map(c => c.id === editingFee.id ? { ...editingFee } : c));
+      setEditingFee(null);
+    } catch (e: unknown) {
+      setFeeError((e as { message?: string }).message ?? 'Save failed');
+    } finally {
+      setSavingFee(false);
+    }
   }
 
   const totalMonthlyCosts = costs.cloudflare + costs.stripe + costs.clerk + costs.neon;
   const dailyCost = totalMonthlyCosts / 30;
-  const avgFeePerRide = rev && rev.platform_revenue > 0 ? rev.platform_revenue / ((rev.gmv ?? 1) / 25) : 2.5;
-  const breakEvenRides = dailyCost > 0 ? Math.ceil(dailyCost / avgFeePerRide) : 0;
-  const margin = rev && rev.platform_revenue > 0 && rev.gmv > 0
-    ? Math.round((rev.platform_revenue - dailyCost * days) / rev.gmv * 100)
+  const completedRides = rev ? (rev.gmv > 0 ? rev.gmv / 25 : 0) : 0;
+  const avgFeePerRide = completedRides > 0 ? (rev?.platform_revenue ?? 0) / completedRides : 2.5;
+  const breakEvenRides = dailyCost > 0 && avgFeePerRide > 0 ? Math.ceil(dailyCost / avgFeePerRide) : 0;
+  const margin = rev && (rev.platform_revenue ?? 0) > 0 && (rev.gmv ?? 0) > 0
+    ? Math.round(((rev.platform_revenue - dailyCost * days) / rev.gmv) * 100)
     : 0;
 
+  const activeModeName = modes.find(m => m.isDefaultGlobal)?.displayName ?? '—';
+  const isDeposit = modes.find(m => m.isDefaultGlobal)?.modeKey?.includes('deposit') ?? false;
+
   return (
-    <ScrollView contentContainerStyle={{ gap: spacing.md }}>
+    <ScrollView contentContainerStyle={{ gap: spacing.md }} keyboardShouldPersistTaps="handled">
       {loadingRev ? <LoadingCard /> : (
         <View style={sc.statsGrid}>
           <StatCard label="GMV" value={`$${(rev?.gmv ?? 0).toFixed(0)}`} />
@@ -205,11 +306,11 @@ function RevenueSection({ days, market, token }: { days: DayFilter; market: Mark
       <View style={sc.breakEven}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text style={sc.sectionHdr}>BREAK-EVEN</Text>
-          <TouchableOpacity onPress={() => setEditing(!editing)}>
-            <Text style={[sc.tag, { color: G }]}>{editing ? 'CANCEL' : 'EDIT COSTS'}</Text>
+          <TouchableOpacity onPress={() => setEditingCosts(!editingCosts)}>
+            <Text style={[sc.tag, { color: G }]}>{editingCosts ? 'CANCEL' : 'EDIT COSTS'}</Text>
           </TouchableOpacity>
         </View>
-        {editing ? (
+        {editingCosts ? (
           <View style={{ gap: spacing.sm }}>
             {(['cloudflare', 'stripe', 'clerk', 'neon'] as const).map(k => (
               <View key={k} style={sc.costRow}>
@@ -223,39 +324,106 @@ function RevenueSection({ days, market, token }: { days: DayFilter; market: Mark
                 />
               </View>
             ))}
-            <TouchableOpacity style={sc.saveBtn} onPress={saveCosts} disabled={saving}>
-              {saving ? <ActivityIndicator size="small" color={colors.bg} /> : <Text style={sc.saveBtnText}>SAVE</Text>}
+            <TouchableOpacity style={sc.saveBtn} onPress={saveCosts} disabled={savingCosts}>
+              {savingCosts ? <ActivityIndicator size="small" color={colors.bg} /> : <Text style={sc.saveBtnText}>SAVE</Text>}
             </TouchableOpacity>
           </View>
         ) : (
           <View style={sc.statsGrid}>
             <StatCard label="DAILY COST" value={`$${dailyCost.toFixed(2)}`} />
-            <StatCard label="BREAK-EVEN" value={`${breakEvenRides} rides/day`} />
+            <StatCard label="BREAK-EVEN" value={breakEvenRides > 0 ? `${breakEvenRides}/day` : '—'} />
             <StatCard label="MARGIN" value={`${margin}%`} accent={margin > 0} />
           </View>
         )}
       </View>
 
-      {/* Pricing mode */}
+      {/* Pricing mode toggle */}
       <View style={sc.pricingCard}>
         <SectionHeader title="PRICING MODE" />
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <View>
-            <Text style={sc.rowTitle}>{pricingMode === 'deposit' ? 'DEPOSIT' : 'FULL FARE'}</Text>
-            <Text style={sc.rowSub}>
-              {pricingMode === 'deposit'
-                ? 'Riders pay deposit upfront, balance at pickup'
-                : 'Riders pay full fare at booking'}
-            </Text>
-          </View>
-          <Switch
-            value={pricingMode === 'full_fare'}
-            onValueChange={v => setPricingMode(v ? 'full_fare' : 'deposit')}
-            trackColor={{ false: colors.border, true: colors.greenBorder }}
-            thumbColor={pricingMode === 'full_fare' ? G : colors.textFaint}
-          />
+        <Text style={[sc.rowSub, { marginBottom: spacing.sm }]}>Active: {activeModeName}</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          {modes.filter(m => m.modeKey !== 'free_ride').map(m => (
+            <TouchableOpacity
+              key={m.modeKey}
+              style={[
+                sc.modeBtn,
+                m.isDefaultGlobal && sc.modeBtnActive,
+              ]}
+              onPress={() => !m.isDefaultGlobal && void setDefaultMode(m.modeKey)}
+              disabled={switchingMode || m.isDefaultGlobal}
+            >
+              {switchingMode && !m.isDefaultGlobal
+                ? <ActivityIndicator size="small" color={G} />
+                : <Text style={[sc.modeBtnText, m.isDefaultGlobal && { color: G }]}>
+                    {m.displayName.toUpperCase()}
+                  </Text>
+              }
+            </TouchableOpacity>
+          ))}
         </View>
+        {isDeposit && (
+          <View style={[sc.depositHint, { marginTop: spacing.sm }]}>
+            <Ionicons name="information-circle-outline" size={12} color={colors.textFaint} />
+            <Text style={sc.rowSub}>Riders pay a deposit at booking; balance due at pickup</Text>
+          </View>
+        )}
       </View>
+
+      {/* Fee rate levers */}
+      {configs.length > 0 && (
+        <View style={sc.pricingCard}>
+          <SectionHeader title="FEE RATES" />
+          {editingFee ? (
+            <View style={{ gap: spacing.sm }}>
+              <Text style={sc.rowTitle}>{editingFee.tier.toUpperCase()} TIER</Text>
+              {[
+                { key: 'feeRate' as const, label: 'FEE RATE (0–1)', step: 0.01 },
+                { key: 'dailyCap' as const, label: 'DAILY CAP $', step: 1 },
+                { key: 'weeklyCap' as const, label: 'WEEKLY CAP $', step: 1 },
+                { key: 'peakMultiplier' as const, label: 'PEAK MULTIPLIER', step: 0.1 },
+              ].map(({ key, label }) => (
+                <View key={key} style={sc.costRow}>
+                  <Text style={sc.costLabel}>{label}</Text>
+                  <TextInput
+                    style={sc.costInput}
+                    value={String(editingFee[key])}
+                    keyboardType="numeric"
+                    onChangeText={v => setEditingFee(f => f ? { ...f, [key]: Number(v) || 0 } : f)}
+                    placeholderTextColor={colors.textFaint}
+                  />
+                </View>
+              ))}
+              {feeError && <Text style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.red }}>{feeError}</Text>}
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                <TouchableOpacity style={[sc.saveBtn, { flex: 1 }]} onPress={saveFeeConfig} disabled={savingFee}>
+                  {savingFee ? <ActivityIndicator size="small" color={colors.bg} /> : <Text style={sc.saveBtnText}>SAVE</Text>}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[sc.saveBtn, { flex: 1, backgroundColor: colors.cardAlt }]}
+                  onPress={() => { setEditingFee(null); setFeeError(null); }}
+                >
+                  <Text style={[sc.saveBtnText, { color: colors.textSecondary }]}>CANCEL</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={{ gap: spacing.sm }}>
+              {configs.map(c => (
+                <TouchableOpacity key={c.id} style={sc.feeRow} onPress={() => setEditingFee({ ...c })} activeOpacity={0.8}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={sc.rowTitle}>{c.tier.toUpperCase()}</Text>
+                    <Text style={sc.rowSub}>
+                      {(c.feeRate * 100).toFixed(0)}% · ${c.dailyCap}/day · ${c.weeklyCap}/wk
+                      {c.peakMultiplier > 1 ? ` · ${c.peakMultiplier}× peak` : ''}
+                    </Text>
+                  </View>
+                  <Ionicons name="create-outline" size={16} color={colors.textFaint} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -448,7 +616,7 @@ function GrowthSection({ days, market, token }: { days: DayFilter; market: Marke
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const params = new URLSearchParams({ days: String(days) });
+    const params = new URLSearchParams({ days: String(days === 0 ? 3650 : days) });
     if (market !== 'all') params.set('marketSlug', market);
     apiClient<typeof data>(`/admin/users?${params}&growth=1`, token)
       .then(d => setData(d))
@@ -497,12 +665,16 @@ function AISection({ days, market, token }: { days: DayFilter; market: MarketSlu
     try {
       const res = await apiClient<{ insights: AIInsights; generatedAt: string }>(
         '/admin/ai-insights', token,
-        { method: 'POST', body: JSON.stringify({ market, days }) },
+        { method: 'POST', body: JSON.stringify({ market, days: days === 0 ? 365 : days }) },
       );
       setInsights(res.insights);
       setGeneratedAt(res.generatedAt);
-    } catch {}
-    finally { setLoading(false); }
+    } catch (e: unknown) {
+      const msg = (e as { message?: string }).message ?? 'Unknown error';
+      setInsights({
+        errors: { severity: 'high', summary: `⚠ ${msg}` },
+      });
+    } finally { setLoading(false); }
   }
 
   const HEALTH_COLOR: Record<string, string> = { healthy: G, caution: colors.amber, critical: colors.red };
@@ -680,12 +852,13 @@ export function AdminSheet({ visible, onClose }: AdminSheetProps) {
 
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
-      <Pressable style={s.overlay} onPress={onClose}>
+      <View style={s.overlay}>
+        {/* Background tap-to-close — absolute behind the sheet, never intercepts sheet touches */}
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <Animated.View
           style={[s.sheet, { paddingBottom: insets.bottom + spacing.md, transform: [{ translateY }] }]}
-          onStartShouldSetResponder={() => true}
         >
-          {/* Drag handle */}
+          {/* Drag handle — only this zone claims touches for swipe-to-dismiss */}
           <View {...pan.panHandlers} style={s.handleZone}>
             <View style={s.handle} />
           </View>
@@ -703,27 +876,23 @@ export function AdminSheet({ visible, onClose }: AdminSheetProps) {
             </TouchableOpacity>
           </View>
 
-          {/* Market filter */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={s.filterRow}
-          >
-            {MARKET_OPTS.map(m => (
-              <TouchableOpacity
-                key={m}
-                style={[s.filterChip, market === m && s.filterChipActive]}
-                onPress={() => setMarket(m)}
-              >
-                <Text style={[s.filterChipText, market === m && s.filterChipTextActive]}>
-                  {m.toUpperCase()}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+          {/* Filters — single compact row */}
+          <View style={s.filtersRow}>
+            {/* Market: compact dropdown-style selector */}
+            <TouchableOpacity
+              style={s.marketBtn}
+              onPress={() => {
+                const idx = MARKET_OPTS.indexOf(market as typeof MARKET_OPTS[number]);
+                setMarket(MARKET_OPTS[(idx + 1) % MARKET_OPTS.length]);
+              }}
+            >
+              <Text style={s.marketBtnText}>{market.toUpperCase()}</Text>
+              <Ionicons name="chevron-down" size={9} color={colors.textFaint} />
+            </TouchableOpacity>
 
-          {/* Time filter */}
-          <View style={s.timeRow}>
+            <View style={s.filterDivider} />
+
+            {/* Time: tiny chips */}
             {TIME_OPTS.map(o => (
               <TouchableOpacity
                 key={o.days}
@@ -756,7 +925,7 @@ export function AdminSheet({ visible, onClose }: AdminSheetProps) {
             {renderSection()}
           </View>
         </Animated.View>
-      </Pressable>
+      </View>
     </Modal>
   );
 }
@@ -773,12 +942,12 @@ const s = StyleSheet.create({
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
     borderTopWidth: 1, borderTopColor: colors.border,
   },
-  handleZone: { alignItems: 'center', paddingVertical: spacing.md },
-  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border },
+  handleZone: { alignItems: 'center', paddingVertical: spacing.sm },
+  handle: { width: 36, height: 3, borderRadius: 2, backgroundColor: colors.border },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl, paddingBottom: spacing.md,
+    paddingHorizontal: spacing.lg, paddingBottom: spacing.xs,
   },
   adminBadge: {
     width: 28, height: 28, borderRadius: 8,
@@ -788,25 +957,26 @@ const s = StyleSheet.create({
   adminBadgeText: { fontSize: 14 },
   headerTitle: { fontFamily: fonts.monoBold, fontSize: 13, color: G, letterSpacing: 2 },
 
-  filterRow: { paddingHorizontal: spacing.xl, gap: spacing.xs, paddingBottom: spacing.sm },
-  filterChip: {
-    paddingHorizontal: spacing.md, paddingVertical: 6,
+  filtersRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: spacing.lg, paddingVertical: 5,
+    gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  marketBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingHorizontal: 8, paddingVertical: 3,
     borderRadius: radius.pill, backgroundColor: colors.card,
-    borderWidth: 1, borderColor: colors.border,
+    borderWidth: 1, borderColor: colors.greenBorder,
   },
-  filterChipActive: { backgroundColor: colors.greenDim, borderColor: colors.greenBorder },
-  filterChipText: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1 },
-  filterChipTextActive: { color: G },
+  marketBtnText: { fontFamily: fonts.monoBold, fontSize: 8, color: G, letterSpacing: 1 },
+  filterDivider: { width: 1, height: 12, backgroundColor: colors.border, marginHorizontal: 2 },
 
-  timeRow: {
-    flexDirection: 'row', paddingHorizontal: spacing.xl, gap: spacing.sm, paddingBottom: spacing.sm,
-  },
   timeChip: {
-    flex: 1, paddingVertical: 8, borderRadius: radius.cardInner,
+    paddingHorizontal: 7, paddingVertical: 3, borderRadius: radius.pill,
     alignItems: 'center', backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
   },
   timeChipActive: { borderColor: colors.greenBorder, backgroundColor: colors.greenDim },
-  timeChipText: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1 },
+  timeChipText: { fontFamily: fonts.mono, fontSize: 8, color: colors.textFaint, letterSpacing: 0.8 },
   timeChipTextActive: { color: G },
 
   tabBar: {
@@ -881,6 +1051,19 @@ const sc = StyleSheet.create({
   pricingCard: {
     backgroundColor: colors.card, borderRadius: radius.card,
     padding: spacing.lg, gap: spacing.md, borderWidth: 1, borderColor: colors.border,
+  },
+  modeBtn: {
+    flex: 1, paddingVertical: 10, borderRadius: radius.pill,
+    alignItems: 'center', backgroundColor: colors.cardAlt,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  modeBtnActive: { borderColor: colors.greenBorder, backgroundColor: colors.greenDim },
+  modeBtnText: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1 },
+  depositHint: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  feeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.cardAlt, borderRadius: radius.cardInner,
+    padding: spacing.md, borderWidth: 1, borderColor: colors.border,
   },
 
   msgBubble: {

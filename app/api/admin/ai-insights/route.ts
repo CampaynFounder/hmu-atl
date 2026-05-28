@@ -5,11 +5,10 @@
 // work can wire dynamic pricing and other levers directly to this endpoint.
 
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
 import { requireAdmin } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 
 function unauthorized() {
   return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
@@ -108,29 +107,36 @@ export async function POST(req: NextRequest) {
 
   let insights: Record<string, unknown> = {};
   try {
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      response_format: { type: 'json_object' },
-      max_tokens: 800,
-      messages: [
-        {
-          role: 'system',
-          content: `You are an operations intelligence assistant for HMU ATL, a peer-to-peer ride platform in Metro Atlanta and expanding markets. Analyze the provided operational data and return a JSON object with exactly these keys:
+    const res = await fetch(OPENAI_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        response_format: { type: 'json_object' },
+        max_tokens: 800,
+        messages: [
+          {
+            role: 'system',
+            content: `You are an operations intelligence assistant for HMU ATL, a peer-to-peer ride platform in Metro Atlanta and expanding markets. Analyze the provided operational data and return a JSON object with exactly these keys:
 - business_health: { score: 0-100, headline: string (max 12 words), summary: string (max 40 words), status: "healthy"|"caution"|"critical" }
 - pricing: { recommendation: string (max 40 words), action: "increase"|"decrease"|"hold", confidence: "high"|"medium"|"low" }
 - fulfillment: { rate_pct: number, headline: string (max 12 words), suggestion: string (max 40 words) }
 - growth: { trend: "up"|"flat"|"down", headline: string (max 12 words), action: string (max 40 words) }
 - errors: { severity: "none"|"low"|"medium"|"high", summary: string (max 30 words) }
 Be specific, data-driven, and actionable. Reference the actual numbers in your response.`,
-        },
-        {
-          role: 'user',
-          content: `Operational data for the last ${days} day(s):\n${JSON.stringify(context, null, 2)}`,
-        },
-      ],
+          },
+          {
+            role: 'user',
+            content: `Operational data for the last ${days} day(s):\n${JSON.stringify(context, null, 2)}`,
+          },
+        ],
+      }),
     });
-
-    const raw = completion.choices[0]?.message?.content ?? '{}';
+    const json = await res.json() as { choices?: { message?: { content?: string } }[] };
+    const raw = json.choices?.[0]?.message?.content ?? '{}';
     insights = JSON.parse(raw);
   } catch (e) {
     console.error('[ai-insights] OpenAI error:', e);
