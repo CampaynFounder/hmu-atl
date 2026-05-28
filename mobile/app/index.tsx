@@ -1,4 +1,4 @@
-// Auth gate: fetch /api/users/me to read profileType, then route to correct tab root.
+// Auth gate: fetch /api/users/me to read profileType + isSuperAdmin, then route.
 // Also runs a geo-based market check after auth — inactive markets show the coming-soon screen.
 import { useEffect, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
@@ -6,10 +6,12 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
 import * as Location from 'expo-location';
 import { apiClient } from '@/lib/api';
+import { useUserContext } from '@/contexts/UserContext';
 
 export default function Index() {
   const { getToken, isSignedIn } = useAuth();
   const router = useRouter();
+  const { setUser } = useUserContext();
   const [resolving, setResolving] = useState(true);
 
   useEffect(() => {
@@ -18,13 +20,19 @@ export default function Index() {
     async function resolve() {
       try {
         const token = await getToken();
-        const me = await apiClient<{ profileType: string; accountStatus: string }>(
-          '/users/me', token,
-        );
+        const me = await apiClient<{
+          profileType: string;
+          accountStatus: string;
+          isSuperAdmin?: boolean;
+        }>('/users/me', token);
+
         if (me.accountStatus === 'pending') {
           router.replace('/(auth)/pending');
           return;
         }
+
+        // Populate global user context so profile screens can access isSuperAdmin
+        setUser({ profileType: me.profileType, isSuperAdmin: !!me.isSuperAdmin });
 
         // Geo-based market check — skipped in dev builds to avoid simulator location issues.
         // In production, fails open on denied permission or API error.

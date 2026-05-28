@@ -12,6 +12,7 @@ import { DMSans_400Regular, DMSans_500Medium, DMSans_600SemiBold } from '@expo-g
 import { SpaceMono_400Regular, SpaceMono_700Bold } from '@expo-google-fonts/space-mono';
 import { NotificationProvider } from '@/contexts/notifications';
 import { NotificationBanner } from '@/components/NotificationBanner';
+import { UserProvider } from '@/contexts/UserContext';
 
 const tokenCache = {
   async getToken(key: string) { return SecureStore.getItemAsync(key); },
@@ -61,8 +62,10 @@ export default function RootLayout() {
 
   return (
     <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
-      <StatusBar style="light" />
-      <AuthGate />
+      <UserProvider>
+        <StatusBar style="light" />
+        <AuthGate />
+      </UserProvider>
     </ClerkProvider>
   );
 }

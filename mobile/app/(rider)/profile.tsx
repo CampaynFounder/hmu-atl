@@ -13,6 +13,8 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+import { useUserContext } from '@/contexts/UserContext';
+import { AdminSheet } from '@/components/AdminSheet';
 
 interface RiderProfile {
   handle: string | null;
@@ -32,6 +34,8 @@ export default function RiderProfileScreen() {
   const { getToken, signOut } = useAuth();
   const { user: clerkUser } = useUser();
   const router = useRouter();
+  const { isSuperAdmin } = useUserContext();
+  const [adminVisible, setAdminVisible] = useState(false);
   const [profile, setProfile] = useState<RiderProfile | null>(null);
   const [rides, setRides] = useState<RideSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,7 +92,12 @@ export default function RiderProfileScreen() {
       >
         <Text style={s.pageTitle}>PROFILE</Text>
 
-        {/* Identity card */}
+        {/* Identity card — long press opens super admin sheet */}
+        <TouchableOpacity
+          activeOpacity={1}
+          onLongPress={() => isSuperAdmin && setAdminVisible(true)}
+          delayLongPress={600}
+        >
         <View style={[s.card, shadow.card]}>
           <View style={s.avatarWrap}>
             {avatarUri ? (
@@ -110,7 +119,14 @@ export default function RiderProfileScreen() {
           <View style={s.tierBadge}>
             <Text style={s.tierText}>RIDER</Text>
           </View>
+          {isSuperAdmin && (
+            <View style={s.superBadge}>
+              <Text style={s.superBadgeText}>⚡ SUPER ADMIN</Text>
+            </View>
+          )}
         </View>
+        </TouchableOpacity>
+        <AdminSheet visible={adminVisible} onClose={() => setAdminVisible(false)} />
 
         {/* Stats */}
         <View style={s.statsRow}>
@@ -225,6 +241,11 @@ const s = StyleSheet.create({
     backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border,
   },
   tierText: { fontFamily: fonts.mono, fontSize: 10, color: colors.textTertiary, letterSpacing: 1 },
+  superBadge: {
+    marginTop: spacing.sm, backgroundColor: colors.greenDim, borderRadius: radius.pill,
+    paddingHorizontal: 12, paddingVertical: 4, borderWidth: 1, borderColor: colors.greenBorder,
+  },
+  superBadgeText: { fontFamily: fonts.mono, fontSize: 9, color: colors.green, letterSpacing: 1 },
 
   statsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
   statBox: {
