@@ -26,30 +26,33 @@ export default function Index() {
           return;
         }
 
-        // Geo-based market check — fail open on denied permission or API error
-        try {
-          const { status } = await Location.requestForegroundPermissionsAsync();
-          if (status === 'granted') {
-            const loc = await Promise.race([
-              Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low }),
-              new Promise<null>((res) => setTimeout(() => res(null), 4000)),
-            ]);
-            if (loc) {
-              const market = await apiClient<{ isActive: boolean; displayName: string; marketSlug: string | null }>(
-                `/markets/active-check?lat=${loc.coords.latitude}&lng=${loc.coords.longitude}`,
-                token,
-              );
-              if (market.isActive === false) {
-                router.replace({
-                  pathname: '/not-in-market',
-                  params: { area: market.displayName ?? 'Your area', slug: market.marketSlug ?? '' },
-                } as never);
-                return;
+        // Geo-based market check — skipped in dev builds to avoid simulator location issues.
+        // In production, fails open on denied permission or API error.
+        if (!__DEV__) {
+          try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status === 'granted') {
+              const loc = await Promise.race([
+                Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low }),
+                new Promise<null>((res) => setTimeout(() => res(null), 4000)),
+              ]);
+              if (loc) {
+                const market = await apiClient<{ isActive: boolean; displayName: string; marketSlug: string | null }>(
+                  `/markets/active-check?lat=${loc.coords.latitude}&lng=${loc.coords.longitude}`,
+                  token,
+                );
+                if (market.isActive === false) {
+                  router.replace({
+                    pathname: '/not-in-market',
+                    params: { area: market.displayName ?? 'Your area', slug: market.marketSlug ?? '' },
+                  } as never);
+                  return;
+                }
               }
             }
+          } catch {
+            // Proceed normally if location or market check fails
           }
-        } catch {
-          // Proceed normally if location or market check fails
         }
 
         if (me.profileType === 'driver') {

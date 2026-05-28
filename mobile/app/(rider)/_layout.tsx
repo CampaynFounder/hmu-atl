@@ -42,6 +42,13 @@ export default function RiderLayout() {
         }}
       />
       <Tabs.Screen
+        name="browse"
+        options={{
+          title: 'BROWSE',
+          tabBarIcon: tabIcon('people', 'people-outline'),
+        }}
+      />
+      <Tabs.Screen
         name="rides"
         options={{
           title: 'RIDES',
@@ -69,6 +76,34 @@ export default function RiderLayout() {
       />
       <Tabs.Screen
         name="support"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="payment-setup"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="book/direct"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="book/blast"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="book/down-bad"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="book/blast-board"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="book/waiting"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="book/[type]"
         options={{ href: null, headerShown: false }}
       />
     </Tabs>

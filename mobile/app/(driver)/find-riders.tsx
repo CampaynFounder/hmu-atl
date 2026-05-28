@@ -315,7 +315,7 @@ function RiderCard({
 
       {/* CTA */}
       <View style={c.cta}>
-        <Pressable onPress={onHmu} onPressIn={pressIn} onPressOut={pressOut} disabled={sent || sending}>
+        <Pressable onPress={onHmu} onPressIn={pressIn} onPressOut={pressOut} disabled={sent || sending} style={c.hmuBtnWrap}>
           <Animated.View style={[
             c.hmuBtn,
             sent && c.hmuBtnSent,
@@ -334,7 +334,7 @@ function RiderCard({
             ) : (
               <>
                 <Text style={c.hmuBtnText}>HMU</Text>
-                <Ionicons name="paper-plane" size={14} color={colors.bg} style={{ marginLeft: 6 }} />
+                <Ionicons name="paper-plane" size={14} color={colors.bg} />
               </>
             )}
           </Animated.View>
@@ -435,15 +435,16 @@ const c = StyleSheet.create({
   areasText: { fontFamily: fonts.body, fontSize: 13, color: colors.textFaint, flex: 1, textAlign: 'center' },
 
   cta: { width: '100%', alignItems: 'center', gap: spacing.sm },
+  hmuBtnWrap: { width: '80%' },
   hmuBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     backgroundColor: colors.green, borderRadius: radius.pill,
-    paddingVertical: 16, width: '80%',
+    paddingVertical: 16, width: '100%', gap: 6,
     ...shadow.glow,
   },
   hmuBtnSent: { backgroundColor: colors.textFaint, shadowOpacity: 0 },
   hmuBtnError: { backgroundColor: colors.red, shadowColor: colors.red },
-  hmuBtnText: { fontFamily: fonts.mono, fontSize: 14, color: colors.bg, textAlign: 'center' },
+  hmuBtnText: { fontFamily: fonts.mono, fontSize: 14, color: colors.bg },
   swipeHintRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: spacing.sm, opacity: 0.6 },
   swipeHint: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 1 },
 });
