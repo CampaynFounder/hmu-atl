@@ -13,16 +13,21 @@ export async function GET(_req: NextRequest) {
   if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const rows = await sql`
-    SELECT rp.gender, rp.handle
+    SELECT rp.gender, rp.handle, rp.avatar_url, rp.display_name
     FROM rider_profiles rp
     JOIN users u ON u.id = rp.user_id
     WHERE u.clerk_id = ${clerkId}
     LIMIT 1
   `;
 
-  if (!rows.length) return NextResponse.json({ gender: null, handle: null });
-  const row = rows[0] as { gender: string | null; handle: string | null };
-  return NextResponse.json({ gender: row.gender ?? null, handle: row.handle ?? null });
+  if (!rows.length) return NextResponse.json({ gender: null, handle: null, avatarUrl: null, displayName: null });
+  const row = rows[0] as { gender: string | null; handle: string | null; avatar_url: string | null; display_name: string | null };
+  return NextResponse.json({
+    gender: row.gender ?? null,
+    handle: row.handle ?? null,
+    avatarUrl: row.avatar_url ?? null,
+    displayName: row.display_name ?? null,
+  });
 }
 
 const SLUG_RE = /^[a-z0-9_]{1,32}$/;

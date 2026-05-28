@@ -130,13 +130,39 @@ export async function POST(req: Request) {
       const data = evt.data as UserPayload;
       const { id, email_addresses, first_name, last_name, public_metadata, unsafe_metadata } = data;
 
-      // Keep existing metadata-driven status sync for already-created users.
+      // Extract early — needed by both new-user and existing-user (stub-heal) paths.
+      const verifiedPhone = getVerifiedPhone(data as any);
+      const isOAuthUser = hasVerifiedOAuth(data as any);
+      const meta = (unsafe_metadata || {}) as Record<string, unknown>;
+      // Fall back to DEFAULT_MARKET_SLUG so every signup always gets a market,
+      // even when unsafeMetadata.market is missing (OAuth bypass, edge cases).
+      const marketSlug = (meta.market as string) || DEFAULT_MARKET_SLUG;
+
+      let marketId: string | null = null;
+      try {
+        const market = await resolveMarketBySlug(marketSlug)
+          ?? (marketSlug !== DEFAULT_MARKET_SLUG ? await resolveMarketBySlug(DEFAULT_MARKET_SLUG) : null);
+        marketId = market?.market_id ?? null;
+      } catch (e) {
+        console.warn('[WEBHOOK] Failed to resolve market slug:', marketSlug, e);
+      }
+
+      // Row already exists: sync account_status and heal any null market_id/phone
+      // left by a /api/users/me stub that was created before this webhook arrived.
       const existing = await getUserByClerkId(id);
       if (existing) {
         const accountStatus = public_metadata?.account_status as string | undefined;
         if (accountStatus && ['pending_activation', 'active', 'suspended', 'banned'].includes(accountStatus)) {
           await updateUser(id, { account_status: accountStatus as any });
         }
+        await sql`
+          UPDATE users
+          SET market_id  = COALESCE(market_id, ${marketId}),
+              phone      = COALESCE(phone, ${verifiedPhone}),
+              updated_at = NOW()
+          WHERE clerk_id = ${id}
+            AND (market_id IS NULL OR phone IS NULL)
+        `;
         return new Response('User updated', { status: 200 });
       }
 
@@ -144,15 +170,12 @@ export async function POST(req: Request) {
       // authenticated via OAuth (Google/Apple). OAuth users have no SMS phone but
       // are identity-verified through the provider. Without this, user.updated
       // defers them indefinitely, producing ghost Clerk accounts with no Neon row.
-      const verifiedPhone = getVerifiedPhone(data as any);
-      const isOAuthUser = hasVerifiedOAuth(data as any);
       if (!verifiedPhone && !isOAuthUser) {
         console.log('[WEBHOOK] user.updated - no verified identity, still deferring:', { clerkId: id });
         return new Response('Deferred until verified', { status: 200 });
       }
 
-      // Read attribution from unsafeMetadata (set by sign-up page).
-      const meta = (unsafe_metadata || {}) as Record<string, unknown>;
+      // Read remaining attribution from unsafeMetadata (already extracted as meta above).
       const intentRaw = (meta.intent as string) || (public_metadata?.profile_type as string) || 'rider';
       const isAdminSignup = intentRaw === 'admin';
       const profileType = (isAdminSignup ? 'admin' : ['rider', 'driver'].includes(intentRaw) ? intentRaw : 'rider') as ProfileType;
@@ -163,9 +186,6 @@ export async function POST(req: Request) {
       const refHandle = (meta.ref_handle as string) || null;
       const personaSlug = (meta.persona as string) || null;
       const funnelStageAtSignup = (meta.funnel_stage as string) || null;
-      // Fall back to DEFAULT_MARKET_SLUG so every signup always gets a market,
-      // even when unsafeMetadata.market is missing (OAuth bypass, edge cases).
-      const marketSlug = (meta.market as string) || DEFAULT_MARKET_SLUG;
 
       // Resolve referring driver from handle, if provided.
       let referredByDriverId: string | null = null;
@@ -174,15 +194,6 @@ export async function POST(req: Request) {
         if (!referredByDriverId) {
           console.warn('[WEBHOOK] ref_handle did not resolve to a driver:', refHandle);
         }
-      }
-
-      let marketId: string | null = null;
-      try {
-        const market = await resolveMarketBySlug(marketSlug)
-          ?? (marketSlug !== DEFAULT_MARKET_SLUG ? await resolveMarketBySlug(DEFAULT_MARKET_SLUG) : null);
-        marketId = market?.market_id ?? null;
-      } catch (e) {
-        console.warn('[WEBHOOK] Failed to resolve market slug:', marketSlug, e);
       }
 
       const { user: newUser, created } = await createUser({
