@@ -103,6 +103,10 @@ export default function RiderLayout() {
         options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
+        name="book/blast-deck"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
         name="book/waiting"
         options={{ href: null, headerShown: false }}
       />

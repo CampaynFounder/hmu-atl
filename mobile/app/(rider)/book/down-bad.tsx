@@ -10,7 +10,7 @@ import {
   ActivityIndicator, TextInput, Image, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -50,6 +50,7 @@ export default function DownBadBooking() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { getToken } = useAuth();
+  const { prefillHandle } = useLocalSearchParams<{ prefillHandle?: string }>();
 
   const [step, setStep] = useState(0);
   const TOTAL = 3;
@@ -211,6 +212,7 @@ export default function DownBadBooking() {
             sum_extra_media_url: mediaUrl,
             sum_extra_media_type: mediaType,
             scheduled_for: null,
+            target_driver_handle: prefillHandle ?? null,
           }),
         },
       );
@@ -257,6 +259,12 @@ export default function DownBadBooking() {
       >
         {step === 0 && (
           <Animated.View key="s0" entering={FadeInUp.duration(300)} style={s.stepWrap}>
+            {prefillHandle && (
+              <View style={s.targetBadge}>
+                <Ionicons name="flash" size={13} color={colors.amber} />
+                <Text style={s.targetBadgeText}>Targeting @{prefillHandle}</Text>
+              </View>
+            )}
             <Text style={s.stepTitle}>WHERE TO?</Text>
             <Text style={s.stepDesc}>Set your pickup and destination. First driver to accept wins.</Text>
             <View style={[s.card, shadow.card]}>
@@ -593,6 +601,13 @@ const s = StyleSheet.create({
   },
   nextBtnDisabled: { opacity: 0.4 },
   nextBtnText: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.bg, letterSpacing: 1.5 },
+  targetBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
+    backgroundColor: colors.amberDim, borderRadius: radius.pill,
+    paddingHorizontal: spacing.md, paddingVertical: 6,
+    borderWidth: 1, borderColor: colors.amberBorder, alignSelf: 'flex-start',
+  },
+  targetBadgeText: { fontFamily: fonts.mono, fontSize: 11, color: colors.amber, letterSpacing: 0.5 },
 });
 
 const ps = StyleSheet.create({
