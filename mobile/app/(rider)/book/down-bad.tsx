@@ -33,9 +33,16 @@ interface DownBadConfig {
   cashCeiling: number;
   sumExtraMaxChars: number;
   enabled: boolean;
+  disclaimerText: string;
 }
 
-const DEFAULT_CONFIG: DownBadConfig = { cashFloor: 5, cashCeiling: 100, sumExtraMaxChars: 60, enabled: true };
+const DEFAULT_CONFIG: DownBadConfig = {
+  cashFloor: 5,
+  cashCeiling: 30,
+  sumExtraMaxChars: 120,
+  enabled: true,
+  disclaimerText: 'Down Bad posts involve an exchange of goods or services alongside cash. HMU does not verify or guarantee any offer. Both parties agree to this exchange voluntarily.',
+};
 
 type Luggage = 'none' | 'bag' | 'trunk';
 
@@ -64,6 +71,7 @@ export default function DownBadBooking() {
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<'photo' | 'video'>('photo');
   const [uploading, setUploading] = useState(false);
+  const [disclaimerAcked, setDisclaimerAcked] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,14 +80,16 @@ export default function DownBadBooking() {
     async function loadConfig() {
       try {
         const t = await getToken();
-        const cfg = await apiClient<{ cashFloorCents?: number; cashCeilingCents?: number; sumExtraMaxChars?: number; enabled?: boolean }>(
-          '/rider/down-bad-config', t,
-        );
+        const cfg = await apiClient<{
+          cashFloorCents?: number; cashCeilingCents?: number;
+          sumExtraMaxChars?: number; enabled?: boolean; disclaimerText?: string;
+        }>('/rider/down-bad-config', t);
         setConfig({
           cashFloor: Math.round((cfg.cashFloorCents ?? 500) / 100),
-          cashCeiling: Math.round((cfg.cashCeilingCents ?? 10000) / 100),
-          sumExtraMaxChars: cfg.sumExtraMaxChars ?? 60,
+          cashCeiling: Math.round((cfg.cashCeilingCents ?? 3000) / 100),
+          sumExtraMaxChars: cfg.sumExtraMaxChars ?? 120,
           enabled: cfg.enabled ?? true,
+          disclaimerText: cfg.disclaimerText ?? DEFAULT_CONFIG.disclaimerText,
         });
       } catch {}
     }
@@ -152,7 +162,7 @@ export default function DownBadBooking() {
   function validateStep(): boolean {
     if (step === 0) return !!pickup && !!dropoff;
     if (step === 1) return amount >= config.cashFloor && amount <= config.cashCeiling;
-    return sumText.trim().length > 0 && !!mediaUrl && !uploading && !hasContactInfo;
+    return sumText.trim().length > 0 && !!mediaUrl && !uploading && !hasContactInfo && disclaimerAcked;
   }
 
   async function advance() {
@@ -221,7 +231,7 @@ export default function DownBadBooking() {
     }
   }
 
-  const btnLabel = step < TOTAL - 1 ? 'NEXT →' : submitting ? '' : "I'M GOOD FOR IT →";
+  const btnLabel = step < TOTAL - 1 ? 'NEXT →' : submitting ? '' : 'POST MY DOWN BAD →';
 
   return (
     <KeyboardAvoidingView
@@ -260,9 +270,9 @@ export default function DownBadBooking() {
 
         {step === 1 && (
           <Animated.View key="s1" entering={FadeInUp.duration(300)} style={s.stepWrap}>
-            <Text style={s.stepTitle}>CASH OFFER</Text>
+            <Text style={s.stepTitle}>HOW MUCH YOU GOT?</Text>
             <Text style={s.stepDesc}>
-              Your cash bonus on top of the normal fare. More on the table = faster pull-up. Min ${config.cashFloor}, max ${config.cashCeiling}.
+              This is your total cash for the whole trip — drivers know it might be less than going rate. That's what Down Bad is for. Min ${config.cashFloor}, max ${config.cashCeiling}.
             </Text>
             <View style={[s.card, shadow.card]}>
               <Text style={s.cardLabel}>BONUS CASH</Text>
@@ -323,16 +333,16 @@ export default function DownBadBooking() {
 
         {step === 2 && (
           <Animated.View key="s2" entering={FadeInUp.duration(300)} style={s.stepWrap}>
-            <Text style={s.stepTitle}>WHAT'S UP?</Text>
+            <Text style={s.stepTitle}>WHAT ELSE YOU GOT?</Text>
             <Text style={s.stepDesc}>
-              Tell drivers what's going on. No contact info — keep it on the platform. Photo required.
+              What are you offering alongside the cash? A skill, something from work, a service — be specific. No contact info.
             </Text>
 
             <View style={[s.card, shadow.card, hasContactInfo && { borderColor: colors.redBorder }]}>
-              <Text style={s.cardLabel}>WHAT'S THE SITUATION</Text>
+              <Text style={s.cardLabel}>YOUR OFFER</Text>
               <TextInput
                 style={s.sumTextInput}
-                placeholder="e.g. stuck downtown with bags, need to get to Buckhead asap"
+                placeholder="e.g. I do hair, $20 + a cut when you get me to Buckhead"
                 placeholderTextColor={colors.textFaint}
                 value={sumText}
                 onChangeText={t => { if ([...t].length <= maxChars) setSumText(t); }}
@@ -354,13 +364,13 @@ export default function DownBadBooking() {
               <Animated.View entering={FadeIn.duration(250)} style={s.contactBlock}>
                 <Ionicons name="shield-outline" size={14} color={colors.red} />
                 <Text style={s.contactBlockText}>
-                  Looks like contact info. Remove any phone numbers — exchange happens through HMU after match.
+                  Looks like contact info. Remove any phone numbers — all communication happens through HMU after match.
                 </Text>
               </Animated.View>
             )}
 
             <View style={[s.card, shadow.card]}>
-              <Text style={s.cardLabel}>PHOTO (REQUIRED)</Text>
+              <Text style={s.cardLabel}>PHOTO OF YOUR OFFER (REQUIRED)</Text>
               {mediaUri ? (
                 <Animated.View entering={FadeIn.duration(300)} style={s.photoPreview}>
                   <Image source={{ uri: mediaUri }} style={s.photoImage} resizeMode="cover" />
@@ -382,11 +392,25 @@ export default function DownBadBooking() {
               ) : (
                 <TouchableOpacity style={s.photoPickBtn} onPress={pickPhoto} activeOpacity={0.8}>
                   <Ionicons name="camera-outline" size={28} color={colors.textFaint} />
-                  <Text style={s.photoPickLabel}>TAP TO ADD PHOTO</Text>
-                  <Text style={s.photoPickSub}>Drivers see this when reviewing your post</Text>
+                  <Text style={s.photoPickLabel}>PHOTO/VIDEO OF WHAT YOU'RE OFFERING</Text>
+                  <Text style={s.photoPickSub}>Show drivers exactly what you're bringing to the table</Text>
                 </TouchableOpacity>
               )}
             </View>
+
+            {/* Admin-configured disclaimer — must be acknowledged before submit */}
+            {config.disclaimerText ? (
+              <TouchableOpacity
+                style={[s.disclaimer, disclaimerAcked && s.disclaimerAcked]}
+                onPress={() => { setDisclaimerAcked(v => !v); void Haptics.selectionAsync(); }}
+                activeOpacity={0.8}
+              >
+                <View style={[s.disclaimerCheck, disclaimerAcked && s.disclaimerCheckActive]}>
+                  {disclaimerAcked && <Ionicons name="checkmark" size={12} color={colors.bg} />}
+                </View>
+                <Text style={s.disclaimerText}>{config.disclaimerText}</Text>
+              </TouchableOpacity>
+            ) : null}
 
             {error && (
               <View style={s.errorBox}>
@@ -510,6 +534,20 @@ const s = StyleSheet.create({
   },
   charCount: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint },
   contactWarn: { fontFamily: fonts.mono, fontSize: 10, color: colors.red, letterSpacing: 0.5 },
+  disclaimer: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md,
+    backgroundColor: colors.cardAlt, borderRadius: radius.cardInner,
+    padding: spacing.md, borderWidth: 1, borderColor: colors.border,
+  },
+  disclaimerAcked: { borderColor: colors.greenBorder, backgroundColor: colors.greenDim },
+  disclaimerCheck: {
+    width: 22, height: 22, borderRadius: 5, borderWidth: 1.5,
+    borderColor: colors.border, alignItems: 'center', justifyContent: 'center',
+    marginTop: 1, flexShrink: 0,
+  },
+  disclaimerCheckActive: { backgroundColor: colors.green, borderColor: colors.green },
+  disclaimerText: { flex: 1, fontFamily: fonts.body, fontSize: 12, color: colors.textTertiary, lineHeight: 18 },
+
   contactBlock: {
     flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm,
     backgroundColor: colors.redDim, borderRadius: radius.cardInner,
