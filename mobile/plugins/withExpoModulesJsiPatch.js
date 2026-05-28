@@ -2,39 +2,52 @@ const { withDangerousMod } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
-// expo-modules-jsi 56.x ships Package.swift with swift-tools-version: 6.2,
-// which requires Xcode 26 (Swift 6.2). Xcode 16.4 ships Swift 6.1.2 and
-// refuses to parse the manifest, surfacing as "Could not resolve package
-// dependencies" during build-xcframework.sh's inner xcodebuild call.
-//
-// The package's Swift sources only use Swift 6.0 features (sending, typed
-// throws, nonisolated), so downgrading the manifest to 6.0 is safe.
+// expo-modules-jsi 56.x (Xcode 26.2): hermes/hermes.h transitively requires
+// folly/coro/Coroutine.h during build-xcframework.sh's inner xcodebuild.
+// RCT-Folly.podspec doesn't copy coro headers into Pods/RCT-Folly/, so the
+// include fails even with buildReactNativeFromSource: true.
+// Fix: create a stub that satisfies the preprocessor (FOLLY_CFG_NO_COROUTINES=1
+// means no coroutine types are actually used), then prepend its directory to
+// Package.swift's headerSearchPaths using the already-defined packageDir var.
 module.exports = function withExpoModulesJsiPatch(config) {
   return withDangerousMod(config, ['ios', async (config) => {
-    const packageSwiftPath = path.join(
+    const appleDir = path.join(
       config.modRequest.projectRoot,
-      'node_modules',
-      'expo-modules-jsi',
-      'apple',
-      'Package.swift'
+      'node_modules', 'expo-modules-jsi', 'apple'
     );
+    const packageSwiftPath = path.join(appleDir, 'Package.swift');
 
-    if (!fs.existsSync(packageSwiftPath)) {
-      return config;
+    if (!fs.existsSync(packageSwiftPath)) return config;
+
+    // Create folly/coro/Coroutine.h stub
+    const stubDir = path.join(appleDir, 'folly-stubs', 'folly', 'coro');
+    if (!fs.existsSync(stubDir)) {
+      fs.mkdirSync(stubDir, { recursive: true });
     }
+    fs.writeFileSync(path.join(stubDir, 'Coroutine.h'), [
+      '#pragma once',
+      '// Stub: folly/coro/Coroutine.h',
+      '// RN sets FOLLY_CFG_NO_COROUTINES=1 so no coroutine types are needed.',
+      '// This file exists solely to satisfy the preprocessor include resolution.',
+      '#if !defined(FOLLY_CFG_NO_COROUTINES) || !FOLLY_CFG_NO_COROUTINES',
+      '#  if __has_include(<coroutine>)',
+      '#    include <coroutine>',
+      '#  endif',
+      '#endif',
+    ].join('\n') + '\n');
 
+    // Prepend stub dir to Package.swift headerSearchPaths (packageDir is already
+    // defined in Package.swift as URL(fileURLWithPath: #filePath).deletingLastPathComponent().path)
     let contents = fs.readFileSync(packageSwiftPath, 'utf8');
-
-    if (!contents.includes('swift-tools-version: 6.2')) {
-      return config;
+    const marker = 'let headerSearchPaths = [\n  publicHeaders,';
+    if (!contents.includes('"\\(packageDir)/folly-stubs"') && contents.includes(marker)) {
+      contents = contents.replace(
+        marker,
+        'let headerSearchPaths = [\n  "\\(packageDir)/folly-stubs",\n  publicHeaders,'
+      );
+      fs.writeFileSync(packageSwiftPath, contents);
     }
 
-    contents = contents.replace(
-      '// swift-tools-version: 6.2',
-      '// swift-tools-version: 6.0'
-    );
-
-    fs.writeFileSync(packageSwiftPath, contents);
     return config;
   }]);
 };
