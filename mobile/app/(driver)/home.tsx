@@ -232,6 +232,17 @@ export default function DriverHome() {
         </DepthButton>
       </View>
 
+      {/* Deposit protection banner — tap to see full breakdown */}
+      <TouchableOpacity
+        style={s.depositBanner}
+        onPress={() => router.push('/(driver)/payment-preview' as never)}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="shield-checkmark" size={14} color="#E53935" />
+        <Text style={s.depositBannerText}>DEPOSIT PROTECTED — riders pay before you pull up</Text>
+        <Ionicons name="chevron-forward" size={12} color="#E53935" />
+      </TouchableOpacity>
+
       {/* Active ride banner */}
       {activeRideId && (
         <TouchableOpacity
@@ -726,6 +737,17 @@ const s = StyleSheet.create({
   content: { paddingHorizontal: spacing.xl, paddingBottom: 48 },
   loader: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
 
+  depositBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: 'rgba(229,57,53,0.08)', borderRadius: radius.cardInner,
+    paddingHorizontal: spacing.md, paddingVertical: 8,
+    borderWidth: 1, borderColor: 'rgba(229,57,53,0.25)',
+    marginBottom: spacing.lg,
+  },
+  depositBannerText: {
+    flex: 1, fontFamily: fonts.mono, fontSize: 10,
+    color: '#E53935', letterSpacing: 0.8,
+  },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xl },
   greeting: { fontFamily: fonts.display, fontSize: 36, color: colors.textPrimary, lineHeight: 38 },
   requestsBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.green, borderRadius: radius.pill, paddingHorizontal: spacing.lg, paddingVertical: 10 },
