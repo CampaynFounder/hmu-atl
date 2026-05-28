@@ -8,7 +8,7 @@
       "distribution": "internal",
       "ios": {
         "simulator": false,
-        "image": "macos-sequoia-15.6-xcode-16.4"
+        "image": "macos-sequoia-15.6-xcode-26.2"
       }
     },
     "simulator": {
@@ -16,7 +16,7 @@
       "distribution": "internal",
       "ios": {
         "simulator": true,
-        "image": "macos-sequoia-15.6-xcode-16.4"
+        "image": "macos-sequoia-15.6-xcode-26.2"
       }
     },
     "preview": {
