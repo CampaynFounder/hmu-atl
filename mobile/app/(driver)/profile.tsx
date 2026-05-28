@@ -140,6 +140,11 @@ export default function DriverProfileScreen() {
           badge={!payoutDone ? '!' : undefined}
           onPress={() => router.push('/(driver)/payout-setup' as any)}
         />
+        <NavRow
+          icon="cash-outline"
+          label="How Do I Get Paid?"
+          onPress={() => router.push('/(driver)/payment-preview' as never)}
+        />
         <NavRow icon="help-circle-outline" label="Support" onPress={() => router.push('/(driver)/support' as any)} last />
       </View>
 

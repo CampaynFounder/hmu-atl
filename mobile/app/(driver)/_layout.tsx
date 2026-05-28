@@ -135,6 +135,10 @@ export default function DriverLayout() {
         options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
+        name="payment-preview"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'PROFILE',

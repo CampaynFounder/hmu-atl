@@ -8,7 +8,48 @@ export async function GET(req: NextRequest) {
   if (!admin) return unauthorizedResponse();
 
   const { searchParams } = req.nextUrl;
-  const period = searchParams.get('period') ?? 'daily'; // daily | weekly | monthly
+  const period   = searchParams.get('period') ?? 'daily';
+  const rawDays  = parseInt(searchParams.get('days') ?? '7', 10);
+  const days     = Number.isFinite(rawDays) && rawDays > 0 ? Math.min(rawDays, 3650) : 7;
+  const marketId = searchParams.get('marketId') || null;
+  const since    = new Date(Date.now() - days * 86_400_000).toISOString();
+
+  // Market-scoped summary: new signups in period + all-time totals
+  const [newRows, allRows] = await Promise.all([
+    sql`
+      SELECT
+        COUNT(*) FILTER (WHERE profile_type = 'rider')::int  AS new_riders,
+        COUNT(*) FILTER (WHERE profile_type = 'driver')::int AS new_drivers
+      FROM users
+      WHERE created_at > ${since}
+        AND account_status <> 'banned'
+        AND (${marketId}::uuid IS NULL OR market_id = ${marketId}::uuid)
+    `,
+    sql`
+      SELECT
+        COUNT(*) FILTER (WHERE profile_type = 'rider')::int  AS total_riders,
+        COUNT(*) FILTER (WHERE profile_type = 'driver')::int AS total_drivers,
+        COUNT(*) FILTER (WHERE profile_type = 'driver' AND id IN (
+          SELECT user_id FROM driver_profiles WHERE profile_visible = true AND payout_setup_complete = true
+        ))::int AS active_drivers
+      FROM users
+      WHERE account_status <> 'banned'
+        AND (${marketId}::uuid IS NULL OR market_id = ${marketId}::uuid)
+    `,
+  ]);
+
+  const n = newRows[0]  as { new_riders: number; new_drivers: number };
+  const t = allRows[0]  as { total_riders: number; total_drivers: number; active_drivers: number };
+
+  // Return summary first so AdminSheet can use it without reading the full chart data
+  const summary = {
+    period_days:   days,
+    newRiders:     n.new_riders    ?? 0,
+    newDrivers:    n.new_drivers   ?? 0,
+    totalRiders:   t.total_riders  ?? 0,
+    totalDrivers:  t.total_drivers ?? 0,
+    activeDrivers: t.active_drivers ?? 0,
+  };
 
   try {
     let rows;
@@ -63,6 +104,7 @@ export async function GET(req: NextRequest) {
     `;
 
     return NextResponse.json({
+      ...summary,
       growth: rows.map((r: Record<string, unknown>) => ({
         bucket: r.bucket,
         riders: Number(r.riders ?? 0),
@@ -82,6 +124,6 @@ export async function GET(req: NextRequest) {
     });
   } catch (error) {
     console.error('User growth error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ ...summary, error: 'Chart data unavailable' });
   }
 }

@@ -28,11 +28,18 @@ export default function SignIn() {
       await signIn!.prepareFirstFactor({ strategy: 'phone_code', phoneNumberId: phoneFactor.phoneNumberId });
       setStep('code');
     } catch (e: any) {
+      const clerkCode: string = e.errors?.[0]?.code ?? '';
       const msg: string = e.errors?.[0]?.message ?? 'Could not send code';
-      setError(msg);
-      // Rate-limited but may have already received a code — let them try entering it
-      if (msg.toLowerCase().includes('too many') || msg.toLowerCase().includes('rate')) {
+      const isRateLimit = clerkCode === 'too_many_requests' ||
+        msg.toLowerCase().includes('too many') ||
+        msg.toLowerCase().includes('rate limit');
+
+      if (isRateLimit) {
+        // Code was already sent — advance to OTP without showing a red error
+        setError(null);
         setStep('code');
+      } else {
+        setError(msg);
       }
     } finally {
       setLoading(false);
@@ -73,7 +80,7 @@ export default function SignIn() {
               placeholderTextColor={colors.textFaint}
               keyboardType="phone-pad"
               value={phone}
-              onChangeText={setPhone}
+              onChangeText={v => { setPhone(v); setError(null); }}
               autoComplete="tel"
             />
             <TouchableOpacity

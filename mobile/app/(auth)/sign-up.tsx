@@ -35,7 +35,7 @@ export default function SignUp() {
         msg.toLowerCase().includes('already');
       if (isRateLimit) {
         setError(null);
-        setStep('code');
+        setStep('code'); // code was already sent
       } else if (alreadyExists) {
         setError('This number already has an account — tap Sign in below.');
       } else {

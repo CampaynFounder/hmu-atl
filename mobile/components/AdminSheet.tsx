@@ -170,6 +170,89 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
 
 // ── SECTION: Revenue ──────────────────────────────────────────────────────────
 
+// ── Deposit lever editor ─────────────────────────────────────────────────────
+
+function DepositLevers({
+  modes, token, onSaved,
+}: { modes: { id: string; modeKey: string; config: Record<string, unknown> | null }[]; token: string | null; onSaved: (m: PricingMode[]) => void }) {
+  const depositMode = modes.find(m => m.modeKey === 'deposit_only');
+  const cfg = (depositMode?.config ?? {}) as Record<string, number | string>;
+
+  const [vals, setVals] = useState({
+    depositMin:          String(cfg.depositMin          ?? 5),
+    depositIncrement:    String(cfg.depositIncrement    ?? 5),
+    depositMaxPctOfFare: String(Number((cfg.depositMaxPctOfFare ?? 0.5)) * 100), // stored as 0-1, display as %
+    feePercent:          String(Number((cfg.feePercent  ?? 0.10)) * 100),         // stored as 0-1, display as %
+    feeFloorCents:       String(Number((cfg.feeFloorCents ?? 100)) / 100),        // stored as cents, display as $
+  });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true); setErr(null);
+    try {
+      const config = {
+        ...(depositMode?.config ?? {}),
+        depositMin:          Number(vals.depositMin),
+        depositIncrement:    Number(vals.depositIncrement),
+        depositMaxPctOfFare: Number(vals.depositMaxPctOfFare) / 100,
+        feePercent:          Number(vals.feePercent) / 100,
+        feeFloorCents:       Math.round(Number(vals.feeFloorCents) * 100),
+      };
+      await apiClient('/admin/pricing-modes', token, {
+        method: 'PATCH',
+        body: JSON.stringify({ modeKey: 'deposit_only', config }),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e: unknown) {
+      setErr((e as { message?: string }).message ?? 'Save failed');
+    } finally { setSaving(false); }
+  }
+
+  if (!depositMode) return null;
+
+  const FIELDS: { key: keyof typeof vals; label: string; suffix: string }[] = [
+    { key: 'depositMin',          label: 'MIN DEPOSIT',       suffix: '$' },
+    { key: 'depositIncrement',    label: 'INCREMENT',         suffix: '$' },
+    { key: 'depositMaxPctOfFare', label: 'MAX % OF FARE',    suffix: '%' },
+    { key: 'feePercent',          label: 'PLATFORM FEE',     suffix: '%' },
+    { key: 'feeFloorCents',       label: 'FEE FLOOR',        suffix: '$' },
+  ];
+
+  return (
+    <View style={[sc.pricingCard, { borderColor: colors.amberBorder }]}>
+      <SectionHeader title="DEPOSIT SETTINGS" />
+      {FIELDS.map(f => (
+        <View key={f.key} style={sc.costRow}>
+          <Text style={sc.costLabel}>{f.label} ({f.suffix})</Text>
+          <TextInput
+            style={sc.costInput}
+            value={vals[f.key]}
+            keyboardType="numeric"
+            onChangeText={v => setVals(prev => ({ ...prev, [f.key]: v }))}
+            placeholderTextColor={colors.textFaint}
+          />
+        </View>
+      ))}
+      {err && <Text style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.red }}>{err}</Text>}
+      <TouchableOpacity
+        style={[sc.saveBtn, { backgroundColor: saved ? colors.green : colors.amber }]}
+        onPress={save}
+        disabled={saving}
+      >
+        {saving
+          ? <ActivityIndicator size="small" color={colors.bg} />
+          : <Text style={sc.saveBtnText}>{saved ? '✓ SAVED' : 'SAVE DEPOSIT SETTINGS'}</Text>
+        }
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface PricingMode {
   id: string;
   modeKey: string;
@@ -368,6 +451,9 @@ function RevenueSection({ days, market, token }: { days: DayFilter; market: Mark
           </View>
         )}
       </View>
+
+      {/* Deposit levers — only visible when deposit mode is active */}
+      {isDeposit && <DepositLevers modes={modes} token={token} onSaved={setModes} />}
 
       {/* Fee rate levers */}
       {configs.length > 0 && (
@@ -609,38 +695,43 @@ function SafetySection({ token }: { token: string | null }) {
 
 // ── SECTION: Growth ───────────────────────────────────────────────────────────
 
+interface GrowthData {
+  newRiders: number; newDrivers: number;
+  totalRiders: number; totalDrivers: number; activeDrivers: number;
+}
+
 function GrowthSection({ days, market, token }: { days: DayFilter; market: MarketSlug; token: string | null }) {
-  const [data, setData] = useState<{
-    new_riders: number; new_drivers: number; total_riders: number; total_drivers: number;
-  } | null>(null);
+  const [data, setData] = useState<GrowthData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     const params = new URLSearchParams({ days: String(days === 0 ? 3650 : days) });
-    if (market !== 'all') params.set('marketSlug', market);
-    apiClient<typeof data>(`/admin/users?${params}&growth=1`, token)
+    if (market !== 'all') params.set('marketId', market);
+    apiClient<GrowthData>(`/admin/users/growth?${params}`, token)
       .then(d => setData(d))
-      .catch(() => {})
+      .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, [days, market, token]);
+
+  const periodLabel = days === 0 ? 'ALL TIME' : days === 1 ? 'TODAY' : days === 7 ? 'THIS WEEK' : 'THIS MONTH';
 
   if (loading) return <LoadingCard />;
 
   return (
-    <ScrollView contentContainerStyle={{ gap: spacing.md }}>
-      <SectionHeader title={`NEW SIGN-UPS — ${days === 1 ? 'TODAY' : days === 7 ? 'THIS WEEK' : 'THIS MONTH'}`} />
+    <ScrollView contentContainerStyle={{ gap: spacing.md }} keyboardShouldPersistTaps="handled">
+      <SectionHeader title={`NEW SIGN-UPS — ${periodLabel}`} />
       <View style={sc.statsGrid}>
-        <StatCard label="NEW RIDERS" value={String(data?.new_riders ?? 0)} accent />
-        <StatCard label="NEW DRIVERS" value={String(data?.new_drivers ?? 0)} />
+        <StatCard label="NEW RIDERS"  value={String(data?.newRiders ?? 0)} accent />
+        <StatCard label="NEW DRIVERS" value={String(data?.newDrivers ?? 0)} />
       </View>
       <SectionHeader title="TOTAL BASE" />
       <View style={sc.statsGrid}>
-        <StatCard label="TOTAL RIDERS" value={String(data?.total_riders ?? 0)} />
-        <StatCard label="TOTAL DRIVERS" value={String(data?.total_drivers ?? 0)} />
+        <StatCard label="ALL RIDERS"      value={String(data?.totalRiders ?? 0)} />
+        <StatCard label="ALL DRIVERS"     value={String(data?.totalDrivers ?? 0)} />
+        <StatCard label="ACTIVE DRIVERS"  value={String(data?.activeDrivers ?? 0)} accent />
       </View>
-      {data?.new_riders === 0 && data?.new_drivers === 0 && (
-        <EmptyState msg="NO NEW SIGNUPS IN PERIOD" />
-      )}
+      {!loading && !data && <EmptyState msg="COULD NOT LOAD GROWTH DATA" />}
     </ScrollView>
   );
 }
