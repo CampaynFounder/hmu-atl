@@ -42,6 +42,7 @@
     "plugins": [
       "expo-router",
       "./plugins/withCxxFlags",
+      "./plugins/withExpoModulesJsiPatch",
       "expo-secure-store",
       [
         "expo-build-properties",
