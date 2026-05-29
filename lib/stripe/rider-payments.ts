@@ -1,7 +1,7 @@
 import { stripe } from './connect';
 import { sql } from '@/lib/db/client';
 
-const isMock = process.env.STRIPE_MOCK === 'true';
+const isMock = () => process.env.STRIPE_MOCK === 'true';
 
 export async function getOrCreateStripeCustomer(rider: {
   id: string;
@@ -16,7 +16,7 @@ export async function getOrCreateStripeCustomer(rider: {
   const existing = (rows[0] as Record<string, unknown>)?.stripe_customer_id as string | null;
   if (existing && !existing.startsWith('cus_mock_')) return existing;
 
-  if (isMock) {
+  if (isMock()) {
     const mockId = 'cus_mock_' + Date.now();
     await sql`UPDATE rider_profiles SET stripe_customer_id = ${mockId} WHERE user_id = ${rider.id}`;
     return mockId;
@@ -32,7 +32,7 @@ export async function getOrCreateStripeCustomer(rider: {
 }
 
 export async function createSetupIntent(stripeCustomerId: string): Promise<string> {
-  if (isMock) return 'seti_mock_secret_' + Date.now();
+  if (isMock()) return 'seti_mock_secret_' + Date.now();
 
   const setupIntent = await stripe.setupIntents.create({
     customer: stripeCustomerId,
@@ -47,7 +47,7 @@ export async function savePaymentMethod(
   stripeCustomerId: string,
   paymentMethodId: string
 ): Promise<void> {
-  if (!isMock) {
+  if (!isMock()) {
     await stripe.paymentMethods.attach(paymentMethodId, { customer: stripeCustomerId });
     await stripe.customers.update(stripeCustomerId, {
       invoice_settings: { default_payment_method: paymentMethodId },
@@ -57,7 +57,7 @@ export async function savePaymentMethod(
   // Get PM details
   let type = 'card', brand: string | null = 'Visa', last4: string | null = '4242', expMonth: number | null = 12, expYear: number | null = 2030;
   let isApplePay = false, isGooglePay = false, isCashAppPay = false;
-  if (!isMock) {
+  if (!isMock()) {
     const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
     type = pm.type;
     brand = pm.card?.brand || null;
@@ -115,7 +115,7 @@ export async function deletePaymentMethod(riderId: string, paymentMethodDbId: st
   if (!rows.length) return;
   const pm = rows[0] as Record<string, unknown>;
 
-  if (!isMock) {
+  if (!isMock()) {
     await stripe.paymentMethods.detach(pm.stripe_payment_method_id as string);
   }
 
