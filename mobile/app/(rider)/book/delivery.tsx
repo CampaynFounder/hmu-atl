@@ -118,7 +118,7 @@ export default function BookDelivery() {
         },
       );
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace({ pathname: '/(rider)/delivery/[id]' as any, params: { id: res.deliveryId } });
+      router.replace(`/(rider)/delivery/${res.deliveryId}` as any);
     } catch (e: any) {
       Alert.alert('Could not place request', e.message ?? 'Try again');
     } finally {

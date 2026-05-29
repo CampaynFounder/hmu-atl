@@ -305,7 +305,7 @@ export default function DriverFeed() {
                 try {
                   const t = await getToken();
                   await apiClient(`/delivery/${item.id}/accept`, t, { method: 'POST' });
-                  router.push({ pathname: '/(driver)/delivery/[id]' as any, params: { id: item.id } });
+                  router.push(`/(driver)/delivery/${item.id}` as any);
                 } catch (e: any) {
                   Alert.alert('Could not accept', e.message ?? 'Try again');
                 } finally {

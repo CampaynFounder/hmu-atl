@@ -114,10 +114,22 @@ export default function ActiveDeliveryCourier() {
     );
   }
 
-  if (loading || !delivery) {
+  if (loading) {
     return (
       <View style={[s.center, { paddingTop: insets.top }]}>
         <ActivityIndicator size="large" color={colors.pink} />
+      </View>
+    );
+  }
+
+  if (!delivery || !delivery.estimate) {
+    return (
+      <View style={[s.center, { paddingTop: insets.top }]}>
+        <Ionicons name="alert-circle-outline" size={40} color={colors.textFaint} />
+        <Text style={s.errorText}>Could not load delivery</Text>
+        <TouchableOpacity onPress={() => void fetchDelivery()} style={s.retryBtn}>
+          <Text style={s.retryBtnText}>TRY AGAIN</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -428,4 +440,8 @@ const s = StyleSheet.create({
   completedCard: { alignItems: 'center', gap: spacing.md, borderColor: colors.greenBorder, backgroundColor: colors.greenDim },
   completedTitle: { fontFamily: fonts.display, fontSize: 28, color: colors.green, letterSpacing: 2 },
   completedSub: { fontFamily: fonts.body, fontSize: 13, color: colors.textTertiary, textAlign: 'center', lineHeight: 20 },
+
+  errorText: { fontFamily: fonts.mono, fontSize: 13, color: colors.textFaint, marginTop: spacing.lg, letterSpacing: 0.5 },
+  retryBtn: { marginTop: spacing.lg, paddingVertical: 12, paddingHorizontal: spacing.xxl, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
+  retryBtnText: { fontFamily: fonts.mono, fontSize: 11, color: colors.textTertiary, letterSpacing: 1.5 },
 });
