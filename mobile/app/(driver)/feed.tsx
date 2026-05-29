@@ -1,5 +1,6 @@
-// Driver requests feed — incoming blast requests.
+// Driver requests feed — incoming blast requests + delivery opportunities.
 // APIs: GET /drivers/requests, POST /bookings/{id}/accept, POST /bookings/{id}/decline
+//       GET /delivery/nearby
 // Ably: user:{driverId}:notify → blast_invite / blast_expired triggers refetch
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -11,10 +12,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
 import { useNotifications } from '@/contexts/notifications';
+import type { DeliveryOpportunity } from '@/shared/delivery-types';
 
 // Matches the camelCase shape returned by GET /api/drivers/requests
 interface Stop {
@@ -49,13 +52,18 @@ interface BlastRequest {
   _hmuAt?: string;
 }
 
+type FeedTab = 'rides' | 'deliveries';
+
 export default function DriverFeed() {
   const insets = useSafeAreaInsets();
   const { getToken } = useAuth();
   const { user } = useUser();
   const router = useRouter();
+  const [tab, setTab] = useState<FeedTab>('rides');
   const [requests, setRequests] = useState<BlastRequest[]>([]);
+  const [deliveries, setDeliveries] = useState<DeliveryOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deliveriesLoading, setDeliveriesLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -78,7 +86,30 @@ export default function DriverFeed() {
     finally { setLoading(false); setRefreshing(false); }
   }, [getToken]);
 
+  const fetchDeliveries = useCallback(async () => {
+    setDeliveriesLoading(true);
+    try {
+      const t = await getToken();
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (!perm.granted) return;
+
+      // getLastKnownPositionAsync is instant — getCurrentPositionAsync hangs on simulators.
+      const loc = await Location.getLastKnownPositionAsync();
+      // Fall back to Atlanta city center if no cached position yet.
+      const lat = loc?.coords.latitude ?? 33.749;
+      const lng = loc?.coords.longitude ?? -84.388;
+
+      const data = await apiClient<{ opportunities: DeliveryOpportunity[] }>(
+        `/delivery/nearby?lat=${lat}&lng=${lng}`,
+        t,
+      );
+      setDeliveries(data.opportunities ?? []);
+    } catch {}
+    finally { setDeliveriesLoading(false); setRefreshing(false); }
+  }, [getToken]);
+
   useEffect(() => { void fetchRequests(); }, [fetchRequests]);
+  useEffect(() => { if (tab === 'deliveries') void fetchDeliveries(); }, [tab, fetchDeliveries]);
 
   // Register with the global notification context so events arriving while the
   // driver is on a different screen (e.g. ride/active) still clear stale cards.
@@ -134,7 +165,11 @@ export default function DriverFeed() {
     },
   });
 
-  const onRefresh = useCallback(() => { setRefreshing(true); void fetchRequests(); }, [fetchRequests]);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    if (tab === 'rides') void fetchRequests();
+    else void fetchDeliveries();
+  }, [tab, fetchRequests, fetchDeliveries]);
 
   async function handleHmu(request: BlastRequest) {
     setActing(request.id);
@@ -176,37 +211,112 @@ export default function DriverFeed() {
     <View style={[s.root, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={s.header}>
-        <Text style={s.title}>INCOMING REQUESTS</Text>
-        {active.length > 0 && (
+        <Text style={s.title}>
+          {tab === 'rides' ? 'INCOMING REQUESTS' : 'DELIVERY JOBS'}
+        </Text>
+        {tab === 'rides' && active.length > 0 && (
           <View style={s.countBadge}>
             <Text style={s.countText}>{active.length}</Text>
           </View>
         )}
+        {tab === 'deliveries' && deliveries.length > 0 && (
+          <View style={[s.countBadge, { backgroundColor: colors.pink }]}>
+            <Text style={s.countText}>{deliveries.length}</Text>
+          </View>
+        )}
       </View>
 
-      <FlatList
-        data={active}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={s.list}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.green} />}
-        ListEmptyComponent={
-          <View style={s.empty}>
-            <Text style={s.emptyEmoji}>👀</Text>
-            <Text style={s.emptyTitle}>No requests right now</Text>
-            <Text style={s.emptyBody}>
-              Sit tight — we'll notify you when a rider blasts your area.
-            </Text>
-          </View>
-        }
-        renderItem={({ item }) => (
-          <BlastCard
-            request={item}
-            acting={acting === item.id}
-            onHmu={() => handleHmu(item)}
-            onPass={() => handlePass(item)}
+      {/* Tab Toggle */}
+      <View style={s.tabBar}>
+        <TouchableOpacity
+          style={[s.tabBtn, tab === 'rides' && s.tabBtnActive]}
+          onPress={() => setTab('rides')}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name="car-outline"
+            size={14}
+            color={tab === 'rides' ? colors.green : colors.textFaint}
           />
-        )}
-      />
+          <Text style={[s.tabBtnText, tab === 'rides' && s.tabBtnTextActive]}>RIDES</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.tabBtn, tab === 'deliveries' && s.tabBtnDelivery]}
+          onPress={() => setTab('deliveries')}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name="bag-handle-outline"
+            size={14}
+            color={tab === 'deliveries' ? colors.pink : colors.textFaint}
+          />
+          <Text style={[s.tabBtnText, tab === 'deliveries' && s.tabBtnTextDelivery]}>DELIVERIES</Text>
+        </TouchableOpacity>
+      </View>
+
+      {tab === 'rides' ? (
+        <FlatList
+          data={active}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={s.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.green} />}
+          ListEmptyComponent={
+            <View style={s.empty}>
+              <Text style={s.emptyEmoji}>👀</Text>
+              <Text style={s.emptyTitle}>No requests right now</Text>
+              <Text style={s.emptyBody}>
+                Sit tight — we'll notify you when a rider blasts your area.
+              </Text>
+            </View>
+          }
+          renderItem={({ item }) => (
+            <BlastCard
+              request={item}
+              acting={acting === item.id}
+              onHmu={() => handleHmu(item)}
+              onPass={() => handlePass(item)}
+            />
+          )}
+        />
+      ) : (
+        <FlatList
+          data={deliveries}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={s.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.pink} />}
+          ListEmptyComponent={
+            deliveriesLoading
+              ? <ActivityIndicator size="large" color={colors.pink} style={{ marginTop: 60 }} />
+              : (
+                <View style={s.empty}>
+                  <Text style={s.emptyEmoji}>📦</Text>
+                  <Text style={s.emptyTitle}>No deliveries nearby</Text>
+                  <Text style={s.emptyBody}>
+                    Pull down to refresh. New requests appear as customers place orders.
+                  </Text>
+                </View>
+              )
+          }
+          renderItem={({ item }) => (
+            <DeliveryCard
+              opportunity={item}
+              onAccept={async () => {
+                setActing(item.id);
+                try {
+                  const t = await getToken();
+                  await apiClient(`/delivery/${item.id}/accept`, t, { method: 'POST' });
+                  router.push({ pathname: '/(driver)/delivery/[id]' as any, params: { id: item.id } });
+                } catch (e: any) {
+                  Alert.alert('Could not accept', e.message ?? 'Try again');
+                } finally {
+                  setActing(null);
+                }
+              }}
+              acting={acting === item.id}
+            />
+          )}
+        />
+      )}
     </View>
   );
 }
@@ -349,6 +459,77 @@ function MetaChip({ label, accent, cash }: { label: string; accent?: boolean; ca
   );
 }
 
+// ── Delivery Opportunity Card ─────────────────────────────────────────────────
+
+function DeliveryCard({
+  opportunity, onAccept, acting,
+}: {
+  opportunity: DeliveryOpportunity;
+  onAccept: () => void;
+  acting: boolean;
+}) {
+  const topItems = opportunity.items.slice(0, 3);
+  const moreCount = opportunity.itemCount - topItems.length;
+
+  return (
+    <View style={[s.card, s.deliveryCard, shadow.card]}>
+      {/* Payout highlight */}
+      <View style={s.deliveryPayoutRow}>
+        <View style={s.deliveryPayoutCol}>
+          <Text style={s.deliveryPayoutLabel}>YOU EARN</Text>
+          <Text style={[s.deliveryPayoutValue, { color: colors.green }]}>
+            ${opportunity.courierEarn.toFixed(2)}
+          </Text>
+        </View>
+        <View style={s.deliveryPayoutCol}>
+          <Text style={s.deliveryPayoutLabel}>YOU ADVANCE</Text>
+          <Text style={[s.deliveryPayoutValue, { color: colors.amber }]}>
+            ~${opportunity.courierAdvance.toFixed(2)}
+          </Text>
+        </View>
+        <View style={s.deliveryPayoutCol}>
+          <Text style={s.deliveryPayoutLabel}>TAKE HOME</Text>
+          <Text style={[s.deliveryPayoutValue, { color: colors.pink, fontFamily: fonts.display, fontSize: 20 }]}>
+            ${opportunity.courierGuaranteed.toFixed(2)}
+          </Text>
+        </View>
+      </View>
+
+      {/* Merchant */}
+      <View style={s.deliveryMerchantRow}>
+        <Ionicons name="storefront-outline" size={14} color={colors.textFaint} />
+        <Text style={s.deliveryMerchant} numberOfLines={1}>{opportunity.merchantName}</Text>
+        <Text style={s.deliveryDist}>{opportunity.distanceMiles} mi</Text>
+      </View>
+
+      {/* Items preview */}
+      <View style={s.deliveryItems}>
+        {topItems.map((item, i) => (
+          <Text key={i} style={s.deliveryItem} numberOfLines={1}>
+            {item.quantity}× {item.name}
+          </Text>
+        ))}
+        {moreCount > 0 && (
+          <Text style={s.deliveryItemMore}>+{moreCount} more item{moreCount > 1 ? 's' : ''}</Text>
+        )}
+      </View>
+
+      {/* Accept */}
+      <TouchableOpacity
+        style={[s.deliveryAcceptBtn, acting && s.disabled]}
+        onPress={onAccept}
+        disabled={acting}
+        activeOpacity={0.85}
+      >
+        {acting
+          ? <ActivityIndicator size="small" color={colors.bg} />
+          : <Text style={s.deliveryAcceptText}>ACCEPT JOB 📦</Text>
+        }
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   loader: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
@@ -407,4 +588,38 @@ const s = StyleSheet.create({
 
   hmdConfirm: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, backgroundColor: colors.greenDim, borderRadius: radius.pill, paddingVertical: 14, borderWidth: 1, borderColor: colors.greenBorder },
   hmdConfirmText: { fontFamily: fonts.mono, fontSize: 12, color: colors.green, letterSpacing: 1 },
+
+  // Tab bar
+  tabBar: {
+    flexDirection: 'row', marginHorizontal: spacing.xl, marginBottom: spacing.sm,
+    backgroundColor: colors.cardAlt, borderRadius: radius.pill,
+    borderWidth: 1, borderColor: colors.border, padding: 3,
+  },
+  tabBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 10, borderRadius: radius.pill,
+  },
+  tabBtnActive: { backgroundColor: colors.greenDim, borderWidth: 1, borderColor: colors.greenBorder },
+  tabBtnDelivery: { backgroundColor: colors.pinkDim, borderWidth: 1, borderColor: colors.pinkBorder },
+  tabBtnText: { fontFamily: fonts.mono, fontSize: 11, color: colors.textFaint, letterSpacing: 1.5 },
+  tabBtnTextActive: { color: colors.green },
+  tabBtnTextDelivery: { color: colors.pink },
+
+  // Delivery card
+  deliveryCard: { borderColor: colors.pinkBorder },
+  deliveryPayoutRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  deliveryPayoutCol: { flex: 1, alignItems: 'center', gap: 2 },
+  deliveryPayoutLabel: { fontFamily: fonts.mono, fontSize: 8, color: colors.textFaint, letterSpacing: 1.2, textAlign: 'center' },
+  deliveryPayoutValue: { fontFamily: fonts.monoBold, fontSize: 15, textAlign: 'center' },
+  deliveryMerchantRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+  deliveryMerchant: { fontFamily: fonts.body, fontSize: 13, color: colors.textTertiary, flex: 1 },
+  deliveryDist: { fontFamily: fonts.mono, fontSize: 11, color: colors.textFaint },
+  deliveryItems: { gap: 2, marginBottom: spacing.lg },
+  deliveryItem: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint },
+  deliveryItemMore: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 0.5 },
+  deliveryAcceptBtn: {
+    backgroundColor: colors.pink, borderRadius: radius.pill,
+    paddingVertical: 14, alignItems: 'center',
+  },
+  deliveryAcceptText: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.bg, letterSpacing: 1 },
 });

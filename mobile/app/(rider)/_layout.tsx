@@ -114,6 +114,14 @@ export default function RiderLayout() {
         name="book/[type]"
         options={{ href: null, headerShown: false }}
       />
+      <Tabs.Screen
+        name="book/delivery"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="delivery/[id]"
+        options={{ href: null, headerShown: false }}
+      />
     </Tabs>
   );
 }
