@@ -183,7 +183,7 @@ export async function queryBrowseDrivers(
                FROM blast_driver_targets bdt
                WHERE bdt.driver_id = dp.user_id
                  AND bdt.notified_at IS NOT NULL
-                 AND bdt.created_at > NOW() - INTERVAL '90 days'
+                 AND bdt.notified_at > NOW() - INTERVAL '90 days'
              ) ac
            ) AS acceptance_rate
     FROM driver_profiles dp

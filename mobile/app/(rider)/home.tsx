@@ -31,7 +31,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 interface BookingMode {
-  type: 'direct' | 'blast' | 'down-bad';
+  type: 'direct' | 'blast' | 'down-bad' | 'delivery';
   icon: React.ComponentProps<typeof Ionicons>['name'];
   color: string;
   colorDim: string;
@@ -79,6 +79,18 @@ const BOOKING_MODES: BookingMode[] = [
     desc: 'Urgent pickup. Cash offer. First driver to pull up gets the job.',
     cta: "I'M GOOD FOR IT",
     delay: 160,
+  },
+  {
+    type: 'delivery',
+    icon: 'bag-handle-outline',
+    color: colors.pink,
+    colorDim: colors.pinkDim,
+    colorBorder: colors.pinkBorder,
+    title: 'REQUEST PICKUP',
+    subtitle: 'GET ANYTHING DELIVERED',
+    desc: 'Tell us what you need. A courier buys it and brings it to you.',
+    cta: 'REQUEST ITEMS',
+    delay: 240,
   },
 ];
 
