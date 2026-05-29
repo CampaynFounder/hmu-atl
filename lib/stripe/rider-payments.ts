@@ -48,7 +48,14 @@ export async function savePaymentMethod(
   paymentMethodId: string
 ): Promise<void> {
   if (!isMock()) {
-    await stripe.paymentMethods.attach(paymentMethodId, { customer: stripeCustomerId });
+    // PaymentSheet auto-attaches the PM when the SetupIntent is confirmed,
+    // so attach() may already be done. Stripe throws on a duplicate attach —
+    // catch and continue so the DB save still completes.
+    try {
+      await stripe.paymentMethods.attach(paymentMethodId, { customer: stripeCustomerId });
+    } catch (err: any) {
+      if (!err?.message?.toLowerCase().includes('already')) throw err;
+    }
     await stripe.customers.update(stripeCustomerId, {
       invoice_settings: { default_payment_method: paymentMethodId },
     });

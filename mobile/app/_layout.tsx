@@ -29,9 +29,22 @@ function BiometricGate({ isSignedIn, children }: { isSignedIn: boolean; children
   const appState = useRef<AppStateStatus>(AppState.currentState);
   const backgroundedAt = useRef<number | null>(null);
   const supported = useRef(false);
+  // Track whether the user was already signed in when the app cold-started.
+  // If false, they just completed OTP — don't prompt biometrics on sign-in.
+  const wasSignedInOnMount = useRef<boolean | null>(null);
+  const initCalled = useRef(false);
 
   useEffect(() => {
+    // Capture auth state on first evaluation only
+    if (wasSignedInOnMount.current === null) {
+      wasSignedInOnMount.current = isSignedIn;
+    }
     if (!isSignedIn) { setReady(true); return; }
+    // Only lock on cold start (already signed in when app launched).
+    // Skip when isSignedIn just flipped true after OTP.
+    if (!wasSignedInOnMount.current) { setReady(true); return; }
+    if (initCalled.current) return;
+    initCalled.current = true;
     void init();
   }, [isSignedIn]);
 
