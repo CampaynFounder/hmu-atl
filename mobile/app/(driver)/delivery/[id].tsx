@@ -1,11 +1,11 @@
 // Active delivery workflow — courier view.
 // Route: /(driver)/delivery/[id]
-// Step-by-step flow: Navigate → At Merchant → Upload Receipt → En Route → Collect PIN.
+// Flow: Navigate → At Merchant → Upload Receipt → En Route → Collect PIN.
 
 import { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Alert, Image, Linking, TextInput,
+  ActivityIndicator, Alert, Image, Linking, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -13,17 +13,17 @@ import { useAuth } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-
-// Lazy require — expo-image-picker needs a native rebuild to link in Expo Go.
-// Direct import crashes before the module loads.
-let ImagePicker: typeof import('expo-image-picker') | null = null;
-try {
-  ImagePicker = require('expo-image-picker') as typeof import('expo-image-picker');
-} catch {}
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient, API_BASE } from '@/lib/api';
 import type { DeliveryRequest } from '@/shared/delivery-types';
 import { getDeliveryStatusLabel } from '@/shared/delivery-state-machine';
+
+// Lazy require — expo-image-picker needs a native rebuild to link in Expo Go.
+// Must come after all ES imports.
+let ImagePicker: typeof import('expo-image-picker') | null = null;
+try {
+  ImagePicker = require('expo-image-picker') as typeof import('expo-image-picker');
+} catch {}
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -43,11 +43,8 @@ export default function ActiveDeliveryCourier() {
       const t = await getToken();
       const data = await apiClient<DeliveryRequest>(`/delivery/${id}`, t);
       setDelivery(data);
-    } catch {
-      // silent poll failure
-    } finally {
-      setLoading(false);
-    }
+    } catch {}
+    finally { setLoading(false); }
   }, [id, getToken]);
 
   useEffect(() => {
@@ -91,19 +88,13 @@ export default function ActiveDeliveryCourier() {
     try {
       const asset = result.assets[0];
       const form = new FormData();
-      form.append('receipt', {
-        uri: asset.uri,
-        name: 'receipt.jpg',
-        type: 'image/jpeg',
-      } as any);
-
+      form.append('receipt', { uri: asset.uri, name: 'receipt.jpg', type: 'image/jpeg' } as any);
       const t = await getToken();
       await fetch(`${API_BASE}/delivery/${id}/receipt`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${t}` },
         body: form,
       });
-
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await fetchDelivery();
     } catch (e: any) {
@@ -113,7 +104,7 @@ export default function ActiveDeliveryCourier() {
     }
   }
 
-  function openMaps(lat: number, lng: number, label: string) {
+  function openMaps(lat: number, lng: number) {
     const url = Platform.select({
       ios: `maps://?daddr=${lat},${lng}&dirflg=d`,
       android: `google.navigation:q=${lat},${lng}`,
@@ -150,7 +141,7 @@ export default function ActiveDeliveryCourier() {
         </View>
       </View>
 
-      {/* Payout Card — always visible */}
+      {/* Payout — always visible */}
       <Animated.View entering={FadeIn.duration(400)} style={[s.payoutCard, shadow.card]}>
         <Text style={s.payoutTitle}>YOUR PAYOUT</Text>
         <View style={s.payoutRow}>
@@ -165,14 +156,14 @@ export default function ActiveDeliveryCourier() {
         </Text>
       </Animated.View>
 
-      {/* Merchant Card */}
+      {/* Merchant */}
       <View style={[s.card, shadow.card]}>
         <Text style={s.cardLabel}>MERCHANT</Text>
         <Text style={s.cardTitle}>{delivery.merchantName}</Text>
         <Text style={s.cardSub}>{delivery.merchantAddress}</Text>
         <TouchableOpacity
           style={s.navBtn}
-          onPress={() => openMaps(delivery.merchantLat, delivery.merchantLng, delivery.merchantName)}
+          onPress={() => openMaps(delivery.merchantLat, delivery.merchantLng)}
           activeOpacity={0.85}
         >
           <Ionicons name="navigate" size={14} color={colors.bg} />
@@ -180,7 +171,7 @@ export default function ActiveDeliveryCourier() {
         </TouchableOpacity>
       </View>
 
-      {/* Items Card */}
+      {/* Items */}
       <View style={[s.card, shadow.card]}>
         <Text style={s.cardLabel}>ITEMS TO PURCHASE ({delivery.items.length})</Text>
         {delivery.items.map((item) => (
@@ -188,26 +179,26 @@ export default function ActiveDeliveryCourier() {
             <View style={s.itemBullet} />
             <View style={s.itemInfo}>
               <Text style={s.itemName}>{item.quantity}× {item.name}</Text>
-              {item.notes && <Text style={s.itemNotes}>{item.notes}</Text>}
-              {item.estimatedPrice > 0 && (
+              {item.notes ? <Text style={s.itemNotes}>{item.notes}</Text> : null}
+              {item.estimatedPrice > 0 ? (
                 <Text style={s.itemEst}>est. ${item.estimatedPrice.toFixed(2)}</Text>
-              )}
+              ) : null}
             </View>
           </View>
         ))}
         <Text style={s.itemsNote}>
-          Total estimated spend: ${est.estimatedMerchantSpend.toFixed(2)}. Keep the receipt — you'll need to photograph it.
+          Estimated spend: ${est.estimatedMerchantSpend.toFixed(2)}. Keep the receipt — you'll photograph it next.
         </Text>
       </View>
 
-      {/* Customer Delivery Address */}
+      {/* Customer address (shown once heading there) */}
       {['receipt_uploaded', 'en_route', 'delivered'].includes(delivery.status) && (
         <View style={[s.card, shadow.card]}>
           <Text style={s.cardLabel}>DELIVER TO</Text>
           <Text style={s.cardSub}>{delivery.customerAddress}</Text>
           <TouchableOpacity
             style={[s.navBtn, { backgroundColor: colors.blue }]}
-            onPress={() => openMaps(delivery.customerLat, delivery.customerLng, 'Customer')}
+            onPress={() => openMaps(delivery.customerLat, delivery.customerLng)}
             activeOpacity={0.85}
           >
             <Ionicons name="navigate" size={14} color={colors.bg} />
@@ -216,21 +207,21 @@ export default function ActiveDeliveryCourier() {
         </View>
       )}
 
-      {/* Receipt (once uploaded) */}
-      {delivery.receiptUrl && (
+      {/* Receipt */}
+      {delivery.receiptUrl ? (
         <View style={[s.card, shadow.card]}>
           <Text style={s.cardLabel}>UPLOADED RECEIPT</Text>
           <Image source={{ uri: delivery.receiptUrl }} style={s.receiptImg} resizeMode="contain" />
-          {delivery.receiptTotal && (
+          {delivery.receiptTotal ? (
             <View style={s.receiptTotalRow}>
               <Text style={s.receiptTotalLabel}>OCR TOTAL</Text>
               <Text style={s.receiptTotalValue}>${delivery.receiptTotal.toFixed(2)}</Text>
             </View>
-          )}
+          ) : null}
         </View>
-      )}
+      ) : null}
 
-      {/* Action Button — contextual by status */}
+      {/* Contextual action */}
       <ActionSection
         status={delivery.status}
         acting={acting}
@@ -240,7 +231,7 @@ export default function ActiveDeliveryCourier() {
         onEnRoute={() => transition('en-route')}
       />
 
-      {/* Completed State */}
+      {/* Completed */}
       {delivery.status === 'completed' && (
         <View style={[s.card, s.completedCard, shadow.card]}>
           <Ionicons name="checkmark-circle" size={48} color={colors.green} />
@@ -279,7 +270,6 @@ function ActionSection({
       />
     );
   }
-
   if (status === 'at_merchant') {
     return (
       <ActionCard
@@ -293,7 +283,6 @@ function ActionSection({
       />
     );
   }
-
   if (status === 'receipt_uploaded') {
     return (
       <ActionCard
@@ -307,20 +296,18 @@ function ActionSection({
       />
     );
   }
-
   if (status === 'en_route' || status === 'delivered') {
     return (
       <View style={[s.card, { borderColor: colors.greenBorder, backgroundColor: colors.greenDim }, shadow.card]}>
         <Ionicons name="information-circle-outline" size={20} color={colors.green} />
         <Text style={s.infoText}>
           {status === 'en_route'
-            ? 'Navigate to the customer. Once there, they\'ll give you a 4-digit PIN to confirm delivery.'
-            : 'The customer is entering their PIN. Payment will be released once confirmed.'}
+            ? "Navigate to the customer. They'll give you a 4-digit PIN to confirm delivery."
+            : 'The customer is entering their PIN. Payment releases once confirmed.'}
         </Text>
       </View>
     );
   }
-
   return null;
 }
 
@@ -361,8 +348,6 @@ function ActionCard({
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
-
 function PayoutCol({ label, value, color, bold }: { label: string; value: string; color: string; bold?: boolean }) {
   return (
     <View style={s.payoutCol}>
@@ -376,23 +361,16 @@ function PayoutCol({ label, value, color, bold }: { label: string; value: string
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 
-const { Platform } = require('react-native');
-
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.xl, paddingBottom: 60, gap: spacing.md },
 
-  header: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm,
-  },
+  header: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm },
   headerTitle: { fontFamily: fonts.display, fontSize: 20, color: colors.textPrimary, letterSpacing: 1, flex: 1 },
-  statusPill: {
-    borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 4, borderWidth: 1,
-  },
+  statusPill: { borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 4, borderWidth: 1 },
   statusPillText: { fontFamily: fonts.mono, fontSize: 9, color: colors.pink, letterSpacing: 1.5 },
 
-  // Payout card
   payoutCard: {
     backgroundColor: colors.card, borderRadius: radius.card,
     borderWidth: 1, borderColor: colors.pinkBorder, padding: spacing.xl, gap: spacing.md,
@@ -405,7 +383,6 @@ const s = StyleSheet.create({
   payoutDivider: { width: 1, height: 40, backgroundColor: colors.border, marginHorizontal: spacing.sm },
   payoutNote: { fontFamily: fonts.body, fontSize: 11, color: colors.textFaint, lineHeight: 18, textAlign: 'center' },
 
-  // Generic card
   card: {
     backgroundColor: colors.card, borderRadius: radius.card,
     borderWidth: 1, borderColor: colors.border, padding: spacing.xl, gap: spacing.sm,
@@ -421,7 +398,6 @@ const s = StyleSheet.create({
   },
   navBtnText: { fontFamily: fonts.monoBold, fontSize: 12, color: colors.bg, letterSpacing: 1.5 },
 
-  // Items
   itemRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' },
   itemBullet: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.pink, marginTop: 7 },
   itemInfo: { flex: 1, gap: 2 },
@@ -430,34 +406,25 @@ const s = StyleSheet.create({
   itemEst: { fontFamily: fonts.mono, fontSize: 11, color: colors.textFaint },
   itemsNote: { fontFamily: fonts.body, fontSize: 11, color: colors.textFaint, lineHeight: 18, marginTop: spacing.sm },
 
-  // Receipt
   receiptImg: { width: '100%', height: 200, borderRadius: radius.cardInner, backgroundColor: colors.cardAlt },
   receiptTotalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   receiptTotalLabel: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 1.5 },
   receiptTotalValue: { fontFamily: fonts.display, fontSize: 28, color: colors.textPrimary },
 
-  // Action card
   actionCard: {
     backgroundColor: colors.card, borderRadius: radius.card,
     borderWidth: 1, padding: spacing.xl, gap: spacing.lg,
   },
   actionCardTop: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' },
-  actionIcon: {
-    width: 48, height: 48, borderRadius: radius.cardInner,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  actionIcon: { width: 48, height: 48, borderRadius: radius.cardInner, alignItems: 'center', justifyContent: 'center' },
   actionTitle: { fontFamily: fonts.display, fontSize: 18, color: colors.textPrimary, letterSpacing: 0.5, marginBottom: 4 },
   actionBody: { fontFamily: fonts.body, fontSize: 13, color: colors.textTertiary, lineHeight: 20 },
-  actionBtn: {
-    borderRadius: radius.pill, paddingVertical: 16,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  actionBtn: { borderRadius: radius.pill, paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
   actionBtnText: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.bg, letterSpacing: 1.5 },
   disabled: { opacity: 0.5 },
 
   infoText: { fontFamily: fonts.body, fontSize: 13, color: colors.green, lineHeight: 20 },
 
-  // Completed
   completedCard: { alignItems: 'center', gap: spacing.md, borderColor: colors.greenBorder, backgroundColor: colors.greenDim },
   completedTitle: { fontFamily: fonts.display, fontSize: 28, color: colors.green, letterSpacing: 2 },
   completedSub: { fontFamily: fonts.body, fontSize: 13, color: colors.textTertiary, textAlign: 'center', lineHeight: 20 },
