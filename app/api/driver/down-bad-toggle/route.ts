@@ -34,7 +34,7 @@ async function getDriver(clerkId: string) {
 // payout_setup_complete (set by payout-setup route when bank account is linked),
 // since webhook delivery can lag behind the driver completing onboarding.
 function checkPayoutReady(driver: { stripe_onboarding_complete: boolean; payout_setup_complete: boolean }): boolean {
-  if (isMock) return true;
+  if (isMock()) return true;
   return driver.stripe_onboarding_complete === true || driver.payout_setup_complete === true;
 }
 

@@ -23,10 +23,12 @@ export const stripeClient = new Proxy({} as Stripe, {
   },
 });
 
-export const isMock = process.env.STRIPE_MOCK === 'true';
+// Function form — must not be a module-scope const. Worker isolates cache
+// module state at startup; a const would freeze the value before STRIPE_MOCK
+// secret changes take effect. Same fix applied to rider-payments.ts in #325.
+export const isMock = () => process.env.STRIPE_MOCK === 'true';
 
-// Keep IS_MOCK for any existing internal callers in this file.
-const IS_MOCK = isMock;
+const IS_MOCK = isMock; // call as IS_MOCK() — it's a function
 
 // Mock ID generators
 function generateMockCustomerId(): string {
@@ -46,7 +48,7 @@ export async function createCustomer(params: {
   email: string;
   name: string;
 }): Promise<string> {
-  if (IS_MOCK) {
+  if (IS_MOCK()) {
     console.log('[STRIPE MOCK] Creating customer:', params);
     return generateMockCustomerId();
   }
@@ -70,7 +72,7 @@ export async function createConnectAccount(params: {
   clerkId: string;
   email: string;
 }): Promise<string> {
-  if (IS_MOCK) {
+  if (IS_MOCK()) {
     console.log('[STRIPE MOCK] Creating Connect account:', params);
     return generateMockAccountId();
   }
@@ -102,7 +104,7 @@ export async function createAccountLink(params: {
   refreshUrl: string;
   returnUrl: string;
 }): Promise<string> {
-  if (IS_MOCK) {
+  if (IS_MOCK()) {
     console.log('[STRIPE MOCK] Creating account link for:', params.accountId);
     return `https://stripe.mock/onboarding/${params.accountId}`;
   }
@@ -128,7 +130,7 @@ export async function createPaymentIntent(params: {
   applicationFeeAmount: number; // in cents
   metadata: Record<string, string>;
 }): Promise<{ id: string; clientSecret: string }> {
-  if (IS_MOCK) {
+  if (IS_MOCK()) {
     console.log('[STRIPE MOCK] Creating payment intent:', params);
     const mockId = `pi_mock_${Date.now()}`;
     return {
@@ -163,7 +165,7 @@ export async function createTransfer(params: {
   destination: string; // Stripe Connect account ID
   metadata: Record<string, string>;
 }): Promise<string> {
-  if (IS_MOCK) {
+  if (IS_MOCK()) {
     console.log('[STRIPE MOCK] Creating transfer:', params);
     return `tr_mock_${Date.now()}`;
   }
