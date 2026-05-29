@@ -32,8 +32,10 @@ export async function DELETE(request: Request) {
     // Detach from Stripe so it can't be charged again
     try {
       await stripe.paymentMethods.detach(stripePmId);
-    } catch {
-      // Non-fatal — PM may already be detached; still clean up our DB row
+    } catch (err: any) {
+      // Log but continue — we still remove the DB row so it doesn't appear in the UI.
+      // The card will remain attached in Stripe if the key is misconfigured.
+      console.error('[payment-methods/delete] Stripe detach failed:', err?.message);
     }
 
     await sql`DELETE FROM rider_payment_methods WHERE id = ${id} AND rider_id = ${userId}`;
