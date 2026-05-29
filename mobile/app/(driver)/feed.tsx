@@ -71,6 +71,12 @@ export default function DriverFeed() {
   const driverId = user?.publicMetadata?.databaseId as string | undefined;
   const { registerFeedRefresh } = useNotifications();
 
+  // Stable ref so callbacks don't recreate when Clerk refreshes the session token.
+  // Without this, getToken reference changes → fetchDeliveries gets new reference →
+  // useEffect fires again on the deliveries tab → infinite re-fetch loop + loading glitch.
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
+
   useEffect(() => {
     getToken().then(setToken).catch(() => {});
     const interval = setInterval(() => getToken().then(setToken).catch(() => {}), 60_000);
@@ -79,17 +85,19 @@ export default function DriverFeed() {
 
   const fetchRequests = useCallback(async () => {
     try {
-      const t = await getToken();
+      const t = await getTokenRef.current();
       const data = await apiClient<{ requests: BlastRequest[] }>('/drivers/requests', t);
       setRequests(data.requests ?? []);
-    } catch {}
+    } catch (err) {
+      console.warn('[feed] fetchRequests error:', err);
+    }
     finally { setLoading(false); setRefreshing(false); }
-  }, [getToken]);
+  }, []);
 
   const fetchDeliveries = useCallback(async () => {
     setDeliveriesLoading(true);
     try {
-      const t = await getToken();
+      const t = await getTokenRef.current();
       const perm = await Location.requestForegroundPermissionsAsync();
       if (!perm.granted) return;
 
@@ -104,9 +112,11 @@ export default function DriverFeed() {
         t,
       );
       setDeliveries(data.opportunities ?? []);
-    } catch {}
+    } catch (err) {
+      console.warn('[feed] fetchDeliveries error:', err);
+    }
     finally { setDeliveriesLoading(false); setRefreshing(false); }
-  }, [getToken]);
+  }, []);
 
   useEffect(() => { void fetchRequests(); }, [fetchRequests]);
   useEffect(() => { if (tab === 'deliveries') void fetchDeliveries(); }, [tab, fetchDeliveries]);
