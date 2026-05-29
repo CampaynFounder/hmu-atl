@@ -63,6 +63,22 @@ export default function Index() {
           }
         }
 
+        // Gate: check if profile was created. Catches users who chose a role
+        // but killed the app before finishing onboarding.
+        try {
+          const onb = await apiClient<{ needsRiderProfile: boolean; needsDriverProfile: boolean }>(
+            '/users/onboarding', token,
+          );
+          if (me.profileType === 'driver' && onb.needsDriverProfile) {
+            router.replace('/(driver)/onboarding' as any);
+            return;
+          }
+          if (me.profileType === 'rider' && onb.needsRiderProfile) {
+            router.replace('/(rider)/onboarding' as any);
+            return;
+          }
+        } catch { /* proceed to home if check fails */ }
+
         if (me.profileType === 'driver') {
           router.replace('/(driver)/home');
         } else {

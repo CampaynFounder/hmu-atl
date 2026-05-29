@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
+  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
@@ -102,7 +102,7 @@ export default function PayoutSetup() {
           <ActivityIndicator size="large" color={colors.green} />
         </View>
       ) : (
-        <View style={s.content}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
           {/* Stripe Connect card */}
           <View style={[s.card, shadow.card]}>
             <Text style={s.sectionLabel}>STRIPE CONNECT</Text>
@@ -182,7 +182,7 @@ export default function PayoutSetup() {
               <Ionicons name="arrow-forward" size={14} color={colors.amber} style={{ marginLeft: 6 }} />
             </TouchableOpacity>
           </View>
-        </View>
+        </ScrollView>
       )}
     </View>
   );
@@ -205,7 +205,7 @@ const s = StyleSheet.create({
 
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  content: { padding: spacing.xl, gap: spacing.md },
+  content: { padding: spacing.xl, gap: spacing.md, paddingBottom: 48 },
 
   card: {
     backgroundColor: colors.card, borderRadius: radius.card,
