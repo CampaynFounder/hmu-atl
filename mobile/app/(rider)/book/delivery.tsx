@@ -1,5 +1,5 @@
 // Request Pickup — customer delivery request wizard.
-// 3 steps: Merchant → Items → Breakdown + Confirm.
+// 3 steps: Where is the store → Items → Breakdown + Confirm.
 // Route: /(rider)/book/delivery
 
 import { useCallback, useState } from 'react';
@@ -11,32 +11,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeInRight, FadeOutLeft } from 'react-native-reanimated';
+import Animated, { FadeInRight } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
-import { apiClient, API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api';
+import { AddressInput, type ValidatedAddress } from '@/components/AddressInput';
 import type { DeliveryItem, DeliveryEstimate } from '@/shared/delivery-types';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface MerchantForm {
-  name: string;
-  address: string;
-  lat: number | null;
-  lng: number | null;
-}
-
-type Step = 'merchant' | 'items' | 'breakdown';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+type Step = 'merchant' | 'items' | 'breakdown';
+
 function newItem(): DeliveryItem {
-  return {
-    id: Math.random().toString(36).slice(2),
-    name: '',
-    quantity: 1,
-    estimatedPrice: 0,
-  };
+  return { id: Math.random().toString(36).slice(2), name: '', quantity: 1, estimatedPrice: 0 };
 }
 
 function fmtMoney(n: number) {
@@ -51,45 +38,31 @@ export default function BookDelivery() {
   const { getToken } = useAuth();
 
   const [step, setStep] = useState<Step>('merchant');
-  const [merchant, setMerchant] = useState<MerchantForm>({ name: '', address: '', lat: null, lng: null });
-  const [customerAddress, setCustomerAddress] = useState('');
-  const [customerLat, setCustomerLat] = useState<number | null>(null);
-  const [customerLng, setCustomerLng] = useState<number | null>(null);
+
+  // Step 1 state — both resolved via Mapbox AddressInput
+  const [merchantName, setMerchantName] = useState('');
+  const [merchantLocation, setMerchantLocation] = useState<ValidatedAddress | null>(null);
+  const [customerLocation, setCustomerLocation] = useState<ValidatedAddress | null>(null);
+
+  // Step 2 state
   const [items, setItems] = useState<DeliveryItem[]>([newItem()]);
+
+  // Step 3 state
   const [estimate, setEstimate] = useState<DeliveryEstimate | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // ── Step 1 helpers ──────────────────────────────────────────────────────────
+  // ── Step 1 ──────────────────────────────────────────────────────────────────
 
   const canAdvanceToItems =
-    merchant.name.trim().length > 0 &&
-    merchant.address.trim().length > 0 &&
-    customerAddress.trim().length > 0;
+    merchantName.trim().length > 0 &&
+    merchantLocation !== null &&
+    customerLocation !== null;
 
-  async function goToItems() {
-    // Use placeholder coords if Mapbox geocoding isn't wired yet.
-    // In production, integrate AddressInput with geocoded lat/lng.
-    if (!merchant.lat) {
-      setMerchant((m) => ({ ...m, lat: 33.749, lng: -84.388 }));
-    }
-    if (!customerLat) {
-      setCustomerLat(33.749);
-      setCustomerLng(-84.388);
-    }
-    setStep('items');
-  }
+  // ── Step 2 ──────────────────────────────────────────────────────────────────
 
-  // ── Step 2 helpers ──────────────────────────────────────────────────────────
-
-  function addItem() {
-    setItems((prev) => [...prev, newItem()]);
-  }
-
-  function removeItem(id: string) {
-    setItems((prev) => prev.filter((i) => i.id !== id));
-  }
-
+  function addItem() { setItems((prev) => [...prev, newItem()]); }
+  function removeItem(id: string) { setItems((prev) => prev.filter((i) => i.id !== id)); }
   function updateItem(id: string, patch: Partial<DeliveryItem>) {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
   }
@@ -98,16 +71,12 @@ export default function BookDelivery() {
   const totalEstimatedSpend = validItems.reduce((s, i) => s + i.estimatedPrice * i.quantity, 0);
 
   async function fetchEstimate() {
+    if (!merchantLocation || !customerLocation) return;
     setLoading(true);
     try {
-      const mLat = merchant.lat ?? 33.749;
-      const mLng = merchant.lng ?? -84.388;
-      const cLat = customerLat ?? 33.749;
-      const cLng = customerLng ?? -84.388;
       const spendCents = Math.round(totalEstimatedSpend * 100);
-
       const est = await apiClient<DeliveryEstimate>(
-        `/delivery/estimate?merchantLat=${mLat}&merchantLng=${mLng}&customerLat=${cLat}&customerLng=${cLng}&estimatedMerchantSpendCents=${spendCents}`,
+        `/delivery/estimate?merchantLat=${merchantLocation.latitude}&merchantLng=${merchantLocation.longitude}&customerLat=${customerLocation.latitude}&customerLng=${customerLocation.longitude}&estimatedMerchantSpendCents=${spendCents}`,
         null,
       );
       setEstimate(est);
@@ -122,22 +91,23 @@ export default function BookDelivery() {
   // ── Step 3: submit ──────────────────────────────────────────────────────────
 
   const handleSubmit = useCallback(async () => {
+    if (!merchantLocation || !customerLocation) return;
     setSubmitting(true);
     try {
       const t = await getToken();
-      const res = await apiClient<{ deliveryId: string; deliveryPin: string }>(
+      const res = await apiClient<{ deliveryId: string }>(
         '/delivery/request',
         t,
         {
           method: 'POST',
           body: JSON.stringify({
-            merchantName: merchant.name,
-            merchantAddress: merchant.address,
-            merchantLat: merchant.lat ?? 33.749,
-            merchantLng: merchant.lng ?? -84.388,
-            customerAddress,
-            customerLat: customerLat ?? 33.749,
-            customerLng: customerLng ?? -84.388,
+            merchantName,
+            merchantAddress: merchantLocation.address,
+            merchantLat: merchantLocation.latitude,
+            merchantLng: merchantLocation.longitude,
+            customerAddress: customerLocation.address,
+            customerLat: customerLocation.latitude,
+            customerLng: customerLocation.longitude,
             items: validItems.map((i) => ({
               name: i.name,
               quantity: i.quantity,
@@ -154,7 +124,7 @@ export default function BookDelivery() {
     } finally {
       setSubmitting(false);
     }
-  }, [getToken, merchant, customerAddress, customerLat, customerLng, validItems, router]);
+  }, [getToken, merchantName, merchantLocation, customerLocation, validItems, router]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -163,7 +133,6 @@ export default function BookDelivery() {
       style={[s.root, { paddingTop: insets.top }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* Header */}
       <View style={s.header}>
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
@@ -175,12 +144,14 @@ export default function BookDelivery() {
       {step === 'merchant' && (
         <Animated.View entering={FadeInRight.duration(300)} style={{ flex: 1 }}>
           <MerchantStep
-            merchant={merchant}
-            setMerchant={setMerchant}
-            customerAddress={customerAddress}
-            setCustomerAddress={setCustomerAddress}
+            merchantName={merchantName}
+            setMerchantName={setMerchantName}
+            merchantLocation={merchantLocation}
+            setMerchantLocation={setMerchantLocation}
+            customerLocation={customerLocation}
+            setCustomerLocation={setCustomerLocation}
             canAdvance={canAdvanceToItems}
-            onNext={goToItems}
+            onNext={() => setStep('items')}
           />
         </Animated.View>
       )}
@@ -235,57 +206,54 @@ const si = StyleSheet.create({
   dotActive: { backgroundColor: colors.pink, borderColor: colors.pinkBorder },
 });
 
-// ── Step 1: Merchant ──────────────────────────────────────────────────────────
+// ── Step 1: Where is the store ────────────────────────────────────────────────
 
 function MerchantStep({
-  merchant, setMerchant, customerAddress, setCustomerAddress, canAdvance, onNext,
+  merchantName, setMerchantName,
+  merchantLocation, setMerchantLocation,
+  customerLocation, setCustomerLocation,
+  canAdvance, onNext,
 }: {
-  merchant: MerchantForm;
-  setMerchant: (fn: (m: MerchantForm) => MerchantForm) => void;
-  customerAddress: string;
-  setCustomerAddress: (v: string) => void;
+  merchantName: string;
+  setMerchantName: (v: string) => void;
+  merchantLocation: ValidatedAddress | null;
+  setMerchantLocation: (v: ValidatedAddress | null) => void;
+  customerLocation: ValidatedAddress | null;
+  setCustomerLocation: (v: ValidatedAddress | null) => void;
   canAdvance: boolean;
   onNext: () => void;
 }) {
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={s.stepContent} keyboardShouldPersistTaps="handled">
-      <Text style={s.stepTitle}>WHERE IS THE MERCHANT?</Text>
-      <Text style={s.stepSub}>We'll send a courier to purchase your items from this location.</Text>
+      <Text style={s.stepTitle}>WHERE IS THE STORE?</Text>
+      <Text style={s.stepSub}>Search for the store and your delivery address below.</Text>
 
-      <Field label="STORE NAME" placeholder="e.g. Kroger, Target, Walgreens">
+      <View style={s.field}>
+        <Text style={s.fieldLabel}>STORE NAME</Text>
         <TextInput
           style={s.input}
-          value={merchant.name}
-          onChangeText={(v) => setMerchant((m) => ({ ...m, name: v }))}
-          placeholder="Store name"
+          value={merchantName}
+          onChangeText={setMerchantName}
+          placeholder="e.g. Kroger, Target, Walgreens"
           placeholderTextColor={colors.textFaint}
           autoCapitalize="words"
         />
-      </Field>
+      </View>
 
-      <Field label="MERCHANT ADDRESS" placeholder="Full store address">
-        <TextInput
-          style={[s.input, s.inputTall]}
-          value={merchant.address}
-          onChangeText={(v) => setMerchant((m) => ({ ...m, address: v }))}
-          placeholder="123 Peachtree St NW, Atlanta, GA"
-          placeholderTextColor={colors.textFaint}
-          multiline
-          textAlignVertical="top"
-        />
-      </Field>
+      <AddressInput
+        label="STORE ADDRESS"
+        placeholder="Search for the store location..."
+        value={merchantLocation}
+        onChange={setMerchantLocation}
+      />
 
-      <Field label="DELIVER TO" placeholder="Your address">
-        <TextInput
-          style={[s.input, s.inputTall]}
-          value={customerAddress}
-          onChangeText={setCustomerAddress}
-          placeholder="456 Auburn Ave NE, Atlanta, GA"
-          placeholderTextColor={colors.textFaint}
-          multiline
-          textAlignVertical="top"
-        />
-      </Field>
+      <AddressInput
+        label="DELIVER TO"
+        placeholder="Search your delivery address..."
+        value={customerLocation}
+        onChange={setCustomerLocation}
+        showLocateMe
+      />
 
       <TouchableOpacity
         style={[s.primaryBtn, !canAdvance && s.disabled]}
@@ -437,7 +405,7 @@ function BreakdownStep({
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={s.stepContent}>
       <Text style={s.stepTitle}>REVIEW & CONFIRM</Text>
-      <Text style={s.stepSub}>We'll place a hold for the total. You'll only be charged the actual amount after delivery.</Text>
+      <Text style={s.stepSub}>We'll place a hold for the total. You only pay the actual receipt amount after delivery.</Text>
 
       <View style={[s.breakdownCard, shadow.card]}>
         <BreakdownRow label="Merchant items (est.)" value={fmtMoney(estimate.estimatedMerchantSpend)} />
@@ -496,15 +464,6 @@ function BreakdownRow({ label, value, bold, faint }: { label: string; value: str
   );
 }
 
-function Field({ label, placeholder: _ph, children }: { label: string; placeholder?: string; children: React.ReactNode }) {
-  return (
-    <View style={s.field}>
-      <Text style={s.fieldLabel}>{label}</Text>
-      {children}
-    </View>
-  );
-}
-
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
@@ -528,7 +487,6 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border,
     padding: spacing.lg, fontFamily: fonts.body, fontSize: 14, color: colors.textPrimary,
   },
-  inputTall: { minHeight: 72 },
 
   primaryBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -548,10 +506,7 @@ const s = StyleSheet.create({
 
   footerRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
 
-  addItemBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-    paddingVertical: spacing.md,
-  },
+  addItemBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md },
   addItemText: { fontFamily: fonts.monoBold, fontSize: 12, color: colors.pink, letterSpacing: 1 },
 
   totalRow: {
