@@ -17,8 +17,13 @@ export async function POST() {
   const clerkUser = await clerk.users.getUser(clerkId);
   const email = clerkUser.primaryEmailAddress?.emailAddress || '';
 
-  const customerId = await getOrCreateStripeCustomer({ id: userId, email, clerkId });
-  const clientSecret = await createSetupIntent(customerId);
-
-  return NextResponse.json({ clientSecret, customerId });
+  try {
+    const customerId = await getOrCreateStripeCustomer({ id: userId, email, clerkId });
+    const clientSecret = await createSetupIntent(customerId);
+    return NextResponse.json({ clientSecret, customerId });
+  } catch (err: any) {
+    console.error('[setup-intent] Stripe error:', err?.message);
+    // Surface a clear message so mobile can show actionable UI
+    return NextResponse.json({ error: err?.message ?? 'Failed to create payment session' }, { status: 500 });
+  }
 }
