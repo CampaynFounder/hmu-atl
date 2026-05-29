@@ -151,6 +151,7 @@ try {
 }
 
 const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '';
+console.log('[stripe] publishable key prefix:', stripePublishableKey ? stripePublishableKey.slice(0, 20) + '...' : 'MISSING — EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY is empty');
 
 const tokenCache = {
   async getToken(key: string) { return SecureStore.getItemAsync(key); },
@@ -215,7 +216,7 @@ export default function RootLayout() {
     return (
       <StripeProvider
         publishableKey={stripePublishableKey}
-        merchantIdentifier="merchant.com.hmucashride"
+        merchantIdentifier="merchant.com.hmupickup"
         urlScheme="hmuatl"
       >
         <AppProviders />

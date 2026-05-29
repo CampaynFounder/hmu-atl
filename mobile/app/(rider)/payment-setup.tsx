@@ -125,7 +125,7 @@ function PaymentSetupInner() {
 
         if (initError) {
           console.error('[payment-setup] initPaymentSheet failed:', initError.code, initError.message);
-          if (!cancelled) setError(initError.message ?? 'Failed to initialize payment');
+          if (!cancelled) setError(`[${initError.code}] ${initError.message ?? 'Failed to initialize payment'}`);
           return;
         }
 
