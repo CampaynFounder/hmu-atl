@@ -13,7 +13,7 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.hmucashride",
+      "bundleIdentifier": "com.hmupickup",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "HMU ATL uses your location to find nearby drivers and track rides.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "HMU ATL uses your location in the background to track your active ride.",
@@ -31,7 +31,7 @@
       }
     },
     "android": {
-      "package": "com.hmucashride",
+      "package": "com.hmupickup",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#080808"
@@ -84,7 +84,7 @@
       [
         "@stripe/stripe-react-native",
         {
-          "merchantIdentifier": "merchant.com.hmucashride",
+          "merchantIdentifier": "merchant.com.hmupickup",
           "enableGooglePay": true
         }
       ]
