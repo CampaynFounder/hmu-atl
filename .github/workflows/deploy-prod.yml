@@ -171,6 +171,7 @@ jobs:
           node scripts/apply-migration.mjs sql/007b_comments_base.sql
           node scripts/apply-migration.mjs sql/008_comments_v2.sql
           node scripts/apply-migration.mjs lib/db/migrations/2026-05-25-user-delete-fk-cleanup.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-28-delivery-marketplace.sql
 
       - name: Post-deploy health check
         run: |
