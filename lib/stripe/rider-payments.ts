@@ -14,7 +14,7 @@ export async function getOrCreateStripeCustomer(rider: {
     WHERE user_id = ${rider.id} LIMIT 1
   `;
   const existing = (rows[0] as Record<string, unknown>)?.stripe_customer_id as string | null;
-  if (existing) return existing;
+  if (existing && !existing.startsWith('cus_mock_')) return existing;
 
   if (isMock) {
     const mockId = 'cus_mock_' + Date.now();
