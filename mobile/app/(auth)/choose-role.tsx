@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Alert,
+  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -15,7 +14,7 @@ export default function ChooseRole() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { getToken } = useAuth();
-  const [selecting, setSelecting] = useState<'rider' | null>(null);
+  const [selecting, setSelecting] = useState<'rider' | 'driver' | null>(null);
   const [checking, setChecking] = useState(true);
 
   // Safety net: existing drivers who accidentally hit sign-up bypass this screen
@@ -42,20 +41,25 @@ export default function ChooseRole() {
         method: 'PATCH',
         body: JSON.stringify({ profileType: 'rider' }),
       });
+      router.replace('/(rider)/onboarding' as any);
     } catch {
-      // Non-fatal — the stub defaults to 'rider' anyway
-    } finally {
       router.replace('/');
     }
   }, [getToken, router]);
 
-  const selectDriver = useCallback(() => {
-    Alert.alert(
-      'DRIVER SIGN-UP',
-      'Complete your driver application at hmucashride.com first. Once your account is approved, sign in here.',
-      [{ text: 'GOT IT', style: 'default' }],
-    );
-  }, []);
+  const selectDriver = useCallback(async () => {
+    setSelecting('driver');
+    try {
+      const t = await getToken();
+      await apiClient('/users/me', t, {
+        method: 'PATCH',
+        body: JSON.stringify({ profileType: 'driver' }),
+      });
+      router.replace('/(driver)/onboarding' as any);
+    } catch {
+      router.replace('/');
+    }
+  }, [getToken, router]);
 
   if (checking) {
     return (
@@ -105,14 +109,16 @@ export default function ChooseRole() {
             activeOpacity={0.85}
             disabled={selecting !== null}
           >
-            <View style={[s.iconWrap, { backgroundColor: colors.cardAlt, borderColor: colors.border }]}>
-              <Ionicons name="car" size={28} color={colors.textTertiary} />
+            <View style={[s.iconWrap, { backgroundColor: colors.amberDim, borderColor: colors.amberBorder }]}>
+              {selecting === 'driver'
+                ? <ActivityIndicator color={colors.amber} size="small" />
+                : <Ionicons name="car" size={28} color={colors.amber} />}
             </View>
             <View style={s.cardText}>
-              <Text style={[s.cardTitle, { color: colors.textSecondary }]}>I DRIVE</Text>
-              <Text style={s.cardDesc}>Complete driver setup at hmucashride.com first</Text>
+              <Text style={[s.cardTitle, { color: colors.amber }]}>I DRIVE</Text>
+              <Text style={s.cardDesc}>Earn on your schedule. Set your own price.</Text>
             </View>
-            <Ionicons name="information-circle-outline" size={20} color={colors.textFaint} />
+            {selecting !== 'driver' && <Ionicons name="chevron-forward" size={20} color={colors.amber} />}
           </TouchableOpacity>
         </Animated.View>
       </View>
@@ -152,7 +158,7 @@ const s = StyleSheet.create({
     gap: spacing.md, borderWidth: 1,
   },
   riderCard: { borderColor: colors.greenBorder },
-  driverCard: { borderColor: colors.border },
+  driverCard: { borderColor: colors.amberBorder },
 
   iconWrap: {
     width: 52, height: 52, borderRadius: radius.cardInner,

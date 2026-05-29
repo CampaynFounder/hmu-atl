@@ -21,6 +21,7 @@
         "NSMicrophoneUsageDescription": "HMU ATL needs microphone access for in-app calls between drivers and riders.",
         "NSPhotoLibraryUsageDescription": "HMU ATL needs access to your photo library to upload your profile photo and intro video.",
         "NSPhotoLibraryAddUsageDescription": "HMU ATL needs permission to save photos to your library.",
+        "NSFaceIDUsageDescription": "HMU ATL uses Face ID to protect your account.",
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
           "location",

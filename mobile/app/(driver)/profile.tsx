@@ -32,6 +32,37 @@ interface DriverProfile {
   payout: { setupComplete: boolean; last4: string | null; bankName: string | null };
 }
 
+interface ActivationItem {
+  key: string;
+  label: string;
+  cta: string;
+  route: string;
+  done: boolean;
+}
+
+interface ActivationProgress {
+  items: ActivationItem[];
+  complete: number;
+  incomplete: number;
+  total: number;
+  percent: number;
+}
+
+// Maps the web routes returned by /api/driver/activation-progress to mobile screens.
+const ACTIVATION_ROUTE_MAP: Record<string, string> = {
+  '/driver/payout-setup': '/(driver)/payout-setup',
+  '/driver/profile?focus=photo': '/(driver)/advanced/media',
+  '/driver/profile?focus=video': '/(driver)/advanced/media',
+  '/driver/profile?focus=pricing': '/(driver)/advanced/pricing',
+  '/driver/schedule': '/(driver)/advanced/availability',
+  '/driver/profile?focus=areas': '/(driver)/advanced/home-base',
+  '/driver/profile?focus=vehicle': '/(driver)/edit-profile',
+};
+
+function toMobileRoute(webRoute: string): string {
+  return ACTIVATION_ROUTE_MAP[webRoute] ?? '/(driver)/edit-profile';
+}
+
 export default function DriverProfileScreen() {
   const insets = useSafeAreaInsets();
   const { getToken, signOut } = useAuth();
@@ -39,14 +70,19 @@ export default function DriverProfileScreen() {
   const { isSuperAdmin } = useUserContext();
   const [adminVisible, setAdminVisible] = useState(false);
   const [profile, setProfile] = useState<DriverProfile | null>(null);
+  const [activation, setActivation] = useState<ActivationProgress | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchProfile = useCallback(async () => {
     try {
       const t = await getToken();
-      const data = await apiClient<DriverProfile>('/driver/profile', t);
-      setProfile(data);
+      const [profileData, activationData] = await Promise.all([
+        apiClient<DriverProfile>('/driver/profile', t),
+        apiClient<ActivationProgress>('/driver/activation-progress', t),
+      ]);
+      setProfile(profileData);
+      setActivation(activationData);
     } catch {}
     finally { setLoading(false); setRefreshing(false); }
   }, [getToken]);
@@ -128,6 +164,37 @@ export default function DriverProfileScreen() {
         <StatBox label="CHILL" value={`${chillScore}%`} accent={chillScore >= 80} />
         <StatBox label="TIER" value={isFirst ? '1ST' : 'FREE'} accent={isFirst} />
       </View>
+
+      {/* Activation checklist — shown until all items are done */}
+      {activation && activation.incomplete > 0 && (
+        <View style={[s.activationCard, shadow.card]}>
+          <View style={s.activationHeader}>
+            <Text style={s.sectionLabel}>ACTIVATION</Text>
+            <View style={s.activationHeaderRight}>
+              <Text style={s.activationCount}>{activation.complete}/{activation.total}</Text>
+              <TouchableOpacity style={s.wizardBtn} onPress={() => router.push('/(driver)/onboarding' as any)}>
+                <Text style={s.wizardBtnText}>START SETUP</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          <View style={s.progressTrack}>
+            <View style={[s.progressFill, { width: `${activation.percent}%` as any }]} />
+          </View>
+          {activation.items.filter(i => !i.done).map((item) => (
+            <TouchableOpacity
+              key={item.key}
+              style={s.activationRow}
+              onPress={() => router.push(toMobileRoute(item.route) as any)}
+              activeOpacity={0.7}
+            >
+              <View style={s.activationDot} />
+              <Text style={s.activationLabel}>{item.label}</Text>
+              <Text style={s.activationCta}>{item.cta}</Text>
+              <Ionicons name="chevron-forward" size={14} color={colors.textFaint} />
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       {/* Account nav */}
       <View style={[s.menu, shadow.card]}>
@@ -223,6 +290,40 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.amberBorder,
   },
   payoutWarningText: { fontFamily: fonts.body, fontSize: 12, color: colors.amber, flex: 1 },
+
+  activationCard: {
+    backgroundColor: colors.card, borderRadius: radius.card,
+    marginBottom: spacing.lg, borderWidth: 1, borderColor: colors.amberBorder,
+    overflow: 'hidden',
+  },
+  activationHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xs,
+  },
+  activationHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  activationCount: { fontFamily: fonts.mono, fontSize: 11, color: colors.amber },
+  wizardBtn: {
+    backgroundColor: colors.amberDim, borderRadius: radius.pill,
+    paddingHorizontal: spacing.md, paddingVertical: 4,
+    borderWidth: 1, borderColor: colors.amberBorder,
+  },
+  wizardBtnText: { fontFamily: fonts.monoBold, fontSize: 9, color: colors.amber, letterSpacing: 1 },
+  progressTrack: {
+    height: 2, backgroundColor: colors.border,
+    marginHorizontal: spacing.lg, marginBottom: spacing.xs, borderRadius: 1,
+  },
+  progressFill: { height: 2, backgroundColor: colors.amber, borderRadius: 1 },
+  activationRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    borderTopWidth: 1, borderTopColor: colors.border,
+  },
+  activationDot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: colors.amber, opacity: 0.6,
+  },
+  activationLabel: { flex: 1, fontFamily: fonts.body, fontSize: 14, color: colors.textPrimary },
+  activationCta: { fontFamily: fonts.mono, fontSize: 10, color: colors.amber, letterSpacing: 0.5 },
 
   statsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
   statBox: {

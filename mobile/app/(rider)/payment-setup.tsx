@@ -2,6 +2,7 @@
 // PaymentSheet is the correct API for automatic_payment_methods SetupIntents
 // and supports Apple Pay, Google Pay, Cash App Pay, and cards automatically.
 // Requires a native build that includes @stripe/stripe-react-native.
+// StripeProvider lives in the root layout (_layout.tsx) — not here.
 
 import { useState, useEffect } from 'react';
 import {
@@ -52,16 +53,8 @@ export default function PaymentSetup() {
     );
   }
 
-  const { StripeProvider } = StripeModule;
-  return (
-    <StripeProvider
-      publishableKey={process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ''}
-      merchantIdentifier="merchant.com.hmucashride"
-      urlScheme="hmuatl"
-    >
-      <PaymentSetupInner />
-    </StripeProvider>
-  );
+  // StripeProvider is at the root layout — no need to re-wrap here.
+  return <PaymentSetupInner />;
 }
 
 function PaymentSetupInner() {
@@ -84,15 +77,25 @@ function PaymentSetupInner() {
     async function setup() {
       try {
         const t = await getToken();
-        const { clientSecret: cs } = await apiClient<{ clientSecret: string }>(
-          '/rider/payment-methods/setup-intent', t, { method: 'POST' },
-        );
+        let cs: string;
+        try {
+          const resp = await apiClient<{ clientSecret: string }>(
+            '/rider/payment-methods/setup-intent', t, { method: 'POST' },
+          );
+          cs = resp.clientSecret;
+        } catch (apiErr: any) {
+          console.error('[payment-setup] setup-intent API failed:', apiErr?.message);
+          if (!cancelled) setError(apiErr?.message ?? 'Failed to create payment session');
+          return;
+        }
         if (cancelled) return;
 
         const { error: initError } = await initPaymentSheet({
           setupIntentClientSecret: cs,
           merchantDisplayName: 'HMU ATL',
           returnURL: 'hmuatl://payment-setup',
+          applePay: { merchantCountryCode: 'US' },
+          googlePay: { merchantCountryCode: 'US', testEnv: false },
           style: 'alwaysDark',
           appearance: {
             colors: {
@@ -121,6 +124,7 @@ function PaymentSetupInner() {
         });
 
         if (initError) {
+          console.error('[payment-setup] initPaymentSheet failed:', initError.code, initError.message);
           if (!cancelled) setError(initError.message ?? 'Failed to initialize payment');
           return;
         }
@@ -130,6 +134,7 @@ function PaymentSetupInner() {
           setReady(true);
         }
       } catch (e: any) {
+        console.error('[payment-setup] unexpected error:', e?.message);
         if (!cancelled) setError(e.message ?? 'Failed to initialize payment');
       }
     }

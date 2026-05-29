@@ -95,6 +95,10 @@ export default function DriverLayout() {
         options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
+        name="onboarding"
+        options={{ href: null, headerShown: false, tabBarStyle: { display: 'none' } }}
+      />
+      <Tabs.Screen
         name="payout-setup"
         options={{ href: null, headerShown: false }}
       />

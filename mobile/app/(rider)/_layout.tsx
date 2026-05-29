@@ -63,6 +63,10 @@ export default function RiderLayout() {
         }}
       />
       <Tabs.Screen
+        name="onboarding"
+        options={{ href: null, headerShown: false, tabBarStyle: { display: 'none' } }}
+      />
+      <Tabs.Screen
         name="ride/[id]"
         options={{ href: null, headerShown: false }}
       />
