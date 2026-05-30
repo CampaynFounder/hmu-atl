@@ -204,6 +204,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/onboarding/rider-profile-fields-config',
   '/driver',
   '/driver/express(.*)',
+  '/driver/payout-complete(.*)',  // Stripe Connect mobile return bounce — must be public (no Clerk session in the in-app browser)
   '/r/(.*)',  // rider ad-funnel landing (paid Meta/TikTok ads link target)
   '/rider',
   '/rider/home',
