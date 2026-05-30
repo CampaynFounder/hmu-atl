@@ -63,6 +63,37 @@ export default function BlastBoard() {
     getToken().then(t => setToken(t ?? null));
   }, [getToken]);
 
+  // Hydrate offers on mount/re-entry. The board otherwise only catches live
+  // Ably HMUs (with a 2-min rewind), so returning to an active blast from the
+  // My Requests surface would show an empty board. Seed from drivers who've
+  // already HMU'd (hmuAt set); live events still append/update by targetId.
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (!blastId || !token || hydratedRef.current) return;
+    hydratedRef.current = true;
+    apiClient<{ targets: Array<Record<string, any>> }>(`/blast/${blastId}/targets`, token)
+      .then(({ targets }) => {
+        const hmud = (targets ?? [])
+          .filter((t) => t.hmuAt)
+          .map<DriverOffer>((t) => ({
+            targetId: String(t.targetId ?? ''),
+            driverId: String(t.driverId ?? ''),
+            handle: String(t.handle ?? ''),
+            displayName: (t.displayName ?? null) as string | null,
+            counterPrice: t.counterPrice != null ? Number(t.counterPrice) : null,
+            etaMinutes: null,
+            receivedAt: t.hmuAt ? new Date(t.hmuAt).getTime() : Date.now(),
+          }));
+        if (!hmud.length) return;
+        setOffers((prev) => {
+          const byId = new Map(prev.map((o) => [o.targetId, o]));
+          for (const o of hmud) if (!byId.has(o.targetId)) byId.set(o.targetId, o);
+          return Array.from(byId.values()).sort((a, b) => b.receivedAt - a.receivedAt);
+        });
+      })
+      .catch(() => { /* board still works via live events */ });
+  }, [blastId, token]);
+
   const handleMessage = useCallback((msg: AblyMessage) => {
     const data = msg.data as Record<string, unknown>;
 
