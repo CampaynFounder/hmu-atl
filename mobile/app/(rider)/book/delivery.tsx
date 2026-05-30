@@ -1,4 +1,4 @@
-// Request Pickup — customer delivery request wizard.
+// Request Store Run — customer delivery request wizard.
 // 3 steps: Where is the store → Items → Breakdown + Confirm.
 // Route: /(rider)/book/delivery
 
@@ -137,7 +137,7 @@ export default function BookDelivery() {
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>REQUEST PICKUP</Text>
+        <Text style={s.headerTitle}>REQUEST STORE RUN</Text>
         <StepIndicator current={step} />
       </View>
 

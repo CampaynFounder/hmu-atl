@@ -143,7 +143,7 @@ export default function MyRequests() {
       const delivery = deliveryR.status === 'fulfilled' ? deliveryR.value.delivery : null;
       if (delivery) {
         next.push({
-          key: `delivery:${delivery.id}`, type: 'pickup', typeLabel: 'PICKUP', icon: 'bag-handle-outline',
+          key: `delivery:${delivery.id}`, type: 'pickup', typeLabel: 'STORE RUN', icon: 'bag-handle-outline',
           pickup: delivery.merchantName || 'Pickup', dropoff: delivery.customerAddress,
           price: null, expiresAt: null, cta: 'TRACK',
           onPress: () => router.push(`/(rider)/delivery/${delivery.id}` as never),
