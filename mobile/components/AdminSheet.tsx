@@ -18,7 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView,
   Animated, PanResponder, ActivityIndicator, TextInput, Switch,
-  FlatList, Pressable, Dimensions,
+  FlatList, Pressable, Dimensions, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
@@ -885,6 +885,390 @@ function LoadingCard() {
 
 // ── Tab config ────────────────────────────────────────────────────────────────
 
+// ── Blasts (matching observability) ───────────────────────────────────────────
+
+interface AdminBlast {
+  id: string;
+  shortcode: string | null;
+  status: string;
+  priceDollars: number;
+  pickupAddress: string | null;
+  dropoffAddress: string | null;
+  targetedCount: number;
+  notifiedCount: number;
+  hmuCount: number;
+  selectedCount: number;
+  offerPageViews: number;
+}
+
+const BLAST_STATUSES = ['all', 'active', 'matched', 'expired', 'cancelled'] as const;
+
+function blastStatusColor(status: string): string {
+  if (status === 'active') return G;
+  if (status === 'matched') return colors.blue;
+  if (status === 'cancelled' || status === 'expired') return colors.textFaint;
+  return colors.textFaint;
+}
+
+function FunnelStat({ label, value, warn }: { label: string; value: string | number; warn?: boolean }) {
+  return (
+    <View style={ad.funnelStat}>
+      <Text style={[ad.funnelVal, warn && { color: colors.amber }]}>{value}</Text>
+      <Text style={ad.funnelLbl}>{label}</Text>
+    </View>
+  );
+}
+
+// Per-blast "why did/didn't a driver match" lookup — runs eligibility checks.
+function BlastDriverLookup({ blastId, token }: { blastId: string; token: string | null }) {
+  const [q, setQ] = useState('');
+  const [drivers, setDrivers] = useState<Array<Record<string, any>>>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const query = q.trim();
+    if (query.length < 2 || !token) { setDrivers([]); return; }
+    let cancelled = false;
+    setLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await apiClient<{ drivers: Array<Record<string, any>> }>(
+          `/admin/blast/${blastId}/driver-lookup?q=${encodeURIComponent(query)}`, token,
+        );
+        if (!cancelled) setDrivers(res.drivers ?? []);
+      } catch { if (!cancelled) setDrivers([]); }
+      finally { if (!cancelled) setLoading(false); }
+    }, 350);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [q, blastId, token]);
+
+  return (
+    <View style={ad.lookup}>
+      <View style={ad.searchWrap}>
+        <Ionicons name="search" size={13} color={colors.textFaint} />
+        <TextInput
+          style={ad.searchInput}
+          placeholder="Why didn't a driver match? Search name…"
+          placeholderTextColor={colors.textFaint}
+          value={q} onChangeText={setQ} autoCapitalize="none" autoCorrect={false}
+        />
+        {loading && <ActivityIndicator size="small" color={G} />}
+      </View>
+      {drivers.map((d, i) => {
+        const checks: Array<Record<string, any>> = Array.isArray(d.checks) ? d.checks : [];
+        return (
+          <View key={(d.id as string) ?? i} style={ad.driverCard}>
+            <Text style={ad.driverName}>{d.displayName ?? d.handle ?? d.name ?? 'Driver'}{d.handle ? `  @${d.handle}` : ''}</Text>
+            {checks.map((c, j) => {
+              const ok = (c.pass ?? c.ok ?? c.passed) === true;
+              return (
+                <View key={j} style={ad.checkRow}>
+                  <Ionicons name={ok ? 'checkmark-circle' : 'close-circle'} size={12} color={ok ? G : colors.red} />
+                  <Text style={ad.checkText}><Text style={{ color: colors.textSecondary }}>{c.label}:</Text> {String(c.detail ?? '')}</Text>
+                </View>
+              );
+            })}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function BlastsSection({ token, market }: { token: string | null; market: MarketSlug }) {
+  const [blasts, setBlasts] = useState<AdminBlast[]>([]);
+  const [status, setStatus] = useState<typeof BLAST_STATUSES[number]>('all');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const load = useCallback(async (p: number, replace: boolean) => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const qp = new URLSearchParams({ page: String(p) });
+      if (market !== 'all') qp.set('market', market);
+      if (status !== 'all') qp.set('status', status);
+      const res = await apiClient<{ blasts: AdminBlast[]; hasMore: boolean }>(`/admin/blast?${qp.toString()}`, token);
+      setHasMore(!!res.hasMore);
+      setBlasts(prev => replace ? (res.blasts ?? []) : [...prev, ...(res.blasts ?? [])]);
+    } catch { /* keep prior */ }
+    finally { setLoading(false); }
+  }, [token, market, status]);
+
+  useEffect(() => { setPage(1); void load(1, true); }, [load]);
+
+  return (
+    <ScrollView contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.xxl }} keyboardShouldPersistTaps="handled">
+      <View style={ad.chipRow}>
+        {BLAST_STATUSES.map(st => (
+          <TouchableOpacity key={st} style={[ad.chip, status === st && ad.chipActive]} onPress={() => setStatus(st)}>
+            <Text style={[ad.chipText, status === st && ad.chipTextActive]}>{st.toUpperCase()}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {loading && blasts.length === 0 ? (
+        <ActivityIndicator color={G} style={{ marginTop: 28 }} />
+      ) : blasts.length === 0 ? (
+        <EmptyState msg="No blasts match" />
+      ) : (
+        blasts.map(b => (
+          <View key={b.id}>
+            <TouchableOpacity style={ad.card} activeOpacity={0.85}
+              onPress={() => setExpandedId(expandedId === b.id ? null : b.id)}>
+              <View style={ad.cardTop}>
+                <Text style={ad.cardTitle}>{b.shortcode ? `#${b.shortcode}` : b.id.slice(0, 8)}</Text>
+                <View style={ad.rowRight}>
+                  <Text style={ad.cardPrice}>${b.priceDollars.toFixed(0)}</Text>
+                  <View style={[ad.statusDot, { backgroundColor: blastStatusColor(b.status) }]} />
+                  <Text style={[ad.statusText, { color: blastStatusColor(b.status) }]}>{b.status.toUpperCase()}</Text>
+                </View>
+              </View>
+              <Text style={ad.route} numberOfLines={1}>{b.pickupAddress || '—'} → {b.dropoffAddress || '—'}</Text>
+              <View style={ad.funnel}>
+                <FunnelStat label="TGT" value={b.targetedCount} />
+                <FunnelStat label="NOTIF" value={b.notifiedCount} warn={b.notifiedCount < 3} />
+                <FunnelStat label="HMU" value={b.hmuCount} warn={b.hmuCount === 0} />
+                <FunnelStat label="VIEWS" value={b.offerPageViews} />
+                <FunnelStat label="PICK" value={b.selectedCount} />
+              </View>
+            </TouchableOpacity>
+            {expandedId === b.id && <BlastDriverLookup blastId={b.id} token={token} />}
+          </View>
+        ))
+      )}
+
+      {hasMore && !loading && (
+        <TouchableOpacity style={ad.loadMore} onPress={() => { const np = page + 1; setPage(np); void load(np, false); }}>
+          <Text style={ad.loadMoreText}>LOAD MORE</Text>
+        </TouchableOpacity>
+      )}
+      {loading && blasts.length > 0 && <ActivityIndicator color={G} size="small" />}
+    </ScrollView>
+  );
+}
+
+// ── Users (admin) ─────────────────────────────────────────────────────────────
+
+interface AdminUserRow {
+  id: string;
+  profileType: string;
+  accountStatus: string;
+  tier: string | null;
+  displayName: string;
+  phone: string | null;
+  completedRides: number;
+}
+
+const USER_TYPES = ['all', 'rider', 'driver'] as const;
+const USER_STATUSES = ['all', 'active', 'pending', 'suspended'] as const;
+
+function UserCard({ user, token, onChanged }: {
+  user: AdminUserRow; token: string | null; onChanged: (patch: Partial<AdminUserRow>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [detail, setDetail] = useState<Record<string, any> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function fetchDetail() {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const res = await apiClient<{ user: Record<string, any> }>(`/admin/users/${user.id}`, token);
+      setDetail(res.user);
+    } catch { /* keep */ }
+    finally { setLoading(false); }
+  }
+
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    if (next && !detail) void fetchDetail();
+  }
+
+  async function patch(body: Record<string, unknown>, key: string) {
+    if (!token) return;
+    setBusy(key);
+    try {
+      await apiClient(`/admin/users/${user.id}`, token, { method: 'PATCH', body: JSON.stringify(body) });
+      setDetail(prev => (prev ? { ...prev, ...body } : prev));
+      if (body.accountStatus) onChanged({ accountStatus: body.accountStatus as string });
+    } catch (e: any) {
+      Alert.alert('Action failed', e?.message ?? 'Try again');
+    } finally { setBusy(null); }
+  }
+
+  const status = (detail?.accountStatus as string) ?? user.accountStatus;
+  const banned = status === 'suspended';
+  const og = detail?.ogStatus === true;
+
+  return (
+    <View style={ad.card}>
+      <TouchableOpacity activeOpacity={0.85} onPress={toggle}>
+        <View style={ad.cardTop}>
+          <Text style={ad.cardTitle} numberOfLines={1}>{user.displayName}</Text>
+          <View style={ad.rowRight}>
+            <Text style={ad.typeTag}>{user.profileType.toUpperCase()}</Text>
+            <View style={[ad.statusDot, { backgroundColor: banned ? colors.red : status === 'active' ? G : colors.amber }]} />
+          </View>
+        </View>
+        <Text style={ad.userMeta}>{user.phone ?? '—'} · {user.completedRides} rides · {status}</Text>
+      </TouchableOpacity>
+
+      {open && (
+        <View style={ad.actions}>
+          {loading ? <ActivityIndicator color={G} size="small" /> : (
+            <>
+              <View style={ad.actionRow}>
+                <TouchableOpacity
+                  style={[ad.actionBtn, banned ? ad.actionBtnGreen : ad.actionBtnRed]}
+                  disabled={busy !== null}
+                  onPress={() => patch({ accountStatus: banned ? 'active' : 'suspended' }, 'ban')}
+                >
+                  {busy === 'ban' ? <ActivityIndicator size="small" color={banned ? G : colors.red} />
+                    : <Text style={[ad.actionBtnText, { color: banned ? G : colors.red }]}>{banned ? 'UNBAN / ACTIVATE' : 'BAN (SUSPEND)'}</Text>}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[ad.actionBtn, og ? ad.actionBtnAmber : ad.actionBtnGreen]}
+                  disabled={busy !== null || !detail}
+                  onPress={() => patch({ ogStatus: !og }, 'og')}
+                >
+                  {busy === 'og' ? <ActivityIndicator size="small" color={G} />
+                    : <Text style={[ad.actionBtnText, { color: og ? colors.amber : G }]}>{og ? 'REVOKE OG' : 'GRANT OG'}</Text>}
+                </TouchableOpacity>
+              </View>
+              {detail && (
+                <Text style={ad.userMeta}>
+                  OG: {og ? 'yes' : 'no'} · tier: {detail.tier ?? '—'} · chill: {detail.chillScore ?? '—'} · disputes: {detail.disputeCount ?? 0}{detail.handle ? ` · @${detail.handle}` : ''}
+                </Text>
+              )}
+            </>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function UsersSection({ token }: { token: string | null }) {
+  const [users, setUsers] = useState<AdminUserRow[]>([]);
+  const [search, setSearch] = useState('');
+  const [type, setType] = useState<typeof USER_TYPES[number]>('all');
+  const [status, setStatus] = useState<typeof USER_STATUSES[number]>('all');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async (p: number, replace: boolean, term: string) => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const qp = new URLSearchParams({ page: String(p) });
+      if (term.trim()) qp.set('search', term.trim());
+      if (type !== 'all') qp.set('type', type);
+      if (status !== 'all') qp.set('status', status);
+      const res = await apiClient<{ users: AdminUserRow[]; total: number }>(`/admin/users?${qp.toString()}`, token);
+      setTotal(res.total ?? 0);
+      setUsers(prev => replace ? (res.users ?? []) : [...prev, ...(res.users ?? [])]);
+    } catch { /* keep */ }
+    finally { setLoading(false); }
+  }, [token, type, status]);
+
+  // Debounced search; filter changes also reset to page 1 (load identity changes)
+  useEffect(() => {
+    const timer = setTimeout(() => { setPage(1); void load(1, true, search); }, 350);
+    return () => clearTimeout(timer);
+  }, [search, load]);
+
+  const hasMore = users.length < total;
+
+  return (
+    <ScrollView contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.xxl }} keyboardShouldPersistTaps="handled">
+      <View style={ad.searchWrap}>
+        <Ionicons name="search" size={13} color={colors.textFaint} />
+        <TextInput style={ad.searchInput} placeholder="Search name, handle, phone…" placeholderTextColor={colors.textFaint}
+          value={search} onChangeText={setSearch} autoCapitalize="none" autoCorrect={false} />
+      </View>
+      <View style={ad.chipRow}>
+        {USER_TYPES.map(t => (
+          <TouchableOpacity key={t} style={[ad.chip, type === t && ad.chipActive]} onPress={() => setType(t)}>
+            <Text style={[ad.chipText, type === t && ad.chipTextActive]}>{t.toUpperCase()}</Text>
+          </TouchableOpacity>
+        ))}
+        <View style={ad.chipDivider} />
+        {USER_STATUSES.map(st => (
+          <TouchableOpacity key={st} style={[ad.chip, status === st && ad.chipActive]} onPress={() => setStatus(st)}>
+            <Text style={[ad.chipText, status === st && ad.chipTextActive]}>{st.toUpperCase()}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <Text style={ad.countLine}>{total} user{total === 1 ? '' : 's'}</Text>
+
+      {loading && users.length === 0 ? <ActivityIndicator color={G} style={{ marginTop: 28 }} />
+        : users.length === 0 ? <EmptyState msg="No users match" />
+        : users.map(u => (
+          <UserCard key={u.id} user={u} token={token}
+            onChanged={(p) => setUsers(prev => prev.map(x => x.id === u.id ? { ...x, ...p } : x))} />
+        ))}
+
+      {hasMore && !loading && (
+        <TouchableOpacity style={ad.loadMore} onPress={() => { const np = page + 1; setPage(np); void load(np, false, search); }}>
+          <Text style={ad.loadMoreText}>LOAD MORE ({users.length}/{total})</Text>
+        </TouchableOpacity>
+      )}
+      {loading && users.length > 0 && <ActivityIndicator color={G} size="small" />}
+    </ScrollView>
+  );
+}
+
+const ad = StyleSheet.create({
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
+  chip: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+  chipActive: { borderColor: colors.greenBorder, backgroundColor: colors.greenDim },
+  chipText: { fontFamily: fonts.mono, fontSize: 8, color: colors.textFaint, letterSpacing: 0.8 },
+  chipTextActive: { color: G },
+  chipDivider: { width: 1, height: 12, backgroundColor: colors.border, marginHorizontal: 2 },
+
+  card: { backgroundColor: colors.card, borderRadius: radius.card, borderWidth: 1, borderColor: colors.border, padding: spacing.md, gap: 6 },
+  cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  cardTitle: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.textPrimary, letterSpacing: 0.5, flex: 1 },
+  rowRight: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  cardPrice: { fontFamily: fonts.monoBold, fontSize: 12, color: colors.textPrimary },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
+  statusText: { fontFamily: fonts.mono, fontSize: 8, letterSpacing: 0.8 },
+  route: { fontFamily: fonts.body, fontSize: 12, color: colors.textTertiary },
+
+  funnel: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 },
+  funnelStat: { alignItems: 'center', flex: 1 },
+  funnelVal: { fontFamily: fonts.monoBold, fontSize: 15, color: colors.textPrimary },
+  funnelLbl: { fontFamily: fonts.mono, fontSize: 7, color: colors.textFaint, letterSpacing: 1, marginTop: 1 },
+
+  lookup: { marginTop: 4, marginLeft: spacing.md, paddingLeft: spacing.md, borderLeftWidth: 1, borderLeftColor: colors.border, gap: 6 },
+  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.card, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, paddingVertical: 6 },
+  searchInput: { flex: 1, fontFamily: fonts.body, fontSize: 13, color: colors.textPrimary, padding: 0 },
+  driverCard: { backgroundColor: colors.cardAlt, borderRadius: radius.cardInner, padding: 8, gap: 3 },
+  driverName: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.textPrimary },
+  checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 5 },
+  checkText: { fontFamily: fonts.body, fontSize: 11, color: colors.textTertiary, flex: 1 },
+
+  loadMore: { alignItems: 'center', paddingVertical: 10, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.greenBorder, backgroundColor: colors.greenDim, marginTop: 4 },
+  loadMoreText: { fontFamily: fonts.monoBold, fontSize: 10, color: G, letterSpacing: 1 },
+
+  typeTag: { fontFamily: fonts.mono, fontSize: 8, color: colors.textFaint, letterSpacing: 0.8 },
+  userMeta: { fontFamily: fonts.body, fontSize: 11, color: colors.textTertiary },
+  countLine: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1 },
+  actions: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border, gap: 6 },
+  actionRow: { flexDirection: 'row', gap: 8 },
+  actionBtn: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: radius.pill, borderWidth: 1 },
+  actionBtnRed: { borderColor: colors.redBorder, backgroundColor: colors.redDim },
+  actionBtnGreen: { borderColor: colors.greenBorder, backgroundColor: colors.greenDim },
+  actionBtnAmber: { borderColor: colors.amberBorder, backgroundColor: colors.amberDim },
+  actionBtnText: { fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 0.8 },
+});
+
 const TABS = [
   { key: 'activity', label: 'ACTIVITY', icon: 'stats-chart' as const },
   { key: 'revenue',  label: 'REVENUE',  icon: 'cash' as const },
@@ -892,6 +1276,8 @@ const TABS = [
   { key: 'safety',   label: 'SAFETY',   icon: 'shield' as const },
   { key: 'growth',   label: 'GROWTH',   icon: 'trending-up' as const },
   { key: 'ai',       label: 'AI',       icon: 'sparkles' as const },
+  { key: 'blasts',   label: 'BLASTS',   icon: 'radio' as const },
+  { key: 'users',    label: 'USERS',    icon: 'people' as const },
 ];
 
 // ── Main Sheet ────────────────────────────────────────────────────────────────
@@ -953,6 +1339,8 @@ export function AdminSheet({ visible, onClose }: AdminSheetProps) {
       case 3: return <SafetySection token={token} />;
       case 4: return <GrowthSection {...props} />;
       case 5: return <AISection {...props} />;
+      case 6: return <BlastsSection token={token} market={market} />;
+      case 7: return <UsersSection token={token} />;
       default: return null;
     }
   };
