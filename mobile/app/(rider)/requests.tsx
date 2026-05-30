@@ -167,9 +167,7 @@ export default function MyRequests() {
   return (
     <View style={[s.root, { paddingTop: insets.top }]}>
       <View style={s.nav}>
-        <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
-        </TouchableOpacity>
+        <View style={s.navSpacer} />
         <Text style={s.navTitle}>MY REQUESTS</Text>
         <View style={s.navSpacer} />
       </View>
