@@ -86,7 +86,7 @@ const BOOKING_MODES: BookingMode[] = [
     color: colors.pink,
     colorDim: colors.pinkDim,
     colorBorder: colors.pinkBorder,
-    title: 'REQUEST PICKUP',
+    title: 'REQUEST STORE RUN',
     subtitle: 'GET ANYTHING DELIVERED',
     desc: 'Tell us what you need. A courier buys it and brings it to you.',
     cta: 'REQUEST ITEMS',
