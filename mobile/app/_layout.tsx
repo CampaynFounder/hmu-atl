@@ -216,7 +216,7 @@ export default function RootLayout() {
     return (
       <StripeProvider
         publishableKey={stripePublishableKey}
-        merchantIdentifier="merchant.com.hmupickup"
+        merchantIdentifier="merchant.com.hmucashride"
         urlScheme="hmuatl"
       >
         <AppProviders />
