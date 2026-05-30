@@ -27,6 +27,30 @@ interface ActiveBlast {
   expiresAt: string;
 }
 
+interface ActiveDirect {
+  id: string;
+  handle: string;
+  price: number;
+  expiresAt: string;
+  pickupAddress: string;
+  dropoffAddress: string;
+}
+
+interface ActiveDownBad {
+  id: string;
+  price: number;
+  expiresAt: string;
+  pickupAddress: string;
+  dropoffAddress: string;
+}
+
+interface ActiveDelivery {
+  id: string;
+  status: string;
+  merchantName: string;
+  customerAddress: string;
+}
+
 // A normalized request row the list renders, regardless of source type.
 interface RequestItem {
   key: string;
@@ -37,6 +61,7 @@ interface RequestItem {
   dropoff: string;
   price: number | null;
   expiresAt: string | null;
+  cta: string;
   onPress: () => void;
 }
 
@@ -67,32 +92,64 @@ export default function MyRequests() {
   const load = useCallback(async () => {
     try {
       const t = await getToken();
-      // Phase 1: blast only. Add direct/down-bad/pickup actives here later.
-      const { blast } = await apiClient<{ blast: ActiveBlast | null }>('/blast/active', t);
+      const [blastR, directR, downBadR, deliveryR] = await Promise.allSettled([
+        apiClient<{ blast: ActiveBlast | null }>('/blast/active', t),
+        apiClient<{ post: ActiveDirect | null }>('/rider/direct/active', t),
+        apiClient<{ post: ActiveDownBad | null }>('/rider/down-bad/active', t),
+        apiClient<{ delivery: ActiveDelivery | null }>('/delivery/active', t),
+      ]);
 
       const next: RequestItem[] = [];
+
+      const blast = blastR.status === 'fulfilled' ? blastR.value.blast : null;
       if (blast) {
         next.push({
-          key: `blast:${blast.id}`,
-          type: 'blast',
-          typeLabel: 'BLAST',
-          icon: 'radio-outline',
-          pickup: blast.pickupAddress,
-          dropoff: blast.dropoffAddress,
-          price: blast.price,
-          expiresAt: blast.expiresAt,
-          onPress: () =>
-            router.push({
-              pathname: '/(rider)/book/blast-board',
-              params: {
-                blastId: blast.id,
-                shortcode: blast.shortcode ?? '',
-                expiresAt: blast.expiresAt,
-                price: String(blast.price),
-              },
-            } as never),
+          key: `blast:${blast.id}`, type: 'blast', typeLabel: 'BLAST', icon: 'radio-outline',
+          pickup: blast.pickupAddress, dropoff: blast.dropoffAddress,
+          price: blast.price, expiresAt: blast.expiresAt, cta: 'SEE OFFERS',
+          onPress: () => router.push({
+            pathname: '/(rider)/book/blast-board',
+            params: { blastId: blast.id, shortcode: blast.shortcode ?? '', expiresAt: blast.expiresAt, price: String(blast.price) },
+          } as never),
         });
       }
+
+      const direct = directR.status === 'fulfilled' ? directR.value.post : null;
+      if (direct) {
+        next.push({
+          key: `direct:${direct.id}`, type: 'direct', typeLabel: 'DIRECT', icon: 'person-circle-outline',
+          pickup: direct.pickupAddress, dropoff: direct.dropoffAddress,
+          price: direct.price, expiresAt: direct.expiresAt, cta: 'VIEW',
+          onPress: () => router.push({
+            pathname: '/(rider)/book/waiting',
+            params: { type: 'direct', postId: direct.id, expiresAt: direct.expiresAt, handle: direct.handle, price: String(direct.price) },
+          } as never),
+        });
+      }
+
+      const downBad = downBadR.status === 'fulfilled' ? downBadR.value.post : null;
+      if (downBad) {
+        next.push({
+          key: `down-bad:${downBad.id}`, type: 'down-bad', typeLabel: 'DOWN BAD', icon: 'flame-outline',
+          pickup: downBad.pickupAddress, dropoff: downBad.dropoffAddress,
+          price: downBad.price, expiresAt: downBad.expiresAt, cta: 'VIEW',
+          onPress: () => router.push({
+            pathname: '/(rider)/book/waiting',
+            params: { type: 'down-bad', postId: downBad.id, expiresAt: downBad.expiresAt, price: String(downBad.price) },
+          } as never),
+        });
+      }
+
+      const delivery = deliveryR.status === 'fulfilled' ? deliveryR.value.delivery : null;
+      if (delivery) {
+        next.push({
+          key: `delivery:${delivery.id}`, type: 'pickup', typeLabel: 'PICKUP', icon: 'bag-handle-outline',
+          pickup: delivery.merchantName || 'Pickup', dropoff: delivery.customerAddress,
+          price: null, expiresAt: null, cta: 'TRACK',
+          onPress: () => router.push(`/(rider)/delivery/${delivery.id}` as never),
+        });
+      }
+
       setItems(next);
     } catch {
       // keep prior state on transient errors
@@ -190,7 +247,7 @@ function RequestCard({ item, index }: { item: RequestItem; index: number }) {
         <View style={s.cardBottom}>
           {item.price != null && <Text style={s.price}>${item.price.toFixed(2)}</Text>}
           <View style={s.manage}>
-            <Text style={s.manageText}>SEE OFFERS</Text>
+            <Text style={s.manageText}>{item.cta}</Text>
             <Ionicons name="chevron-forward" size={14} color={colors.green} />
           </View>
         </View>
