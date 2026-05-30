@@ -7,6 +7,7 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "environment": "development",
       "ios": {
         "simulator": false,
         "image": "macos-sequoia-15.6-xcode-26.2",
@@ -23,6 +24,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "environment": "preview",
       "ios": {
         "image": "macos-sequoia-15.6-xcode-26.2",
         "credentialsSource": "remote"
@@ -33,6 +35,7 @@
     },
     "production": {
       "autoIncrement": true,
+      "environment": "production",
       "ios": {
         "image": "macos-sequoia-15.6-xcode-26.2",
         "credentialsSource": "remote"
@@ -48,8 +51,7 @@
       "ios": {
         "appleId": "pharren.lowther@yahoo.com",
         "appleTeamId": "V2WPHQKC92",
-        "language": "en-US",
-        "metadataPath": "./store/ios-metadata"
+        "language": "en-US"
       },
       "android": {
         "serviceAccountKeyPath": "./google-play-key.json",
