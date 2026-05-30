@@ -56,6 +56,13 @@ export default function RiderLayout() {
         }}
       />
       <Tabs.Screen
+        name="requests"
+        options={{
+          title: 'REQUESTS',
+          tabBarIcon: tabIcon('list', 'list-outline'),
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'PROFILE',

@@ -100,16 +100,30 @@ export default function RiderHome() {
   const insets = useSafeAreaInsets();
 
   const [active, setActive] = useState<ActiveRide | null>(null);
+  const [activeReqCount, setActiveReqCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const hasLoaded = useRef(false);
 
   const checkActive = useCallback(async () => {
     try {
       const t = await getToken();
-      const data = await apiClient<ActiveRide>('/rides/active', t);
-      setActive(data);
+      const [ride, blast, direct, downBad, delivery] = await Promise.allSettled([
+        apiClient<ActiveRide>('/rides/active', t),
+        apiClient<{ blast: unknown }>('/blast/active', t),
+        apiClient<{ post: unknown }>('/rider/direct/active', t),
+        apiClient<{ post: unknown }>('/rider/down-bad/active', t),
+        apiClient<{ delivery: unknown }>('/delivery/active', t),
+      ]);
+      setActive(ride.status === 'fulfilled' ? ride.value : { hasActiveRide: false });
+      setActiveReqCount(
+        (blast.status === 'fulfilled' && blast.value.blast ? 1 : 0) +
+        (direct.status === 'fulfilled' && direct.value.post ? 1 : 0) +
+        (downBad.status === 'fulfilled' && downBad.value.post ? 1 : 0) +
+        (delivery.status === 'fulfilled' && delivery.value.delivery ? 1 : 0),
+      );
     } catch {
       setActive({ hasActiveRide: false });
+      setActiveReqCount(0);
     } finally {
       setLoading(false);
       hasLoaded.current = true;
@@ -182,6 +196,27 @@ export default function RiderHome() {
           contentContainerStyle={s.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          {activeReqCount > 0 && (
+            <Animated.View entering={FadeIn.duration(350)}>
+              <TouchableOpacity
+                style={[s.blastBanner, shadow.card]}
+                onPress={() => router.push('/(rider)/requests' as never)}
+                activeOpacity={0.85}
+              >
+                <View style={s.blastBannerLeft}>
+                  <View style={s.blastDot} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.blastBannerLabel}>
+                      {activeReqCount > 1 ? `${activeReqCount} ACTIVE REQUESTS` : 'ACTIVE REQUEST'}
+                    </Text>
+                    <Text style={s.blastBannerSub}>Tap to see offers & manage</Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.green} />
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+
           <Animated.Text entering={FadeIn.delay(50).duration(400)} style={s.sectionLabel}>
             WHAT DO YOU NEED?
           </Animated.Text>
@@ -278,6 +313,18 @@ const s = StyleSheet.create({
     fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint,
     letterSpacing: 2, marginBottom: spacing.xs,
   },
+
+  blastBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: colors.greenDim, borderRadius: radius.card,
+    borderWidth: 1, borderColor: colors.greenBorder,
+    paddingVertical: spacing.md, paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  blastBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
+  blastDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.green },
+  blastBannerLabel: { fontFamily: fonts.monoBold, fontSize: 12, color: colors.green, letterSpacing: 1.2 },
+  blastBannerSub: { fontFamily: fonts.body, fontSize: 12, color: colors.textTertiary, marginTop: 1 },
 
   bookCard: {
     backgroundColor: colors.card, borderRadius: radius.card,
