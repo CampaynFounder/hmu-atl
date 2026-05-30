@@ -18,7 +18,6 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   httpClient: Stripe.createFetchHttpClient(),
 });
 
-const APP_SCHEME = 'hmuatl';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://atl.hmucashride.com';
 
 export async function POST() {
@@ -87,11 +86,15 @@ export async function POST() {
   // return_url: app resumes here after driver completes onboarding.
   // refresh_url: Stripe redirects here if the link expires; mobile handles by
   //              calling this endpoint again to get a fresh link.
+  // Stripe account links require HTTP(S) return/refresh URLs — a custom scheme
+  // (hmuatl://) throws. We point both at an HTTPS bounce page that immediately
+  // deep-links back into the app via hmuatl://, which openAuthSessionAsync
+  // detects to close the in-app browser and hand control back to the screen.
   const link = await stripe.accountLinks.create({
     account: stripeAccountId!,
     type: 'account_onboarding',
-    return_url: `${APP_SCHEME}://payout-complete`,
-    refresh_url: `${APP_URL}/driver/payout-setup?mobile_refresh=1`,
+    return_url: `${APP_URL}/driver/payout-complete?mobile=1`,
+    refresh_url: `${APP_URL}/driver/payout-complete?mobile=1&refresh=1`,
   });
 
   return NextResponse.json({ url: link.url, stripeAccountId });
