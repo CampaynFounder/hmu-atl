@@ -131,35 +131,68 @@ function RatingSheet({
   submitting,
 }: {
   visible: boolean;
-  onRate: (rating: string) => void;
+  onRate: (rating: string, comment: string) => void;
   onClose: () => void;
   submitting: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  const [picked, setPicked] = useState<string | null>(null);
+  const [comment, setComment] = useState('');
+
+  useEffect(() => {
+    if (!visible) { setPicked(null); setComment(''); }
+  }, [visible]);
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={rs.overlay} onPress={onClose} />
-      <View style={[rs.sheet, { paddingBottom: insets.bottom + spacing.xl }]}>
-        <View style={rs.handle} />
-        <Text style={rs.title}>RATE YOUR DRIVER</Text>
-        <Text style={rs.sub}>How was this ride?</Text>
-        {RATING_OPTIONS.map(key => {
-          const m = RATING_META[key];
-          return (
-            <TouchableOpacity
-              key={key}
-              style={[rs.optionRow, { borderColor: m.border, backgroundColor: m.bg }]}
-              onPress={() => onRate(key)}
-              disabled={submitting}
-              activeOpacity={0.75}
-            >
-              <Text style={rs.optionEmoji}>{m.emoji}</Text>
-              <Text style={[rs.optionLabel, { color: m.color }]}>{m.label}</Text>
-              {submitting && <ActivityIndicator size="small" color={m.color} style={{ marginLeft: 'auto' }} />}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={[rs.sheet, { paddingBottom: insets.bottom + spacing.xl }]}>
+          <View style={rs.handle} />
+          <Text style={rs.title}>RATE YOUR DRIVER</Text>
+          <Text style={rs.sub}>How was this ride?</Text>
+          {RATING_OPTIONS.map(key => {
+            const m = RATING_META[key];
+            const selected = picked === key;
+            return (
+              <TouchableOpacity
+                key={key}
+                style={[rs.optionRow, {
+                  borderColor: selected ? m.border : colors.border,
+                  backgroundColor: selected ? m.bg : colors.cardAlt,
+                }]}
+                onPress={() => setPicked(key)}
+                disabled={submitting}
+                activeOpacity={0.75}
+              >
+                <Text style={rs.optionEmoji}>{m.emoji}</Text>
+                <Text style={[rs.optionLabel, { color: selected ? m.color : colors.textTertiary }]}>{m.label}</Text>
+                {selected && <Ionicons name="checkmark-circle" size={16} color={m.color} style={{ marginLeft: 'auto' }} />}
+              </TouchableOpacity>
+            );
+          })}
+          <TextInput
+            style={rs.commentInput}
+            placeholder="Leave a comment (optional)…"
+            placeholderTextColor={colors.textFaint}
+            value={comment}
+            onChangeText={setComment}
+            multiline
+            maxLength={160}
+          />
+          <TouchableOpacity
+            style={[rs.submitBtn, (!picked || submitting) && rs.submitBtnDisabled]}
+            onPress={() => picked && onRate(picked, comment)}
+            disabled={!picked || submitting}
+            activeOpacity={0.85}
+          >
+            {submitting
+              ? <ActivityIndicator size="small" color={colors.bg} />
+              : <Text style={rs.submitLabel}>SUBMIT RATING</Text>
+            }
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -184,6 +217,18 @@ const rs = StyleSheet.create({
   },
   optionEmoji: { fontSize: 20 },
   optionLabel: { fontFamily: fonts.monoBold, fontSize: 14, letterSpacing: 0.5 },
+  commentInput: {
+    backgroundColor: colors.cardAlt, borderRadius: radius.cardInner,
+    borderWidth: 1, borderColor: colors.borderStrong,
+    padding: spacing.md, fontFamily: fonts.body, fontSize: 14, color: colors.textPrimary,
+    minHeight: 64, textAlignVertical: 'top', marginTop: spacing.sm, marginBottom: spacing.md,
+  },
+  submitBtn: {
+    backgroundColor: colors.green, borderRadius: radius.pill,
+    paddingVertical: 15, alignItems: 'center',
+  },
+  submitBtnDisabled: { backgroundColor: colors.greenDim },
+  submitLabel: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.bg, letterSpacing: 1 },
 });
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
@@ -240,7 +285,7 @@ export default function RiderRideDetail() {
   }, [ride?.status, fetchComments]);
 
   // ── Rate driver ──
-  async function submitRating(rating: string) {
+  async function submitRating(rating: string, comment: string) {
     if (!rideId) return;
     setSubmittingRating(true);
     try {
@@ -249,6 +294,12 @@ export default function RiderRideDetail() {
         method: 'POST',
         body: JSON.stringify({ rating }),
       });
+      if (comment.trim()) {
+        await apiClient('/comments', t, {
+          method: 'POST',
+          body: JSON.stringify({ rideId, content: comment.trim() }),
+        }).catch(() => {});
+      }
       setRatingSheet(false);
       await fetchRide();
       await fetchComments();
