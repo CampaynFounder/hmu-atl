@@ -164,7 +164,10 @@ export default function DriverFeed() {
       if (msg.name === 'blast_rider_hmu') {
         const d = msg.data as Record<string, unknown>;
         const blastId = d?.blastId as string | undefined;
-        if (blastId) setRiderHmuIds(prev => new Set(prev).add(blastId));
+        if (blastId) {
+          setRiderHmuIds(prev => new Set(prev).add(blastId));
+          void fetchRequests();
+        }
       }
 
       // blast request: rider selected this driver

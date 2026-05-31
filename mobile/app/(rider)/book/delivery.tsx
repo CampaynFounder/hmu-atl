@@ -74,10 +74,11 @@ export default function BookDelivery() {
     if (!merchantLocation || !customerLocation) return;
     setLoading(true);
     try {
+      const t = await getToken();
       const spendCents = Math.round(totalEstimatedSpend * 100);
       const est = await apiClient<DeliveryEstimate>(
         `/delivery/estimate?merchantLat=${merchantLocation.latitude}&merchantLng=${merchantLocation.longitude}&customerLat=${customerLocation.latitude}&customerLng=${customerLocation.longitude}&estimatedMerchantSpendCents=${spendCents}`,
-        null,
+        t,
       );
       setEstimate(est);
       setStep('breakdown');

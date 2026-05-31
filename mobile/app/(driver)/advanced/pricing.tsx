@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, ActivityIndicator, KeyboardAvoidingView, Platform,
+  TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
@@ -20,6 +20,8 @@ interface PricingData {
     base_rate?: number;
     hourly?: number;
     out_of_town?: number;
+    store_run_rate?: number;
+    store_runs_enabled?: boolean;
   };
   depositFloor: number | null;
 }
@@ -38,6 +40,9 @@ export default function PricingScreen() {
   const [hourly, setHourly] = useState('');
   const [outOfTown, setOutOfTown] = useState('');
   const [depositFloor, setDepositFloor] = useState('');
+  const [storeRunRate, setStoreRunRate] = useState('');
+  const [storeRunsEnabled, setStoreRunsEnabled] = useState(false);
+  const togglingRef = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -49,6 +54,8 @@ export default function PricingScreen() {
         setHourly(d.pricing?.hourly ? String(d.pricing.hourly) : '');
         setOutOfTown(d.pricing?.out_of_town ? String(d.pricing.out_of_town) : '');
         setDepositFloor(d.depositFloor != null ? String(d.depositFloor) : '');
+        setStoreRunRate(d.pricing?.store_run_rate ? String(d.pricing.store_run_rate) : '');
+        setStoreRunsEnabled(d.pricing?.store_runs_enabled ?? false);
       } catch {}
       finally { setLoading(false); }
     })();
@@ -72,6 +79,21 @@ export default function PricingScreen() {
       flash();
     } catch {}
     finally { setSaving(false); }
+  }
+
+  async function toggleStoreRuns(val: boolean) {
+    if (togglingRef.current) return;
+    togglingRef.current = true;
+    setStoreRunsEnabled(val);
+    try {
+      const t = await getToken();
+      await apiClient('/users/profile', t, {
+        method: 'PATCH',
+        body: JSON.stringify({ profile_type: 'driver', pricing: { store_runs_enabled: val } }),
+      });
+      flash();
+    } catch { setStoreRunsEnabled(!val); }
+    finally { togglingRef.current = false; }
   }
 
   async function saveDepositFloor(rawVal: string) {
@@ -166,6 +188,35 @@ export default function PricingScreen() {
               placeholder="Platform default"
             />
           </View>
+
+          {/* Store Runs */}
+          <SectionHeader label="STORE RUNS" hint="Set your flat fee for picking up and delivering grocery or store orders." />
+          <View style={[s.card, shadow.card]}>
+            <View style={s.toggleRow}>
+              <View style={s.priceLabelCol}>
+                <Text style={s.priceLabel}>ACCEPT STORE RUNS</Text>
+                <Text style={s.priceSub}>Show up in store run requests</Text>
+              </View>
+              <Switch
+                value={storeRunsEnabled}
+                onValueChange={toggleStoreRuns}
+                trackColor={{ false: colors.border, true: colors.pinkBorder }}
+                thumbColor={storeRunsEnabled ? colors.pink : colors.textFaint}
+              />
+            </View>
+            {storeRunsEnabled && (
+              <>
+                <Divider />
+                <PriceRow
+                  label="STORE RUN RATE"
+                  sub="Your flat fee per store run"
+                  value={storeRunRate}
+                  onChangeText={setStoreRunRate}
+                  onBlur={() => savePricing('store_run_rate', storeRunRate)}
+                />
+              </>
+            )}
+          </View>
         </ScrollView>
       </View>
     </KeyboardAvoidingView>
@@ -239,6 +290,10 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border, overflow: 'hidden',
   },
   divider: { height: 1, backgroundColor: colors.border, marginHorizontal: spacing.lg },
+  toggleRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+  },
   priceRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
