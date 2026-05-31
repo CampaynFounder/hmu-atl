@@ -150,13 +150,13 @@ export default function DirectBooking() {
     if (prefillHandle) void findDriver(prefillHandle);
   }, []);
 
-  // Step layout: 0=driver, 1=menu items (skipped if driver has no services), 2=locations, 3=when+price
+  // Step layout: 0=driver, 1=locations, 2=extras (skipped if driver has no services), 3=when+price
   const hasMenu = (driver?.services?.length ?? 0) > 0;
 
   function validateStep(): boolean {
     if (step === 0) return !!driver;
-    if (step === 1) return true; // menu is always optional
-    if (step === 2) return !!pickup && !!dropoff;
+    if (step === 1) return !!pickup && !!dropoff;
+    if (step === 2) return true; // extras always optional
     return price >= 1;
   }
 
@@ -166,7 +166,10 @@ export default function DirectBooking() {
       return;
     }
     if (step === 0) {
-      setStep(hasMenu ? 1 : 2);
+      setStep(1);
+      await Haptics.selectionAsync();
+    } else if (step === 1) {
+      setStep(hasMenu ? 2 : 3);
       await Haptics.selectionAsync();
     } else if (step < 3) {
       setStep(s => s + 1);
@@ -179,8 +182,8 @@ export default function DirectBooking() {
   function back() {
     if (step === 0) router.back();
     else if (step === 1) setStep(0);
-    else if (step === 2) setStep(hasMenu ? 1 : 0);
-    else setStep(2);
+    else if (step === 2) setStep(1);
+    else setStep(hasMenu ? 2 : 1);
   }
 
   async function submit() {
@@ -260,7 +263,7 @@ export default function DirectBooking() {
           <Text style={s.headerTitle}>DIRECT BOOKING</Text>
           <StepDots
             total={hasMenu ? 4 : 3}
-            current={hasMenu ? step : step > 0 ? step - 1 : 0}
+            current={hasMenu ? step : step > 2 ? step - 1 : step}
             color={colors.blue}
           />
         </View>
@@ -418,8 +421,33 @@ export default function DirectBooking() {
           </Animated.View>
         )}
 
-        {step === 1 && driver && (
+        {step === 1 && (
           <Animated.View key="s1" entering={FadeInUp.duration(300)} style={s.stepWrap}>
+            <Text style={s.stepTitle}>WHERE TO?</Text>
+            <Text style={s.stepDesc}>Set your exact pickup and destination.</Text>
+
+            <View style={[s.card, shadow.card]}>
+              <AddressInput
+                label="PICKUP"
+                placeholder="Where are you?"
+                value={pickup}
+                onChange={setPickup}
+                showLocateMe
+              />
+            </View>
+            <View style={[s.card, shadow.card]}>
+              <AddressInput
+                label="DROPOFF"
+                placeholder="Where are you going?"
+                value={dropoff}
+                onChange={setDropoff}
+              />
+            </View>
+          </Animated.View>
+        )}
+
+        {step === 2 && driver && (
+          <Animated.View key="s2" entering={FadeInUp.duration(300)} style={s.stepWrap}>
             <Text style={s.stepTitle}>ADD EXTRAS?</Text>
             <Text style={s.stepDesc}>
               {driver.displayName ?? `@${driver.handle}`} offers these add-ons. Add any you want included with your booking.
@@ -477,31 +505,6 @@ export default function DirectBooking() {
               </View>
             )}
             <Text style={s.menuSkipHint}>This step is optional — skip to continue without extras.</Text>
-          </Animated.View>
-        )}
-
-        {step === 2 && (
-          <Animated.View key="s2" entering={FadeInUp.duration(300)} style={s.stepWrap}>
-            <Text style={s.stepTitle}>WHERE TO?</Text>
-            <Text style={s.stepDesc}>Set your exact pickup and destination.</Text>
-
-            <View style={[s.card, shadow.card]}>
-              <AddressInput
-                label="PICKUP"
-                placeholder="Where are you?"
-                value={pickup}
-                onChange={setPickup}
-                showLocateMe
-              />
-            </View>
-            <View style={[s.card, shadow.card]}>
-              <AddressInput
-                label="DROPOFF"
-                placeholder="Where are you going?"
-                value={dropoff}
-                onChange={setDropoff}
-              />
-            </View>
           </Animated.View>
         )}
 
