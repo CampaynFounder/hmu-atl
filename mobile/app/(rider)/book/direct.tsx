@@ -128,7 +128,7 @@ export default function DirectBooking() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const findDriver = useCallback(async (overrideHandle?: string) => {
+  const findDriver = useCallback(async (overrideHandle?: string, autoAdvance = false) => {
     const h = (overrideHandle ?? handleInput).trim().replace(/^@/, '');
     if (!h) return;
     setFindingDriver(true);
@@ -140,6 +140,7 @@ export default function DirectBooking() {
       const d = await apiClient<DriverPreview>(`/driver/${h}`, t);
       setDriver(d);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (autoAdvance) setStep(1);
     } catch {
       setDriverError("Couldn't find that driver. Double-check the handle and try again.");
     } finally {
