@@ -20,8 +20,18 @@ export async function apiClient<T = unknown>(
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
   if (!res.ok) {
-    const text = await res.text().catch(() => String(res.status));
-    throw new Error(`API ${res.status}: ${text}`);
+    const text = await res.text().catch(() => '');
+    if (res.status === 401) throw new Error('You need to be signed in. Restart the app and try again.');
+    if (res.status === 403) throw new Error("You're not able to do that right now. Check your account status or contact support.");
+    if (res.status === 429) throw new Error("Slow down a sec — you're doing that too fast. Try again in a moment.");
+    if (res.status >= 500) throw new Error('Something went wrong on our end. Try again in a bit.');
+    // Attempt to surface a clean message from the API body
+    try {
+      const body = JSON.parse(text);
+      if (body?.error) throw new Error(body.error);
+      if (body?.message) throw new Error(body.message);
+    } catch { /* ignore parse errors */ }
+    throw new Error(text || `Request failed (${res.status})`);
   }
   return res.json() as Promise<T>;
 }
