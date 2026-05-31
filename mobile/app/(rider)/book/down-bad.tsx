@@ -129,19 +129,28 @@ export default function DownBadBooking() {
     setError(null);
     try {
       const t = await getToken();
+      if (!t) throw new Error('Not signed in');
+      const safeType = mimeType && (mimeType.startsWith('image/') || mimeType.startsWith('video/'))
+        ? mimeType
+        : 'image/jpeg';
       const formData = new FormData();
-      formData.append('file', { uri, type: mimeType, name: 'photo.jpg' } as any);
+      formData.append('file', { uri, type: safeType, name: safeType.startsWith('video/') ? 'media.mp4' : 'photo.jpg' } as any);
       const res = await fetch(`${API_BASE}/upload/down-bad-media`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${t ?? ''}` },
+        headers: { Authorization: `Bearer ${t}` },
         body: formData,
       });
-      if (!res.ok) throw new Error('Upload failed');
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        console.error('[down-bad upload] failed:', res.status, errBody);
+        throw new Error(`Upload failed (${res.status})`);
+      }
       const { mediaUrl: url, mediaType: type } = await res.json() as { mediaUrl: string; mediaType: 'photo' | 'video' };
       setMediaUrl(url);
       setMediaType(type);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {
+    } catch (e: any) {
+      console.error('[down-bad upload] error:', e?.message);
       setError('Photo upload failed. Try again.');
       setMediaUri(null);
     } finally {

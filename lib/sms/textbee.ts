@@ -308,3 +308,27 @@ export async function notifyRiderDriverHere(
   const message = (await renderTemplate('driver_here', { driverName })) ?? fallback;
   return sendSms(riderPhone, message, { ...options, eventType: 'driver_here' });
 }
+
+export async function notifyDriverBlastHmu(
+  driverPhone: string,
+  details: { price: number; pickup: string; dropoff: string; viewerCount: number },
+  options: SmsOptions = {}
+): Promise<SendSmsResult> {
+  const fallback = `HMU: $${details.price} ${details.pickup} > ${details.dropoff}. ${details.viewerCount} other drivers viewing. 5 min to accept. atl.hmucashride.com/driver/home`;
+  const message = (await renderTemplate('blast_hmu', {
+    price: String(details.price),
+    pickup: details.pickup,
+    dropoff: details.dropoff,
+    viewer_count: String(details.viewerCount),
+  })) ?? fallback;
+  return sendSms(driverPhone, message, { ...options, eventType: 'blast_hmu' });
+}
+
+export async function notifyDriverDownBadTaken(
+  driverPhone: string,
+  options: SmsOptions = {}
+): Promise<SendSmsResult> {
+  const fallback = `HMU ATL: That Down Bad just got ran! Stay ready — more dropping: atl.hmucashride.com/driver/home`;
+  const message = (await renderTemplate('down_bad_taken', {})) ?? fallback;
+  return sendSms(driverPhone, message, { ...options, eventType: 'down_bad_taken' });
+}
