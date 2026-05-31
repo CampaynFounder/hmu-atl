@@ -46,7 +46,7 @@ const footerLinks = {
   resources: {
     title: 'Resources',
     links: [
-      { label: 'Help Center', href: '/help' },
+      { label: 'Help Center', href: '/support' },
       { label: 'Community Guidelines', href: '/guidelines' },
       { label: 'Contact', href: '/contact' },
     ],
