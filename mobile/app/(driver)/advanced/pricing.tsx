@@ -2,7 +2,7 @@
 // Rates → PATCH /api/users/profile { pricing: { minimum, base_rate, hourly, out_of_town } }
 // Deposit floor → PATCH /api/drivers/booking-settings { deposit_floor }
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, Switch,
@@ -43,6 +43,7 @@ export default function PricingScreen() {
   const [storeRunRate, setStoreRunRate] = useState('');
   const [storeRunsEnabled, setStoreRunsEnabled] = useState(false);
   const togglingRef = useRef(false);
+  const storeRunDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -81,15 +82,27 @@ export default function PricingScreen() {
     finally { setSaving(false); }
   }
 
+  // Debounced save for store run rate — onBlur is unreliable in React Native
+  const saveStoreRunRate = useCallback((raw: string) => {
+    if (storeRunDebounce.current) clearTimeout(storeRunDebounce.current);
+    storeRunDebounce.current = setTimeout(() => void savePricing('store_run_rate', raw), 600);
+  }, []);
+
   async function toggleStoreRuns(val: boolean) {
     if (togglingRef.current) return;
     togglingRef.current = true;
     setStoreRunsEnabled(val);
     try {
       const t = await getToken();
+      // When enabling, also persist the rate if one is already set
+      const patch: Record<string, unknown> = { store_runs_enabled: val };
+      if (val && storeRunRate) {
+        const num = parseFloat(storeRunRate);
+        if (!isNaN(num) && num >= 0) patch.store_run_rate = num;
+      }
       await apiClient('/users/profile', t, {
         method: 'PATCH',
-        body: JSON.stringify({ profile_type: 'driver', pricing: { store_runs_enabled: val } }),
+        body: JSON.stringify({ profile_type: 'driver', pricing: patch }),
       });
       flash();
     } catch { setStoreRunsEnabled(!val); }
@@ -211,7 +224,7 @@ export default function PricingScreen() {
                   label="STORE RUN RATE"
                   sub="Your flat fee per store run"
                   value={storeRunRate}
-                  onChangeText={setStoreRunRate}
+                  onChangeText={v => { setStoreRunRate(v); saveStoreRunRate(v); }}
                   onBlur={() => savePricing('store_run_rate', storeRunRate)}
                 />
               </>

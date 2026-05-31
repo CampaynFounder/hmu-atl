@@ -133,31 +133,52 @@ export default function DownBadBooking() {
       const safeType = mimeType && (mimeType.startsWith('image/') || mimeType.startsWith('video/'))
         ? mimeType
         : 'image/jpeg';
-      const formData = new FormData();
-      formData.append('file', { uri, type: safeType, name: safeType.startsWith('video/') ? 'media.mp4' : 'photo.jpg' } as any);
-      const res = await fetch(`${API_BASE}/upload/down-bad-media`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${t}` },
-        body: formData,
-      });
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        let friendlyMsg = "Couldn't upload your photo. Try again.";
-        if (res.status === 401 || res.status === 403) friendlyMsg = "You're not signed in properly. Restart the app and try again.";
-        else if (res.status === 413) friendlyMsg = "That photo is too large. Try a smaller one.";
-        else if (res.status >= 500) friendlyMsg = "Something went wrong on our end. Try again in a sec.";
-        else {
-          try {
-            const body = JSON.parse(errBody);
-            if (body?.error) friendlyMsg = body.error;
-          } catch { /* ignore */ }
-        }
-        console.error('[down-bad upload] failed:', res.status, errBody);
-        throw new Error(friendlyMsg);
-      }
-      const { mediaUrl: url, mediaType: type } = await res.json() as { mediaUrl: string; mediaType: 'photo' | 'video' };
-      setMediaUrl(url);
-      setMediaType(type);
+      const fileName = safeType.startsWith('video/') ? 'media.mp4' : 'photo.jpg';
+
+      // Use XMLHttpRequest — React Native's fetch+FormData produces a malformed
+      // multipart body on Hermes (RN 0.71+) that triggers UnsupportedFormDataPartImplementation
+      // on the server. XHR has native multipart support and avoids this entirely.
+      const result = await new Promise<{ mediaUrl: string; mediaType: 'photo' | 'video' }>(
+        (resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', `${API_BASE}/upload/down-bad-media`);
+          xhr.setRequestHeader('Authorization', `Bearer ${t}`);
+          xhr.timeout = 30000;
+
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                resolve(JSON.parse(xhr.responseText));
+              } catch {
+                reject(new Error("Upload response was invalid. Try again."));
+              }
+              return;
+            }
+            let msg = "Couldn't upload your photo. Try again.";
+            if (xhr.status === 401 || xhr.status === 403) msg = "You're not signed in properly. Restart the app and try again.";
+            else if (xhr.status === 413) msg = "That photo is too large. Try a smaller one.";
+            else if (xhr.status >= 500) msg = "Something went wrong on our end. Try again in a sec.";
+            else {
+              try {
+                const body = JSON.parse(xhr.responseText);
+                if (body?.error) msg = body.error;
+              } catch { /* ignore */ }
+            }
+            console.error('[down-bad upload] failed:', xhr.status, xhr.responseText);
+            reject(new Error(msg));
+          };
+
+          xhr.onerror = () => reject(new Error("Network error — check your connection and try again."));
+          xhr.ontimeout = () => reject(new Error("Upload timed out. Try a smaller photo or check your connection."));
+
+          const formData = new FormData();
+          formData.append('file', { uri, type: safeType, name: fileName } as any);
+          xhr.send(formData);
+        },
+      );
+
+      setMediaUrl(result.mediaUrl);
+      setMediaType(result.mediaType);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       console.error('[down-bad upload] error:', e?.message);

@@ -70,7 +70,8 @@ export default function DirectBooking() {
   const { getToken } = useAuth();
   const { prefillHandle } = useLocalSearchParams<{ prefillHandle?: string }>();
 
-  const [step, setStep] = useState(0);
+  // When arriving from Browse with a known handle, skip the search step entirely
+  const [step, setStep] = useState(prefillHandle ? 1 : 0);
 
   // Step 1 — driver
   const [handleInput, setHandleInput] = useState(prefillHandle ?? '');
@@ -147,9 +148,9 @@ export default function DirectBooking() {
     }
   }, [handleInput, getToken]);
 
-  // Auto-lookup + skip search step when arriving from Browse with a pre-filled handle
+  // Load driver in background when arriving from Browse — step already starts at 1
   useEffect(() => {
-    if (prefillHandle) void findDriver(prefillHandle, true);
+    if (prefillHandle) void findDriver(prefillHandle);
   }, []);
 
   // Step layout: 0=driver, 1=locations, 2=extras (skipped if driver has no services), 3=when+price
@@ -191,7 +192,11 @@ export default function DirectBooking() {
   }
 
   async function submit() {
-    if (!driver || !pickup || !dropoff) return;
+    if (!driver) {
+      setError("Couldn't load the driver info. Go back and try again.");
+      return;
+    }
+    if (!pickup || !dropoff) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -282,7 +287,7 @@ export default function DirectBooking() {
       >
         {step === 0 && (
           <Animated.View key="s0" entering={FadeInUp.duration(300)} style={s.stepWrap}>
-            <Text style={s.stepTitle}>WHO DO YOU WANT?</Text>
+            <Text style={s.stepTitle}>SELECT YOUR DRIVER</Text>
             <Text style={s.stepDesc}>
               Enter a driver's handle to pull up on them directly. They'll get 15 minutes to accept.
             </Text>
