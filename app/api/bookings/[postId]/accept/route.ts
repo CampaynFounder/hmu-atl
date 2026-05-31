@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate, notifyUser, publishAdminEvent, publishToChannel } from '@/lib/ably/server';
-import { notifyRiderBookingAccepted } from '@/lib/sms/textbee';
+import { notifyRiderBookingAccepted, notifyDriverDownBadTaken } from '@/lib/sms/textbee';
 import {
   checkDriverAvailability,
   confirmTentativeBooking,
@@ -239,6 +239,23 @@ export async function POST(
       }).catch(() => {});
 
       publishAdminEvent('ride_created', { rideId, driverUserId, riderId, price, status: 'matched', postType: 'down_bad' }).catch(() => {});
+
+      // FOMO SMS — fire-and-forget to all other market drivers who got the initial notification
+      sql`
+        SELECT u.id, COALESCE(dp.phone, u.phone) AS phone
+        FROM users u
+        JOIN driver_profiles dp ON dp.user_id = u.id
+        WHERE u.market_id = (SELECT market_id FROM users WHERE id = ${riderId} LIMIT 1)
+          AND u.id != ${driverUserId}
+          AND COALESCE(dp.phone, u.phone) IS NOT NULL
+          AND dp.account_status = 'active'
+          AND COALESCE(dp.sms_enabled, TRUE) = TRUE
+      `.then((rows) => {
+        for (const r of rows) {
+          const row = r as { id: string; phone: string };
+          notifyDriverDownBadTaken(row.phone, { userId: row.id, market: 'atl' }).catch(() => {});
+        }
+      }).catch(() => {});
 
       return NextResponse.json({ status: 'matched', rideId });
     }

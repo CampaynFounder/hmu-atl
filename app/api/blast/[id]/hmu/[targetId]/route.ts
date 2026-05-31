@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { notifyUser } from '@/lib/ably/server';
+import { notifyDriverBlastHmu } from '@/lib/sms/textbee';
 
 export const runtime = 'nodejs';
 
@@ -76,6 +77,22 @@ export async function POST(
     pickupAddress: pickup.address ?? 'See app',
     expiresAt: blast.expires_at,
   });
+
+  // SMS — confirm rider specifically chose this driver
+  if (target.phone) {
+    const pickupLabel = (pickup.short_label as string | undefined) ?? (pickup.address as string | undefined) ?? 'Pickup';
+    const dropoffTw = typeof (blast.time_window as Record<string, unknown>)?.dropoff === 'object'
+      ? (blast.time_window as Record<string, unknown>).dropoff as Record<string, unknown>
+      : {};
+    const dropoffLabel = (dropoffTw.short_label as string | undefined) ?? (dropoffTw.address as string | undefined) ?? 'Dropoff';
+    const viewerCount = Math.floor(Math.random() * 11) + 5;
+    notifyDriverBlastHmu(target.phone, {
+      price: Number(blast.price),
+      pickup: pickupLabel,
+      dropoff: dropoffLabel,
+      viewerCount,
+    }, { userId: target.driver_id }).catch(() => {});
+  }
 
   return NextResponse.json({ ok: true });
 }

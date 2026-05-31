@@ -67,6 +67,8 @@ export default function DriverFeed() {
   const [refreshing, setRefreshing] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [cancelNotice, setCancelNotice] = useState(false);
+  const [riderHmuIds, setRiderHmuIds] = useState<Set<string>>(new Set());
 
   const driverId = user?.publicMetadata?.databaseId as string | undefined;
   const { registerFeedRefresh } = useNotifications();
@@ -147,13 +149,22 @@ export default function DriverFeed() {
           setRequests((prev) => prev.filter((r) => r.id !== blastId));
         }
       }
-      // Rider cancelled a matched ride while driver was still on the feed
+      // Rider cancelled a matched ride — show banner then refresh
       if (msg.name === 'ride_update') {
         const d = msg.data as Record<string, unknown>;
         if (d?.status === 'cancelled') {
-          Alert.alert('Ride Cancelled', 'The rider cancelled this ride.', [{ text: 'OK' }]);
-          void fetchRequests();
+          setCancelNotice(true);
+          setTimeout(() => {
+            setCancelNotice(false);
+            void fetchRequests();
+          }, 2500);
         }
+      }
+      // Rider swiped right on this driver specifically
+      if (msg.name === 'blast_rider_hmu') {
+        const d = msg.data as Record<string, unknown>;
+        const blastId = d?.blastId as string | undefined;
+        if (blastId) setRiderHmuIds(prev => new Set(prev).add(blastId));
       }
 
       // blast request: rider selected this driver
@@ -264,6 +275,13 @@ export default function DriverFeed() {
         </TouchableOpacity>
       </View>
 
+      {cancelNotice && (
+        <View style={s.cancelBanner}>
+          <Ionicons name="close-circle" size={14} color={colors.red} />
+          <Text style={s.cancelBannerText}>Rider cancelled this ride</Text>
+        </View>
+      )}
+
       {tab === 'rides' ? (
         <FlatList
           data={active}
@@ -283,6 +301,7 @@ export default function DriverFeed() {
             <BlastCard
               request={item}
               acting={acting === item.id}
+              riderWantsYou={riderHmuIds.has(item.id)}
               onHmu={() => handleHmu(item)}
               onPass={() => handlePass(item)}
             />
@@ -332,10 +351,11 @@ export default function DriverFeed() {
 }
 
 function BlastCard({
-  request, acting, onHmu, onPass,
+  request, acting, riderWantsYou, onHmu, onPass,
 }: {
   request: BlastRequest;
   acting: boolean;
+  riderWantsYou: boolean;
   onHmu: () => void;
   onPass: () => void;
 }) {
@@ -405,6 +425,7 @@ function BlastCard({
 
       {/* ── Meta chips ── */}
       <View style={s.metaRow}>
+        {riderWantsYou && <MetaChip label="🎯 RIDER WANTS YOU" accent />}
         {request.isCash && <MetaChip label="CASH" cash />}
         {request.roundTrip && <MetaChip label="ROUND TRIP" accent />}
         {request.time && <MetaChip label={request.time} />}
@@ -548,6 +569,13 @@ const s = StyleSheet.create({
   title: { fontFamily: fonts.display, fontSize: 28, color: colors.textPrimary },
   countBadge: { backgroundColor: colors.green, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 },
   countText: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.bg },
+
+  cancelBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.redDim, borderBottomWidth: 1, borderBottomColor: colors.redBorder,
+    paddingHorizontal: spacing.xl, paddingVertical: spacing.sm,
+  },
+  cancelBannerText: { fontFamily: fonts.mono, fontSize: 12, color: colors.red, letterSpacing: 0.5 },
 
   list: { paddingHorizontal: spacing.xl, paddingBottom: 48, gap: spacing.md },
 
