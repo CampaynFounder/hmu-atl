@@ -1,0 +1,70 @@
+name: EAS Mobile Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/eas-build.yml'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS build profile'
+        required: false
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+
+concurrency:
+  group: eas-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: EAS iOS Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: EAS Build (iOS)
+        working-directory: mobile
+        run: |
+          PROFILE="${{ github.event.inputs.profile || 'development' }}"
+          echo "Building profile: $PROFILE"
+          eas build \
+            --platform ios \
+            --profile "$PROFILE" \
+            --non-interactive \
+            --json \
+            --no-wait \
+            | tee /tmp/build-output.json
+          BUILD_URL=$(cat /tmp/build-output.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0].get('buildDetailsPageUrl',''))" 2>/dev/null || echo "")
+          echo "BUILD_URL=$BUILD_URL" >> $GITHUB_ENV
+          echo "### iOS Build Queued" >> $GITHUB_STEP_SUMMARY
+          echo "**Profile:** $PROFILE" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$BUILD_URL" ]; then
+            echo "**EAS Build page:** $BUILD_URL" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Install link will appear on that page once the build completes (~10 min)." >> $GITHUB_STEP_SUMMARY
+          fi

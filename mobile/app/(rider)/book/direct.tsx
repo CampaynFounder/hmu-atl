@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, KeyboardAvoidingView, Platform,
-  TextInput, ActivityIndicator, Image,
+  TextInput, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -17,6 +17,7 @@ import Animated, { FadeInUp, FadeIn } from 'react-native-reanimated';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient, API_BASE } from '@/lib/api';
 import { AddressInput, ValidatedAddress } from '@/components/AddressInput';
+import { HmuImage } from '@/components/HmuImage';
 
 interface DriverPreview {
   handle: string;
@@ -87,7 +88,7 @@ export default function DirectBooking() {
       try {
         const t = await getToken();
         const data = await apiClient<{ drivers: BrowseResult[] }>(
-          '/rider/browse/list?offset=0&limit=60', t,
+          '/rider/browse/list?offset=0&limit=200', t,
         );
         setBrowseIndex(data.drivers ?? []);
       } catch {}
@@ -98,7 +99,7 @@ export default function DirectBooking() {
   useEffect(() => {
     if (searchDebounce.current) clearTimeout(searchDebounce.current);
     const q = handleInput.trim().toLowerCase().replace(/^@/, '');
-    if (q.length < 2 || driver) { setSearchResults([]); return; }
+    if (q.length < 1 || driver) { setSearchResults([]); return; }
     searchDebounce.current = setTimeout(() => {
       const matches = browseIndex
         .filter(d =>
@@ -126,7 +127,7 @@ export default function DirectBooking() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const findDriver = useCallback(async (overrideHandle?: string) => {
+  const findDriver = useCallback(async (overrideHandle?: string, autoAdvance = false) => {
     const h = (overrideHandle ?? handleInput).trim().replace(/^@/, '');
     if (!h) return;
     setFindingDriver(true);
@@ -138,16 +139,17 @@ export default function DirectBooking() {
       const d = await apiClient<DriverPreview>(`/driver/${h}`, t);
       setDriver(d);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (autoAdvance) setStep(1);
     } catch {
-      setDriverError('Driver not found. Check the handle and try again.');
+      setDriverError("Couldn't find that driver. Double-check the handle and try again.");
     } finally {
       setFindingDriver(false);
     }
   }, [handleInput, getToken]);
 
-  // Auto-lookup when arriving from Browse with a pre-filled handle
+  // Auto-lookup + skip search step when arriving from Browse with a pre-filled handle
   useEffect(() => {
-    if (prefillHandle) void findDriver(prefillHandle);
+    if (prefillHandle) void findDriver(prefillHandle, true);
   }, []);
 
   // Step layout: 0=driver, 1=locations, 2=extras (skipped if driver has no services), 3=when+price
@@ -181,6 +183,8 @@ export default function DirectBooking() {
 
   function back() {
     if (step === 0) router.back();
+    // When we arrived via prefillHandle (skipped step 0), step 1 back goes to previous screen
+    else if (step === 1 && prefillHandle) router.back();
     else if (step === 1) setStep(0);
     else if (step === 2) setStep(1);
     else setStep(hasMenu ? 2 : 1);
@@ -318,16 +322,14 @@ export default function DirectBooking() {
                     onPress={() => { setHandleInput(r.handle); void findDriver(r.handle); void Haptics.selectionAsync(); }}
                     activeOpacity={0.7}
                   >
-                    {/* Avatar / photo */}
-                    {r.photoUrl ? (
-                      <Image source={{ uri: r.photoUrl }} style={s.resultAvatar} />
-                    ) : (
-                      <View style={[s.resultAvatar, s.resultAvatarFallback]}>
-                        <Text style={s.resultAvatarLetter}>
-                          {(r.displayName || r.handle)[0]?.toUpperCase()}
-                        </Text>
-                      </View>
-                    )}
+                    {/* Avatar / photo — cached via expo-image */}
+                    <HmuImage
+                      uri={r.photoUrl}
+                      style={s.resultAvatar}
+                      resizeMode="cover"
+                      fallbackInitials={(r.displayName || r.handle)[0] ?? '?'}
+                      fallbackBg={colors.blueDim}
+                    />
 
                     {/* Info */}
                     <View style={s.resultInfo}>
@@ -387,19 +389,13 @@ export default function DirectBooking() {
 
             {driver && (
               <Animated.View entering={FadeIn.duration(350)} style={[s.driverCard, shadow.card]}>
-                {driver.avatarUrl ? (
-                  <Image
-                    source={{ uri: driver.avatarUrl }}
-                    style={[s.driverAvatar, { borderWidth: 0 }]}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={[s.driverAvatar, { backgroundColor: colors.blueDim, borderColor: colors.blueBorder }]}>
-                    <Text style={[s.driverAvatarLetter, { color: colors.blue }]}>
-                      {(driver.displayName ?? driver.handle)[0]?.toUpperCase()}
-                    </Text>
-                  </View>
-                )}
+                <HmuImage
+                  uri={driver.avatarUrl}
+                  style={[s.driverAvatar, { borderWidth: 0 }]}
+                  resizeMode="cover"
+                  fallbackInitials={(driver.displayName ?? driver.handle)[0] ?? '?'}
+                  fallbackBg={colors.blueDim}
+                />
                 <View style={s.driverInfo}>
                   <Text style={s.driverHandle}>@{driver.handle}</Text>
                   {driver.displayName && (

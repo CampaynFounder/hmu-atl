@@ -129,7 +129,7 @@ export default function DownBadBooking() {
     setError(null);
     try {
       const t = await getToken();
-      if (!t) throw new Error('Not signed in');
+      if (!t) throw new Error('You need to be signed in to upload a photo. Restart the app.');
       const safeType = mimeType && (mimeType.startsWith('image/') || mimeType.startsWith('video/'))
         ? mimeType
         : 'image/jpeg';
@@ -142,8 +142,18 @@ export default function DownBadBooking() {
       });
       if (!res.ok) {
         const errBody = await res.text().catch(() => '');
+        let friendlyMsg = "Couldn't upload your photo. Try again.";
+        if (res.status === 401 || res.status === 403) friendlyMsg = "You're not signed in properly. Restart the app and try again.";
+        else if (res.status === 413) friendlyMsg = "That photo is too large. Try a smaller one.";
+        else if (res.status >= 500) friendlyMsg = "Something went wrong on our end. Try again in a sec.";
+        else {
+          try {
+            const body = JSON.parse(errBody);
+            if (body?.error) friendlyMsg = body.error;
+          } catch { /* ignore */ }
+        }
         console.error('[down-bad upload] failed:', res.status, errBody);
-        throw new Error(`Upload failed (${res.status})`);
+        throw new Error(friendlyMsg);
       }
       const { mediaUrl: url, mediaType: type } = await res.json() as { mediaUrl: string; mediaType: 'photo' | 'video' };
       setMediaUrl(url);
@@ -151,7 +161,7 @@ export default function DownBadBooking() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       console.error('[down-bad upload] error:', e?.message);
-      setError('Photo upload failed. Try again.');
+      setError(e?.message ?? "Couldn't upload your photo. Try again.");
       setMediaUri(null);
     } finally {
       setUploading(false);
@@ -292,7 +302,7 @@ export default function DownBadBooking() {
               This is your total cash for the whole trip — drivers know it might be less than going rate. That's what Down Bad is for. Min ${config.cashFloor}, max ${config.cashCeiling}.
             </Text>
             <View style={[s.card, shadow.card]}>
-              <Text style={s.cardLabel}>BONUS CASH</Text>
+              <Text style={s.cardLabel}>UPFRONT CASH</Text>
               <PriceStepper
                 value={amount}
                 onChange={setAmount}

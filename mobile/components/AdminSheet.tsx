@@ -25,6 +25,7 @@ import { useAuth } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient, API_BASE } from '@/lib/api';
+import * as Haptics from 'expo-haptics';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const SHEET_H = SCREEN_H * 0.88;
@@ -1072,6 +1073,9 @@ function UserCard({ user, token, onChanged }: {
   const [detail, setDetail] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  // Chill score local edit state
+  const [chillEdit, setChillEdit] = useState<string>('');
+  const [chillSaving, setChillSaving] = useState(false);
 
   async function fetchDetail() {
     if (!token) return;
@@ -1079,6 +1083,7 @@ function UserCard({ user, token, onChanged }: {
     try {
       const res = await apiClient<{ user: Record<string, any> }>(`/admin/users/${user.id}`, token);
       setDetail(res.user);
+      setChillEdit(String(res.user?.chillScore ?? ''));
     } catch { /* keep */ }
     finally { setLoading(false); }
   }
@@ -1101,9 +1106,30 @@ function UserCard({ user, token, onChanged }: {
     } finally { setBusy(null); }
   }
 
+  async function saveChillScore() {
+    const score = parseInt(chillEdit, 10);
+    if (isNaN(score) || score < 0 || score > 100) {
+      Alert.alert('Invalid score', 'Chill score must be 0–100');
+      return;
+    }
+    setChillSaving(true);
+    try {
+      await apiClient(`/admin/users/${user.id}`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({ chillScore: score }),
+      });
+      setDetail(prev => (prev ? { ...prev, chillScore: score } : prev));
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      Alert.alert('Save failed', e?.message ?? 'Try again');
+    } finally { setChillSaving(false); }
+  }
+
   const status = (detail?.accountStatus as string) ?? user.accountStatus;
   const banned = status === 'suspended';
   const og = detail?.ogStatus === true;
+  const currentChill = detail?.chillScore ?? null;
+  const isDriver = user.profileType === 'driver';
 
   return (
     <View style={ad.card}>
@@ -1122,6 +1148,7 @@ function UserCard({ user, token, onChanged }: {
         <View style={ad.actions}>
           {loading ? <ActivityIndicator color={G} size="small" /> : (
             <>
+              {/* Ban / OG toggles */}
               <View style={ad.actionRow}>
                 <TouchableOpacity
                   style={[ad.actionBtn, banned ? ad.actionBtnGreen : ad.actionBtnRed]}
@@ -1140,9 +1167,50 @@ function UserCard({ user, token, onChanged }: {
                     : <Text style={[ad.actionBtnText, { color: og ? colors.amber : G }]}>{og ? 'REVOKE OG' : 'GRANT OG'}</Text>}
                 </TouchableOpacity>
               </View>
+
+              {/* Chill score editor */}
+              {detail && (
+                <View style={ad.chillRow}>
+                  <Text style={ad.chillLabel}>CHILL SCORE</Text>
+                  <View style={ad.chillInputWrap}>
+                    <TextInput
+                      style={ad.chillInput}
+                      value={chillEdit}
+                      onChangeText={v => setChillEdit(v.replace(/[^0-9]/g, '').slice(0, 3))}
+                      keyboardType="number-pad"
+                      maxLength={3}
+                      selectTextOnFocus
+                      placeholderTextColor={colors.textFaint}
+                      placeholder="0–100"
+                    />
+                    <Text style={ad.chillUnit}>/ 100</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[ad.chillSaveBtn, chillSaving && { opacity: 0.5 }]}
+                    onPress={saveChillScore}
+                    disabled={chillSaving || chillEdit === String(currentChill)}
+                  >
+                    {chillSaving
+                      ? <ActivityIndicator size="small" color={G} />
+                      : <Text style={ad.chillSaveBtnText}>SAVE</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Driver booking gates (read from detail for rider-quality settings) */}
+              {detail && isDriver && (
+                <View style={ad.gateBlock}>
+                  <Text style={ad.gateTitle}>RIDER GATES (driver-set)</Text>
+                  <Text style={ad.gateLine}>
+                    Min chill: {detail.minRiderChillScore ?? 0} · OG only: {detail.requireOgStatus ? 'yes' : 'no'} · Advance notice: {detail.advanceNoticeHours ?? 0}h
+                  </Text>
+                </View>
+              )}
+
               {detail && (
                 <Text style={ad.userMeta}>
-                  OG: {og ? 'yes' : 'no'} · tier: {detail.tier ?? '—'} · chill: {detail.chillScore ?? '—'} · disputes: {detail.disputeCount ?? 0}{detail.handle ? ` · @${detail.handle}` : ''}
+                  OG: {og ? 'yes' : 'no'} · tier: {detail.tier ?? '—'} · chill: {currentChill ?? '—'} · disputes: {detail.disputeCount ?? 0}{detail.handle ? ` · @${detail.handle}` : ''}
                 </Text>
               )}
             </>
@@ -1267,6 +1335,20 @@ const ad = StyleSheet.create({
   actionBtnGreen: { borderColor: colors.greenBorder, backgroundColor: colors.greenDim },
   actionBtnAmber: { borderColor: colors.amberBorder, backgroundColor: colors.amberDim },
   actionBtnText: { fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 0.8 },
+
+  // Chill score editor
+  chillRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border },
+  chillLabel: { fontFamily: fonts.mono, fontSize: 8, color: colors.textFaint, letterSpacing: 1, flex: 1 },
+  chillInputWrap: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.cardAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: 8, paddingVertical: 4 },
+  chillInput: { fontFamily: fonts.monoBold, fontSize: 15, color: colors.textPrimary, minWidth: 36, textAlign: 'center', padding: 0 },
+  chillUnit: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint },
+  chillSaveBtn: { backgroundColor: colors.greenDim, borderWidth: 1, borderColor: colors.greenBorder, borderRadius: radius.sm, paddingHorizontal: 10, paddingVertical: 5 },
+  chillSaveBtnText: { fontFamily: fonts.monoBold, fontSize: 9, color: G, letterSpacing: 0.8 },
+
+  // Driver rider-gate readout
+  gateBlock: { backgroundColor: colors.cardAlt, borderRadius: radius.cardInner, padding: 8, gap: 3 },
+  gateTitle: { fontFamily: fonts.mono, fontSize: 7, color: colors.textFaint, letterSpacing: 1.5 },
+  gateLine: { fontFamily: fonts.body, fontSize: 11, color: colors.textTertiary },
 });
 
 const TABS = [
