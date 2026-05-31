@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Animated, Alert, ActivityIndicator, Pressable, Image,
-  Linking, ActionSheetIOS, Platform,
+  Linking, ActionSheetIOS, Platform, TextInput, KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -141,6 +141,7 @@ export default function ActiveRideScreen() {
   // Rating state
   const [showRating, setShowRating] = useState(false);
   const [selectedRating, setSelectedRating] = useState<RatingType | null>(null);
+  const [ratingComment, setRatingComment] = useState('');
   const [submittingRating, setSubmittingRating] = useState(false);
   const ratingSlide = useRef(new Animated.Value(300)).current;
 
@@ -353,6 +354,12 @@ export default function ActiveRideScreen() {
         method: 'POST',
         body: JSON.stringify({ rating: selectedRating }),
       });
+      if (ratingComment.trim()) {
+        await apiClient('/comments', t, {
+          method: 'POST',
+          body: JSON.stringify({ rideId, content: ratingComment.trim() }),
+        }).catch(() => {});
+      }
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace('/(driver)/home');
     } catch (e: any) {
@@ -893,53 +900,65 @@ export default function ActiveRideScreen() {
       {/* ── Rating overlay ── */}
       {showRating && (
         <Animated.View style={[s.ratingOverlay, { transform: [{ translateY: ratingSlide }] }]}>
-          <View style={[s.ratingSheet, { paddingBottom: insets.bottom + spacing.xl }]}>
-            <View style={s.ratingHandle} />
-            <Text style={s.ratingTitle}>RATE YOUR RIDER</Text>
-            <Text style={s.ratingSub}>How was the ride?</Text>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <View style={[s.ratingSheet, { paddingBottom: insets.bottom + spacing.xl }]}>
+              <View style={s.ratingHandle} />
+              <Text style={s.ratingTitle}>RATE YOUR RIDER</Text>
+              <Text style={s.ratingSub}>How was the ride?</Text>
 
-            <View style={s.ratingGrid}>
-              {RATING_OPTIONS.map((opt) => {
-                const selected = selectedRating === opt.type;
-                return (
-                  <Pressable
-                    key={opt.type}
-                    style={[
-                      s.ratingOption,
-                      selected
-                        ? { backgroundColor: opt.dim, borderColor: opt.border }
-                        : { backgroundColor: colors.cardAlt, borderColor: colors.border },
-                    ]}
-                    onPress={() => {
-                      setSelectedRating(opt.type);
-                      Haptics.selectionAsync();
-                    }}
-                  >
-                    <Text style={s.ratingEmoji}>{opt.emoji}</Text>
-                    <Text style={[s.ratingLabel, { color: selected ? opt.color : colors.textSecondary }]}>
-                      {opt.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+              <View style={s.ratingGrid}>
+                {RATING_OPTIONS.map((opt) => {
+                  const selected = selectedRating === opt.type;
+                  return (
+                    <Pressable
+                      key={opt.type}
+                      style={[
+                        s.ratingOption,
+                        selected
+                          ? { backgroundColor: opt.dim, borderColor: opt.border }
+                          : { backgroundColor: colors.cardAlt, borderColor: colors.border },
+                      ]}
+                      onPress={() => {
+                        setSelectedRating(opt.type);
+                        Haptics.selectionAsync();
+                      }}
+                    >
+                      <Text style={s.ratingEmoji}>{opt.emoji}</Text>
+                      <Text style={[s.ratingLabel, { color: selected ? opt.color : colors.textSecondary }]}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <TextInput
+                style={s.ratingComment}
+                placeholder="Leave a comment about this rider (optional)…"
+                placeholderTextColor={colors.textFaint}
+                value={ratingComment}
+                onChangeText={setRatingComment}
+                multiline
+                maxLength={160}
+              />
+
+              <TouchableOpacity
+                style={[s.submitBtn, !selectedRating && s.submitBtnDisabled]}
+                onPress={submitRating}
+                disabled={!selectedRating || submittingRating}
+                activeOpacity={0.85}
+              >
+                {submittingRating
+                  ? <ActivityIndicator size="small" color={colors.bg} />
+                  : <Text style={s.submitLabel}>SUBMIT RATING</Text>
+                }
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={skipRating} style={s.skipBtn}>
+                <Text style={s.skipLabel}>SKIP FOR NOW</Text>
+              </TouchableOpacity>
             </View>
-
-            <TouchableOpacity
-              style={[s.submitBtn, !selectedRating && s.submitBtnDisabled]}
-              onPress={submitRating}
-              disabled={!selectedRating || submittingRating}
-              activeOpacity={0.85}
-            >
-              {submittingRating
-                ? <ActivityIndicator size="small" color={colors.bg} />
-                : <Text style={s.submitLabel}>SUBMIT RATING</Text>
-              }
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={skipRating} style={s.skipBtn}>
-              <Text style={s.skipLabel}>SKIP FOR NOW</Text>
-            </TouchableOpacity>
-          </View>
+          </KeyboardAvoidingView>
         </Animated.View>
       )}
     </View>
@@ -1081,7 +1100,13 @@ const s = StyleSheet.create({
   },
   ratingTitle: { fontFamily: fonts.display, fontSize: 32, color: colors.textPrimary, marginBottom: 4 },
   ratingSub: { fontFamily: fonts.body, fontSize: 14, color: colors.textTertiary, marginBottom: spacing.xl },
-  ratingGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.xl },
+  ratingGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
+  ratingComment: {
+    backgroundColor: colors.cardAlt, borderRadius: radius.cardInner,
+    borderWidth: 1, borderColor: colors.borderStrong,
+    padding: spacing.md, fontFamily: fonts.body, fontSize: 14, color: colors.textPrimary,
+    minHeight: 60, textAlignVertical: 'top', marginBottom: spacing.lg,
+  },
   ratingOption: {
     flexBasis: '47%', flexGrow: 1, borderRadius: radius.cardInner,
     paddingVertical: spacing.lg, alignItems: 'center', gap: spacing.sm,

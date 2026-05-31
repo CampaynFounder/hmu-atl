@@ -22,6 +22,7 @@ import * as Haptics from 'expo-haptics';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
+import { CommentsAccordion } from '@/components/CommentsAccordion';
 
 const { width: W, height: H } = Dimensions.get('window');
 const SWIPE_THRESHOLD = W * 0.32;
@@ -45,6 +46,7 @@ interface TargetedDriver {
   hmuAt: string | null;
   passedAt: string | null;
   counterPrice: number | null;
+  minutesAway: number | null;
 }
 
 // ── Rating chips ──────────────────────────────────────────────────────────────
@@ -72,13 +74,14 @@ function RatingChips({ ratings }: { ratings: TargetedDriver['ratings'] }) {
 // ── Single swipeable card ─────────────────────────────────────────────────────
 
 function DriverCard({
-  driver, onSwipeRight, onSwipeLeft, isTop, stackIndex,
+  driver, onSwipeRight, onSwipeLeft, isTop, stackIndex, token,
 }: {
   driver: TargetedDriver;
   onSwipeRight: () => void;
   onSwipeLeft: () => void;
   isTop: boolean;
   stackIndex: number;
+  token: string | null;
 }) {
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
@@ -166,6 +169,12 @@ function DriverCard({
 
           {/* Stats row */}
           <View style={dc.stats}>
+            {driver.minutesAway != null && (
+              <View style={[dc.stat, dc.statEta]}>
+                <Ionicons name="time-outline" size={12} color={colors.green} />
+                <Text style={[dc.statText, { color: colors.green }]}>~{driver.minutesAway} min away</Text>
+              </View>
+            )}
             {driver.distanceMi != null && (
               <View style={dc.stat}>
                 <Ionicons name="location-outline" size={12} color={colors.textFaint} />
@@ -202,6 +211,9 @@ function DriverCard({
 
           {/* Rating chips */}
           <RatingChips ratings={driver.ratings} />
+
+          {/* Comments accordion */}
+          <CommentsAccordion handle={driver.handle} token={token} />
         </View>
       </Animated.View>
     </GestureDetector>
@@ -389,6 +401,7 @@ export default function BlastDeck() {
                   isTop={isTop}
                   onSwipeRight={() => void handleHmu(driver)}
                   onSwipeLeft={handleNah}
+                  token={token}
                 />
               </View>
             );
@@ -498,6 +511,10 @@ const dc = StyleSheet.create({
 
   stats: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   stat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  statEta: {
+    backgroundColor: colors.greenDim, borderRadius: radius.pill,
+    paddingHorizontal: 7, paddingVertical: 2, borderWidth: 1, borderColor: colors.greenBorder,
+  },
   statText: { fontFamily: fonts.mono, fontSize: 10, color: colors.textTertiary },
 
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },

@@ -17,6 +17,7 @@ import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
 import { useNotifications } from '@/contexts/notifications';
+import { CommentsAccordion } from '@/components/CommentsAccordion';
 import type { DeliveryOpportunity } from '@/shared/delivery-types';
 
 // Matches the camelCase shape returned by GET /api/drivers/requests
@@ -307,6 +308,7 @@ export default function DriverFeed() {
               riderWantsYou={riderHmuIds.has(item.id)}
               onHmu={() => handleHmu(item)}
               onPass={() => handlePass(item)}
+              token={token}
             />
           )}
         />
@@ -354,13 +356,14 @@ export default function DriverFeed() {
 }
 
 function BlastCard({
-  request, acting, riderWantsYou, onHmu, onPass,
+  request, acting, riderWantsYou, onHmu, onPass, token,
 }: {
   request: BlastRequest;
   acting: boolean;
   riderWantsYou: boolean;
   onHmu: () => void;
   onPass: () => void;
+  token: string | null;
 }) {
   const alreadyHmd = !!request._hmuAt;
 
@@ -436,6 +439,15 @@ function BlastCard({
           <MetaChip label={`${Math.round(request.riderChillScore)} chill`} accent />
         )}
       </View>
+
+      {/* ── Rider comments accordion ── */}
+      {request.riderHandle && (
+        <CommentsAccordion
+          handle={request.riderHandle}
+          token={token}
+          accentColor={colors.textFaint}
+        />
+      )}
 
       {/* ── Actions ── */}
       <View style={s.actions}>
