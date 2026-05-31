@@ -73,8 +73,10 @@ export const SMS_EVENT_KEYS = [
   // ── Blast notifications ──
   'blast_notify',
   'blast_taken',
+  'blast_hmu',
   // ── Down Bad notifications ──
   'driver_down_bad_posted',
+  'down_bad_taken',
   // ── Admin coverage map ──
   'coverage_home',
 ] as const;

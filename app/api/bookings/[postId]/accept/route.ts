@@ -250,9 +250,8 @@ export async function POST(
           AND COALESCE(dp.phone, u.phone) IS NOT NULL
           AND dp.account_status = 'active'
           AND COALESCE(dp.sms_enabled, TRUE) = TRUE
-      `.then((rows) => {
-        for (const r of rows) {
-          const row = r as { id: string; phone: string };
+      `.then((rows: { id: string; phone: string }[]) => {
+        for (const row of rows) {
           notifyDriverDownBadTaken(row.phone, { userId: row.id, market: 'atl' }).catch(() => {});
         }
       }).catch(() => {});
