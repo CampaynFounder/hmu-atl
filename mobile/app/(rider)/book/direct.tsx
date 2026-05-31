@@ -20,12 +20,13 @@ import { AddressInput, ValidatedAddress } from '@/components/AddressInput';
 
 interface DriverPreview {
   handle: string;
-  display_name: string | null;
-  thumbnail_url: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
   tier: string;
-  completed_rides: number;
-  chill_score: number | null;
-  accepts_cash: boolean;
+  completedRides: number;
+  chillScore: number | null;
+  acceptsCash: boolean;
+  services: Array<{ name: string; icon: string; price: number; pricingType: string }>;
 }
 
 interface BrowseResult {
@@ -119,6 +120,9 @@ export default function DirectBooking() {
   const [price, setPrice] = useState(25);
   const [isCash, setIsCash] = useState(false);
 
+  // Step 1 — menu items (only shown when driver has services)
+  const [selectedServices, setSelectedServices] = useState<Map<string, number>>(new Map());
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -146,9 +150,13 @@ export default function DirectBooking() {
     if (prefillHandle) void findDriver(prefillHandle);
   }, []);
 
+  // Step layout: 0=driver, 1=menu items (skipped if driver has no services), 2=locations, 3=when+price
+  const hasMenu = (driver?.services?.length ?? 0) > 0;
+
   function validateStep(): boolean {
     if (step === 0) return !!driver;
-    if (step === 1) return !!pickup && !!dropoff;
+    if (step === 1) return true; // menu is always optional
+    if (step === 2) return !!pickup && !!dropoff;
     return price >= 1;
   }
 
@@ -157,7 +165,10 @@ export default function DirectBooking() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
-    if (step < 2) {
+    if (step === 0) {
+      setStep(hasMenu ? 1 : 2);
+      await Haptics.selectionAsync();
+    } else if (step < 3) {
       setStep(s => s + 1);
       await Haptics.selectionAsync();
     } else {
@@ -167,7 +178,9 @@ export default function DirectBooking() {
 
   function back() {
     if (step === 0) router.back();
-    else setStep(s => s - 1);
+    else if (step === 1) setStep(0);
+    else if (step === 2) setStep(hasMenu ? 1 : 0);
+    else setStep(2);
   }
 
   async function submit() {
@@ -177,6 +190,13 @@ export default function DirectBooking() {
     try {
       const t = await getToken();
       const { resolvedTime, timeDisplay, isNow } = resolveScheduledTime(timePreset, '');
+      const addOns = Array.from(selectedServices.entries())
+        .filter(([, qty]) => qty > 0)
+        .map(([name, qty]) => {
+          const svc = driver!.services.find(s => s.name === name);
+          return { name, quantity: qty, priceCents: Math.round((svc?.price ?? 0) * 100) };
+        });
+
       const { postId, expiresAt, expiryMinutes } = await apiClient<{
         postId: string; expiresAt: string; expiryMinutes: number;
       }>(
@@ -196,6 +216,7 @@ export default function DirectBooking() {
               isNow,
               estimated_minutes: 30,
             },
+            ...(addOns.length > 0 ? { addOns } : {}),
           }),
         },
       );
@@ -221,7 +242,7 @@ export default function DirectBooking() {
     }
   }
 
-  const btnLabel = step < 2
+  const btnLabel = step < 3
     ? 'NEXT →'
     : submitting ? '' : `CONFIRM BOOKING — $${price}`;
 
@@ -237,7 +258,11 @@ export default function DirectBooking() {
         </TouchableOpacity>
         <View style={s.headerCenter}>
           <Text style={s.headerTitle}>DIRECT BOOKING</Text>
-          <StepDots total={3} current={step} color={colors.blue} />
+          <StepDots
+            total={hasMenu ? 4 : 3}
+            current={hasMenu ? step : step > 0 ? step - 1 : 0}
+            color={colors.blue}
+          />
         </View>
         <View style={{ width: 40 }} />
       </View>
@@ -359,26 +384,26 @@ export default function DirectBooking() {
 
             {driver && (
               <Animated.View entering={FadeIn.duration(350)} style={[s.driverCard, shadow.card]}>
-                {driver.thumbnail_url ? (
+                {driver.avatarUrl ? (
                   <Image
-                    source={{ uri: driver.thumbnail_url }}
+                    source={{ uri: driver.avatarUrl }}
                     style={[s.driverAvatar, { borderWidth: 0 }]}
                     resizeMode="cover"
                   />
                 ) : (
                   <View style={[s.driverAvatar, { backgroundColor: colors.blueDim, borderColor: colors.blueBorder }]}>
                     <Text style={[s.driverAvatarLetter, { color: colors.blue }]}>
-                      {(driver.display_name ?? driver.handle)[0]?.toUpperCase()}
+                      {(driver.displayName ?? driver.handle)[0]?.toUpperCase()}
                     </Text>
                   </View>
                 )}
                 <View style={s.driverInfo}>
                   <Text style={s.driverHandle}>@{driver.handle}</Text>
-                  {driver.display_name && (
-                    <Text style={s.driverName}>{driver.display_name}</Text>
+                  {driver.displayName && (
+                    <Text style={s.driverName}>{driver.displayName}</Text>
                   )}
                   <View style={s.driverStats}>
-                    <Text style={s.driverStat}>{driver.completed_rides} rides</Text>
+                    <Text style={s.driverStat}>{driver.completedRides} rides</Text>
                     {driver.tier === 'hmu_first' && (
                       <View style={s.tierBadge}>
                         <Text style={s.tierText}>HMU FIRST</Text>
@@ -393,8 +418,70 @@ export default function DirectBooking() {
           </Animated.View>
         )}
 
-        {step === 1 && (
+        {step === 1 && driver && (
           <Animated.View key="s1" entering={FadeInUp.duration(300)} style={s.stepWrap}>
+            <Text style={s.stepTitle}>ADD EXTRAS?</Text>
+            <Text style={s.stepDesc}>
+              {driver.displayName ?? `@${driver.handle}`} offers these add-ons. Add any you want included with your booking.
+            </Text>
+            {driver.services.map(svc => {
+              const qty = selectedServices.get(svc.name) ?? 0;
+              return (
+                <View key={svc.name} style={[s.card, shadow.card, s.menuRow]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.menuItemName}>{svc.icon} {svc.name}</Text>
+                    <Text style={s.menuItemPrice}>
+                      ${svc.price.toFixed(2)}{svc.pricingType === 'per_unit' ? ' / unit' : svc.pricingType === 'per_minute' ? ' / min' : ''}
+                    </Text>
+                  </View>
+                  <View style={s.qtyRow}>
+                    {qty > 0 && (
+                      <TouchableOpacity
+                        style={s.qtyBtn}
+                        onPress={() => {
+                          const next = new Map(selectedServices);
+                          if (qty <= 1) next.delete(svc.name);
+                          else next.set(svc.name, qty - 1);
+                          setSelectedServices(next);
+                          void Haptics.selectionAsync();
+                        }}
+                      >
+                        <Text style={s.qtyBtnText}>−</Text>
+                      </TouchableOpacity>
+                    )}
+                    {qty > 0 && <Text style={s.qtyCount}>{qty}</Text>}
+                    <TouchableOpacity
+                      style={[s.qtyBtn, s.qtyBtnAdd]}
+                      onPress={() => {
+                        const next = new Map(selectedServices);
+                        next.set(svc.name, qty + 1);
+                        setSelectedServices(next);
+                        void Haptics.selectionAsync();
+                      }}
+                    >
+                      <Ionicons name="add" size={18} color={colors.bg} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })}
+            {selectedServices.size > 0 && (
+              <View style={s.addOnTotal}>
+                <Text style={s.addOnTotalLabel}>ADD-ON TOTAL</Text>
+                <Text style={s.addOnTotalValue}>
+                  ${Array.from(selectedServices.entries()).reduce((sum, [name, qty]) => {
+                    const svc = driver.services.find(sv => sv.name === name);
+                    return sum + (svc ? svc.price * qty : 0);
+                  }, 0).toFixed(2)}
+                </Text>
+              </View>
+            )}
+            <Text style={s.menuSkipHint}>This step is optional — skip to continue without extras.</Text>
+          </Animated.View>
+        )}
+
+        {step === 2 && (
+          <Animated.View key="s2" entering={FadeInUp.duration(300)} style={s.stepWrap}>
             <Text style={s.stepTitle}>WHERE TO?</Text>
             <Text style={s.stepDesc}>Set your exact pickup and destination.</Text>
 
@@ -418,8 +505,8 @@ export default function DirectBooking() {
           </Animated.View>
         )}
 
-        {step === 2 && (
-          <Animated.View key="s2" entering={FadeInUp.duration(300)} style={s.stepWrap}>
+        {step === 3 && (
+          <Animated.View key="s3" entering={FadeInUp.duration(300)} style={s.stepWrap}>
             <Text style={s.stepTitle}>WHEN + HOW MUCH?</Text>
 
             <View style={[s.card, shadow.card]}>
@@ -447,7 +534,7 @@ export default function DirectBooking() {
               </Text>
             </View>
 
-            {driver?.accepts_cash && (
+            {driver?.acceptsCash && (
               <TouchableOpacity
                 style={[s.cashToggle, isCash && s.cashToggleActive]}
                 onPress={() => { setIsCash(v => !v); void Haptics.selectionAsync(); }}
@@ -665,6 +752,27 @@ const s = StyleSheet.create({
     padding: spacing.md, borderWidth: 1, borderColor: colors.redBorder,
   },
   errorText: { flex: 1, fontFamily: fonts.body, fontSize: 13, color: colors.red },
+
+  // Menu items step
+  menuRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xs },
+  menuItemName: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.textPrimary },
+  menuItemPrice: { fontFamily: fonts.mono, fontSize: 11, color: colors.textFaint, marginTop: 2 },
+  qtyRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  qtyBtn: {
+    width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border,
+  },
+  qtyBtnAdd: { backgroundColor: colors.blue, borderColor: colors.blue },
+  qtyBtnText: { fontFamily: fonts.display, fontSize: 18, color: colors.textPrimary, lineHeight: 22 },
+  qtyCount: { fontFamily: fonts.monoBold, fontSize: 16, color: colors.textPrimary, minWidth: 20, textAlign: 'center' },
+  addOnTotal: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    backgroundColor: colors.blueDim, borderRadius: radius.cardInner,
+    borderWidth: 1, borderColor: colors.blueBorder, padding: spacing.lg,
+  },
+  addOnTotalLabel: { fontFamily: fonts.mono, fontSize: 10, color: colors.blue, letterSpacing: 1.5 },
+  addOnTotalValue: { fontFamily: fonts.display, fontSize: 24, color: colors.blue },
+  menuSkipHint: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint, textAlign: 'center' },
 
   footer: {
     paddingHorizontal: spacing.xl, paddingTop: spacing.md,

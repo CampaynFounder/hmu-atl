@@ -142,6 +142,21 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     const rideId = data?.ride_id as string | undefined;
 
     switch (name) {
+      case 'blast_rider_hmu': {
+        const hmuPrice = data?.price as number | undefined;
+        enqueue({
+          id: `rider-hmu-${Date.now()}`,
+          type: 'new_request',
+          title: 'A RIDER CHOSE YOU',
+          body: hmuPrice
+            ? `$${hmuPrice} ride — respond before someone else does!`
+            : 'A rider picked your card — respond fast!',
+          route: '/(driver)/feed',
+          timestamp: Date.now(),
+        });
+        break;
+      }
+
       case 'blast_invite': {
         setUnreadRequestCount((c) => c + 1);
         enqueue({
