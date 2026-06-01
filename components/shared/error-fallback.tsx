@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
+import { hardResetClientState } from '@/lib/client-recovery';
 
 interface ErrorFallbackProps {
   title?: string;
@@ -19,6 +20,7 @@ export default function ErrorFallback({
 }: ErrorFallbackProps) {
   const { user, isLoaded } = useUser();
   const [retrying, setRetrying] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   // Determine the right "home" based on profile type. Signed-in users with
   // a missing profileType used to be forced to /onboarding here, which was
@@ -115,6 +117,31 @@ export default function ErrorFallback({
           Go Home
         </Link>
       </div>
+      {/* Last-resort escape hatch for a hung/stale device session: sign out,
+          clear caches/SW/storage, and reload fresh — like restarting the app. */}
+      <button
+        onClick={async () => {
+          setResetting(true);
+          await hardResetClientState('/sign-in');
+        }}
+        disabled={resetting}
+        style={{
+          marginTop: '20px',
+          padding: '8px 16px',
+          borderRadius: '100px',
+          border: 'none',
+          background: 'transparent',
+          color: '#666',
+          fontSize: '12px',
+          fontWeight: 600,
+          textDecoration: 'underline',
+          cursor: resetting ? 'default' : 'pointer',
+          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          opacity: resetting ? 0.5 : 1,
+        }}
+      >
+        {resetting ? 'Resetting…' : 'Still stuck? Reset app data'}
+      </button>
     </div>
   );
 }
