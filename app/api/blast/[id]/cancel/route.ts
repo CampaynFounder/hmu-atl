@@ -112,15 +112,15 @@ export async function POST(
       initiator: 'rider',
       resolution: 'rider_pre_otw',
     });
-    void releaseScheduleBlocks({ blastId });
+    await releaseScheduleBlocks({ blastId }).catch(() => {});
     if (ride.driver_id) {
-      void writeBlastEvent({
+      await writeBlastEvent({
         blastId,
         driverId: ride.driver_id,
         eventType: 'rejected',
         source: 'rider_action',
         data: { reason: 'rider_cancel_post_pull_up' },
-      });
+      }).catch(() => {});
     }
     return NextResponse.json({
       cancelledAt: new Date().toISOString(),
@@ -171,10 +171,12 @@ export async function POST(
     }
   }
 
-  void releaseScheduleBlocks({ blastId });
+  // All side-effects must be awaited — Cloudflare Workers kill unawaited promises
+  // the moment the Response is returned.
+  await releaseScheduleBlocks({ blastId }).catch(() => {});
 
   // Tell the offer board to close.
-  void broadcastBlastEvent(blastId, 'blast_cancelled', { blastId });
+  await broadcastBlastEvent(blastId, 'blast_cancelled', { blastId }).catch(() => {});
 
   // Tell all notified drivers their request is gone + write rejected events.
   // Include every driver who received the blast notification, not just those who HMU'd —
@@ -186,25 +188,31 @@ export async function POST(
        AND rejected_at IS NULL
   `;
   const interestedIds: string[] = [];
-  for (const r of interestedRows) {
-    const driverId = (r as { driver_id: string }).driver_id;
-    notifyUser(driverId, 'blast_cancelled', { blastId }).catch(() => {});
-    void writeBlastEvent({
-      blastId,
-      driverId,
-      eventType: 'rejected',
-      source: 'rider_action',
-      data: { reason: 'rider_cancel_pre_pull_up' },
-    });
-    interestedIds.push(driverId);
-  }
-  void sendBlastTakenSms({
+  await Promise.all(
+    interestedRows.map(async (r: { driver_id: string }) => {
+      const driverId = r.driver_id;
+      interestedIds.push(driverId);
+      await Promise.all([
+        notifyUser(driverId, 'blast_cancelled', { blastId }).catch(() => {}),
+        writeBlastEvent({
+          blastId,
+          driverId,
+          eventType: 'rejected',
+          source: 'rider_action',
+          data: { reason: 'rider_cancel_pre_pull_up' },
+        }).catch(() => {}),
+      ]);
+    }),
+  );
+
+  // FOMO SMS to all drivers who saw this blast — must be awaited
+  await sendBlastTakenSms({
     driverIds: interestedIds,
     pickup: blast.pickup_address,
     dropoff: blast.dropoff_address,
     priceDollars: Number(blast.price),
     marketSlug: 'atl',
-  });
+  }).catch(() => {});
 
   return NextResponse.json({
     cancelledAt: new Date().toISOString(),
