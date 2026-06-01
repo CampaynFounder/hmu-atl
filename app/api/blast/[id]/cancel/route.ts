@@ -122,6 +122,24 @@ export async function POST(
         data: { reason: 'rider_cancel_post_pull_up' },
       }).catch(() => {});
     }
+
+    // FOMO SMS to every driver who was notified about this blast — the cascade
+    // handles ride_interests/Ably but does NOT send the "ride gone" SMS, so
+    // without this the post-pull-up cancel path notifies drivers by push only.
+    const notifiedRows = await sql`
+      SELECT driver_id FROM blast_driver_targets
+       WHERE blast_id = ${blastId}
+         AND notified_at IS NOT NULL
+         AND rejected_at IS NULL
+    `;
+    await sendBlastTakenSms({
+      driverIds: (notifiedRows as { driver_id: string }[]).map((r) => r.driver_id),
+      pickup: blast.pickup_address,
+      dropoff: blast.dropoff_address,
+      priceDollars: Number(blast.price),
+      marketSlug: 'atl',
+    }).catch(() => {});
+
     return NextResponse.json({
       cancelledAt: new Date().toISOString(),
       via: 'cascade',

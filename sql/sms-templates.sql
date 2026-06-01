@@ -407,14 +407,14 @@ INSERT INTO sms_templates (event_key, audience, trigger_description, body, varia
     'blast_notify',
     'driver',
     'Blast broadcast — sent to every targeted driver when a rider posts a ride request.',
-    'New ride blast 🚨 ${{price}} {{pickup}}→{{dropoff}}. {{n_drivers}} other drivers got this. First to HMU wins: {{link}}',
+    'New ride 🚨 ${{price}} {{pickup}}→{{dropoff}}. {{n_drivers}} drivers got this — first to HMU wins: {{link}}',
     ARRAY['price','pickup','dropoff','n_drivers','link','when']
   ),
   (
     'blast_taken',
     'driver',
     'Blast no longer available — sent to remaining targeted drivers when a ride is accepted, cancelled, or their response window expires.',
-    'That HMU ride is no longer available. Stay ready — more coming: {{app_link}}',
+    'Your ${{price}} {{pickup}}→{{dropoff}} ride got snatched. Stay ready — more coming: {{app_link}}',
     ARRAY['pickup','dropoff','price','app_link']
   ),
   (

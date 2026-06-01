@@ -131,6 +131,17 @@ async function buildSmsBody(ctx: BlastNotificationContext, nDrivers: number): Pr
 }
 
 /**
+ * Shorten an address to a compact SMS label. Takes the first comma-segment
+ * (e.g. "123 Peachtree St" out of "123 Peachtree St, Atlanta, GA 30303") and
+ * caps it so pickup + dropoff + the link always fit under the 155-char SMS cap.
+ */
+function shortLabel(address: string | null | undefined, max = 20): string {
+  if (!address) return '';
+  const seg = address.split(',')[0].trim();
+  return seg.length > max ? seg.slice(0, max - 1) + '…' : seg;
+}
+
+/**
  * Send "blast no longer available" SMS to a set of driver IDs.
  * Called by select, pull-up, cancel, and the expiry cron.
  */
@@ -143,10 +154,15 @@ export async function sendBlastTakenSms(params: {
 }): Promise<void> {
   if (params.driverIds.length === 0) return;
   const appLink = 'atl.hmucashride.com/driver/home';
-  const FALLBACK = `That HMU ride is no longer available. Stay ready — more coming: ${appLink}`;
+  // Short labels so trip details + link stay under the 155-char SMS cap
+  // (sendSms hard-truncates the tail, which would otherwise drop the link).
+  const pickup = shortLabel(params.pickup);
+  const dropoff = shortLabel(params.dropoff);
+  const tripBit = pickup && dropoff ? `${pickup}→${dropoff} ` : '';
+  const FALLBACK = `Your $${params.priceDollars} ${tripBit}ride got snatched. Stay ready — more coming: ${appLink}`;
   const body = await renderTemplate('blast_taken', {
-    pickup: params.pickup,
-    dropoff: params.dropoff,
+    pickup,
+    dropoff,
     price: String(params.priceDollars),
     app_link: appLink,
   }).catch(() => null) ?? FALLBACK;

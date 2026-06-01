@@ -33,6 +33,7 @@ import { getMatchingConfig, getKnob } from '@/lib/blast/config';
 // fanoutBlast intentionally not called here — notification is deferred to the
 // per-driver right-swipe action in POST /api/blast/[id]/hmu-fallback/[targetId].
 import { publishToChannel, notifyUser } from '@/lib/ably/server';
+import { sendBlastTakenSms } from '@/lib/blast/notify';
 import { getMatchingProvider, InternalMatcher } from '@/lib/blast/provider';
 import type { BlastConfig as V3BlastConfig, BlastCreateInput } from '@/lib/blast/types';
 import { writeBlastEvent, writeMatchLog, releaseScheduleBlocks } from '@/lib/blast/lifecycle';
@@ -417,11 +418,22 @@ export async function POST(req: NextRequest) {
        WHERE user_id   = ${riderId}
          AND post_type = 'blast'
          AND status IN ('active', 'matched')
-       RETURNING id, deposit_payment_intent_id
+       RETURNING id, deposit_payment_intent_id, pickup_address, dropoff_address, price
     `);
     for (const old of superseded) {
-      const { id: oldId, deposit_payment_intent_id: depositPi } =
-        old as { id: string; deposit_payment_intent_id: string | null };
+      const {
+        id: oldId,
+        deposit_payment_intent_id: depositPi,
+        pickup_address: oldPickup,
+        dropoff_address: oldDropoff,
+        price: oldPrice,
+      } = old as {
+        id: string;
+        deposit_payment_intent_id: string | null;
+        pickup_address: string | null;
+        dropoff_address: string | null;
+        price: string;
+      };
 
       // Release deposit hold if one was captured at /select.
       if (depositPi && process.env.STRIPE_MOCK !== 'true') {
@@ -434,19 +446,28 @@ export async function POST(req: NextRequest) {
         reason: 'superseded',
       }).catch(() => {});
 
-      // Tell any HMU'd drivers their request is gone.
+      // Tell every notified driver their request is gone — push + "ride taken"
+      // SMS. Without the SMS leg, superseding a blast left drivers who got the
+      // blast text with no closure (same gap as the explicit-cancel path).
       const interestedRows = await sql`
         SELECT driver_id FROM blast_driver_targets
          WHERE blast_id = ${oldId}
-           AND (hmu_at IS NOT NULL OR selected_at IS NOT NULL)
+           AND notified_at IS NOT NULL
+           AND rejected_at IS NULL
       `;
-      for (const r of interestedRows) {
-        notifyUser(
-          (r as { driver_id: string }).driver_id,
-          'blast_cancelled',
-          { blastId: oldId },
-        ).catch(() => {});
+      const notifiedDriverIds = (interestedRows as { driver_id: string }[]).map(
+        (r) => r.driver_id,
+      );
+      for (const driverId of notifiedDriverIds) {
+        notifyUser(driverId, 'blast_cancelled', { blastId: oldId }).catch(() => {});
       }
+      await sendBlastTakenSms({
+        driverIds: notifiedDriverIds,
+        pickup: oldPickup ?? '',
+        dropoff: oldDropoff ?? '',
+        priceDollars: Number(oldPrice),
+        marketSlug: market.slug,
+      }).catch(() => {});
 
       void releaseScheduleBlocks({ blastId: oldId });
     }
