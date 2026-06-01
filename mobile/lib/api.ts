@@ -3,6 +3,12 @@
 
 export const API_BASE = process.env.EXPO_PUBLIC_API_BASE ?? 'https://atl.hmucashride.com/api';
 
+// Hard ceiling on any request. Without this a hung origin (Neon connection
+// stall, CF holding the socket) leaves the caller's promise pending forever —
+// which is exactly how a submit button spins indefinitely. 30s is generous for
+// our slowest endpoint; anything past it is a failure the user should see.
+const REQUEST_TIMEOUT_MS = 30_000;
+
 export async function apiClient<T = unknown>(
   path: string,
   token: string | null,
@@ -18,7 +24,19 @@ export async function apiClient<T = unknown>(
   if (token) headers['Authorization'] = `Bearer ${token}`;
   Object.assign(headers, options.headers ?? {});
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...options, headers, signal: controller.signal });
+  } catch (e: any) {
+    if (e?.name === 'AbortError') {
+      throw new Error('That took too long. Check your connection and try again.');
+    }
+    throw new Error(e?.message ?? 'Network error. Try again.');
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     // Friendly messages keyed by status — parse API body for extra detail first

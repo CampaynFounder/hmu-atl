@@ -47,23 +47,34 @@ export async function GET(req: NextRequest) {
   const rawMinAcc = req.nextUrl.searchParams.get('minAcceptanceRate');
   const minAcceptanceRate = rawMinAcc ? Math.min(100, Math.max(0, Number(rawMinAcc))) : null;
 
-  let driverPreference: string | null = null;
-  if (clerkId) {
-    const riderRows = await sql`
-      SELECT rp.driver_preference
-      FROM users u
-      LEFT JOIN rider_profiles rp ON rp.user_id = u.id
-      WHERE u.clerk_id = ${clerkId}
-      LIMIT 1
-    `;
-    driverPreference = (riderRows[0]?.driver_preference as string | null) ?? null;
+  try {
+    let driverPreference: string | null = null;
+    if (clerkId) {
+      const riderRows = await sql`
+        SELECT rp.driver_preference
+        FROM users u
+        LEFT JOIN rider_profiles rp ON rp.user_id = u.id
+        WHERE u.clerk_id = ${clerkId}
+        LIMIT 1
+      `;
+      driverPreference = (riderRows[0]?.driver_preference as string | null) ?? null;
+    }
+
+    const drivers = await queryBrowseDrivers(
+      { driverPreference, genderFilter, hasMediaOnly, fwuOnly, areaFilter, maxPrice, minAcceptanceRate, riderLat, riderLng },
+      offset,
+      limit,
+    );
+
+    return NextResponse.json({ drivers, hasMore: drivers.length === limit });
+  } catch (err) {
+    // A transient Neon hiccup (connection blip, brief timeout) otherwise bubbles
+    // as an unhandled throw → 500 → Cloudflare wraps it as a 520. Return a clean
+    // JSON 503 so the client can show "try again" instead of choking on HTML.
+    console.error('[browse/list] query failed', err);
+    return NextResponse.json(
+      { error: 'Browse is temporarily unavailable. Try again in a moment.', drivers: [], hasMore: false },
+      { status: 503 },
+    );
   }
-
-  const drivers = await queryBrowseDrivers(
-    { driverPreference, genderFilter, hasMediaOnly, fwuOnly, areaFilter, maxPrice, minAcceptanceRate, riderLat, riderLng },
-    offset,
-    limit,
-  );
-
-  return NextResponse.json({ drivers, hasMore: drivers.length === limit });
 }
