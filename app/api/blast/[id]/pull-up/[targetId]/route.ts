@@ -315,13 +315,16 @@ async function handlePost(
     }).catch(() => {});
     loserIds.push(loserId);
   }
-  void sendBlastTakenSms({
+  // Awaited — Cloudflare Workers kill unawaited promises when the response
+  // returns, so a void'd send meant the "rider went with someone else" FOMO
+  // SMS never went out in the current (pull-up) flow.
+  await sendBlastTakenSms({
     driverIds: loserIds,
     pickup: row.pickup_address as string,
     dropoff: row.dropoff_address as string,
     priceDollars: finalPrice,
     marketSlug: 'atl',
-  });
+  }).catch(() => {});
 
   // ── Broadcast on blast channel (status board + any other listeners) ──
   publishToChannel(`blast:${blastId}`, 'pull_up_started', {

@@ -339,6 +339,10 @@ export async function expireStaleTargets(opts: {
   const FALLBACK_SMS = `That HMU ride is no longer available. Stay ready — more coming: ${appLink}`;
 
   const result: Array<{ blastId: string; driverId: string; targetId: string }> = [];
+  // FOMO sends must be AWAITED — on Cloudflare Workers an unawaited send is
+  // killed when the cron response returns, so the "your window closed" SMS
+  // never actually went out. Collect them and await before returning.
+  const smsJobs: Promise<unknown>[] = [];
   for (const r of rows) {
     const row = r as {
       target_id: string;
@@ -374,21 +378,30 @@ export async function expireStaleTargets(opts: {
       targetId: row.target_id,
     }).catch(() => {});
 
-    // SMS: tell the driver their window closed on this ride.
+    // SMS: tell the driver their window closed on this ride. Short labels keep
+    // trip details + link under the 155-char cap (sendSms truncates the tail).
     if (row.driver_phone) {
-      renderTemplate('blast_taken', {
-        pickup: row.pickup_address,
-        dropoff: row.dropoff_address,
-        price: String(Math.round(Number(row.price))),
-        app_link: appLink,
-      }).then((body) => {
-        sendSms(row.driver_phone!, body ?? FALLBACK_SMS, {
-          userId: row.driver_id,
-          eventType: 'blast_taken',
-          market: 'atl',
-        }).catch(() => {});
-      }).catch(() => {});
+      const phone = row.driver_phone;
+      const shortPickup = (row.pickup_address ?? '').split(',')[0].trim().slice(0, 20);
+      const shortDropoff = (row.dropoff_address ?? '').split(',')[0].trim().slice(0, 20);
+      smsJobs.push(
+        renderTemplate('blast_taken', {
+          pickup: shortPickup,
+          dropoff: shortDropoff,
+          price: String(Math.round(Number(row.price))),
+          app_link: appLink,
+        })
+          .then((body) =>
+            sendSms(phone, body ?? FALLBACK_SMS, {
+              userId: row.driver_id,
+              eventType: 'blast_taken',
+              market: 'atl',
+            }),
+          )
+          .catch(() => {}),
+      );
     }
   }
+  await Promise.all(smsJobs);
   return result;
 }
