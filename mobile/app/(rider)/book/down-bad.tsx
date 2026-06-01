@@ -27,6 +27,8 @@ try {
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient, API_BASE } from '@/lib/api';
 import { AddressInput, ValidatedAddress } from '@/components/AddressInput';
+import { useBookingDraft } from '@/hooks/use-booking-draft';
+import { ResumeDraftSheet } from '@/components/resume-draft-sheet';
 
 interface DownBadConfig {
   cashFloor: number;
@@ -76,6 +78,49 @@ export default function DownBadBooking() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Back-out draft — resume or start over within the 5-min TTL. config reloads
+  // from the API on mount, so it's intentionally not stored.
+  type DownBadDraft = {
+    step: number;
+    pickup: ValidatedAddress | null;
+    dropoff: ValidatedAddress | null;
+    amount: number;
+    passengers: number;
+    luggage: Luggage;
+    sumText: string;
+    mediaUri: string | null;
+    mediaUrl: string | null;
+    mediaType: 'photo' | 'video';
+    disclaimerAcked: boolean;
+  };
+  const { pending: pendingDraft, save: saveDraft, clear: clearDraft, dismiss: dismissDraft } =
+    useBookingDraft<DownBadDraft>('down-bad');
+
+  useEffect(() => {
+    const started = step > 0 || !!pickup || !!dropoff;
+    if (started) {
+      saveDraft({
+        step, pickup, dropoff, amount, passengers, luggage, sumText,
+        mediaUri, mediaUrl, mediaType, disclaimerAcked,
+      });
+    }
+  }, [step, pickup, dropoff, amount, passengers, luggage, sumText, mediaUri, mediaUrl, mediaType, disclaimerAcked, saveDraft]);
+
+  function applyDraft(d: DownBadDraft) {
+    setStep(d.step);
+    setPickup(d.pickup);
+    setDropoff(d.dropoff);
+    setAmount(d.amount);
+    setPassengers(d.passengers);
+    setLuggage(d.luggage);
+    setSumText(d.sumText);
+    setMediaUri(d.mediaUri);
+    setMediaUrl(d.mediaUrl);
+    setMediaType(d.mediaType);
+    setDisclaimerAcked(d.disclaimerAcked);
+    dismissDraft();
+  }
 
   useEffect(() => {
     async function loadConfig() {
@@ -257,6 +302,7 @@ export default function DownBadBooking() {
         },
       );
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      clearDraft();
       router.replace({
         pathname: '/(rider)/book/waiting',
         params: {
@@ -281,6 +327,13 @@ export default function DownBadBooking() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={s.header}>
+        {pendingDraft && (
+          <ResumeDraftSheet
+            label="ride request"
+            onResume={() => applyDraft(pendingDraft)}
+            onStartOver={clearDraft}
+          />
+        )}
         <TouchableOpacity onPress={back} style={s.backBtn} hitSlop={12}>
           <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
