@@ -150,12 +150,15 @@ async function handlePost(
   }).catch((err) => console.error('[hmu-fallback] push error:', err));
 
   // ── SMS via fanoutBlast (handles quiet hours, daily caps, kill switch) ──
-  fanoutBlast([blastTarget], ctx).catch((err) =>
+  // MUST be awaited — on Cloudflare Workers unawaited promises are killed the
+  // moment the Response returns, so a fire-and-forget here means the driver's
+  // SMS never sends when the rider swipes right.
+  await fanoutBlast([blastTarget], ctx).catch((err) =>
     console.error('[hmu-fallback] sms fanout error:', err),
   );
 
   // ── Rider's offer board — move this driver from fallback → targets ──
-  publishToChannel(`blast:${blastId}`, 'target_notified', {
+  await publishToChannel(`blast:${blastId}`, 'target_notified', {
     targetId,
     driverId: target.driver_id,
     notifiedAt: new Date().toISOString(),
