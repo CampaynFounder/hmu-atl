@@ -80,7 +80,11 @@ export async function checkRiderEligibility(
   const hourlyCount = Number((hourlyCountRows[0] as { count: string }).count);
   const hasPaymentMethod = paymentRows.length > 0;
 
-  const riderChillScore = rider?.chill_score ?? 100;
+  // Number() coerce: Postgres returns chill_score as a string, and the gate
+  // below compares it with `<`. Without coercion that's a lexicographic
+  // string compare — '100' < '80' is true — which wrongly blocks a 100-chill
+  // rider against an 80 minimum. (Riders with no score default to numeric 100.)
+  const riderChillScore = Number(rider?.chill_score ?? 100);
   const riderOgStatus = rider?.og_status ?? false;
 
   // Payment-method gate moved to /api/rides/[id]/coo (Pull Up). Riders no
@@ -114,8 +118,10 @@ export async function checkRiderEligibility(
     };
   }
 
-  // 4. Chill score check
-  if (driver.min_rider_chill_score > 0 && riderChillScore < driver.min_rider_chill_score) {
+  // 4. Chill score check (min_rider_chill_score also arrives as a string — coerce
+  // so the comparison is numeric, matching riderChillScore above).
+  const minRiderChillScore = Number(driver.min_rider_chill_score);
+  if (minRiderChillScore > 0 && riderChillScore < minRiderChillScore) {
     return {
       eligible: false,
       code: 'chill_score_low',
