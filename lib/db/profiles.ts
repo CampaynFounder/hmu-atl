@@ -380,6 +380,13 @@ export async function updateDriverProfile(
   // Legacy `areas` JSONB is intentionally NOT written here — it's kept
   // read-only during the transition to slug-based routing. Callers should
   // use `area_slugs` + `services_entire_market` + `accepts_long_distance`.
+  // `pricing` uses `||` (jsonb shallow-merge) below, NOT COALESCE-replace, so a
+  // partial PATCH — e.g. the mobile app saving one rate like { store_run_rate } —
+  // merges into the existing object instead of clobbering the keys it didn't
+  // send. Replace was wiping the rates set on web whenever mobile saved (and
+  // vice versa). Incoming keys win; omitted keys are preserved. Set a rate to 0
+  // to clear it (the UI sends 0, which merges in). schedule/vehicle_info keep
+  // replace semantics — callers there always send the full object.
   const result = await sql`
     UPDATE driver_profiles
     SET
@@ -394,7 +401,7 @@ export async function updateDriverProfile(
       area_slugs = COALESCE(${params.area_slugs ?? null}::text[], area_slugs),
       services_entire_market = COALESCE(${params.services_entire_market ?? null}, services_entire_market),
       accepts_long_distance = COALESCE(${params.accepts_long_distance ?? null}, accepts_long_distance),
-      pricing = COALESCE(${params.pricing ? JSON.stringify(params.pricing) : null}::jsonb, pricing),
+      pricing = COALESCE(pricing, '{}'::jsonb) || COALESCE(${params.pricing ? JSON.stringify(params.pricing) : null}::jsonb, '{}'::jsonb),
       schedule = COALESCE(${params.schedule ? JSON.stringify(params.schedule) : null}::jsonb, schedule),
       vehicle_info = COALESCE(${params.vehicle_info ? JSON.stringify(params.vehicle_info) : null}::jsonb, vehicle_info),
       handle = COALESCE(${params.handle ?? null}, handle),
