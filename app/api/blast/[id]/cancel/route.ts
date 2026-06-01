@@ -189,8 +189,8 @@ export async function POST(
   `;
   const interestedIds: string[] = [];
   await Promise.all(
-    interestedRows.map(async (r) => {
-      const driverId = (r as { driver_id: string }).driver_id;
+    interestedRows.map(async (r: { driver_id: string }) => {
+      const driverId = r.driver_id;
       interestedIds.push(driverId);
       await Promise.all([
         notifyUser(driverId, 'blast_cancelled', { blastId }).catch(() => {}),
