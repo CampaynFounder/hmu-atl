@@ -99,6 +99,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/sms-templates',       rule: { kind: 'permission', slug: 'admin.smstemplates' } },
   { pattern: '/admin/chill-config',        rule: { kind: 'super' } },
   { pattern: '/admin/down-bad',            rule: { kind: 'super' } },
+  { pattern: '/admin/cold-start',          rule: { kind: 'super' } }, // changes prod compute billing — super only
 
   // ── TOOLS ───────────────────────────────────────────────────────────
   { pattern: '/admin/flows',               rule: { kind: 'permission', slug: 'tools.flows' } }, // includes all flow subroutes

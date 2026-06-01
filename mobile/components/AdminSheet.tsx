@@ -1351,6 +1351,123 @@ const ad = StyleSheet.create({
   gateLine: { fontFamily: fonts.body, fontSize: 11, color: colors.textTertiary },
 });
 
+// ── SECTION: Infra (cold-start prevention) ─────────────────────────────────────
+
+function InfraSection({ token }: { token: string | null }) {
+  const [loading, setLoading] = useState(true);
+  const [keepWarm, setKeepWarm] = useState(true);
+  const [warmWindow, setWarmWindow] = useState(604800);
+  const [appliedSeconds, setAppliedSeconds] = useState(604800);
+  const [neonConfigured, setNeonConfigured] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; kind: 'ok' | 'warn' | 'err' } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const d = await apiClient<{
+          config: { keep_warm: boolean; suspend_timeout_seconds: number };
+          appliedSeconds: number; neonConfigured: boolean;
+        }>('/admin/cold-start', token);
+        setKeepWarm(d.config.keep_warm);
+        setWarmWindow(d.config.suspend_timeout_seconds);
+        setAppliedSeconds(d.appliedSeconds);
+        setNeonConfigured(d.neonConfigured);
+      } catch (e: unknown) {
+        setMsg({ text: (e as { message?: string }).message ?? 'Failed to load', kind: 'err' });
+      } finally { setLoading(false); }
+    })();
+  }, [token]);
+
+  async function save() {
+    setSaving(true); setMsg(null);
+    try {
+      const d = await apiClient<{ appliedSeconds: number; neon: { ok: boolean; error?: string } }>(
+        '/admin/cold-start', token,
+        { method: 'PATCH', body: JSON.stringify({ keep_warm: keepWarm, suspend_timeout_seconds: warmWindow }) },
+      );
+      setAppliedSeconds(d.appliedSeconds);
+      setMsg(d.neon?.ok
+        ? { text: 'Saved & applied to prod DB.', kind: 'ok' }
+        : { text: `Saved, not applied: ${d.neon?.error ?? 'error'}`, kind: 'warn' });
+    } catch (e: unknown) {
+      setMsg({ text: (e as { message?: string }).message ?? 'Save failed', kind: 'err' });
+    } finally { setSaving(false); }
+  }
+
+  if (loading) return <LoadingCard />;
+
+  const appliedLabel = appliedSeconds === 300 ? '5 min (default)'
+    : appliedSeconds === 3600 ? '1 hour' : '7 days (always warm)';
+
+  return (
+    <ScrollView contentContainerStyle={{ gap: spacing.md }} keyboardShouldPersistTaps="handled">
+      <SectionHeader title="COLD-START PREVENTION" />
+      <Text style={sc.rowSub}>
+        Keep the prod database warm to remove the slow first request after idle. Costs more
+        (always-on compute). The query retry layer is always on regardless.
+      </Text>
+
+      {!neonConfigured && (
+        <View style={[sc.pricingCard, { borderColor: colors.red }]}>
+          <Text style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.red, lineHeight: 15 }}>
+            NEON_API_KEY not set on the worker — changes save but won&apos;t apply to the live DB.
+          </Text>
+        </View>
+      )}
+
+      <View style={sc.pricingCard}>
+        <View style={[sc.costRow, { alignItems: 'center' }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={sc.rowTitle}>KEEP WARM</Text>
+            <Text style={sc.rowSub}>{keepWarm ? 'On — no cold starts' : 'Off — 5 min autosuspend'}</Text>
+          </View>
+          <Switch
+            value={keepWarm}
+            onValueChange={setKeepWarm}
+            trackColor={{ false: colors.border, true: colors.green }}
+            thumbColor={colors.textPrimary}
+          />
+        </View>
+
+        {keepWarm && (
+          <View style={{ marginTop: spacing.sm }}>
+            <Text style={[sc.costLabel, { marginBottom: spacing.sm }]}>WARM WINDOW</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              {[{ label: '1 HOUR', v: 3600 }, { label: 'ALWAYS', v: 604800 }].map(o => (
+                <TouchableOpacity
+                  key={o.v}
+                  style={[sc.modeBtn, warmWindow === o.v && sc.modeBtnActive]}
+                  onPress={() => setWarmWindow(o.v)}
+                >
+                  <Text style={[sc.modeBtnText, warmWindow === o.v && { color: G }]}>{o.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+      </View>
+
+      <Text style={sc.rowSub}>Applied to prod: {appliedLabel}</Text>
+
+      {msg && (
+        <Text style={{
+          fontFamily: fonts.mono, fontSize: 10,
+          color: msg.kind === 'ok' ? colors.green : msg.kind === 'warn' ? colors.amber : colors.red,
+        }}>
+          {msg.text}
+        </Text>
+      )}
+
+      <TouchableOpacity style={sc.saveBtn} onPress={save} disabled={saving}>
+        {saving ? <ActivityIndicator size="small" color={colors.bg} /> : <Text style={sc.saveBtnText}>SAVE</Text>}
+      </TouchableOpacity>
+    </ScrollView>
+  );
+}
+
+// ── Tab config ────────────────────────────────────────────────────────────────
+
 const TABS = [
   { key: 'activity', label: 'ACTIVITY', icon: 'stats-chart' as const },
   { key: 'revenue',  label: 'REVENUE',  icon: 'cash' as const },
@@ -1360,6 +1477,7 @@ const TABS = [
   { key: 'ai',       label: 'AI',       icon: 'sparkles' as const },
   { key: 'blasts',   label: 'BLASTS',   icon: 'radio' as const },
   { key: 'users',    label: 'USERS',    icon: 'people' as const },
+  { key: 'infra',    label: 'INFRA',    icon: 'pulse' as const },
 ];
 
 // ── Main Sheet ────────────────────────────────────────────────────────────────
@@ -1423,6 +1541,7 @@ export function AdminSheet({ visible, onClose }: AdminSheetProps) {
       case 5: return <AISection {...props} />;
       case 6: return <BlastsSection token={token} market={market} />;
       case 7: return <UsersSection token={token} />;
+      case 8: return <InfraSection token={token} />;
       default: return null;
     }
   };
