@@ -78,7 +78,9 @@ export async function POST(
     expiresAt: blast.expires_at,
   });
 
-  // SMS — confirm rider specifically chose this driver
+  // SMS — confirm rider specifically chose this driver.
+  // Must be awaited: Cloudflare Workers terminate unawaited promises the moment
+  // the response is sent, so fire-and-forget means the VoIP.ms call never fires.
   if (target.phone) {
     const pickupLabel = (pickup.short_label as string | undefined) ?? (pickup.address as string | undefined) ?? 'Pickup';
     const dropoffTw = typeof (blast.time_window as Record<string, unknown>)?.dropoff === 'object'
@@ -86,7 +88,7 @@ export async function POST(
       : {};
     const dropoffLabel = (dropoffTw.short_label as string | undefined) ?? (dropoffTw.address as string | undefined) ?? 'Dropoff';
     const viewerCount = Math.floor(Math.random() * 11) + 5;
-    notifyDriverBlastHmu(target.phone, {
+    await notifyDriverBlastHmu(target.phone, {
       price: Number(blast.price),
       pickup: pickupLabel,
       dropoff: dropoffLabel,

@@ -279,13 +279,14 @@ export async function POST(
     notifyUser(losDriverId, 'blast_taken', { blastId }).catch(() => {});
     loserIds.push(losDriverId);
   }
-  void sendBlastTakenSms({
+  // Awaited — same reason as blast HMU: Cloudflare Workers kill unawaited promises on response
+  await sendBlastTakenSms({
     driverIds: loserIds,
     pickup: post.pickup_address as string,
     dropoff: post.dropoff_address as string,
     priceDollars: finalPrice,
     marketSlug: 'atl',
-  });
+  }).catch(() => {});
 
   return NextResponse.json({ rideId, refCode, driverId, finalPrice });
 }
