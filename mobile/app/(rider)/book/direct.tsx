@@ -72,8 +72,16 @@ export default function DirectBooking() {
   const { getToken } = useAuth();
   const { prefillHandle } = useLocalSearchParams<{ prefillHandle?: string }>();
 
-  // When arriving from Browse with a known handle, skip the search step entirely
-  const [step, setStep] = useState(prefillHandle ? 1 : 0);
+  // INVARIANT: arriving from Browse with a pre-selected driver (prefillHandle)
+  // means step 0 ("SELECT YOUR DRIVER") is NEVER valid — the rider already chose
+  // their driver by tapping HMU. Step 0 is only for manual handle search.
+  // `minStep` is the floor and `goToStep` clamps to it, so NO code path (draft
+  // resume, back nav, future edits) can ever bounce a prefilled rider to step 0.
+  // Do not call setStep directly — always go through goToStep.
+  const minStep = prefillHandle ? 1 : 0;
+  const [step, setStepRaw] = useState(minStep);
+  const goToStep = useCallback((n: number) => setStepRaw(Math.max(minStep, n)), [minStep]);
+  const setStep = goToStep;
 
   // Step 1 — driver
   const [handleInput, setHandleInput] = useState(prefillHandle ?? '');
@@ -216,7 +224,7 @@ export default function DirectBooking() {
       setStep(hasMenu ? 2 : 3);
       await Haptics.selectionAsync();
     } else if (step < 3) {
-      setStep(s => s + 1);
+      setStep(step + 1);
       await Haptics.selectionAsync();
     } else {
       await submit();

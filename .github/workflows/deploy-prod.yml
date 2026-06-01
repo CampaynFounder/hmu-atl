@@ -173,6 +173,7 @@ jobs:
           node scripts/apply-migration.mjs lib/db/migrations/2026-05-25-user-delete-fk-cleanup.sql
           node scripts/apply-migration.mjs lib/db/migrations/2026-05-28-delivery-marketplace.sql
           node scripts/apply-migration.mjs lib/db/migrations/2026-06-01-blast-sms-trip-details.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-05-26-push-tokens.sql
 
       - name: Post-deploy health check
         run: |
