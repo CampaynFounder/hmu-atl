@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet,
+  View, Text, Image, TouchableOpacity, StyleSheet,
   FlatList, ActivityIndicator, TextInput,
   Dimensions, Pressable, ScrollView, Linking,
 } from 'react-native';
@@ -115,13 +115,14 @@ function DriverCardView({ driver, cardH, onHmu, onDownBad }: {
 
   return (
     <View style={[s.card, { height: cardH, width: SCREEN_W }]}>
-      {/* Full-bleed media — expo-image provides memory+disk caching */}
-      <HmuImage
-        uri={mediaUri}
-        style={StyleSheet.absoluteFill}
-        resizeMode="cover"
-        fallbackInitials={initials}
-      />
+      {/* Full-bleed media — native Image required; expo-image breaks absoluteFill in paging FlatList */}
+      {mediaUri ? (
+        <Image source={{ uri: mediaUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      ) : (
+        <View style={[StyleSheet.absoluteFill, s.fallbackBg]}>
+          <Text style={s.fallbackInitials}>{initials}</Text>
+        </View>
+      )}
 
       {/* Video badge */}
       {hasVideo && (
@@ -586,6 +587,9 @@ const s = StyleSheet.create({
     borderTopWidth: 2,
     borderTopColor: colors.greenBorder,
   },
+  fallbackBg: { backgroundColor: colors.cardAlt, alignItems: 'center', justifyContent: 'center' },
+  fallbackInitials: { fontFamily: fonts.display, fontSize: 96, color: colors.borderStrong },
+
   playBtn: { position: 'absolute', top: spacing.xl, right: spacing.xl },
   playIcon: {
     width: 40, height: 40, borderRadius: 20,
