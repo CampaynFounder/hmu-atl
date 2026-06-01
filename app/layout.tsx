@@ -8,6 +8,7 @@ import { ClerkProvider } from '@clerk/nextjs';
 import { Inter, Bebas_Neue, DM_Sans, Space_Mono } from 'next/font/google';
 import { Header } from '@/components/layout/header';
 import { ChunkErrorHandler } from '@/components/layout/chunk-error-handler';
+import { AppRecoveryWatchdog } from '@/components/layout/app-recovery-watchdog';
 import { PostHogProvider } from '@/components/analytics/posthog-provider';
 import { MetaPixel } from '@/components/analytics/meta-pixel';
 import { AttributionTracker } from '@/components/analytics/attribution-tracker';
@@ -267,6 +268,7 @@ export default async function RootLayout({
         </head>
         <body className={`${inter.variable} ${bebasNeue.variable} ${dmSans.variable} ${spaceMono.variable} font-sans antialiased`}>
           <ChunkErrorHandler />
+          <AppRecoveryWatchdog />
           <Suspense>
             <PostHogProvider>
               <MetaPixel />
