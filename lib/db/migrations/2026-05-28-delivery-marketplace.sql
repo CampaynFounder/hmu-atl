@@ -4,19 +4,23 @@
 
 -- ── Delivery Requests ───────────────────────────────────────────────────────
 
-CREATE TYPE delivery_status AS ENUM (
-  'pending',
-  'courier_accepted',
-  'at_merchant',
-  'receipt_uploaded',
-  'en_route',
-  'delivered',
-  'completed',
-  'cancelled',
-  'disputed'
-);
+-- Idempotent: CREATE TYPE has no IF NOT EXISTS, so guard against re-runs.
+DO $$ BEGIN
+  CREATE TYPE delivery_status AS ENUM (
+    'pending',
+    'courier_accepted',
+    'at_merchant',
+    'receipt_uploaded',
+    'en_route',
+    'delivered',
+    'completed',
+    'cancelled',
+    'disputed'
+  );
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
 
-CREATE TABLE delivery_requests (
+CREATE TABLE IF NOT EXISTS delivery_requests (
   id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   market_id               TEXT NOT NULL,
   customer_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -60,14 +64,14 @@ CREATE TABLE delivery_requests (
   updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_delivery_requests_customer ON delivery_requests(customer_id);
-CREATE INDEX idx_delivery_requests_courier  ON delivery_requests(courier_id);
-CREATE INDEX idx_delivery_requests_market   ON delivery_requests(market_id, status);
-CREATE INDEX idx_delivery_requests_status   ON delivery_requests(status);
+CREATE INDEX IF NOT EXISTS idx_delivery_requests_customer ON delivery_requests(customer_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_requests_courier  ON delivery_requests(courier_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_requests_market   ON delivery_requests(market_id, status);
+CREATE INDEX IF NOT EXISTS idx_delivery_requests_status   ON delivery_requests(status);
 
 -- ── Delivery Items ───────────────────────────────────────────────────────────
 
-CREATE TABLE delivery_items (
+CREATE TABLE IF NOT EXISTS delivery_items (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   delivery_id           UUID NOT NULL REFERENCES delivery_requests(id) ON DELETE CASCADE,
   name                  TEXT NOT NULL,
@@ -79,11 +83,11 @@ CREATE TABLE delivery_items (
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_delivery_items_delivery ON delivery_items(delivery_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_items_delivery ON delivery_items(delivery_id);
 
 -- ── Delivery Receipts ────────────────────────────────────────────────────────
 
-CREATE TABLE delivery_receipts (
+CREATE TABLE IF NOT EXISTS delivery_receipts (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   delivery_id         UUID NOT NULL REFERENCES delivery_requests(id) ON DELETE CASCADE,
   receipt_url         TEXT NOT NULL,
@@ -96,7 +100,7 @@ CREATE TABLE delivery_receipts (
 
 -- ── Delivery Item Verification Photos ───────────────────────────────────────
 
-CREATE TABLE delivery_item_photos (
+CREATE TABLE IF NOT EXISTS delivery_item_photos (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   delivery_id   UUID NOT NULL REFERENCES delivery_requests(id) ON DELETE CASCADE,
   item_id       UUID REFERENCES delivery_items(id) ON DELETE SET NULL,
@@ -107,7 +111,7 @@ CREATE TABLE delivery_item_photos (
 
 -- ── Delivery GPS Audit Trail ─────────────────────────────────────────────────
 
-CREATE TABLE delivery_locations (
+CREATE TABLE IF NOT EXISTS delivery_locations (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   delivery_id   UUID NOT NULL REFERENCES delivery_requests(id) ON DELETE CASCADE,
   actor_id      UUID NOT NULL REFERENCES users(id),
@@ -116,7 +120,7 @@ CREATE TABLE delivery_locations (
   recorded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_delivery_locations_delivery ON delivery_locations(delivery_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_delivery_locations_delivery ON delivery_locations(delivery_id, recorded_at DESC);
 
 -- ── Updated-at trigger (reuse pattern from rides) ────────────────────────────
 
@@ -128,6 +132,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Idempotent: CREATE TRIGGER has no IF NOT EXISTS, so drop-then-create on re-runs.
+DROP TRIGGER IF EXISTS trg_delivery_requests_updated_at ON delivery_requests;
 CREATE TRIGGER trg_delivery_requests_updated_at
   BEFORE UPDATE ON delivery_requests
   FOR EACH ROW EXECUTE FUNCTION update_delivery_updated_at();
