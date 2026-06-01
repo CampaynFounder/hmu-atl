@@ -1,6 +1,9 @@
-// Pricing & Rates — minimum ride, base rate, hourly, out-of-town, deposit floor.
-// Rates → PATCH /api/users/profile { pricing: { minimum, base_rate, hourly, out_of_town } }
+// Pricing & Rates — minimum ride, base rate, hourly, out-of-town, deposit floor, store runs.
+// Rates → PATCH /api/users/profile { pricing: { minimum, base_rate, hourly, out_of_town, store_run_rate, store_run_percent, store_runs_enabled } }
 // Deposit floor → PATCH /api/drivers/booking-settings { deposit_floor }
+// Every field saves on a 600ms debounce AND on blur — onBlur alone is unreliable
+// in React Native (it doesn't fire when the driver edits a rate then taps Back),
+// which silently dropped saves.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -47,6 +50,9 @@ export default function PricingScreen() {
   const togglingRef = useRef(false);
   const storeRunDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const storeRunPercentDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Per-field debounce timers for the ride rates + deposit floor.
+  const rateDebounce = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const depositDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -85,6 +91,14 @@ export default function PricingScreen() {
     } catch {}
     finally { setSaving(false); }
   }
+
+  // Debounced save-as-you-type for the ride rates. onBlur is unreliable in RN
+  // (doesn't fire when the driver edits then taps Back), so the rate fields used
+  // to silently drop their last edit — this mirrors the store-run fix below.
+  const debouncedSave = useCallback((key: string, raw: string) => {
+    if (rateDebounce.current[key]) clearTimeout(rateDebounce.current[key]);
+    rateDebounce.current[key] = setTimeout(() => void savePricing(key, raw), 600);
+  }, []);
 
   // Debounced save for store run rate — onBlur is unreliable in React Native
   const saveStoreRunRate = useCallback((raw: string) => {
@@ -134,6 +148,11 @@ export default function PricingScreen() {
     finally { setSaving(false); }
   }
 
+  const debouncedSaveDeposit = useCallback((raw: string) => {
+    if (depositDebounce.current) clearTimeout(depositDebounce.current);
+    depositDebounce.current = setTimeout(() => void saveDepositFloor(raw), 600);
+  }, []);
+
   if (loading) {
     return (
       <View style={[s.center, { paddingTop: insets.top }]}>
@@ -170,7 +189,7 @@ export default function PricingScreen() {
               label="MINIMUM RIDE"
               sub="Don't take rides below this price"
               value={minimum}
-              onChangeText={setMinimum}
+              onChangeText={v => { setMinimum(v); debouncedSave('minimum', v); }}
               onBlur={() => savePricing('minimum', minimum)}
             />
             <Divider />
@@ -178,7 +197,7 @@ export default function PricingScreen() {
               label="30-MIN BASE RATE"
               sub="Short trips around your area"
               value={baseRate}
-              onChangeText={setBaseRate}
+              onChangeText={v => { setBaseRate(v); debouncedSave('base_rate', v); }}
               onBlur={() => savePricing('base_rate', baseRate)}
             />
             <Divider />
@@ -186,7 +205,7 @@ export default function PricingScreen() {
               label="HOURLY RATE"
               sub="Multi-stop or longer distance"
               value={hourly}
-              onChangeText={setHourly}
+              onChangeText={v => { setHourly(v); debouncedSave('hourly', v); }}
               onBlur={() => savePricing('hourly', hourly)}
             />
             <Divider />
@@ -194,7 +213,7 @@ export default function PricingScreen() {
               label="OUT-OF-TOWN / HR"
               sub="Rides outside your usual area"
               value={outOfTown}
-              onChangeText={setOutOfTown}
+              onChangeText={v => { setOutOfTown(v); debouncedSave('out_of_town', v); }}
               onBlur={() => savePricing('out_of_town', outOfTown)}
             />
           </View>
@@ -206,7 +225,7 @@ export default function PricingScreen() {
               label="MIN DEPOSIT"
               sub="Platform default: $5"
               value={depositFloor}
-              onChangeText={setDepositFloor}
+              onChangeText={v => { setDepositFloor(v); debouncedSaveDeposit(v); }}
               onBlur={() => saveDepositFloor(depositFloor)}
               placeholder="Platform default"
             />
