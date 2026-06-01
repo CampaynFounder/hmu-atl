@@ -199,32 +199,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── 2b. One-blast-at-a-time gate ──
-    // Riders can only have one active blast. Return the existing shortcode so
-    // the client can redirect the rider back to their offer board.
-    // shortcode is not a column — it's stored as areas[1] = 'shortcode:{code}'
-    // and also in time_window->>'shortcode'. Extract via time_window JSONB.
-    const existingBlast = await runQuery('check_existing_blast', () => sql`
-      SELECT id, time_window->>'shortcode' AS shortcode
-      FROM hmu_posts
-      WHERE user_id = ${riderId}
-        AND post_type = 'blast'
-        AND status = 'active'
-        AND expires_at > NOW()
-      LIMIT 1
-    `);
-    if (existingBlast.length) {
-      const existing = existingBlast[0] as { id: string; shortcode: string };
-      return NextResponse.json(
-        {
-          error: 'ACTIVE_BLAST_EXISTS',
-          message: 'You already have an active blast',
-          shortcode: existing.shortcode,
-          blastId: existing.id,
-        },
-        { status: 409 },
-      );
-    }
+    // ── 2b. One-blast-at-a-time policy ──
+    // Riders can only have one active blast, BUT creating a new one supersedes
+    // the old one rather than erroring. The client already confirms intent via
+    // the "REPLACE YOUR BLAST?" modal (gated on GET /api/blast/active), so by
+    // the time we reach this POST the rider has consented to replace.
+    //
+    // The actual supersede (cancel any active/matched blast for this rider) runs
+    // at step 6b below, right before the INSERT. Hard-erroring here was the cause
+    // of the "active blast exists after I cancelled" stuck loop: any stale or
+    // raced active row left the rider permanently bounced back to a dead blast.
+    // Falling through to the supersede self-heals duplicate/stale rows too.
 
     // Prevent cross-type conflicts: a rider cannot blast while a direct booking
     // request is in flight. They must cancel the direct request first.

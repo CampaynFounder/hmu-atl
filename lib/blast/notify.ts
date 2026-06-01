@@ -159,14 +159,19 @@ export async function sendBlastTakenSms(params: {
        AND COALESCE(dp.phone, u.phone) IS NOT NULL
   `.catch(() => []);
 
-  for (const r of phoneRows) {
-    const row = r as { id: string; phone: string };
-    sendSms(row.phone, body, {
-      userId: row.id,
-      eventType: 'blast_taken',
-      market: params.marketSlug,
-    }).catch(() => {});
-  }
+  // MUST await every send — on Cloudflare Workers unawaited promises are killed
+  // the moment the Response returns. A fire-and-forget loop here means the
+  // "ride no longer available" SMS never actually goes out on cancel/select.
+  await Promise.all(
+    phoneRows.map((r: unknown) => {
+      const row = r as { id: string; phone: string };
+      return sendSms(row.phone, body, {
+        userId: row.id,
+        eventType: 'blast_taken',
+        market: params.marketSlug,
+      }).catch(() => {});
+    }),
+  );
 }
 
 function pushPayload(target: BlastTarget, ctx: BlastNotificationContext) {
