@@ -21,6 +21,7 @@ interface PricingData {
     hourly?: number;
     out_of_town?: number;
     store_run_rate?: number;
+    store_run_percent?: number;
     store_runs_enabled?: boolean;
   };
   depositFloor: number | null;
@@ -41,9 +42,11 @@ export default function PricingScreen() {
   const [outOfTown, setOutOfTown] = useState('');
   const [depositFloor, setDepositFloor] = useState('');
   const [storeRunRate, setStoreRunRate] = useState('');
+  const [storeRunPercent, setStoreRunPercent] = useState('');
   const [storeRunsEnabled, setStoreRunsEnabled] = useState(false);
   const togglingRef = useRef(false);
   const storeRunDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const storeRunPercentDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -56,6 +59,7 @@ export default function PricingScreen() {
         setOutOfTown(d.pricing?.out_of_town ? String(d.pricing.out_of_town) : '');
         setDepositFloor(d.depositFloor != null ? String(d.depositFloor) : '');
         setStoreRunRate(d.pricing?.store_run_rate ? String(d.pricing.store_run_rate) : '');
+        setStoreRunPercent(d.pricing?.store_run_percent ? String(d.pricing.store_run_percent) : '');
         setStoreRunsEnabled(d.pricing?.store_runs_enabled ?? false);
       } catch {}
       finally { setLoading(false); }
@@ -86,6 +90,12 @@ export default function PricingScreen() {
   const saveStoreRunRate = useCallback((raw: string) => {
     if (storeRunDebounce.current) clearTimeout(storeRunDebounce.current);
     storeRunDebounce.current = setTimeout(() => void savePricing('store_run_rate', raw), 600);
+  }, []);
+
+  // Debounced save for the store-run percentage (same reliability reason).
+  const saveStoreRunPercent = useCallback((raw: string) => {
+    if (storeRunPercentDebounce.current) clearTimeout(storeRunPercentDebounce.current);
+    storeRunPercentDebounce.current = setTimeout(() => void savePricing('store_run_percent', raw), 600);
   }, []);
 
   async function toggleStoreRuns(val: boolean) {
@@ -203,7 +213,7 @@ export default function PricingScreen() {
           </View>
 
           {/* Store Runs */}
-          <SectionHeader label="STORE RUNS" hint="Set your flat fee for picking up and delivering grocery or store orders." />
+          <SectionHeader label="STORE RUNS" hint="Set what you charge for grocery & store-order deliveries. You earn whichever is greater — your flat fee or your % of the order total." />
           <View style={[s.card, shadow.card]}>
             <View style={s.toggleRow}>
               <View style={s.priceLabelCol}>
@@ -221,11 +231,21 @@ export default function PricingScreen() {
               <>
                 <Divider />
                 <PriceRow
-                  label="STORE RUN RATE"
-                  sub="Your flat fee per store run"
+                  label="FLAT FEE / DELIVERY"
+                  sub="Minimum you'll take per store run"
                   value={storeRunRate}
                   onChangeText={v => { setStoreRunRate(v); saveStoreRunRate(v); }}
                   onBlur={() => savePricing('store_run_rate', storeRunRate)}
+                />
+                <Divider />
+                <PriceRow
+                  label="% OF ORDER"
+                  sub="Whichever earns more wins"
+                  value={storeRunPercent}
+                  onChangeText={v => { setStoreRunPercent(v); saveStoreRunPercent(v); }}
+                  onBlur={() => savePricing('store_run_percent', storeRunPercent)}
+                  placeholder="0"
+                  unit="%"
                 />
               </>
             )}
@@ -246,10 +266,11 @@ function SectionHeader({ label, hint }: { label: string; hint?: string }) {
 }
 
 function PriceRow({
-  label, sub, value, onChangeText, onBlur, placeholder = '$0',
+  label, sub, value, onChangeText, onBlur, placeholder = '$0', unit = '$',
 }: {
   label: string; sub: string; value: string;
   onChangeText: (v: string) => void; onBlur: () => void; placeholder?: string;
+  unit?: '$' | '%';
 }) {
   return (
     <View style={s.priceRow}>
@@ -258,7 +279,7 @@ function PriceRow({
         <Text style={s.priceSub}>{sub}</Text>
       </View>
       <View style={s.priceInputWrap}>
-        <Text style={s.dollarSign}>$</Text>
+        {unit === '$' && <Text style={s.dollarSign}>$</Text>}
         <TextInput
           style={s.priceInput}
           value={value}
@@ -269,6 +290,7 @@ function PriceRow({
           keyboardType="decimal-pad"
           returnKeyType="done"
         />
+        {unit === '%' && <Text style={s.dollarSign}>%</Text>}
       </View>
     </View>
   );
