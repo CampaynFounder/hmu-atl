@@ -19,6 +19,8 @@ import Animated, {
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { AddressInput, ValidatedAddress } from '@/components/AddressInput';
+import { useBookingDraft } from '@/hooks/use-booking-draft';
+import { ResumeDraftSheet } from '@/components/resume-draft-sheet';
 
 interface BlastEstimate {
   distance_mi: number;
@@ -85,6 +87,43 @@ export default function BlastBooking() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Back-out draft — resume or start over within the 5-min TTL. Additive: when
+  // there's no draft the sheet never renders and the flow is unchanged.
+  type BlastDraft = {
+    step: number;
+    pickup: ValidatedAddress | null;
+    dropoff: ValidatedAddress | null;
+    tripType: TripType;
+    timeOption: TimeOption;
+    price: number;
+    priceSetByUser: boolean;
+    pref: PrefOption;
+    strictPref: boolean;
+  };
+  const { pending: pendingDraft, save: saveDraft, clear: clearDraft, dismiss: dismissDraft } =
+    useBookingDraft<BlastDraft>('blast');
+
+  // Persist progress (debounced) once the user has actually started.
+  useEffect(() => {
+    const started = step > 0 || !!pickup || !!dropoff;
+    if (started) {
+      saveDraft({ step, pickup, dropoff, tripType, timeOption, price, priceSetByUser, pref, strictPref });
+    }
+  }, [step, pickup, dropoff, tripType, timeOption, price, priceSetByUser, pref, strictPref, saveDraft]);
+
+  function applyDraft(d: BlastDraft) {
+    setStep(d.step);
+    setPickup(d.pickup);
+    setDropoff(d.dropoff);
+    setTripType(d.tripType);
+    setTimeOption(d.timeOption);
+    setPrice(d.price);
+    setPriceSetByUser(d.priceSetByUser);
+    setPref(d.pref);
+    setStrictPref(d.strictPref);
+    dismissDraft();
+  }
 
   // Auto-fetch estimate when both locations are set
   useEffect(() => {
@@ -158,6 +197,7 @@ export default function BlastBooking() {
       });
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      clearDraft();
       router.replace({
         pathname: '/(rider)/book/blast-deck',
         params: {
@@ -187,6 +227,13 @@ export default function BlastBooking() {
       style={[s.root, { paddingTop: insets.top }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      {pendingDraft && (
+        <ResumeDraftSheet
+          label="blast"
+          onResume={() => applyDraft(pendingDraft)}
+          onStartOver={clearDraft}
+        />
+      )}
       <View style={s.header}>
         <TouchableOpacity onPress={back} style={s.backBtn} hitSlop={12}>
           <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
