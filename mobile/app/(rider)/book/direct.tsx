@@ -17,6 +17,8 @@ import Animated, { FadeInUp, FadeIn } from 'react-native-reanimated';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient, API_BASE } from '@/lib/api';
 import { AddressInput, ValidatedAddress } from '@/components/AddressInput';
+import { useBookingDraft } from '@/hooks/use-booking-draft';
+import { ResumeDraftSheet } from '@/components/resume-draft-sheet';
 import { HmuImage } from '@/components/HmuImage';
 
 interface DriverPreview {
@@ -128,6 +130,45 @@ export default function DirectBooking() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Back-out draft — resume or start over within the 5-min TTL. selectedServices
+  // is a Map, so it's serialized to entries for storage and rebuilt on resume.
+  type DirectDraft = {
+    step: number;
+    handleInput: string;
+    driver: DriverPreview | null;
+    pickup: ValidatedAddress | null;
+    dropoff: ValidatedAddress | null;
+    timePreset: string;
+    price: number;
+    isCash: boolean;
+    services: [string, number][];
+  };
+  const { pending: pendingDraft, save: saveDraft, clear: clearDraft, dismiss: dismissDraft } =
+    useBookingDraft<DirectDraft>('direct');
+
+  useEffect(() => {
+    const started = !!driver || !!pickup || !!dropoff;
+    if (started) {
+      saveDraft({
+        step, handleInput, driver, pickup, dropoff, timePreset, price, isCash,
+        services: Array.from(selectedServices.entries()),
+      });
+    }
+  }, [step, handleInput, driver, pickup, dropoff, timePreset, price, isCash, selectedServices, saveDraft]);
+
+  function applyDraft(d: DirectDraft) {
+    setStep(d.step);
+    setHandleInput(d.handleInput);
+    setDriver(d.driver);
+    setPickup(d.pickup);
+    setDropoff(d.dropoff);
+    setTimePreset(d.timePreset);
+    setPrice(d.price);
+    setIsCash(d.isCash);
+    setSelectedServices(new Map(d.services ?? []));
+    dismissDraft();
+  }
+
   const findDriver = useCallback(async (overrideHandle?: string, autoAdvance = false) => {
     const h = (overrideHandle ?? handleInput).trim().replace(/^@/, '');
     if (!h) return;
@@ -233,6 +274,7 @@ export default function DirectBooking() {
         },
       );
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      clearDraft();
       router.replace({
         pathname: '/(rider)/book/waiting',
         params: {
@@ -263,6 +305,13 @@ export default function DirectBooking() {
       style={[s.root, { paddingTop: insets.top }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      {pendingDraft && (
+        <ResumeDraftSheet
+          label="booking"
+          onResume={() => applyDraft(pendingDraft)}
+          onStartOver={clearDraft}
+        />
+      )}
       {/* Header */}
       <View style={s.header}>
         <TouchableOpacity onPress={back} style={s.backBtn} hitSlop={12}>

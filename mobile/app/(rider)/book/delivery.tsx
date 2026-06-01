@@ -2,7 +2,7 @@
 // 3 steps: Where is the store → Items → Breakdown + Confirm.
 // Route: /(rider)/book/delivery
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
@@ -17,6 +17,8 @@ import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { AddressInput, type ValidatedAddress } from '@/components/AddressInput';
 import type { DeliveryItem, DeliveryEstimate } from '@/shared/delivery-types';
+import { useBookingDraft } from '@/hooks/use-booking-draft';
+import { ResumeDraftSheet } from '@/components/resume-draft-sheet';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,6 +53,33 @@ export default function BookDelivery() {
   const [estimate, setEstimate] = useState<DeliveryEstimate | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Back-out draft — resume or start over within the 5-min TTL. estimate is
+  // re-fetched, so it's intentionally not stored.
+  type DeliveryDraft = {
+    step: Step;
+    merchantName: string;
+    merchantLocation: ValidatedAddress | null;
+    customerLocation: ValidatedAddress | null;
+    items: DeliveryItem[];
+  };
+  const { pending: pendingDraft, save: saveDraft, clear: clearDraft, dismiss: dismissDraft } =
+    useBookingDraft<DeliveryDraft>('delivery');
+
+  useEffect(() => {
+    const started =
+      merchantName.trim().length > 0 || !!merchantLocation || !!customerLocation || step !== 'merchant';
+    if (started) saveDraft({ step, merchantName, merchantLocation, customerLocation, items });
+  }, [step, merchantName, merchantLocation, customerLocation, items, saveDraft]);
+
+  function applyDraft(d: DeliveryDraft) {
+    setStep(d.step);
+    setMerchantName(d.merchantName);
+    setMerchantLocation(d.merchantLocation);
+    setCustomerLocation(d.customerLocation);
+    setItems(d.items?.length ? d.items : [newItem()]);
+    dismissDraft();
+  }
 
   // ── Step 1 ──────────────────────────────────────────────────────────────────
 
@@ -119,13 +148,14 @@ export default function BookDelivery() {
         },
       );
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      clearDraft();
       router.replace(`/(rider)/delivery/${res.deliveryId}` as any);
     } catch (e: any) {
       Alert.alert('Could not place request', e.message ?? 'Try again');
     } finally {
       setSubmitting(false);
     }
-  }, [getToken, merchantName, merchantLocation, customerLocation, validItems, router]);
+  }, [getToken, merchantName, merchantLocation, customerLocation, validItems, router, clearDraft]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -134,6 +164,13 @@ export default function BookDelivery() {
       style={[s.root, { paddingTop: insets.top }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      {pendingDraft && (
+        <ResumeDraftSheet
+          label="store run"
+          onResume={() => applyDraft(pendingDraft)}
+          onStartOver={clearDraft}
+        />
+      )}
       <View style={s.header}>
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
