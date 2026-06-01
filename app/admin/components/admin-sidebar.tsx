@@ -84,6 +84,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/realtime-notifications', label: 'Realtime Banners', icon: '⚡' },
       { href: '/admin/rider-browse-banner', label: 'Browse Banner', icon: '📣' },
       { href: '/admin/maintenance', label: 'Maintenance', icon: '🚧' },
+      { href: '/admin/cold-start', label: 'Cold Start', icon: '🔥' },
       { href: '/admin/voip-debug', label: 'VoIP Debug', icon: '📡' },
       { href: '/admin/voip-config', label: 'VoIP Config', icon: '🔧' },
       { href: '/admin/sms-templates', label: 'SMS Templates', icon: '✉️' },
