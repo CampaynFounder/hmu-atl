@@ -114,7 +114,10 @@ export async function sendSms(
 
   if (!username || !password || !did) {
     console.warn('[SMS] VoIP.ms not configured — skipping SMS to', to, '| username:', !!username, '| password:', !!password, '| did:', did);
-    logSms(to, did || 'none', message, 'skipped', null, 'VoIP.ms not configured', 0, options).catch(() => {});
+    // Await — on Cloudflare Workers an unawaited INSERT is killed when the
+    // response returns, so the row never persists (SMS appears to vanish from
+    // sms_log). logSms swallows its own errors, so awaiting can't throw here.
+    await logSms(to, did || 'none', message, 'skipped', null, 'VoIP.ms not configured', 0, options);
     return { success: false, error: 'VoIP.ms not configured' };
   }
 
@@ -168,7 +171,10 @@ export async function sendSms(
 
       if (apiStatus === 'success') {
         console.log('[SMS] Sent successfully to', dst);
-        logSms(dst, did, message, 'sent', 'success', null, attempt, options, data, lastHttpStatus).catch(() => {});
+        // Await so the 'sent' row actually persists — unawaited it gets killed
+        // when the Worker response returns, which is why sms_log showed no rows
+        // despite SMS being delivered.
+        await logSms(dst, did, message, 'sent', 'success', null, attempt, options, data, lastHttpStatus);
         return { success: true };
       }
 
@@ -178,7 +184,7 @@ export async function sendSms(
       // Don't retry on auth/config errors
       if (['invalid_credentials', 'invalid_method', 'missing_did'].includes(apiStatus)) {
         console.error('[SMS] Fatal error, not retrying:', apiStatus);
-        logSms(dst, did, message, 'failed', apiStatus, lastError, attempt, options, data, lastHttpStatus).catch(() => {});
+        await logSms(dst, did, message, 'failed', apiStatus, lastError, attempt, options, data, lastHttpStatus);
         return { success: false, error: lastError };
       }
 
@@ -198,7 +204,7 @@ export async function sendSms(
   }
 
   console.error('[SMS] All retries exhausted for', dst, '| Error:', lastError);
-  logSms(dst, did, message, 'failed', null, lastError, MAX_RETRIES, options, lastResponse, lastHttpStatus).catch(() => {});
+  await logSms(dst, did, message, 'failed', null, lastError, MAX_RETRIES, options, lastResponse, lastHttpStatus);
   return { success: false, error: lastError };
 }
 
