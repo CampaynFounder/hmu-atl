@@ -21,6 +21,8 @@ import { RideMap } from '@/components/ride/RideMap';
 import { toLatLng, LatLng } from '@/components/ride/types';
 import { useRideMessages, ChatMessage } from '@/components/ride/useRideMessages';
 import { RideChat } from '@/components/ride/RideChat';
+import { useRideSafety } from '@/components/ride/useRideSafety';
+import { RideSafety } from '@/components/ride/RideSafety';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 
@@ -121,6 +123,7 @@ export default function RiderActiveScreen() {
   const [cancelSecs, setCancelSecs] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
   const chat = useRideMessages(rideId, getToken, ride?.driverId ?? null);
+  const safety = useRideSafety(rideId, getToken, 'rider');
 
   const [showMenu, setShowMenu] = useState(false);
   const menuSlide = useRef(new Animated.Value(400)).current;
@@ -210,6 +213,9 @@ export default function RiderActiveScreen() {
       }
       if (msg.name === 'chat_message') {
         chat.ingest(msg.data as ChatMessage);
+      }
+      if (msg.name === 'safety_check_prompt') {
+        safety.ingestPrompt(msg.data as { checkId?: string; party?: string; autoDismissSeconds?: number });
       }
       if (
         msg.name === 'add_on_confirmed' ||
@@ -666,6 +672,18 @@ export default function RiderActiveScreen() {
         rideStatus={ride.status}
         otherName={driverName}
       />
+
+      {canChat && (
+        <RideSafety
+          check={safety.check}
+          respond={safety.respond}
+          distress={safety.distress}
+          sosOpen={safety.sosOpen}
+          setSosOpen={safety.setSosOpen}
+          busy={safety.busy}
+          bottom={insets.bottom + (isConfirming || needsPullUp ? 170 : 88)}
+        />
+      )}
 
       {/* Menu sheet */}
       {showMenu && (
