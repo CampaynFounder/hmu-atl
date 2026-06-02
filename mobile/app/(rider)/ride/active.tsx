@@ -39,6 +39,8 @@ interface RideView {
   dropoffLng: number | null;
   tripType: 'one_way' | 'round_trip';
   stops: Array<{ lat: number; lng: number; address?: string }>;
+  pickupTime: string | null;
+  pickupTimeIsNow: boolean;
   addOnTotal: number;
   driverId: string | null;
   driverHandle: string | null;
@@ -292,6 +294,9 @@ export default function RiderActiveScreen() {
     .filter((x): x is LatLng => x !== null);
   const hasMap = !!(pickupLL || dropoffLL) && !!MAPBOX_TOKEN;
   const isConfirming = ride.status === 'confirming';
+  // Before COO, the rider's primary action is Pull Up — it authorizes the
+  // deposit hold on their card (routes to the existing COO screen).
+  const needsPullUp = ride.status === 'matched' && !ride.cooAt;
 
   // Items not already queued
   const alreadyAdded = new Set(addOns.filter(a => a.status !== 'rejected').map(a => a.item_name));
@@ -314,7 +319,7 @@ export default function RiderActiveScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[s.content, { paddingBottom: insets.bottom + (isConfirming ? 160 : 100) }]}
+        contentContainerStyle={[s.content, { paddingBottom: insets.bottom + (isConfirming || needsPullUp ? 160 : 100) }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Live map */}
@@ -369,6 +374,17 @@ export default function RiderActiveScreen() {
             </Text>
           </View>
         </View>
+
+        {/* When card */}
+        {ride.pickupTime && (
+          <View style={[s.card, shadow.card]}>
+            <Text style={s.cardLabel}>REQUESTED PICKUP</Text>
+            <View style={s.whenRow}>
+              <Ionicons name="time-outline" size={16} color={colors.green} />
+              <Text style={s.whenText}>{ride.pickupTimeIsNow ? 'Now — ASAP' : ride.pickupTime}</Text>
+            </View>
+          </View>
+        )}
 
         {/* Driver card */}
         <View style={[s.card, shadow.card]}>
@@ -446,6 +462,20 @@ export default function RiderActiveScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Pull Up — authorize the deposit hold on the rider's card (COO) */}
+      {needsPullUp && (
+        <View style={[s.bottomBar, { paddingBottom: insets.bottom + spacing.md }]}>
+          <TouchableOpacity
+            style={s.imInBtn}
+            onPress={() => router.push(`/(rider)/ride/pull-up?rideId=${rideId}` as any)}
+            activeOpacity={0.85}
+          >
+            <Text style={s.imInBtnText}>PULL UP →</Text>
+          </TouchableOpacity>
+          <Text style={s.imInSub}>Share your spot & authorize the deposit on your card</Text>
+        </View>
+      )}
 
       {/* I'm In — capture payment + start the ride */}
       {isConfirming && (
@@ -563,6 +593,8 @@ const s = StyleSheet.create({
   },
   imInBtnText: { fontFamily: fonts.mono, fontSize: 14, color: colors.bg, letterSpacing: 1 },
   imInSub: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint },
+  whenRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  whenText: { fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.textPrimary },
   card: {
     backgroundColor: colors.card, borderRadius: radius.card,
     padding: spacing.xl, marginBottom: spacing.lg,

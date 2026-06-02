@@ -51,10 +51,25 @@ interface ActiveDelivery {
   customerAddress: string;
 }
 
+interface ActiveRide {
+  hasActiveRide: boolean;
+  rideId?: string;
+  status?: string;
+  isDriver?: boolean;
+  pickupAddress?: string | null;
+  dropoffAddress?: string | null;
+  price?: number;
+}
+
+const RIDE_STATUS_LABEL: Record<string, string> = {
+  matched: 'DRIVER ACCEPTED', otw: 'DRIVER EN ROUTE', here: 'DRIVER ARRIVED',
+  confirming: 'CONFIRM RIDE', active: 'ON THE WAY', in_progress: 'ON THE WAY',
+};
+
 // A normalized request row the list renders, regardless of source type.
 interface RequestItem {
   key: string;
-  type: 'blast' | 'direct' | 'down-bad' | 'pickup';
+  type: 'blast' | 'direct' | 'down-bad' | 'pickup' | 'ride';
   typeLabel: string;
   icon: React.ComponentProps<typeof Ionicons>['name'];
   pickup: string;
@@ -92,14 +107,28 @@ export default function MyRequests() {
   const load = useCallback(async () => {
     try {
       const t = await getToken();
-      const [blastR, directR, downBadR, deliveryR] = await Promise.allSettled([
+      const [blastR, directR, downBadR, deliveryR, rideR] = await Promise.allSettled([
         apiClient<{ blast: ActiveBlast | null }>('/blast/active', t),
         apiClient<{ post: ActiveDirect | null }>('/rider/direct/active', t),
         apiClient<{ post: ActiveDownBad | null }>('/rider/down-bad/active', t),
         apiClient<{ delivery: ActiveDelivery | null }>('/delivery/active', t),
+        apiClient<ActiveRide>('/rides/active', t),
       ]);
 
       const next: RequestItem[] = [];
+
+      // A matched/in-flight ride is the most important thing to surface — show
+      // it first. (Pending posts below become a ride once a driver accepts.)
+      const ride = rideR.status === 'fulfilled' ? rideR.value : null;
+      if (ride?.hasActiveRide && ride.rideId && ride.status && ride.status !== 'ended') {
+        next.push({
+          key: `ride:${ride.rideId}`, type: 'ride', typeLabel: RIDE_STATUS_LABEL[ride.status] ?? 'ACTIVE RIDE',
+          icon: 'car-outline',
+          pickup: ride.pickupAddress ?? 'Pickup', dropoff: ride.dropoffAddress ?? 'Destination',
+          price: ride.price ?? null, expiresAt: null, cta: 'VIEW RIDE',
+          onPress: () => router.push(`/(rider)/ride/active?rideId=${ride.rideId}` as never),
+        });
+      }
 
       const blast = blastR.status === 'fulfilled' ? blastR.value.blast : null;
       if (blast) {

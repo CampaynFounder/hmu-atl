@@ -13,7 +13,8 @@ export async function GET() {
     const userId = (userRows[0] as { id: string }).id;
 
     const rideRows = await sql`
-      SELECT id, status, driver_id, rider_id
+      SELECT id, status, driver_id, rider_id,
+             pickup_address, dropoff_address, final_agreed_price, amount
       FROM rides
       WHERE (driver_id = ${userId} OR rider_id = ${userId})
         AND status IN ('pending', 'accepted', 'matched', 'otw', 'here', 'active', 'in_progress', 'ended')
@@ -31,6 +32,9 @@ export async function GET() {
       rideId: ride.id,
       status: ride.status,
       isDriver: ride.driver_id === userId,
+      pickupAddress: (ride.pickup_address as string) ?? null,
+      dropoffAddress: (ride.dropoff_address as string) ?? null,
+      price: Number(ride.final_agreed_price ?? ride.amount ?? 0),
     });
   } catch (error) {
     console.error('Active ride check error:', error);
