@@ -13,9 +13,14 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as Location from 'expo-location';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
+import { RideMap } from '@/components/ride/RideMap';
+import { toLatLng, LatLng } from '@/components/ride/types';
+
+const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -27,9 +32,15 @@ interface RideView {
   isCash: boolean;
   cooAt: string | null;
   pickupAddress: string | null;
+  pickupLat: number | null;
+  pickupLng: number | null;
   dropoffAddress: string | null;
+  dropoffLat: number | null;
+  dropoffLng: number | null;
   tripType: 'one_way' | 'round_trip';
+  stops: Array<{ lat: number; lng: number; address?: string }>;
   addOnTotal: number;
+  driverId: string | null;
   driverHandle: string | null;
   driverFirstName: string | null;
   driverAvatarUrl: string | null;
@@ -89,6 +100,8 @@ export default function RiderActiveScreen() {
   const [addingItem, setAddingItem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [driverLocation, setDriverLocation] = useState<LatLng | null>(null);
+  const [confirmingRide, setConfirmingRide] = useState(false);
 
   const [showMenu, setShowMenu] = useState(false);
   const menuSlide = useRef(new Animated.Value(400)).current;
@@ -159,6 +172,13 @@ export default function RiderActiveScreen() {
           router.replace(`/(rider)/ride/${rideId}` as any);
         }
       }
+      if (msg.name === 'location' || msg.name === 'location_update') {
+        // Only the driver streams GPS on the ride channel; plot it live.
+        const d = msg.data as { userId?: string; lat?: number; lng?: number };
+        if (typeof d.lat === 'number' && typeof d.lng === 'number') {
+          setDriverLocation({ lat: d.lat, lng: d.lng });
+        }
+      }
       if (
         msg.name === 'add_on_confirmed' ||
         msg.name === 'add_on_rejected' ||
@@ -212,6 +232,35 @@ export default function RiderActiveScreen() {
     } catch {}
   }
 
+  // "I'm In" — captures payment. The server REQUIRES numeric GPS, so we must get
+  // a fix first and surface a denied permission as actionable copy, not a 500.
+  async function confirmImIn() {
+    if (!rideId || confirmingRide) return;
+    setConfirmingRide(true);
+    setError(null);
+    try {
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (perm.status !== 'granted') {
+        Alert.alert('Location needed', "Turn on location so your driver can confirm you're in the car, then tap I'm In again.");
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const t = await getToken();
+      await apiClient(`/rides/${rideId}/confirm-start`, t, {
+        method: 'POST',
+        body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setRide((prev) => (prev ? { ...prev, status: 'active', startedAt: new Date().toISOString() } : prev));
+    } catch (e: any) {
+      const msg: string = e?.message ?? '';
+      if (msg.toLowerCase().includes('location')) setError("Couldn't get your location — try again near a window.");
+      else setError(msg || 'Could not confirm. Try again.');
+    } finally {
+      setConfirmingRide(false);
+    }
+  }
+
   if (loading) {
     return (
       <View style={[s.center, { paddingTop: insets.top }]}>
@@ -236,6 +285,14 @@ export default function RiderActiveScreen() {
   const confirmedTotal = confirmedExtras.reduce((s, a) => s + Number(a.item_price) * a.quantity, 0);
   const totalWithExtras = ride.agreedPrice + confirmedTotal;
 
+  const pickupLL = toLatLng(ride.pickupLat, ride.pickupLng);
+  const dropoffLL = toLatLng(ride.dropoffLat, ride.dropoffLng);
+  const stopsLL = (ride.stops ?? [])
+    .map((st) => toLatLng(st.lat, st.lng))
+    .filter((x): x is LatLng => x !== null);
+  const hasMap = !!(pickupLL || dropoffLL) && !!MAPBOX_TOKEN;
+  const isConfirming = ride.status === 'confirming';
+
   // Items not already queued
   const alreadyAdded = new Set(addOns.filter(a => a.status !== 'rejected').map(a => a.item_name));
   const availableMenu = menu.filter(m => !alreadyAdded.has(m.name));
@@ -257,9 +314,24 @@ export default function RiderActiveScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 100 }]}
+        contentContainerStyle={[s.content, { paddingBottom: insets.bottom + (isConfirming ? 160 : 100) }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Live map */}
+        {hasMap && (
+          <RideMap
+            viewerRole="rider"
+            pickup={pickupLL}
+            dropoff={dropoffLL}
+            stops={stopsLL}
+            driverLocation={driverLocation}
+            riderLocation={null}
+            status={ride.status}
+            mapboxToken={MAPBOX_TOKEN}
+            style={s.map}
+          />
+        )}
+
         {/* Fare card */}
         <View style={[s.card, shadow.card]}>
           <Text style={s.cardLabel}>{ride.isCash ? 'CASH FARE' : 'AGREED PRICE'}</Text>
@@ -375,6 +447,23 @@ export default function RiderActiveScreen() {
         )}
       </ScrollView>
 
+      {/* I'm In — capture payment + start the ride */}
+      {isConfirming && (
+        <View style={[s.bottomBar, { paddingBottom: insets.bottom + spacing.md }]}>
+          <TouchableOpacity
+            style={[s.imInBtn, confirmingRide && { opacity: 0.7 }]}
+            onPress={confirmImIn}
+            disabled={confirmingRide}
+            activeOpacity={0.85}
+          >
+            {confirmingRide
+              ? <ActivityIndicator size="small" color={colors.bg} />
+              : <Text style={s.imInBtnText}>I&apos;M IN — PAY ${totalWithExtras.toFixed(0)}</Text>}
+          </TouchableOpacity>
+          <Text style={s.imInSub}>Confirm you&apos;re in the car to start the ride</Text>
+        </View>
+      )}
+
       {/* Menu sheet */}
       {showMenu && (
         <Animated.View style={[s.overlay, { transform: [{ translateY: menuSlide }] }]}>
@@ -459,6 +548,21 @@ const s = StyleSheet.create({
   statusLabel: { fontFamily: fonts.mono, fontSize: 9, letterSpacing: 1 },
 
   content: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg },
+  map: {
+    height: 220, borderRadius: radius.card, marginBottom: spacing.lg,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  bottomBar: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    backgroundColor: colors.bg, borderTopWidth: 1, borderTopColor: colors.border,
+    paddingHorizontal: spacing.xl, paddingTop: spacing.md, alignItems: 'center', gap: spacing.xs,
+  },
+  imInBtn: {
+    width: '100%', backgroundColor: colors.green, borderRadius: radius.pill,
+    paddingVertical: spacing.md, alignItems: 'center', justifyContent: 'center',
+  },
+  imInBtnText: { fontFamily: fonts.mono, fontSize: 14, color: colors.bg, letterSpacing: 1 },
+  imInSub: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint },
   card: {
     backgroundColor: colors.card, borderRadius: radius.card,
     padding: spacing.xl, marginBottom: spacing.lg,
