@@ -85,7 +85,7 @@ export default function PaymentMethods() {
   async function removeCard(method: PaymentMethod) {
     Alert.alert(
       'REMOVE CARD',
-      `Remove ${brandLabel(method)} ••••${method.last4}? This can't be undone.`,
+      `Remove ${brandLabel(method)}${method.last4 ? ` ••••${method.last4}` : ''}? This can't be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
