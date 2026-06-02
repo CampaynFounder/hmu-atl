@@ -293,21 +293,28 @@ export default function BlastDeck() {
       getToken().then(async t => {
         try {
           await apiClient(`/blast/${blastId}/select/${eventTargetId}`, t, { method: 'POST' });
-          setMatched(true);
-          setTimeout(() => router.replace('/(rider)/home'), 1800);
-        } catch {
-          // Already matched by someone else — go home anyway
-          setMatched(true);
-          setTimeout(() => router.replace('/(rider)/home'), 1800);
-        }
+        } catch { /* already matched by someone else */ }
+        setMatched(true); // the matched effect routes into the ride screen
       });
     }
     // Someone else already matched
     if (msg.name === 'match_locked') {
       setMatched(true);
-      setTimeout(() => router.replace('/(rider)/home'), 1800);
     }
   }, [blastId, hmuSent, getToken, router]);
+
+  // Once matched, resolve the ride and go straight into the unified ride screen.
+  useEffect(() => {
+    if (!matched) return;
+    const id = setTimeout(async () => {
+      try {
+        const t = await getToken();
+        const d = await apiClient<{ rideId?: string }>('/rides/active', t);
+        router.replace(d.rideId ? `/(rider)/ride/active?rideId=${d.rideId}` as never : '/(rider)/home');
+      } catch { router.replace('/(rider)/home'); }
+    }, 1600);
+    return () => clearTimeout(id);
+  }, [matched, getToken, router]);
 
   useAbly({ channelName: blastId ? `blast:${blastId}` : null, token, blastId, onMessage: handleAblyMessage });
 

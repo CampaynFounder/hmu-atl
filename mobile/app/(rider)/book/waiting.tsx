@@ -64,7 +64,8 @@ export default function WaitingScreen() {
       const data = await apiClient<{ hasActiveRide: boolean; status?: string; rideId?: string }>('/rides/active', t);
       if (data.hasActiveRide && data.status === 'matched') {
         if (pollRef.current) clearInterval(pollRef.current);
-        router.replace('/(rider)/home');
+        // Straight into the unified ride screen (Pull Up → I'm In → live ride).
+        router.replace(data.rideId ? `/(rider)/ride/active?rideId=${data.rideId}` as never : '/(rider)/home');
       }
     } catch {}
   }, [getToken, router]);
