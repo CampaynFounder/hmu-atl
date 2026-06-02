@@ -850,10 +850,10 @@ export default function ActiveRideScreen() {
             <Text style={s.etaText}>
               {isActive
                 ? eta
-                  ? `About ${eta.min} min to dropoff · ${eta.mi.toFixed(1)} mi`
+                  ? `${eta.min} min to dropoff (${eta.mi.toFixed(1)} mi)`
                   : 'En route to dropoff…'
                 : eta
-                  ? `About ${eta.min} min to pickup · ${eta.mi.toFixed(1)} mi`
+                  ? `${eta.min} min to pickup (${eta.mi.toFixed(1)} mi)`
                   : 'Locating pickup…'}
             </Text>
           </View>
