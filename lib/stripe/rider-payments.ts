@@ -67,8 +67,15 @@ export async function savePaymentMethod(
   if (!isMock()) {
     const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
     type = pm.type;
-    brand = pm.card?.brand || null;
-    last4 = pm.card?.last4 || null;
+    const bankLast4 = (pm as { us_bank_account?: { last4?: string } }).us_bank_account?.last4 || null;
+    // Wallet methods (cashapp, link) have no card/last4 — last4 stays null
+    // (column is nullable now) and we label by a friendly brand instead.
+    brand = pm.card?.brand
+      || (pm.type === 'cashapp' ? 'Cash App'
+        : pm.type === 'link' ? 'Link'
+        : pm.type === 'us_bank_account' ? 'Bank'
+        : null);
+    last4 = pm.card?.last4 || bankLast4 || null;
     expMonth = pm.card?.exp_month || null;
     expYear = pm.card?.exp_year || null;
     const walletType = pm.card?.wallet?.type;
