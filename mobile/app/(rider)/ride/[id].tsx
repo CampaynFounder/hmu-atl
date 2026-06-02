@@ -239,6 +239,12 @@ export default function RiderRideDetail() {
   const router = useRouter();
   const { id: rideId } = useLocalSearchParams<{ id: string }>();
 
+  // Clerk's getToken identity isn't stable across renders; holding it in a ref
+  // keeps the fetch callbacks below stable so their effects don't re-fire every
+  // render (which otherwise put the comments fetch in a spinner loop).
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
+
   const [ride, setRide] = useState<RideDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -258,24 +264,24 @@ export default function RiderRideDetail() {
   // ── Fetch ride from history (contains enough fields) ──
   const fetchRide = useCallback(async () => {
     try {
-      const t = await getToken();
+      const t = await getTokenRef.current();
       const data = await apiClient<{ rides: RideDetail[] }>('/rides/history', t);
       const found = data.rides?.find(r => r.id === rideId) ?? null;
       setRide(found);
     } catch {}
     finally { setLoading(false); }
-  }, [getToken, rideId]);
+  }, [rideId]);
 
   const fetchComments = useCallback(async () => {
     if (!rideId) return;
     setCommentLoading(true);
     try {
-      const t = await getToken();
+      const t = await getTokenRef.current();
       const data = await apiClient<CommentsPayload>(`/rides/${rideId}/comments`, t);
       setComments(data);
     } catch {}
     finally { setCommentLoading(false); }
-  }, [getToken, rideId]);
+  }, [rideId]);
 
   useEffect(() => { void fetchRide(); }, [fetchRide]);
   useEffect(() => {
