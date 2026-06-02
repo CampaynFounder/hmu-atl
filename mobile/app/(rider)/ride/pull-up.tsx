@@ -170,6 +170,46 @@ export default function PullUpScreen() {
   const [gettingLocation, setGettingLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pickupTime, setPickupTime] = useState<string | null>(null);
+  const [pickupIsNow, setPickupIsNow] = useState(false);
+  const [menu, setMenu] = useState<{ id: string; name: string; price: number }[]>([]);
+  const [added, setAdded] = useState<Set<string>>(new Set());
+  const [addingId, setAddingId] = useState<string | null>(null);
+
+  // Load the requested time + the driver's menu so the rider sees when the ride
+  // is for and can add extras while pulling up.
+  useEffect(() => {
+    if (!rideId) return;
+    (async () => {
+      try {
+        const t = await getToken();
+        const [rv, mn] = await Promise.allSettled([
+          apiClient<{ pickupTime: string | null; pickupTimeIsNow: boolean }>(`/rides/${rideId}/rider-view`, t),
+          apiClient<{ menu: { id: string; name: string; price: number }[] }>(`/rides/${rideId}/menu`, t),
+        ]);
+        if (rv.status === 'fulfilled') { setPickupTime(rv.value.pickupTime); setPickupIsNow(!!rv.value.pickupTimeIsNow); }
+        if (mn.status === 'fulfilled') setMenu(mn.value.menu ?? []);
+      } catch { /* best-effort */ }
+    })();
+  }, [rideId, getToken]);
+
+  async function addExtra(item: { id: string; name: string }) {
+    if (addingId || added.has(item.id)) return;
+    setAddingId(item.id);
+    try {
+      const t = await getToken();
+      await apiClient(`/rides/${rideId}/add-ons`, t, {
+        method: 'POST',
+        body: JSON.stringify({ menu_item_id: item.id, quantity: 1 }),
+      });
+      setAdded((prev) => new Set([...prev, item.id]));
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not add extra');
+    } finally {
+      setAddingId(null);
+    }
+  }
 
   useEffect(() => {
     Location.requestForegroundPermissionsAsync().then(({ status }) => {
@@ -265,6 +305,17 @@ export default function PullUpScreen() {
           </Text>
         </View>
 
+        {/* Requested time */}
+        {pickupTime && (
+          <View style={[s.card, shadow.card]}>
+            <Text style={s.cardLabel}>REQUESTED PICKUP</Text>
+            <View style={s.timeRow}>
+              <Ionicons name="time-outline" size={16} color={colors.green} />
+              <Text style={s.timeText}>{pickupIsNow ? 'Now — ASAP' : pickupTime}</Text>
+            </View>
+          </View>
+        )}
+
         {/* Pickup */}
         <View style={[s.card, shadow.card]}>
           <AddressInput
@@ -301,6 +352,29 @@ export default function PullUpScreen() {
             proximity={userCoords ?? undefined}
           />
         </View>
+
+        {/* Driver extras (optional) */}
+        {menu.length > 0 && (
+          <View style={[s.card, shadow.card]}>
+            <Text style={s.cardLabel}>ADD EXTRAS (OPTIONAL)</Text>
+            {menu.map((item) => (
+              <View key={item.id} style={s.menuRow}>
+                <Text style={s.menuName} numberOfLines={1}>{item.name}</Text>
+                <Text style={s.menuPrice}>${Number(item.price).toFixed(2)}</Text>
+                <TouchableOpacity
+                  style={[s.menuAddBtn, added.has(item.id) && s.menuAddBtnDone]}
+                  onPress={() => addExtra(item)}
+                  disabled={addingId === item.id || added.has(item.id)}
+                  activeOpacity={0.8}
+                >
+                  {addingId === item.id
+                    ? <ActivityIndicator size="small" color={colors.bg} />
+                    : <Text style={s.menuAddText}>{added.has(item.id) ? '✓' : 'ADD'}</Text>}
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
 
         {error && (
           <View style={s.errorBox}>
@@ -355,6 +429,20 @@ const s = StyleSheet.create({
   },
   cardLabel: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 3, marginBottom: spacing.sm },
   cardBody: { fontFamily: fonts.body, fontSize: 14, color: colors.textTertiary, lineHeight: 22 },
+  timeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  timeText: { fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.textPrimary },
+  menuRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border,
+  },
+  menuName: { flex: 1, fontFamily: fonts.body, fontSize: 14, color: colors.textPrimary },
+  menuPrice: { fontFamily: fonts.mono, fontSize: 13, color: colors.green },
+  menuAddBtn: {
+    minWidth: 52, height: 30, borderRadius: radius.pill, backgroundColor: colors.green,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12,
+  },
+  menuAddBtnDone: { backgroundColor: colors.greenDim, borderWidth: 1, borderColor: colors.greenBorder },
+  menuAddText: { fontFamily: fonts.mono, fontSize: 11, color: colors.bg, letterSpacing: 1 },
 
   locationBtn: {
     width: 36, height: 36, alignItems: 'center', justifyContent: 'center',

@@ -116,6 +116,9 @@ export default function RiderActiveScreen() {
   const [driverLocation, setDriverLocation] = useState<LatLng | null>(null);
   const [confirmingRide, setConfirmingRide] = useState(false);
   const [eta, setEta] = useState<{ mi: number; min: number } | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelRequested, setCancelRequested] = useState(false);
+  const [cancelSecs, setCancelSecs] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
   const chat = useRideMessages(rideId, getToken, ride?.driverId ?? null);
 
@@ -187,6 +190,16 @@ export default function RiderActiveScreen() {
         if (newStatus === 'ended' || newStatus === 'completed') {
           router.replace(`/(rider)/ride/${rideId}` as any);
         }
+        if (newStatus === 'cancelled') {
+          Alert.alert('Ride cancelled', 'This ride was cancelled.');
+          router.replace('/(rider)/home' as any);
+        }
+      }
+      if (msg.name === 'cancel_request_cleared') {
+        // Driver declined or it timed out — the ride continues (or a separate
+        // status_change to 'cancelled' will fire if it was agreed/timed out).
+        setCancelRequested(false);
+        setCancelSecs(0);
       }
       if (msg.name === 'location' || msg.name === 'location_update') {
         // Only the driver streams GPS on the ride channel; plot it live.
@@ -229,6 +242,51 @@ export default function RiderActiveScreen() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [driverLocation, pLat, pLng]);
+
+  // Cancel-request countdown (only active when a request is pending driver reply).
+  useEffect(() => {
+    if (!cancelRequested || cancelSecs <= 0) return;
+    const id = setInterval(() => setCancelSecs((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [cancelRequested, cancelSecs]);
+
+  function requestCancel() {
+    if (!ride || cancelling) return;
+    const afterOtw = ride.status === 'otw' || ride.status === 'here';
+    Alert.alert(
+      afterOtw ? 'Request to cancel?' : 'Cancel this ride?',
+      afterOtw
+        ? "Your driver is on the way. They can agree (no charge) or decline and keep your deposit. If they don't respond in time, it cancels automatically."
+        : "You won't be charged.",
+      [
+        { text: 'Keep ride', style: 'cancel' },
+        {
+          text: afterOtw ? 'Request cancel' : 'Cancel ride',
+          style: 'destructive',
+          onPress: async () => {
+            setCancelling(true);
+            try {
+              const t = await getToken();
+              const res = await apiClient<{ status: string; timeoutSeconds?: number }>(
+                `/rides/${rideId}/cancel`, t, { method: 'POST', body: JSON.stringify({}) },
+              );
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              if (res.status === 'cancel_requested') {
+                setCancelRequested(true);
+                setCancelSecs(res.timeoutSeconds ?? 180);
+              } else {
+                router.replace('/(rider)/home' as any);
+              }
+            } catch (e: any) {
+              Alert.alert('Could not cancel', e?.message ?? 'Try again');
+            } finally {
+              setCancelling(false);
+            }
+          },
+        },
+      ],
+    );
+  }
 
   function openMenu() {
     setShowMenu(true);
@@ -336,6 +394,7 @@ export default function RiderActiveScreen() {
   // deposit hold on their card (routes to the existing COO screen).
   const needsPullUp = ride.status === 'matched' && !ride.cooAt;
   const canChat = ['otw', 'here', 'confirming', 'active', 'ended'].includes(ride.status);
+  const canCancel = ['matched', 'otw', 'here'].includes(ride.status) && !cancelRequested;
   function openChat() { setChatOpen(true); chat.setOpen(true); }
   function closeChat() { setChatOpen(false); chat.setOpen(false); }
 
@@ -363,6 +422,16 @@ export default function RiderActiveScreen() {
         contentContainerStyle={[s.content, { paddingBottom: insets.bottom + (isConfirming || needsPullUp ? 160 : 100) }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Cancel request pending driver reply */}
+        {cancelRequested && (
+          <View style={s.cancelPending}>
+            <Ionicons name="hourglass-outline" size={16} color={colors.amber} />
+            <Text style={s.cancelPendingText}>
+              Cancel requested — waiting for driver{cancelSecs > 0 ? ` · ${Math.floor(cancelSecs / 60)}:${String(cancelSecs % 60).padStart(2, '0')}` : ''}
+            </Text>
+          </View>
+        )}
+
         {/* Live map */}
         {hasMap && (
           <RideMap
@@ -527,6 +596,15 @@ export default function RiderActiveScreen() {
             <Ionicons name="alert-circle" size={14} color={colors.red} />
             <Text style={s.errorText2}>{error}</Text>
           </View>
+        )}
+
+        {/* Cancel — immediate before the driver heads out, a request after */}
+        {canCancel && (
+          <TouchableOpacity style={s.cancelLink} onPress={requestCancel} disabled={cancelling} activeOpacity={0.7}>
+            <Text style={s.cancelLinkText}>
+              {cancelling ? 'Cancelling…' : ride.status === 'matched' ? 'Cancel ride' : 'Request to cancel'}
+            </Text>
+          </TouchableOpacity>
         )}
       </ScrollView>
 
@@ -699,6 +777,15 @@ const s = StyleSheet.create({
   etaText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.green, flex: 1 },
   authRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
   authText: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint },
+  cancelPending: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.amberDim, borderRadius: radius.card,
+    borderWidth: 1, borderColor: colors.amberBorder,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md, marginBottom: spacing.lg,
+  },
+  cancelPendingText: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.amber, flex: 1 },
+  cancelLink: { alignItems: 'center', paddingVertical: spacing.md, marginTop: spacing.sm },
+  cancelLinkText: { fontFamily: fonts.body, fontSize: 14, color: colors.red },
   chatFab: {
     position: 'absolute', right: spacing.xl, width: 52, height: 52, borderRadius: 26,
     backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center',
