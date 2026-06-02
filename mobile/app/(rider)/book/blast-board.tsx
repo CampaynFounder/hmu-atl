@@ -131,6 +131,20 @@ export default function BlastBoard() {
     onMessage: handleMessage,
   });
 
+  // Once matched (via select or a blast_matched event), resolve the ride and
+  // drop the rider straight into the unified ride screen after the animation.
+  useEffect(() => {
+    if (!matched) return;
+    const id = setTimeout(async () => {
+      try {
+        const t = await getToken();
+        const d = await apiClient<{ rideId?: string }>('/rides/active', t);
+        router.replace(d.rideId ? `/(rider)/ride/active?rideId=${d.rideId}` as never : '/(rider)/home');
+      } catch { router.replace('/(rider)/home'); }
+    }, 1400);
+    return () => clearTimeout(id);
+  }, [matched, getToken, router]);
+
   async function selectDriver(offer: DriverOffer) {
     if (!blastId || !offer.targetId) return;
     setSelecting(offer.targetId);
@@ -138,8 +152,7 @@ export default function BlastBoard() {
       const t = await getToken();
       await apiClient(`/blast/${blastId}/select/${offer.targetId}`, t, { method: 'POST' });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setMatched(true);
-      setTimeout(() => router.replace('/(rider)/home'), 1500);
+      setMatched(true); // the matched effect routes into the ride screen
     } catch (e: any) {
       Alert.alert('Could not select driver', e.message ?? 'Try again');
       setSelecting(null);
