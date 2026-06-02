@@ -99,7 +99,6 @@ export default function RiderHome() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const [active, setActive] = useState<ActiveRide | null>(null);
   const [activeReqCount, setActiveReqCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const hasLoaded = useRef(false);
@@ -114,15 +113,18 @@ export default function RiderHome() {
         apiClient<{ post: unknown }>('/rider/down-bad/active', t),
         apiClient<{ delivery: unknown }>('/delivery/active', t),
       ]);
-      setActive(ride.status === 'fulfilled' ? ride.value : { hasActiveRide: false });
+      // An in-flight ride (not yet ended) counts as an active item too, so the
+      // home banner points the rider to Requests where the ride is managed.
+      const r = ride.status === 'fulfilled' ? ride.value : null;
+      const hasRide = !!(r?.hasActiveRide && !r.isDriver && r.status !== 'ended');
       setActiveReqCount(
+        (hasRide ? 1 : 0) +
         (blast.status === 'fulfilled' && blast.value.blast ? 1 : 0) +
         (direct.status === 'fulfilled' && direct.value.post ? 1 : 0) +
         (downBad.status === 'fulfilled' && downBad.value.post ? 1 : 0) +
         (delivery.status === 'fulfilled' && delivery.value.delivery ? 1 : 0),
       );
     } catch {
-      setActive({ hasActiveRide: false });
       setActiveReqCount(0);
     } finally {
       setLoading(false);
@@ -136,11 +138,6 @@ export default function RiderHome() {
     void checkActive();
   }, [checkActive]));
 
-  const rideStatus = active?.status ?? '';
-  const needsPullUp = active?.hasActiveRide && !active.isDriver && rideStatus === 'matched';
-  const isOngoing = active?.hasActiveRide && !active.isDriver
-    && ['otw', 'here', 'active', 'in_progress'].includes(rideStatus);
-
   return (
     <View style={[s.root, { paddingTop: insets.top }]}>
       <View style={s.header}>
@@ -150,52 +147,14 @@ export default function RiderHome() {
 
       {loading ? (
         <ActivityIndicator size="large" color={colors.green} style={{ marginTop: 60 }} />
-      ) : needsPullUp ? (
-        <Animated.View
-          entering={FadeIn.duration(350)}
-          style={[s.rideCard, shadow.card, { borderColor: colors.greenBorder, backgroundColor: colors.greenDim }]}
-        >
-          <View style={s.rideCardTop}>
-            <View style={s.statusDot} />
-            <Text style={[s.statusLabel, { color: colors.green }]}>DRIVER ACCEPTED</Text>
-          </View>
-          <Text style={s.rideCardTitle}>Enter your trip details</Text>
-          <Text style={s.rideCardBody}>
-            Your driver accepted. Share your exact pickup so they can navigate to you.
-          </Text>
-          <TouchableOpacity
-            style={s.ctaBtn}
-            onPress={() => router.push(`/(rider)/ride/pull-up?rideId=${active!.rideId}` as never)}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="location" size={14} color={colors.bg} />
-            <Text style={s.ctaLabel}>SHARE MY LOCATION</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      ) : isOngoing ? (
-        <Animated.View entering={FadeIn.duration(350)} style={[s.rideCard, shadow.card]}>
-          <View style={s.rideCardTop}>
-            <View style={[s.statusDot, { backgroundColor: colors.blue }]} />
-            <Text style={[s.statusLabel, { color: colors.blue }]}>
-              {STATUS_LABEL[rideStatus] ?? rideStatus.toUpperCase()}
-            </Text>
-          </View>
-          <Text style={s.rideCardTitle}>Ride in progress</Text>
-          <TouchableOpacity
-            style={[s.ctaBtn, { backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border }]}
-            onPress={() => router.push(`/(rider)/ride/active?rideId=${active!.rideId}` as never)}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="car" size={14} color={colors.textPrimary} />
-            <Text style={[s.ctaLabel, { color: colors.textPrimary }]}>VIEW RIDE</Text>
-          </TouchableOpacity>
-        </Animated.View>
       ) : (
         <ScrollView
           style={s.scroll}
           contentContainerStyle={s.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          {/* Active trip + requests are managed on the Requests page — home just
+              points there and always shows the booking categories. */}
           {activeReqCount > 0 && (
             <Animated.View entering={FadeIn.duration(350)}>
               <TouchableOpacity
@@ -207,9 +166,9 @@ export default function RiderHome() {
                   <View style={s.blastDot} />
                   <View style={{ flex: 1 }}>
                     <Text style={s.blastBannerLabel}>
-                      {activeReqCount > 1 ? `${activeReqCount} ACTIVE REQUESTS` : 'ACTIVE REQUEST'}
+                      {activeReqCount > 1 ? `${activeReqCount} ACTIVE` : 'ACTIVE REQUEST'}
                     </Text>
-                    <Text style={s.blastBannerSub}>Tap to see offers & manage</Text>
+                    <Text style={s.blastBannerSub}>Tap to track your ride & manage requests</Text>
                   </View>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={colors.green} />

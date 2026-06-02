@@ -22,6 +22,8 @@ import { RideMap } from '@/components/ride/RideMap';
 import { toLatLng, LatLng } from '@/components/ride/types';
 import { useRideMessages, ChatMessage } from '@/components/ride/useRideMessages';
 import { RideChat } from '@/components/ride/RideChat';
+import { useRideSafety } from '@/components/ride/useRideSafety';
+import { RideSafety } from '@/components/ride/RideSafety';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 
@@ -154,6 +156,7 @@ export default function ActiveRideScreen() {
   const [driverLocation, setDriverLocation] = useState<LatLng | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const chat = useRideMessages(rideId, getToken, ride?.riderId ?? null);
+  const safety = useRideSafety(rideId, getToken, 'driver');
 
   // Rating state
   const [showRating, setShowRating] = useState(false);
@@ -299,6 +302,9 @@ export default function ActiveRideScreen() {
       }
       if (msg.name === 'chat_message') {
         chat.ingest(msg.data as ChatMessage);
+      }
+      if (msg.name === 'safety_check_prompt') {
+        safety.ingestPrompt(msg.data as { checkId?: string; party?: string; autoDismissSeconds?: number });
       }
       if (msg.name === 'cancel_request') {
         const d = msg.data as { reason?: string; timeoutSeconds?: number };
@@ -1020,6 +1026,18 @@ export default function ActiveRideScreen() {
         rideStatus={ride.status}
         otherName={riderDisplayName}
       />
+
+      {canChat && (
+        <RideSafety
+          check={safety.check}
+          respond={safety.respond}
+          distress={safety.distress}
+          sosOpen={safety.sosOpen}
+          setSosOpen={safety.setSosOpen}
+          busy={safety.busy}
+          bottom={insets.bottom + (action && !isEnded ? 84 : 24)}
+        />
+      )}
 
       {/* ── Rider cancelled overlay ── */}
       {showCancel && (
