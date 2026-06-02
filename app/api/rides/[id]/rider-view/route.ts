@@ -46,7 +46,7 @@ export async function GET(
         r.rider_id,
         COALESCE(dp.handle, dp.display_name, dp.first_name) AS driver_handle,
         dp.first_name   AS driver_first_name,
-        COALESCE(dp.thumbnail_url, dp.avatar_url) AS driver_avatar_url,
+        dp.thumbnail_url AS driver_avatar_url,
         u2.chill_score  AS driver_chill_score,
         u2.completed_rides AS driver_completed_rides
       FROM rides r
@@ -87,6 +87,7 @@ export async function GET(
       endedAt: r.ended_at ?? null,
       otwAt: r.otw_at ?? null,
       hereAt: r.here_at ?? null,
+      driverId: r.driver_id ?? null,
       driverHandle: r.driver_handle ?? null,
       driverFirstName: r.driver_first_name ?? null,
       driverAvatarUrl: r.driver_avatar_url ?? null,
