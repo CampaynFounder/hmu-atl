@@ -18,6 +18,10 @@ import { startRideTracking, stopRideTracking, refreshTrackingToken } from '@/lib
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
+import { RideMap } from '@/components/ride/RideMap';
+import { toLatLng, LatLng } from '@/components/ride/types';
+
+const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -137,6 +141,7 @@ export default function ActiveRideScreen() {
   const [acting, setActing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [driverLocation, setDriverLocation] = useState<LatLng | null>(null);
 
   // Rating state
   const [showRating, setShowRating] = useState(false);
@@ -268,6 +273,14 @@ export default function ActiveRideScreen() {
       }
       if (msg.name === 'confirm_start') {
         setRide((prev) => prev ? { ...prev, status: 'confirming' } : prev);
+      }
+      if (msg.name === 'location' || msg.name === 'location_update') {
+        // The driver's own GPS, echoed back from the publish task — plots the
+        // car on the map. (Only the driver streams location on this channel.)
+        const d = msg.data as { lat?: number; lng?: number };
+        if (typeof d.lat === 'number' && typeof d.lng === 'number') {
+          setDriverLocation({ lat: d.lat, lng: d.lng });
+        }
       }
       if (msg.name === 'add_on_pending') {
         const d = msg.data as Record<string, unknown>;
@@ -598,6 +611,13 @@ export default function ActiveRideScreen() {
     ? `@${ride.riderHandle}`
     : ride.riderFirstName ?? 'Rider';
 
+  const pickupLL = toLatLng(ride.pickupLat, ride.pickupLng);
+  const dropoffLL = toLatLng(ride.dropoffLat, ride.dropoffLng);
+  const stopsLL = (ride.stops ?? [])
+    .map((st) => toLatLng(st.lat, st.lng))
+    .filter((x): x is LatLng => x !== null);
+  const hasMap = !!(pickupLL || dropoffLL) && !!MAPBOX_TOKEN;
+
   return (
     <View style={[s.root, { paddingTop: insets.top }]}>
       {/* ── Navbar ── */}
@@ -620,6 +640,21 @@ export default function ActiveRideScreen() {
         contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* ── Live map ── */}
+        {hasMap && (
+          <RideMap
+            viewerRole="driver"
+            pickup={pickupLL}
+            dropoff={dropoffLL}
+            stops={stopsLL}
+            driverLocation={driverLocation}
+            riderLocation={null}
+            status={ride.status}
+            mapboxToken={MAPBOX_TOKEN}
+            style={s.map}
+          />
+        )}
+
         {/* ── Payout card ── */}
         {card(0,
           <View>
@@ -1028,6 +1063,10 @@ const s = StyleSheet.create({
   statusLabel: { fontFamily: fonts.mono, fontSize: 10, letterSpacing: 1 },
 
   content: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg },
+  map: {
+    height: 220, borderRadius: radius.card, marginBottom: spacing.lg,
+    borderWidth: 1, borderColor: colors.border,
+  },
   card: {
     backgroundColor: colors.card, borderRadius: radius.card,
     padding: spacing.xl, marginBottom: spacing.lg,
