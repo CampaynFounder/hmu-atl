@@ -28,10 +28,14 @@ interface RideMapProps {
 
 type RouteGeoJSON = { type: 'Feature'; geometry: { type: 'LineString'; coordinates: number[][] }; properties: Record<string, never> } | null;
 
-// The driver→pickup leg matters before the ride starts; pickup→dropoff once active.
+// Before the ride starts the live leg is driver→pickup; once active it's
+// driver→(stops)→dropoff. Either falls back to pickup→dropoff when there's no
+// driver GPS yet, so the full trip is always drawn.
 function routeLeg(status: string, driver: LatLng | null, pickup: LatLng | null, stops: LatLng[], dropoff: LatLng | null): LatLng[] {
-  const preRide = ['otw', 'here', 'confirming'].includes(status);
-  if (preRide && driver && pickup) return [driver, pickup];
+  const enRoute = ['otw', 'here', 'confirming'].includes(status);
+  const active = ['active', 'in_progress'].includes(status);
+  if (enRoute && driver && pickup) return [driver, pickup];
+  if (active && driver && dropoff) return [driver, ...stops, dropoff];
   if (pickup && dropoff) return [pickup, ...stops, dropoff];
   return [];
 }
@@ -87,6 +91,13 @@ export function RideMap({
     if (key === lastLegKey.current) return;
     lastLegKey.current = key;
 
+    // Draw a straight line through the leg immediately so a route is always
+    // visible, then upgrade to the road-snapped geometry when the Directions
+    // API responds. Without this fallback, any Directions failure (token scope,
+    // rate-limit, offline) left the map with no line at all. Mirrors web.
+    const straight: number[][] = leg.map((p) => [p.lng, p.lat]);
+    setRoute({ type: 'Feature', geometry: { type: 'LineString', coordinates: straight }, properties: {} });
+
     const coords = leg.map((p) => `${p.lng},${p.lat}`).join(';');
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?access_token=${mapboxToken}&overview=full&geometries=geojson`;
     let cancelled = false;
@@ -99,7 +110,7 @@ export function RideMap({
           setRoute({ type: 'Feature', geometry: geom, properties: {} });
         }
       })
-      .catch(() => { /* route line is best-effort */ });
+      .catch(() => { /* keep the straight-line fallback */ });
     return () => { cancelled = true; };
   }, [status, driverLocation, pickup, dropoff, stops, mapboxToken]);
 

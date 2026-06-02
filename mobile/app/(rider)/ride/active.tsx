@@ -93,8 +93,8 @@ const STATUS_META: Record<string, { label: string; color: string; bg: string; bo
   otw:        { label: 'DRIVER EN ROUTE',  color: colors.blue,  bg: colors.blueDim,   border: colors.blueBorder  },
   here:       { label: 'DRIVER ARRIVED',   color: colors.green, bg: colors.greenDim,  border: colors.greenBorder },
   confirming: { label: 'STARTING RIDE',    color: colors.green, bg: colors.greenDim,  border: colors.greenBorder },
-  active:     { label: 'ON THE WAY',       color: colors.green, bg: colors.greenDim,  border: colors.greenBorder },
-  in_progress:{ label: 'ON THE WAY',       color: colors.green, bg: colors.greenDim,  border: colors.greenBorder },
+  active:     { label: 'RIDE ACTIVE',      color: colors.green, bg: colors.greenDim,  border: colors.greenBorder },
+  in_progress:{ label: 'RIDE ACTIVE',      color: colors.green, bg: colors.greenDim,  border: colors.greenBorder },
   ended:      { label: 'RIDE COMPLETE',    color: colors.textTertiary, bg: colors.cardAlt, border: colors.border },
   cancelled:  { label: 'CANCELLED',        color: colors.red,   bg: colors.redDim,    border: colors.redBorder   },
 };
@@ -544,10 +544,10 @@ export default function RiderActiveScreen() {
                 ? 'Driver has arrived'
                 : ride.status === 'active' || ride.status === 'in_progress'
                   ? eta
-                    ? `About ${eta.min} min to your destination · ${eta.mi.toFixed(1)} mi`
+                    ? `${eta.min} min to dropoff (${eta.mi.toFixed(1)} mi)`
                     : 'On the way to your destination…'
                   : eta
-                    ? `Driver ${eta.mi.toFixed(1)} mi away · about ${eta.min} min`
+                    ? `${eta.min} min to pickup (${eta.mi.toFixed(1)} mi)`
                     : 'Locating your driver…'}
             </Text>
           </View>
