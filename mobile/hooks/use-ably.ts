@@ -29,8 +29,15 @@ export function useAbly({ channelName, token, rideId, blastId, onMessage }: UseA
   const blastIdRef = useRef(blastId);
   blastIdRef.current = blastId;
 
+  // Connect once a token is available, and reconnect only when the *channel*
+  // changes — NOT on every token refresh. The screens mint a fresh Clerk JWT
+  // every ~55s; keying the effect on the token string would destroy and rebuild
+  // the Ably client each time, opening a reconnect gap that can drop live
+  // status/location/add-on events. Ably's own authCallback (which reads
+  // tokenRef.current) handles token renewal without recreating the client.
+  const hasToken = token != null;
   useEffect(() => {
-    if (!channelName || !token) return;
+    if (!channelName || !tokenRef.current) return;
 
     let cancelled = false;
 
@@ -89,7 +96,7 @@ export function useAbly({ channelName, token, rideId, blastId, onMessage }: UseA
       ablyRef.current = null;
       setConnected(false);
     };
-  }, [channelName, token]);
+  }, [channelName, hasToken]);
 
   const publish = useCallback(async (event: string, data: unknown) => {
     try { channelRef.current?.publish(event, data); } catch {}

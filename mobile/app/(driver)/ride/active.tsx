@@ -18,6 +18,7 @@ import { startRideTracking, stopRideTracking, refreshTrackingToken } from '@/lib
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
+import { useNotifications } from '@/contexts/notifications';
 import { RideMap } from '@/components/ride/RideMap';
 import { toLatLng, LatLng } from '@/components/ride/types';
 import { useRideMessages, ChatMessage } from '@/components/ride/useRideMessages';
@@ -156,9 +157,11 @@ export default function ActiveRideScreen() {
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [driverLocation, setDriverLocation] = useState<LatLng | null>(null);
+  const [eta, setEta] = useState<{ mi: number; min: number } | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const chat = useRideMessages(rideId, getToken, ride?.riderId ?? null);
   const safety = useRideSafety(rideId, getToken, 'driver');
+  const { registerRideRefresh } = useNotifications();
 
   // Rating state
   const [showRating, setShowRating] = useState(false);
@@ -353,6 +356,39 @@ export default function ActiveRideScreen() {
       }
     },
   });
+
+  // Live ETA from the driver's GPS, mirroring the rider's banner: to PICKUP
+  // while en route (otw/here/confirming), to the DROPOFF once active. Gives the
+  // driver the same time/distance read the rider sees.
+  const status = ride?.status ?? null;
+  const isActive = status === 'active' || status === 'in_progress';
+  const tLat = isActive ? (ride?.dropoffLat ?? null) : (ride?.pickupLat ?? null);
+  const tLng = isActive ? (ride?.dropoffLng ?? null) : (ride?.pickupLng ?? null);
+  const etaPhase = !!status && ['otw', 'here', 'confirming', 'active', 'in_progress'].includes(status);
+  useEffect(() => {
+    if (!driverLocation || !etaPhase || tLat == null || tLng == null || !MAPBOX_TOKEN) { setEta(null); return; }
+    const coords = `${driverLocation.lng},${driverLocation.lat};${tLng},${tLat}`;
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?access_token=${MAPBOX_TOKEN}&overview=false`;
+    let cancelled = false;
+    fetch(url)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        const route = d?.routes?.[0];
+        if (route) setEta({ mi: route.distance / 1609.34, min: Math.max(1, Math.round(route.duration / 60)) });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [driverLocation, tLat, tLng, etaPhase]);
+
+  // Backstop: the always-on user notify channel re-pulls ride + add-on state on
+  // any ride update, independent of the per-screen ride channel.
+  useEffect(() => {
+    return registerRideRefresh(() => {
+      void fetchRide();
+      void fetchAddOns();
+    });
+  }, [registerRideRefresh, fetchRide, fetchAddOns]);
 
   // ── Rating sheet ──────────────────────────────────────────────────────────
 
@@ -805,6 +841,22 @@ export default function ActiveRideScreen() {
             mapboxToken={MAPBOX_TOKEN}
             style={s.map}
           />
+        )}
+
+        {/* ── Live ETA — to pickup while en route, to dropoff once active ── */}
+        {['otw', 'here', 'confirming', 'active', 'in_progress'].includes(ride.status) && (
+          <View style={s.etaBanner}>
+            <Ionicons name="navigate" size={16} color={colors.green} />
+            <Text style={s.etaText}>
+              {isActive
+                ? eta
+                  ? `${eta.min} min to dropoff (${eta.mi.toFixed(1)} mi)`
+                  : 'En route to dropoff…'
+                : eta
+                  ? `${eta.min} min to pickup (${eta.mi.toFixed(1)} mi)`
+                  : 'Locating pickup…'}
+            </Text>
+          </View>
         )}
 
         {/* ── Payout card ── */}
@@ -1321,6 +1373,13 @@ const s = StyleSheet.create({
     height: 220, borderRadius: radius.card, marginBottom: spacing.lg,
     borderWidth: 1, borderColor: colors.border,
   },
+  etaBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.greenDim, borderRadius: radius.card,
+    borderWidth: 1, borderColor: colors.greenBorder,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md, marginBottom: spacing.lg,
+  },
+  etaText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.green, flex: 1 },
   chatFab: {
     position: 'absolute', right: spacing.xl, width: 52, height: 52, borderRadius: 26,
     backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center',
