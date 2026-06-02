@@ -87,7 +87,9 @@
           "merchantIdentifier": "merchant.com.hmucashride",
           "enableGooglePay": true
         }
-      ]
+      ],
+      "expo-image",
+      "@rnmapbox/maps"
     ],
     "experiments": {
       "typedRoutes": true
