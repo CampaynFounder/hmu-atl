@@ -67,10 +67,17 @@ type RatingType = 'chill' | 'cool_af' | 'kinda_creepy' | 'weirdo';
 
 interface AddOn {
   id: string;
-  item_name: string;
-  item_price: number;
+  name: string;          // ride_add_ons.name
+  unit_price: number;    // ride_add_ons.unit_price
+  subtotal: number;      // ride_add_ons.subtotal
   status: string;
   quantity: number;
+}
+
+function addOnLineTotal(a: AddOn): number {
+  const sub = Number(a.subtotal);
+  if (Number.isFinite(sub) && sub > 0) return sub;
+  return (Number(a.unit_price) || 0) * (a.quantity || 1);
 }
 
 interface PendingAddOn {
@@ -613,7 +620,7 @@ export default function ActiveRideScreen() {
 
   const confirmedExtrasTotal = addOns
     .filter(a => a.status === 'confirmed')
-    .reduce((sum, a) => sum + Number(a.item_price) * a.quantity, 0);
+    .reduce((sum, a) => sum + addOnLineTotal(a), 0);
 
   const riderDisplayName = ride.riderHandle
     ? `@${ride.riderHandle}`
@@ -803,12 +810,12 @@ export default function ActiveRideScreen() {
             {addOns.map((a, i) => (
               <View key={a.id} style={[s.addOnRow, i === 0 && { borderTopWidth: 0 }]}>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.addOnName} numberOfLines={1}>{a.item_name}</Text>
+                  <Text style={s.addOnName} numberOfLines={1}>{a.name}</Text>
                   {a.quantity > 1 && (
                     <Text style={s.addOnQty}>×{a.quantity}</Text>
                   )}
                 </View>
-                <Text style={s.addOnPrice}>${(Number(a.item_price) * a.quantity).toFixed(2)}</Text>
+                <Text style={s.addOnPrice}>${addOnLineTotal(a).toFixed(2)}</Text>
                 <View style={[
                   s.addOnStatus,
                   a.status === 'confirmed' && s.addOnStatusOk,

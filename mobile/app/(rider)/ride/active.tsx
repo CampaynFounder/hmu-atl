@@ -66,10 +66,19 @@ interface MenuItem {
 
 interface AddOn {
   id: string;
-  item_name: string;
-  item_price: number;
+  name: string;          // ride_add_ons.name
+  unit_price: number;    // ride_add_ons.unit_price
+  subtotal: number;      // ride_add_ons.subtotal (unit_price × quantity)
   status: string;
   quantity: number;
+}
+
+// Line total for an add-on. Prefer the server's subtotal; fall back to
+// unit_price × quantity. Guards against NaN when a field is missing.
+function addOnLineTotal(a: AddOn): number {
+  const sub = Number(a.subtotal);
+  if (Number.isFinite(sub) && sub > 0) return sub;
+  return (Number(a.unit_price) || 0) * (a.quantity || 1);
 }
 
 // ── Status config ─────────────────────────────────────────────────────────────
@@ -106,6 +115,7 @@ export default function RiderActiveScreen() {
   const [token, setToken] = useState<string | null>(null);
   const [driverLocation, setDriverLocation] = useState<LatLng | null>(null);
   const [confirmingRide, setConfirmingRide] = useState(false);
+  const [eta, setEta] = useState<{ mi: number; min: number } | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const chat = useRideMessages(rideId, getToken, ride?.driverId ?? null);
 
@@ -199,6 +209,27 @@ export default function RiderActiveScreen() {
     },
   });
 
+  // Live ETA + distance: driver's current GPS → pickup, via Mapbox Directions.
+  // Re-fetches when the driver moves (keyed to ~4-decimal coords so jitter
+  // doesn't spam the API). Only meaningful once the driver is OTW (has GPS).
+  const pLat = ride?.pickupLat ?? null;
+  const pLng = ride?.pickupLng ?? null;
+  useEffect(() => {
+    if (!driverLocation || pLat == null || pLng == null || !MAPBOX_TOKEN) { setEta(null); return; }
+    const coords = `${driverLocation.lng},${driverLocation.lat};${pLng},${pLat}`;
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?access_token=${MAPBOX_TOKEN}&overview=false`;
+    let cancelled = false;
+    fetch(url)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        const route = d?.routes?.[0];
+        if (route) setEta({ mi: route.distance / 1609.34, min: Math.max(1, Math.round(route.duration / 60)) });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [driverLocation, pLat, pLng]);
+
   function openMenu() {
     setShowMenu(true);
     Animated.spring(menuSlide, { toValue: 0, useNativeDriver: true, speed: 14, bounciness: 4 }).start();
@@ -291,7 +322,7 @@ export default function RiderActiveScreen() {
   const isPreRide = ['matched', 'otw', 'here'].includes(ride.status);
   const confirmedExtras = addOns.filter(a => a.status === 'confirmed');
   const pendingExtras = addOns.filter(a => a.status === 'pending_driver');
-  const confirmedTotal = confirmedExtras.reduce((s, a) => s + Number(a.item_price) * a.quantity, 0);
+  const confirmedTotal = confirmedExtras.reduce((s, a) => s + addOnLineTotal(a), 0);
   const totalWithExtras = ride.agreedPrice + confirmedTotal;
 
   const pickupLL = toLatLng(ride.pickupLat, ride.pickupLng);
@@ -309,7 +340,7 @@ export default function RiderActiveScreen() {
   function closeChat() { setChatOpen(false); chat.setOpen(false); }
 
   // Items not already queued
-  const alreadyAdded = new Set(addOns.filter(a => a.status !== 'rejected').map(a => a.item_name));
+  const alreadyAdded = new Set(addOns.filter(a => a.status !== 'rejected').map(a => a.name));
   const availableMenu = menu.filter(m => !alreadyAdded.has(m.name));
 
   return (
@@ -347,6 +378,20 @@ export default function RiderActiveScreen() {
           />
         )}
 
+        {/* Live ETA — driver → pickup, shown once the driver is on the way */}
+        {(ride.status === 'otw' || ride.status === 'here') && (
+          <View style={s.etaBanner}>
+            <Ionicons name="car-sport" size={18} color={colors.green} />
+            <Text style={s.etaText}>
+              {ride.status === 'here'
+                ? 'Driver has arrived'
+                : eta
+                  ? `Driver ${eta.mi.toFixed(1)} mi away · about ${eta.min} min`
+                  : 'Locating your driver…'}
+            </Text>
+          </View>
+        )}
+
         {/* Fare card */}
         <View style={[s.card, shadow.card]}>
           <Text style={s.cardLabel}>{ride.isCash ? 'CASH FARE' : 'AGREED PRICE'}</Text>
@@ -365,6 +410,18 @@ export default function RiderActiveScreen() {
             <View style={s.pendingNote}>
               <Ionicons name="time-outline" size={12} color={colors.amber} />
               <Text style={s.pendingNoteText}>{pendingExtras.length} extra{pendingExtras.length > 1 ? 's' : ''} pending driver approval</Text>
+            </View>
+          )}
+          {!ride.isCash && (
+            <View style={s.authRow}>
+              <Ionicons
+                name={ride.cooAt ? 'checkmark-circle' : 'ellipse-outline'}
+                size={14}
+                color={ride.cooAt ? colors.green : colors.textFaint}
+              />
+              <Text style={[s.authText, ride.cooAt && { color: colors.green }]}>
+                {ride.cooAt ? 'Deposit authorized on your card' : 'Not authorized yet — tap Pull Up below'}
+              </Text>
             </View>
           )}
         </View>
@@ -422,10 +479,10 @@ export default function RiderActiveScreen() {
             {addOns.map((a, i) => (
               <View key={a.id} style={[s.addOnRow, i === 0 && { borderTopWidth: 0 }]}>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.addOnName}>{a.item_name}</Text>
+                  <Text style={s.addOnName}>{a.name}</Text>
                   {a.quantity > 1 && <Text style={s.addOnQty}>×{a.quantity}</Text>}
                 </View>
-                <Text style={s.addOnPrice}>${(Number(a.item_price) * a.quantity).toFixed(2)}</Text>
+                <Text style={s.addOnPrice}>${addOnLineTotal(a).toFixed(2)}</Text>
                 <View style={[
                   s.addOnStatus,
                   a.status === 'confirmed' && s.addOnStatusOk,
@@ -633,6 +690,15 @@ const s = StyleSheet.create({
   imInSub: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint },
   whenRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   whenText: { fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.textPrimary },
+  etaBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.greenDim, borderRadius: radius.card,
+    borderWidth: 1, borderColor: colors.greenBorder,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md, marginBottom: spacing.lg,
+  },
+  etaText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.green, flex: 1 },
+  authRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
+  authText: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint },
   chatFab: {
     position: 'absolute', right: spacing.xl, width: 52, height: 52, borderRadius: 26,
     backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center',
