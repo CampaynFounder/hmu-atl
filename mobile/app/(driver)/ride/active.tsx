@@ -165,6 +165,9 @@ export default function ActiveRideScreen() {
   // Cancel overlay state
   const [showCancel, setShowCancel] = useState(false);
   const cancelSlide = useRef(new Animated.Value(300)).current;
+  // Incoming rider cancel-request (driver agrees or declines before timeout)
+  const [cancelReq, setCancelReq] = useState<{ reason: string; secs: number } | null>(null);
+  const [respondingCancel, setRespondingCancel] = useState(false);
 
   // Add-ons
   const [addOns, setAddOns] = useState<AddOn[]>([]);
@@ -297,6 +300,14 @@ export default function ActiveRideScreen() {
       if (msg.name === 'chat_message') {
         chat.ingest(msg.data as ChatMessage);
       }
+      if (msg.name === 'cancel_request') {
+        const d = msg.data as { reason?: string; timeoutSeconds?: number };
+        setCancelReq({ reason: d.reason || '', secs: d.timeoutSeconds ?? 180 });
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      }
+      if (msg.name === 'cancel_request_cleared') {
+        setCancelReq(null);
+      }
       if (msg.name === 'add_on_pending') {
         const d = msg.data as Record<string, unknown>;
         const ao = d.addOn as PendingAddOn | undefined;
@@ -335,6 +346,57 @@ export default function ActiveRideScreen() {
     Animated.spring(cancelSlide, {
       toValue: 0, useNativeDriver: true, speed: 14, bounciness: 4,
     }).start();
+  }
+
+  // Count down the incoming cancel request; when it hits 0 the server's timeout
+  // cron resolves it (a status_change will arrive) — we just stop showing it.
+  useEffect(() => {
+    if (!cancelReq || cancelReq.secs <= 0) return;
+    const id = setInterval(() => {
+      setCancelReq((c) => (c ? { ...c, secs: Math.max(0, c.secs - 1) } : c));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [cancelReq]);
+
+  async function respondToCancel(agree: boolean) {
+    if (!rideId || respondingCancel) return;
+    setRespondingCancel(true);
+    try {
+      const t = await getToken();
+      if (agree) {
+        await apiClient(`/rides/${rideId}/cancel`, t, { method: 'POST', body: JSON.stringify({ agreeToCancel: true }) });
+      } else {
+        await apiClient(`/rides/${rideId}/cancel-request/decline`, t, { method: 'POST', body: JSON.stringify({}) });
+      }
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setCancelReq(null);
+    } catch (e: any) {
+      Alert.alert('Could not respond', e?.message ?? 'Try again');
+    } finally {
+      setRespondingCancel(false);
+    }
+  }
+
+  // Driver-initiated cancel (free + immediate, only before heading out).
+  function driverCancel() {
+    if (!rideId || acting) return;
+    Alert.alert('Cancel this ride?', 'The rider goes back to browsing. No charge.', [
+      { text: 'Keep ride', style: 'cancel' },
+      {
+        text: 'Cancel ride', style: 'destructive',
+        onPress: async () => {
+          setActing(true);
+          try {
+            const t = await getToken();
+            await apiClient(`/rides/${rideId}/cancel`, t, { method: 'POST', body: JSON.stringify({}) });
+            void stopRideTracking();
+            router.replace('/(driver)/home' as any);
+          } catch (e: any) {
+            Alert.alert('Could not cancel', e?.message ?? 'Try again');
+          } finally { setActing(false); }
+        },
+      },
+    ]);
   }
 
   function openMapsNav(
@@ -654,6 +716,37 @@ export default function ActiveRideScreen() {
         </View>
       </View>
 
+      {/* Rider cancel-request — agree (no charge) or decline (keep deposit) */}
+      {cancelReq && (
+        <View style={s.cancelReqBanner}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={s.cancelReqTitle}>RIDER WANTS TO CANCEL</Text>
+            <Text style={s.cancelReqTimer}>
+              {Math.floor(cancelReq.secs / 60)}:{String(cancelReq.secs % 60).padStart(2, '0')}
+            </Text>
+          </View>
+          {!!cancelReq.reason && <Text style={s.cancelReqReason}>“{cancelReq.reason}”</Text>}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+            <TouchableOpacity
+              style={[s.cancelReqBtn, { backgroundColor: colors.cardAlt }]}
+              onPress={() => respondToCancel(false)}
+              disabled={respondingCancel}
+            >
+              <Text style={[s.cancelReqBtnText, { color: colors.textPrimary }]}>Decline & keep deposit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.cancelReqBtn, { backgroundColor: colors.green }]}
+              onPress={() => respondToCancel(true)}
+              disabled={respondingCancel}
+            >
+              {respondingCancel
+                ? <ActivityIndicator size="small" color={colors.bg} />
+                : <Text style={[s.cancelReqBtnText, { color: colors.bg }]}>Agree — no charge</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       <ScrollView
         contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
@@ -857,6 +950,13 @@ export default function ActiveRideScreen() {
               </Text>
             </View>
           </View>
+        )}
+
+        {/* Driver cancel — free + immediate, only before heading out */}
+        {isMatched && (
+          <TouchableOpacity style={s.driverCancelLink} onPress={driverCancel} disabled={acting} activeOpacity={0.7}>
+            <Text style={s.driverCancelText}>Cancel ride</Text>
+          </TouchableOpacity>
         )}
       </ScrollView>
 
@@ -1124,6 +1224,17 @@ const s = StyleSheet.create({
     borderWidth: 2, borderColor: colors.bg,
   },
   chatBadgeText: { fontFamily: fonts.monoBold, fontSize: 10, color: colors.textPrimary },
+  cancelReqBanner: {
+    marginHorizontal: spacing.lg, marginTop: spacing.sm, padding: spacing.md,
+    backgroundColor: colors.redDim, borderRadius: radius.card, borderWidth: 1, borderColor: colors.redBorder,
+  },
+  cancelReqTitle: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.red, letterSpacing: 1 },
+  cancelReqTimer: { fontFamily: fonts.mono, fontSize: 13, color: colors.red },
+  cancelReqReason: { fontFamily: fonts.body, fontSize: 13, color: colors.textSecondary, marginTop: 4, fontStyle: 'italic' },
+  cancelReqBtn: { flex: 1, borderRadius: radius.pill, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' },
+  cancelReqBtnText: { fontFamily: fonts.mono, fontSize: 11, letterSpacing: 0.5 },
+  driverCancelLink: { alignItems: 'center', paddingVertical: spacing.md, marginTop: spacing.sm },
+  driverCancelText: { fontFamily: fonts.body, fontSize: 14, color: colors.red },
   card: {
     backgroundColor: colors.card, borderRadius: radius.card,
     padding: spacing.xl, marginBottom: spacing.lg,
