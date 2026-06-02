@@ -5,7 +5,7 @@
 // in React Native (it doesn't fire when the driver edits a rate then taps Back),
 // which silently dropped saves.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, Switch,
@@ -118,15 +118,11 @@ export default function PricingScreen() {
     setStoreRunsEnabled(val);
     try {
       const t = await getToken();
-      // When enabling, also persist the rate if one is already set
-      const patch: Record<string, unknown> = { store_runs_enabled: val };
-      if (val && storeRunRate) {
-        const num = parseFloat(storeRunRate);
-        if (!isNaN(num) && num >= 0) patch.store_run_rate = num;
-      }
+      // The flat-fee / % fields persist via their own debounced saves, so the
+      // toggle only flips the enabled flag.
       await apiClient('/users/profile', t, {
         method: 'PATCH',
-        body: JSON.stringify({ profile_type: 'driver', pricing: patch }),
+        body: JSON.stringify({ profile_type: 'driver', pricing: { store_runs_enabled: val } }),
       });
       flash();
     } catch { setStoreRunsEnabled(!val); }
@@ -189,32 +185,32 @@ export default function PricingScreen() {
               label="MINIMUM RIDE"
               sub="Don't take rides below this price"
               value={minimum}
-              onChangeText={v => { setMinimum(v); debouncedSave('minimum', v); }}
-              onBlur={() => savePricing('minimum', minimum)}
+              onChangeText={v => debouncedSave('minimum', v)}
+              onBlur={v => savePricing('minimum', v)}
             />
             <Divider />
             <PriceRow
               label="30-MIN BASE RATE"
               sub="Short trips around your area"
               value={baseRate}
-              onChangeText={v => { setBaseRate(v); debouncedSave('base_rate', v); }}
-              onBlur={() => savePricing('base_rate', baseRate)}
+              onChangeText={v => debouncedSave('base_rate', v)}
+              onBlur={v => savePricing('base_rate', v)}
             />
             <Divider />
             <PriceRow
               label="HOURLY RATE"
               sub="Multi-stop or longer distance"
               value={hourly}
-              onChangeText={v => { setHourly(v); debouncedSave('hourly', v); }}
-              onBlur={() => savePricing('hourly', hourly)}
+              onChangeText={v => debouncedSave('hourly', v)}
+              onBlur={v => savePricing('hourly', v)}
             />
             <Divider />
             <PriceRow
               label="OUT-OF-TOWN / HR"
               sub="Rides outside your usual area"
               value={outOfTown}
-              onChangeText={v => { setOutOfTown(v); debouncedSave('out_of_town', v); }}
-              onBlur={() => savePricing('out_of_town', outOfTown)}
+              onChangeText={v => debouncedSave('out_of_town', v)}
+              onBlur={v => savePricing('out_of_town', v)}
             />
           </View>
 
@@ -225,8 +221,8 @@ export default function PricingScreen() {
               label="MIN DEPOSIT"
               sub="Platform default: $5"
               value={depositFloor}
-              onChangeText={v => { setDepositFloor(v); debouncedSaveDeposit(v); }}
-              onBlur={() => saveDepositFloor(depositFloor)}
+              onChangeText={v => debouncedSaveDeposit(v)}
+              onBlur={v => saveDepositFloor(v)}
               placeholder="Platform default"
             />
           </View>
@@ -253,16 +249,16 @@ export default function PricingScreen() {
                   label="FLAT FEE / DELIVERY"
                   sub="Minimum you'll take per store run"
                   value={storeRunRate}
-                  onChangeText={v => { setStoreRunRate(v); saveStoreRunRate(v); }}
-                  onBlur={() => savePricing('store_run_rate', storeRunRate)}
+                  onChangeText={v => saveStoreRunRate(v)}
+                  onBlur={v => savePricing('store_run_rate', v)}
                 />
                 <Divider />
                 <PriceRow
                   label="% OF ORDER"
                   sub="Whichever earns more wins"
                   value={storeRunPercent}
-                  onChangeText={v => { setStoreRunPercent(v); saveStoreRunPercent(v); }}
-                  onBlur={() => savePricing('store_run_percent', storeRunPercent)}
+                  onChangeText={v => saveStoreRunPercent(v)}
+                  onBlur={v => savePricing('store_run_percent', v)}
                   placeholder="0"
                   unit="%"
                 />
@@ -284,13 +280,20 @@ function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   );
 }
 
-function PriceRow({
+// Uncontrolled-internally: the input drives its OWN text state so each keystroke
+// re-renders only this row (instant), not the whole screen. The parent is told
+// via onChangeText (debounced save only — it must NOT setState per keystroke) and
+// onBlur (receives the current text). `value` is the source on load; we re-sync
+// only when it changes from outside (initial fetch), never per keystroke.
+const PriceRow = memo(function PriceRow({
   label, sub, value, onChangeText, onBlur, placeholder = '$0', unit = '$',
 }: {
   label: string; sub: string; value: string;
-  onChangeText: (v: string) => void; onBlur: () => void; placeholder?: string;
+  onChangeText: (v: string) => void; onBlur: (v: string) => void; placeholder?: string;
   unit?: '$' | '%';
 }) {
+  const [text, setText] = useState(value);
+  useEffect(() => { setText(value); }, [value]);
   return (
     <View style={s.priceRow}>
       <View style={s.priceLabelCol}>
@@ -301,9 +304,9 @@ function PriceRow({
         {unit === '$' && <Text style={s.dollarSign}>$</Text>}
         <TextInput
           style={s.priceInput}
-          value={value}
-          onChangeText={onChangeText}
-          onBlur={onBlur}
+          value={text}
+          onChangeText={(v) => { setText(v); onChangeText(v); }}
+          onBlur={() => onBlur(text)}
           placeholder={placeholder}
           placeholderTextColor={colors.textFaint}
           keyboardType="decimal-pad"
@@ -313,7 +316,7 @@ function PriceRow({
       </View>
     </View>
   );
-}
+});
 
 function Divider() {
   return <View style={s.divider} />;
