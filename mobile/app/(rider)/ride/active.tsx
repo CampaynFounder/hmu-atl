@@ -17,6 +17,7 @@ import * as Location from 'expo-location';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
+import { useNotifications } from '@/contexts/notifications';
 import { RideMap } from '@/components/ride/RideMap';
 import { toLatLng, LatLng } from '@/components/ride/types';
 import { useRideMessages, ChatMessage } from '@/components/ride/useRideMessages';
@@ -127,6 +128,7 @@ export default function RiderActiveScreen() {
   const [chatOpen, setChatOpen] = useState(false);
   const chat = useRideMessages(rideId, getToken, ride?.driverId ?? null);
   const safety = useRideSafety(rideId, getToken, 'rider');
+  const { registerRideRefresh } = useNotifications();
 
   const [showMenu, setShowMenu] = useState(false);
   const menuSlide = useRef(new Animated.Value(400)).current;
@@ -179,6 +181,17 @@ export default function RiderActiveScreen() {
     void fetchMenu();
     void fetchAddOns();
   }, []);
+
+  // Backstop: the always-on user notify channel triggers a re-pull of ride +
+  // add-on state whenever the driver acts (OTW/here/start, extra confirmed/
+  // rejected). This guarantees status + extras refresh even if the per-screen
+  // ride channel briefly misses an event around a reconnect.
+  useEffect(() => {
+    return registerRideRefresh(() => {
+      void fetchRide();
+      void fetchAddOns();
+    });
+  }, [registerRideRefresh, fetchRide, fetchAddOns]);
 
   // Live updates
   useAbly({
@@ -238,14 +251,19 @@ export default function RiderActiveScreen() {
     },
   });
 
-  // Live ETA + distance: driver's current GPS → pickup, via Mapbox Directions.
-  // Re-fetches when the driver moves (keyed to ~4-decimal coords so jitter
-  // doesn't spam the API). Only meaningful once the driver is OTW (has GPS).
-  const pLat = ride?.pickupLat ?? null;
-  const pLng = ride?.pickupLng ?? null;
+  // Live ETA + distance from the driver's current GPS, via Mapbox Directions.
+  // Target follows the ride phase, matching web: while the driver is en route
+  // (otw/here/confirming) the ETA is to PICKUP; once the ride is active it's to
+  // the DROPOFF. Re-fetches when the driver moves. Only meaningful once the
+  // driver is streaming GPS (OTW onward).
+  const status = ride?.status ?? null;
+  const isActive = status === 'active' || status === 'in_progress';
+  const tLat = isActive ? (ride?.dropoffLat ?? null) : (ride?.pickupLat ?? null);
+  const tLng = isActive ? (ride?.dropoffLng ?? null) : (ride?.pickupLng ?? null);
+  const etaPhase = status && ['otw', 'here', 'confirming', 'active', 'in_progress'].includes(status);
   useEffect(() => {
-    if (!driverLocation || pLat == null || pLng == null || !MAPBOX_TOKEN) { setEta(null); return; }
-    const coords = `${driverLocation.lng},${driverLocation.lat};${pLng},${pLat}`;
+    if (!driverLocation || !etaPhase || tLat == null || tLng == null || !MAPBOX_TOKEN) { setEta(null); return; }
+    const coords = `${driverLocation.lng},${driverLocation.lat};${tLng},${tLat}`;
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?access_token=${MAPBOX_TOKEN}&overview=false`;
     let cancelled = false;
     fetch(url)
@@ -257,7 +275,7 @@ export default function RiderActiveScreen() {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [driverLocation, pLat, pLng]);
+  }, [driverLocation, tLat, tLng, etaPhase]);
 
   // Cancel-request countdown (only active when a request is pending driver reply).
   useEffect(() => {
@@ -516,16 +534,21 @@ export default function RiderActiveScreen() {
           />
         )}
 
-        {/* Live ETA — driver → pickup, shown once the driver is on the way */}
-        {(ride.status === 'otw' || ride.status === 'here') && (
+        {/* Live ETA — to pickup while the driver is en route, to the
+            destination once the ride is active (mirrors the web app). */}
+        {['otw', 'here', 'active', 'in_progress'].includes(ride.status) && (
           <View style={s.etaBanner}>
             <Ionicons name="car-sport" size={18} color={colors.green} />
             <Text style={s.etaText}>
               {ride.status === 'here'
                 ? 'Driver has arrived'
-                : eta
-                  ? `Driver ${eta.mi.toFixed(1)} mi away · about ${eta.min} min`
-                  : 'Locating your driver…'}
+                : ride.status === 'active' || ride.status === 'in_progress'
+                  ? eta
+                    ? `About ${eta.min} min to your destination · ${eta.mi.toFixed(1)} mi`
+                    : 'On the way to your destination…'
+                  : eta
+                    ? `Driver ${eta.mi.toFixed(1)} mi away · about ${eta.min} min`
+                    : 'Locating your driver…'}
             </Text>
           </View>
         )}

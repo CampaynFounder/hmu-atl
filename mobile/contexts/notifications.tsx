@@ -17,6 +17,11 @@ interface NotificationContextValue {
   currentBanner: AppNotification | null;
   dismissBanner: () => void;
   registerFeedRefresh: (fn: () => void) => () => void;
+  /** Register a callback fired whenever a ride update (status or add-on) arrives
+   *  on the always-on user notify channel. The active ride screen uses this to
+   *  re-pull authoritative state — a reliable backstop for the per-screen ride
+   *  channel, which can briefly drop events around reconnects. */
+  registerRideRefresh: (fn: () => void) => () => void;
 }
 
 const NotificationContext = createContext<NotificationContextValue>({
@@ -25,6 +30,7 @@ const NotificationContext = createContext<NotificationContextValue>({
   currentBanner: null,
   dismissBanner: () => {},
   registerFeedRefresh: () => () => {},
+  registerRideRefresh: () => () => {},
 });
 
 export function useNotifications() {
@@ -41,6 +47,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [currentBanner, setCurrentBanner] = useState<AppNotification | null>(null);
 
   const feedRefreshCallbacks = useRef<Set<() => void>>(new Set());
+  const rideRefreshCallbacks = useRef<Set<() => void>>(new Set());
 
   const enqueue = useCallback((n: AppNotification) => {
     setBannerQueue((q) => [...q, n]);
@@ -69,6 +76,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const triggerFeedRefresh = useCallback(() => {
     feedRefreshCallbacks.current.forEach((fn) => fn());
+  }, []);
+
+  const registerRideRefresh = useCallback((fn: () => void) => {
+    rideRefreshCallbacks.current.add(fn);
+    return () => { rideRefreshCallbacks.current.delete(fn); };
+  }, []);
+
+  const triggerRideRefresh = useCallback(() => {
+    rideRefreshCallbacks.current.forEach((fn) => fn());
   }, []);
 
   useEffect(() => {
@@ -220,6 +236,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         const status = data?.status as string | undefined;
         const updateType = data?.type as string | undefined;
 
+        // Backstop refresh: re-pull authoritative ride + add-on state on the
+        // active ride screen, independent of its per-screen ride channel. This
+        // is what guarantees the rider's extras flip to CONFIRMED the moment the
+        // driver approves, and that status changes land even across reconnects.
+        triggerRideRefresh();
+
         if (updateType === 'add_on_confirmed') {
           enqueue({
             id: `addon-ok-${Date.now()}`,
@@ -311,7 +333,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   return (
     <NotificationContext.Provider
-      value={{ unreadRequestCount, markRequestsSeen, currentBanner, dismissBanner, registerFeedRefresh }}
+      value={{ unreadRequestCount, markRequestsSeen, currentBanner, dismissBanner, registerFeedRefresh, registerRideRefresh }}
     >
       {children}
     </NotificationContext.Provider>
