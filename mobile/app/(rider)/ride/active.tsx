@@ -19,6 +19,8 @@ import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
 import { RideMap } from '@/components/ride/RideMap';
 import { toLatLng, LatLng } from '@/components/ride/types';
+import { useRideMessages, ChatMessage } from '@/components/ride/useRideMessages';
+import { RideChat } from '@/components/ride/RideChat';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 
@@ -104,6 +106,8 @@ export default function RiderActiveScreen() {
   const [token, setToken] = useState<string | null>(null);
   const [driverLocation, setDriverLocation] = useState<LatLng | null>(null);
   const [confirmingRide, setConfirmingRide] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const chat = useRideMessages(rideId, getToken, ride?.driverId ?? null);
 
   const [showMenu, setShowMenu] = useState(false);
   const menuSlide = useRef(new Animated.Value(400)).current;
@@ -180,6 +184,9 @@ export default function RiderActiveScreen() {
         if (typeof d.lat === 'number' && typeof d.lng === 'number') {
           setDriverLocation({ lat: d.lat, lng: d.lng });
         }
+      }
+      if (msg.name === 'chat_message') {
+        chat.ingest(msg.data as ChatMessage);
       }
       if (
         msg.name === 'add_on_confirmed' ||
@@ -297,6 +304,9 @@ export default function RiderActiveScreen() {
   // Before COO, the rider's primary action is Pull Up — it authorizes the
   // deposit hold on their card (routes to the existing COO screen).
   const needsPullUp = ride.status === 'matched' && !ride.cooAt;
+  const canChat = ['otw', 'here', 'confirming', 'active', 'ended'].includes(ride.status);
+  function openChat() { setChatOpen(true); chat.setOpen(true); }
+  function closeChat() { setChatOpen(false); chat.setOpen(false); }
 
   // Items not already queued
   const alreadyAdded = new Set(addOns.filter(a => a.status !== 'rejected').map(a => a.item_name));
@@ -494,6 +504,34 @@ export default function RiderActiveScreen() {
         </View>
       )}
 
+      {/* Chat FAB */}
+      {canChat && (
+        <TouchableOpacity
+          style={[s.chatFab, { bottom: insets.bottom + (isConfirming || needsPullUp ? 170 : 24) }]}
+          onPress={openChat}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="chatbubble-ellipses" size={22} color={colors.bg} />
+          {chat.unread > 0 && (
+            <View style={s.chatBadge}>
+              <Text style={s.chatBadgeText}>{chat.unread > 9 ? '9+' : chat.unread}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      )}
+
+      <RideChat
+        visible={chatOpen}
+        onClose={closeChat}
+        messages={chat.messages}
+        isMine={chat.isMine}
+        onSend={chat.send}
+        sending={chat.sending}
+        viewerRole="rider"
+        rideStatus={ride.status}
+        otherName={driverName}
+      />
+
       {/* Menu sheet */}
       {showMenu && (
         <Animated.View style={[s.overlay, { transform: [{ translateY: menuSlide }] }]}>
@@ -595,6 +633,17 @@ const s = StyleSheet.create({
   imInSub: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint },
   whenRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   whenText: { fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.textPrimary },
+  chatFab: {
+    position: 'absolute', right: spacing.xl, width: 52, height: 52, borderRadius: 26,
+    backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 6,
+  },
+  chatBadge: {
+    position: 'absolute', top: -2, right: -2, minWidth: 20, height: 20, borderRadius: 10,
+    backgroundColor: colors.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5,
+    borderWidth: 2, borderColor: colors.bg,
+  },
+  chatBadgeText: { fontFamily: fonts.monoBold, fontSize: 10, color: colors.textPrimary },
   card: {
     backgroundColor: colors.card, borderRadius: radius.card,
     padding: spacing.xl, marginBottom: spacing.lg,

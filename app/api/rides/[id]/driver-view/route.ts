@@ -82,6 +82,7 @@ export async function GET(
       dropoffLng: r.dropoff_lng ? Number(r.dropoff_lng) : null,
       tripType: (r.trip_type as string) ?? 'one_way',
       stops: (r.stops as Array<{ lat: number; lng: number; address?: string }>) ?? [],
+      riderId: r.rider_id ?? null,
       riderHandle: r.rider_handle ?? null,
       riderFirstName: r.rider_first_name ?? null,
       riderAvatarUrl: r.rider_avatar_url ?? null,
