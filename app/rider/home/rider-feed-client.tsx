@@ -113,9 +113,16 @@ export default function RiderFeedClient({ displayName, userId, cashAllowed }: Pr
           setTimeout(() => { window.location.replace(`/ride/${rideId}`); }, 2500);
         } else {
           fetch('/api/rider/payment-methods')
-            .then(r => r.json())
-            .then(pmData => {
-              if (pmData.methods && pmData.methods.length > 0) {
+            .then(async r => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
+            .then(({ ok, data }) => {
+              // Only block when the endpoint AUTHORITATIVELY reports zero methods
+              // (a 200 with an explicit empty array). On any error/malformed
+              // response, fail open and proceed to the ride — payment is still
+              // authorized at Pull Up / Start Ride, so a flaky lookup must never
+              // strand a rider with a "link a payment method" prompt when they
+              // already have one.
+              const methods = Array.isArray(data?.methods) ? data.methods : null;
+              if (!ok || data?.error || methods === null || methods.length > 0) {
                 setTimeout(() => { window.location.replace(`/ride/${rideId}`); }, 2500);
               } else {
                 setMatchNotif(prev => prev ? { ...prev, needsPayment: true } : null);

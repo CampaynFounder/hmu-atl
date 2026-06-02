@@ -31,6 +31,11 @@ export async function POST(req: NextRequest) {
 
     // Grant market feed channels — wildcard so the driver's resolved market works
     capability['market:*:feed'] = ['subscribe'];
+    // Down-bad request feed — drivers who accept down-bad subscribe to
+    // market:{slug}:down-bad; the server publishes posts. Without this grant
+    // every subscribe is denied ("Channel denied access based on given
+    // capability; channelId = market:<slug>:down-bad").
+    capability['market:*:down-bad'] = ['subscribe'];
     // Legacy area:*:feed subscription kept during transition so any unmigrated
     // client code doesn't silently drop realtime events.
     capability['area:*:feed'] = ['subscribe'];
