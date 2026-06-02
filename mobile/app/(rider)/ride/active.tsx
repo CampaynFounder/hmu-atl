@@ -33,6 +33,8 @@ interface RideView {
   refCode: string | null;
   status: string;
   agreedPrice: number;
+  proposedPrice: number | null;
+  proposedPriceReason: string | null;
   isCash: boolean;
   cooAt: string | null;
   pickupAddress: string | null;
@@ -121,6 +123,7 @@ export default function RiderActiveScreen() {
   const [cancelling, setCancelling] = useState(false);
   const [cancelRequested, setCancelRequested] = useState(false);
   const [cancelSecs, setCancelSecs] = useState(0);
+  const [priceResponding, setPriceResponding] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const chat = useRideMessages(rideId, getToken, ride?.driverId ?? null);
   const safety = useRideSafety(rideId, getToken, 'rider');
@@ -217,6 +220,13 @@ export default function RiderActiveScreen() {
       if (msg.name === 'safety_check_prompt') {
         safety.ingestPrompt(msg.data as { checkId?: string; party?: string; autoDismissSeconds?: number });
       }
+      if (msg.name === 'price_update_proposed') {
+        const d = msg.data as { newPrice?: number; reason?: string | null };
+        if (typeof d.newPrice === 'number') {
+          setRide((prev) => prev ? { ...prev, proposedPrice: d.newPrice!, proposedPriceReason: d.reason ?? null } : prev);
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        }
+      }
       if (
         msg.name === 'add_on_confirmed' ||
         msg.name === 'add_on_rejected' ||
@@ -292,6 +302,29 @@ export default function RiderActiveScreen() {
         },
       ],
     );
+  }
+
+  async function respondPrice(action: 'accept' | 'decline') {
+    if (!rideId || priceResponding) return;
+    setPriceResponding(true);
+    try {
+      const t = await getToken();
+      const res = await apiClient<{ status: string; newPrice?: number }>(
+        `/rides/${rideId}/update-price`, t, { method: 'PATCH', body: JSON.stringify({ action }) },
+      );
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setRide((prev) => {
+        if (!prev) return prev;
+        if (action === 'accept' && res.newPrice) {
+          return { ...prev, agreedPrice: res.newPrice, proposedPrice: null, proposedPriceReason: null };
+        }
+        return { ...prev, proposedPrice: null, proposedPriceReason: null };
+      });
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not respond to the price change');
+    } finally {
+      setPriceResponding(false);
+    }
   }
 
   function openMenu() {
@@ -428,6 +461,36 @@ export default function RiderActiveScreen() {
         contentContainerStyle={[s.content, { paddingBottom: insets.bottom + (isConfirming || needsPullUp ? 160 : 100) }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Driver proposed a new price — accept (re-auths the difference) or decline */}
+        {ride.proposedPrice != null && (
+          <View style={s.priceCard}>
+            <Text style={s.priceCardLabel}>DRIVER PROPOSED A NEW PRICE</Text>
+            <Text style={s.priceCardAmount}>
+              ${ride.proposedPrice.toFixed(2)}
+              <Text style={s.priceCardOld}>  was ${ride.agreedPrice.toFixed(2)}</Text>
+            </Text>
+            {!!ride.proposedPriceReason && <Text style={s.priceCardReason}>“{ride.proposedPriceReason}”</Text>}
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+              <TouchableOpacity
+                style={[s.priceBtn, { backgroundColor: colors.cardAlt }]}
+                onPress={() => respondPrice('decline')}
+                disabled={priceResponding}
+              >
+                <Text style={[s.priceBtnText, { color: colors.textPrimary }]}>Decline</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.priceBtn, { backgroundColor: colors.green }]}
+                onPress={() => respondPrice('accept')}
+                disabled={priceResponding}
+              >
+                {priceResponding
+                  ? <ActivityIndicator size="small" color={colors.bg} />
+                  : <Text style={[s.priceBtnText, { color: colors.bg }]}>Accept ${ride.proposedPrice.toFixed(0)}</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Cancel request pending driver reply */}
         {cancelRequested && (
           <View style={s.cancelPending}>
@@ -804,6 +867,17 @@ const s = StyleSheet.create({
   cancelPendingText: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.amber, flex: 1 },
   cancelLink: { alignItems: 'center', paddingVertical: spacing.md, marginTop: spacing.sm },
   cancelLinkText: { fontFamily: fonts.body, fontSize: 14, color: colors.red },
+  priceCard: {
+    backgroundColor: colors.amberDim, borderRadius: radius.card,
+    borderWidth: 1, borderColor: colors.amberBorder,
+    padding: spacing.lg, marginBottom: spacing.lg,
+  },
+  priceCardLabel: { fontFamily: fonts.mono, fontSize: 10, color: colors.amber, letterSpacing: 2 },
+  priceCardAmount: { fontFamily: fonts.display, fontSize: 32, color: colors.textPrimary, marginTop: 4 },
+  priceCardOld: { fontFamily: fonts.body, fontSize: 13, color: colors.textFaint, textDecorationLine: 'line-through' },
+  priceCardReason: { fontFamily: fonts.body, fontSize: 13, color: colors.textSecondary, marginTop: 4, fontStyle: 'italic' },
+  priceBtn: { flex: 1, borderRadius: radius.pill, paddingVertical: spacing.md, alignItems: 'center', justifyContent: 'center' },
+  priceBtnText: { fontFamily: fonts.mono, fontSize: 13, letterSpacing: 0.5 },
   chatFab: {
     position: 'absolute', right: spacing.xl, width: 52, height: 52, borderRadius: 26,
     backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center',

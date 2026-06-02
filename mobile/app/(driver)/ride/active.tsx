@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Animated, Alert, ActivityIndicator, Pressable, Image,
-  Linking, ActionSheetIOS, Platform, TextInput, KeyboardAvoidingView,
+  Linking, ActionSheetIOS, Platform, TextInput, KeyboardAvoidingView, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -40,6 +40,8 @@ interface RideView {
   refCode: string | null;
   status: string;
   agreedPrice: number;
+  proposedPrice: number | null;
+  proposedPriceReason: string | null;
   driverPayout: number;
   platformFee: number;
   isCash: boolean;
@@ -171,6 +173,10 @@ export default function ActiveRideScreen() {
   // Incoming rider cancel-request (driver agrees or declines before timeout)
   const [cancelReq, setCancelReq] = useState<{ reason: string; secs: number } | null>(null);
   const [respondingCancel, setRespondingCancel] = useState(false);
+  const [showPriceModal, setShowPriceModal] = useState(false);
+  const [priceInput, setPriceInput] = useState('');
+  const [priceReason, setPriceReason] = useState('');
+  const [proposingPrice, setProposingPrice] = useState(false);
 
   // Add-ons
   const [addOns, setAddOns] = useState<AddOn[]>([]);
@@ -314,6 +320,16 @@ export default function ActiveRideScreen() {
       if (msg.name === 'cancel_request_cleared') {
         setCancelReq(null);
       }
+      if (msg.name === 'price_update_accepted') {
+        const d = msg.data as { newPrice?: number };
+        setRide((prev) => prev ? { ...prev, agreedPrice: typeof d.newPrice === 'number' ? d.newPrice : prev.agreedPrice, proposedPrice: null, proposedPriceReason: null } : prev);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert('Price accepted', 'The rider accepted your new price.');
+      }
+      if (msg.name === 'price_update_declined') {
+        setRide((prev) => prev ? { ...prev, proposedPrice: null, proposedPriceReason: null } : prev);
+        Alert.alert('Price declined', 'The rider kept the original price.');
+      }
       if (msg.name === 'add_on_pending') {
         const d = msg.data as Record<string, unknown>;
         const ao = d.addOn as PendingAddOn | undefined;
@@ -403,6 +419,25 @@ export default function ActiveRideScreen() {
         },
       },
     ]);
+  }
+
+  async function proposePrice() {
+    const np = parseFloat(priceInput);
+    if (isNaN(np) || np < 1) { Alert.alert('Invalid price', 'Enter a price of at least $1.'); return; }
+    if (!rideId || proposingPrice) return;
+    setProposingPrice(true);
+    try {
+      const t = await getToken();
+      await apiClient(`/rides/${rideId}/update-price`, t, {
+        method: 'POST',
+        body: JSON.stringify({ newPrice: np, reason: priceReason.trim() || undefined }),
+      });
+      setRide((prev) => prev ? { ...prev, proposedPrice: np, proposedPriceReason: priceReason.trim() || null } : prev);
+      setShowPriceModal(false); setPriceInput(''); setPriceReason('');
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      Alert.alert('Could not update price', e?.message ?? 'Try again');
+    } finally { setProposingPrice(false); }
   }
 
   function openMapsNav(
@@ -958,6 +993,25 @@ export default function ActiveRideScreen() {
           </View>
         )}
 
+        {/* Change price (before OTW) — proposes a new price for the rider to accept */}
+        {isMatched && (
+          ride.proposedPrice != null ? (
+            <View style={s.pricePendingRow}>
+              <Ionicons name="hourglass-outline" size={14} color={colors.amber} />
+              <Text style={s.pricePendingText}>Proposed ${ride.proposedPrice.toFixed(0)} — waiting for rider</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={s.changePriceBtn}
+              onPress={() => { setPriceInput(String(Math.round(ride.agreedPrice))); setShowPriceModal(true); }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="pricetag-outline" size={15} color={colors.amber} />
+              <Text style={s.changePriceText}>Change price</Text>
+            </TouchableOpacity>
+          )
+        )}
+
         {/* Driver cancel — free + immediate, only before heading out */}
         {isMatched && (
           <TouchableOpacity style={s.driverCancelLink} onPress={driverCancel} disabled={acting} activeOpacity={0.7}>
@@ -965,6 +1019,42 @@ export default function ActiveRideScreen() {
           </TouchableOpacity>
         )}
       </ScrollView>
+
+      {/* Change-price modal */}
+      <Modal transparent visible={showPriceModal} animationType="fade" onRequestClose={() => setShowPriceModal(false)}>
+        <View style={s.priceModalOverlay}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setShowPriceModal(false)} />
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <View style={[s.priceModalCard, { paddingBottom: insets.bottom + spacing.lg }]}>
+              <Text style={s.priceModalTitle}>PROPOSE A NEW PRICE</Text>
+              <Text style={s.priceModalSub}>The rider must accept before it takes effect.</Text>
+              <View style={s.priceModalInputRow}>
+                <Text style={s.priceModalDollar}>$</Text>
+                <TextInput
+                  style={s.priceModalInput}
+                  value={priceInput}
+                  onChangeText={setPriceInput}
+                  keyboardType="decimal-pad"
+                  placeholder="0"
+                  placeholderTextColor={colors.textFaint}
+                  autoFocus
+                />
+              </View>
+              <TextInput
+                style={s.priceModalReason}
+                value={priceReason}
+                onChangeText={setPriceReason}
+                placeholder="Reason (optional) — e.g. longer route, extra stop"
+                placeholderTextColor={colors.textFaint}
+                maxLength={120}
+              />
+              <TouchableOpacity style={s.priceModalBtn} onPress={proposePrice} disabled={proposingPrice}>
+                {proposingPrice ? <ActivityIndicator color={colors.bg} /> : <Text style={s.priceModalBtnText}>SEND TO RIDER</Text>}
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
 
       {/* ── Error banner ── */}
       {error && (
@@ -1251,6 +1341,31 @@ const s = StyleSheet.create({
   cancelReqReason: { fontFamily: fonts.body, fontSize: 13, color: colors.textSecondary, marginTop: 4, fontStyle: 'italic' },
   cancelReqBtn: { flex: 1, borderRadius: radius.pill, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' },
   cancelReqBtnText: { fontFamily: fonts.mono, fontSize: 11, letterSpacing: 0.5 },
+  pricePendingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md, marginTop: spacing.sm },
+  pricePendingText: { fontFamily: fonts.mono, fontSize: 11, color: colors.amber, letterSpacing: 0.5 },
+  changePriceBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
+    paddingVertical: spacing.md, marginTop: spacing.sm,
+    borderWidth: 1, borderColor: colors.amberBorder, borderRadius: radius.card, backgroundColor: colors.amberDim,
+  },
+  changePriceText: { fontFamily: fonts.mono, fontSize: 12, color: colors.amber, letterSpacing: 1 },
+  priceModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  priceModalCard: {
+    backgroundColor: colors.bg, borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card,
+    borderTopWidth: 1, borderColor: colors.border, padding: spacing.xl, gap: spacing.md,
+  },
+  priceModalTitle: { fontFamily: fonts.mono, fontSize: 12, color: colors.textSecondary, letterSpacing: 2 },
+  priceModalSub: { fontFamily: fonts.body, fontSize: 13, color: colors.textFaint },
+  priceModalInputRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.borderStrong, paddingBottom: spacing.sm },
+  priceModalDollar: { fontFamily: fonts.display, fontSize: 32, color: colors.textSecondary },
+  priceModalInput: { flex: 1, fontFamily: fonts.display, fontSize: 32, color: colors.textPrimary, padding: 0 },
+  priceModalReason: {
+    fontFamily: fonts.body, fontSize: 14, color: colors.textPrimary,
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: radius.card,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+  },
+  priceModalBtn: { backgroundColor: colors.green, borderRadius: radius.pill, paddingVertical: spacing.md, alignItems: 'center', justifyContent: 'center' },
+  priceModalBtnText: { fontFamily: fonts.mono, fontSize: 14, color: colors.bg, letterSpacing: 1 },
   driverCancelLink: { alignItems: 'center', paddingVertical: spacing.md, marginTop: spacing.sm },
   driverCancelText: { fontFamily: fonts.body, fontSize: 14, color: colors.red },
   card: {
