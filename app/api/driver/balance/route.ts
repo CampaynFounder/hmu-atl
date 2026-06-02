@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { isFeatureEnabled } from '@/lib/feature-flags';
+import { resolvePricingStrategy } from '@/lib/payments/strategies';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
@@ -15,7 +16,7 @@ export async function GET() {
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const rows = await sql`
-      SELECT dp.stripe_account_id, dp.stripe_instant_eligible, u.tier
+      SELECT u.id as user_id, dp.stripe_account_id, dp.stripe_instant_eligible, u.tier
       FROM users u
       JOIN driver_profiles dp ON dp.user_id = u.id
       WHERE u.clerk_id = ${clerkId} LIMIT 1
@@ -23,13 +24,20 @@ export async function GET() {
     if (!rows.length) return NextResponse.json({ error: 'Driver not found' }, { status: 404 });
 
     const driver = rows[0] as {
+      user_id: string;
       stripe_account_id: string | null;
       stripe_instant_eligible: boolean;
       tier: string;
     };
 
+    // Active pricing mode drives the driver-facing wallet language: in
+    // deposit_only the digital balance is the deposit + extras and the driver
+    // still collects the cash remainder per ride; in full-fare modes the whole
+    // fare is already collected. Resolver is 60s-cached and never throws.
+    const activeMode = (await resolvePricingStrategy(driver.user_id)).modeKey;
+
     if (!driver.stripe_account_id) {
-      return NextResponse.json({ available: 0, pending: 0, instantEligible: false, tier: driver.tier });
+      return NextResponse.json({ available: 0, pending: 0, instantEligible: false, tier: driver.tier, activeMode });
     }
 
     if (isMock) {
@@ -39,6 +47,7 @@ export async function GET() {
         instantEligible: false,
         tier: driver.tier,
         currency: 'usd',
+        activeMode,
       });
     }
 
@@ -92,9 +101,9 @@ export async function GET() {
       payoutStatus = 'pending_hold';
     }
 
-    // Query cash ride earnings from DB (not in Stripe)
-    const userIdRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
-    const driverUserId = (userIdRows[0] as { id: string }).id;
+    // Query cash ride earnings from DB (not in Stripe). Reuse the user id
+    // already loaded above — no need for a second round-trip.
+    const driverUserId = driver.user_id;
 
     // Cash and Deposits exclude no-show rides so the three buckets don't
     // double-count. No-shows get their own bucket below.
@@ -153,6 +162,7 @@ export async function GET() {
       fundsAvailableOn,
       tier: driver.tier,
       currency: 'usd',
+      activeMode,
       payoutStatus,
       cashEarnings: { rides: cashRides, total: cashTotal },
       digitalEarnings: { rides: digitalRides, total: digitalTotal },

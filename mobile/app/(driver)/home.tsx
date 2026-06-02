@@ -47,6 +47,8 @@ interface BalanceResponse {
   fundsAvailableOn: string | null;
   tier: string;
   currency: string;
+  /** Driver's active pricing mode — drives the cash-collection language. */
+  activeMode?: 'deposit_only' | 'legacy_full_fare' | string;
   payoutStatus: 'no_balance' | 'ready' | 'pending_hold' | 'instant_only';
   cashEarnings: { rides: number; total: number };
   digitalEarnings: { rides: number; total: number };
@@ -67,6 +69,16 @@ interface CashoutResult {
 
 function haptic(style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) {
   Haptics.impactAsync(style).catch(() => {});
+}
+
+// Whether the driver is paid via the deposit-only model (digital deposit +
+// extras now, cash remainder collected per ride) vs a full-fare model (whole
+// fare collected digitally). Defaults to deposit framing when the mode is
+// absent — older API builds / failed balance loads — because telling a driver
+// "collect the cash" when they don't strictly need to is far safer than the
+// reverse. Flipping the pricing mode (cohort / global default) flips this.
+function isDepositMode(activeMode?: string): boolean {
+  return activeMode ? activeMode === 'deposit_only' : true;
 }
 
 async function registerPushToken(clerkToken: string) {
@@ -204,6 +216,7 @@ export default function DriverHome() {
 
   const handle = driverHandle ?? (user?.fullName ?? 'Driver');
   const isFirst = (user?.publicMetadata?.tier as string) === 'hmu_first';
+  const depositMode = isDepositMode(balance?.activeMode);
 
   if (loading) {
     return (
@@ -232,15 +245,22 @@ export default function DriverHome() {
         </DepthButton>
       </View>
 
-      {/* Deposit protection banner — tap to see full breakdown */}
+      {/* Payment-mode banner — copy + tone follow the active pricing mode.
+          Deposit mode: remind the driver they collect the cash remainder on
+          pickup. Full-fare mode: reassure the whole fare is already collected.
+          Defaults to deposit framing until balance (hence activeMode) loads. */}
       <TouchableOpacity
-        style={s.depositBanner}
+        style={[s.modeBanner, depositMode ? s.modeBannerDeposit : s.modeBannerFull]}
         onPress={() => router.push('/(driver)/payment-preview' as never)}
         activeOpacity={0.8}
       >
-        <Ionicons name="shield-checkmark" size={14} color={colors.red} />
-        <Text style={s.depositBannerText}>DEPOSIT PROTECTED — riders pay before you pull up</Text>
-        <Ionicons name="chevron-forward" size={12} color={colors.red} />
+        <Ionicons name="shield-checkmark" size={14} color={depositMode ? colors.red : colors.green} />
+        <Text style={[s.modeBannerText, { color: depositMode ? colors.red : colors.green }]}>
+          {depositMode
+            ? 'DEPOSIT PROTECTED — collect the rest in cash on pickup'
+            : 'PAID IN FULL — full fare collected before pickup'}
+        </Text>
+        <Ionicons name="chevron-forward" size={12} color={depositMode ? colors.red : colors.green} />
       </TouchableOpacity>
 
       {/* Active ride banner */}
@@ -341,6 +361,7 @@ function DriverWalletCard({
 
   const showInstant = balance.instantEligible && balance.platformInstantEnabled;
   const cashableAmount = method === 'instant' ? balance.instantAvailable : balance.available;
+  const depositMode = isDepositMode(balance.activeMode);
   const bars = buildWalletBars(timeseries, period, activeTile);
 
   const cashTotal = balance.cashEarnings?.total ?? 0;
@@ -493,6 +514,28 @@ function DriverWalletCard({
 
       {/* ── Divider ── */}
       <View style={wc.divider} />
+
+      {/* ── Payment-mode note ── frames what this balance represents so a
+          deposit-mode driver never mistakes their deposits for the full fare. */}
+      <View style={[
+        wc.modeNote,
+        {
+          backgroundColor: depositMode ? colors.cashDim : colors.greenDim,
+          borderColor: depositMode ? colors.cashBorder : colors.greenBorder,
+        },
+      ]}>
+        <Ionicons
+          name={depositMode ? 'cash-outline' : 'checkmark-circle-outline'}
+          size={14}
+          color={depositMode ? colors.cash : colors.green}
+          style={{ marginTop: 1 }}
+        />
+        <Text style={[wc.modeNoteText, { color: depositMode ? colors.cash : colors.green }]}>
+          {depositMode
+            ? 'Deposits + extras. Collect each rider’s cash fare on pickup.'
+            : 'Full fare collected — cash out anytime, nothing to collect.'}
+        </Text>
+      </View>
 
       {/* ── Result feedback ── */}
       {result?.success && (
@@ -737,16 +780,17 @@ const s = StyleSheet.create({
   content: { paddingHorizontal: spacing.xl, paddingBottom: 48 },
   loader: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
 
-  depositBanner: {
+  modeBanner: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-    backgroundColor: colors.redDim, borderRadius: radius.cardInner,
+    borderRadius: radius.cardInner,
     paddingHorizontal: spacing.md, paddingVertical: 8,
-    borderWidth: 1, borderColor: colors.redBorder,
+    borderWidth: 1,
     marginBottom: spacing.lg,
   },
-  depositBannerText: {
-    flex: 1, fontFamily: fonts.mono, fontSize: 10,
-    color: colors.red, letterSpacing: 0.8,
+  modeBannerDeposit: { backgroundColor: colors.redDim, borderColor: colors.redBorder },
+  modeBannerFull: { backgroundColor: colors.greenDim, borderColor: colors.greenBorder },
+  modeBannerText: {
+    flex: 1, fontFamily: fonts.mono, fontSize: 10, letterSpacing: 0.8,
   },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xl },
   greeting: { fontFamily: fonts.display, fontSize: 36, color: colors.textPrimary, lineHeight: 38 },
@@ -838,6 +882,9 @@ const wc = StyleSheet.create({
   noShowText: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.pink, textAlign: 'center' },
 
   divider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.lg },
+
+  modeNote: { flexDirection: 'row', gap: spacing.sm, borderRadius: radius.tag, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderWidth: 1, marginBottom: spacing.md },
+  modeNoteText: { flex: 1, fontFamily: fonts.body, fontSize: 12, lineHeight: 16 },
 
   successBox: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.greenDim, borderRadius: radius.tag, padding: spacing.md, borderWidth: 1, borderColor: colors.greenBorder, marginBottom: spacing.md },
   successText: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.green },
