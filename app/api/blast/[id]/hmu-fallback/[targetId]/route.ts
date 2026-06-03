@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { fanoutBlast, type BlastTarget, type BlastNotificationContext } from '@/lib/blast/notify';
-import { publishToChannel, notifyUser } from '@/lib/ably/server';
+import { markBlastTargetNotified } from '@/lib/blast/notify-target';
 
 export const runtime = 'nodejs';
 
@@ -133,21 +133,18 @@ async function handlePost(
     shortcode: (blast.shortcode as string) ?? '',
   };
 
-  await sql`
-    UPDATE blast_driver_targets SET notified_at = NOW() WHERE id = ${targetId}
-  `;
-
-  // ── Ably push — direct, like direct_booking_request (no gate dependencies) ──
-  // fanoutBlast queries driver_blast_preferences which may not exist in all
-  // envs; calling notifyUser directly here mirrors the direct booking pattern
-  // and guarantees the driver's feed updates regardless of fanout state.
-  await notifyUser(target.driver_id, 'blast_invite', {
+  // ── Visibility contract: stamp notified_at + blast_invite push + move the
+  // driver from fallback → targets on the rider's offer board. Shared with
+  // POST /api/blast/[id]/hmu/[targetId] so the two never drift. ──
+  await markBlastTargetNotified({
     blastId,
     targetId,
-    title: `New ride request — $${ctx.priceDollars}`,
-    body: `${ctx.pickupLabel} → ${ctx.dropoffLabel} ${ctx.scheduledForLabel}`,
-    url: `/driver/requests`,
-  }).catch((err) => console.error('[hmu-fallback] push error:', err));
+    driverId: target.driver_id,
+    priceDollars: ctx.priceDollars,
+    pickupLabel: ctx.pickupLabel,
+    dropoffLabel: ctx.dropoffLabel,
+    whenLabel: ctx.scheduledForLabel,
+  });
 
   // ── SMS via fanoutBlast (handles quiet hours, daily caps, kill switch) ──
   // MUST be awaited — on Cloudflare Workers unawaited promises are killed the
@@ -156,13 +153,6 @@ async function handlePost(
   await fanoutBlast([blastTarget], ctx).catch((err) =>
     console.error('[hmu-fallback] sms fanout error:', err),
   );
-
-  // ── Rider's offer board — move this driver from fallback → targets ──
-  await publishToChannel(`blast:${blastId}`, 'target_notified', {
-    targetId,
-    driverId: target.driver_id,
-    notifiedAt: new Date().toISOString(),
-  }).catch((err) => console.error('[hmu-fallback] board event error:', err));
 
   return NextResponse.json({ ok: true });
 }

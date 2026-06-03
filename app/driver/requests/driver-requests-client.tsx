@@ -10,7 +10,7 @@ import { DriverBlastMatchHistory } from '@/components/blast/driver/driver-blast-
 
 interface Request {
   id: string;
-  type: 'blast' | 'direct' | 'open';
+  type: 'blast' | 'direct' | 'open' | 'down_bad';
   locked: boolean;
   targetId: string | null;
   riderName: string;
@@ -29,6 +29,11 @@ interface Request {
   expiresAt: string;
   createdAt: string;
   riderOnline: boolean;
+  // down_bad-specific (the favor the rider is asking for)
+  sumExtraText?: string;
+  sumExtraMediaUrl?: string;
+  sumExtraMediaType?: 'photo' | 'video';
+  isDirectOffer?: boolean;
 }
 
 export interface DriverRequestsClientProps {
@@ -224,6 +229,10 @@ export function DriverRequestsClient({ driverId, marketSlug }: DriverRequestsCli
         .req-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 100px; letter-spacing: 1px; text-transform: uppercase; }
         .req-badge--blast { background: rgba(255,100,0,0.15); color: #FF6400; border: 1px solid rgba(255,100,0,0.3); }
         .req-badge--direct { background: rgba(0,230,118,0.12); color: var(--green); border: 1px solid rgba(0,230,118,0.25); }
+        .req-badge--downbad { background: rgba(255,46,151,0.14); color: #FF2E97; border: 1px solid rgba(255,46,151,0.3); }
+        .req-downbad-ask { background: #1a1a1a; border: 1px solid rgba(255,46,151,0.18); border-radius: 12px; padding: 12px 14px; margin: 8px 0; }
+        .req-downbad-ask-text { font-size: 14px; color: #eee; font-style: italic; line-height: 1.4; }
+        .req-downbad-media { width: 100%; max-height: 200px; object-fit: cover; border-radius: 10px; margin-top: 10px; display: block; }
         .req-badge--locked { background: rgba(255,255,255,0.06); color: var(--gray); border: 1px solid rgba(255,255,255,0.1); }
         .loading-dots { display: flex; gap: 4px; justify-content: center; padding: 40px 0; }
         .loading-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: ldpulse 1.2s ease-in-out infinite; }
@@ -375,11 +384,13 @@ function RequestCard({
   const badgeClass = req.locked ? 'req-badge req-badge--locked'
     : req.type === 'blast' ? 'req-badge req-badge--blast'
     : req.type === 'direct' ? 'req-badge req-badge--direct'
+    : req.type === 'down_bad' ? 'req-badge req-badge--downbad'
     : '';
 
   const badgeLabel = req.locked ? 'Locked'
     : req.type === 'blast' ? 'Blast'
     : req.type === 'direct' ? 'Direct'
+    : req.type === 'down_bad' ? (req.isDirectOffer ? 'Down Bad · For You' : 'Down Bad')
     : '';
 
   return (
@@ -471,7 +482,7 @@ function RequestCard({
       )}
 
       {/* Ride details */}
-      {req.type === 'blast' ? (
+      {req.type === 'blast' || req.type === 'down_bad' ? (
         <>
           <div className="req-detail">
             <span className="req-detail-label">From</span>
@@ -485,6 +496,17 @@ function RequestCard({
             <span className="req-detail-label">When</span>
             {req.time || 'Now'}
           </div>
+          {req.type === 'down_bad' && (req.sumExtraText || req.sumExtraMediaUrl) && (
+            <div className="req-downbad-ask">
+              {req.sumExtraText && <div className="req-downbad-ask-text">&ldquo;{req.sumExtraText}&rdquo;</div>}
+              {req.sumExtraMediaUrl && req.sumExtraMediaType === 'video' ? (
+                <video src={req.sumExtraMediaUrl} controls playsInline muted preload="metadata" className="req-downbad-media" />
+              ) : req.sumExtraMediaUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={req.sumExtraMediaUrl} alt="" className="req-downbad-media" />
+              ) : null}
+            </div>
+          )}
         </>
       ) : (
         <>
@@ -534,7 +556,7 @@ function RequestCard({
             onClick={() => onAction(req, 'accept')}
             disabled={actionLoading === req.id}
           >
-            {req.type === 'blast' ? 'HMU' : req.type === 'direct' ? 'Accept' : 'HMU'}
+            {req.type === 'blast' ? 'HMU' : req.type === 'direct' ? 'Accept' : req.type === 'down_bad' ? 'Help out' : 'HMU'}
           </button>
         </div>
       )}

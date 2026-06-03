@@ -245,42 +245,121 @@ export async function GET() {
     };
   });
 
-  // Merge: blast requests surface first (rider personally HMU'd the driver),
-  // then regular broadcast/direct requests.
-  const merged = [...blastRequests, ...requests];
-
-  // Cash-preference filtering
-  type Req = typeof merged[number];
-  let filtered: Req[] = merged;
-  if (driverPrefs.cash_only) {
-    filtered = merged.filter((r: Req) => r.isCash === true);
-  } else if (!driverPrefs.accepts_cash) {
-    filtered = [
-      ...merged.filter((r: Req) => r.isCash !== true),
-      ...merged.filter((r: Req) => r.isCash === true),
-    ];
-  }
-
-  // Down Bad count — for opted-in drivers, surface how many posts are waiting
-  // in their swipe deck so the home screen can show an entry card.
-  let downBadCount = 0;
+  // ── Down Bad requests — opted-in drivers see them inline in the feed (not
+  // just a count). Mirrors the dedicated /api/drivers/down-bad deck query:
+  // broadcast posts to all opted-in drivers in market + direct offers to this
+  // driver, excluding posts already passed. Accept/decline reuse the shared
+  // /api/bookings/[postId] endpoints (they branch on post_type='down_bad'). ──
+  let downBadRequests: Array<Record<string, unknown>> = [];
   if (driverPrefs.accepts_down_bad) {
-    const countRows = await sql`
-      SELECT COUNT(*) AS n
+    const downBadRows = await sql`
+      SELECT
+        p.id,
+        p.price,
+        p.expires_at,
+        p.created_at,
+        p.pickup_address,
+        p.dropoff_address,
+        p.scheduled_for,
+        p.sum_extra_text,
+        p.sum_extra_media_url,
+        p.sum_extra_media_type,
+        p.target_driver_id,
+        p.is_cash,
+        COALESCE(rp.handle, rp.display_name, 'Rider') AS rider_name,
+        rp.handle                                     AS rider_handle,
+        COALESCE(rp.thumbnail_url, rp.avatar_url)     AS rider_avatar_url,
+        u2.chill_score     AS rider_chill_score,
+        u2.completed_rides AS rider_completed_rides
       FROM hmu_posts p
+      JOIN users u2 ON u2.id = p.user_id
+      LEFT JOIN rider_profiles rp ON rp.user_id = p.user_id
       WHERE p.post_type = 'down_bad'
         AND p.status = 'active'
         AND p.expires_at > NOW()
-        AND p.market_id = ${driverMarketId}
+        AND (
+          (p.target_driver_id IS NULL AND p.market_id = ${driverMarketId})
+          OR p.target_driver_id = ${driverUserId}
+        )
         AND NOT EXISTS (
           SELECT 1 FROM ride_interests ri
           WHERE ri.post_id = p.id
             AND ri.driver_id = ${driverUserId}
             AND ri.status = 'passed'
         )
+      ORDER BY
+        (p.target_driver_id = ${driverUserId}) DESC,
+        p.price DESC NULLS LAST,
+        p.created_at DESC
     `;
-    downBadCount = Number((countRows[0] as Record<string, unknown>).n ?? 0);
+    downBadRequests = downBadRows.map((row: Record<string, unknown>) => {
+      const createdAt = new Date(row.created_at as string);
+      const minutesAgo = (Date.now() - createdAt.getTime()) / 60000;
+      const scheduledFor = row.scheduled_for ? new Date(row.scheduled_for as string) : null;
+      const timeLabel = (() => {
+        if (!scheduledFor) return 'now';
+        const minutes = Math.round((scheduledFor.getTime() - Date.now()) / 60_000);
+        if (minutes <= 5) return 'now';
+        if (minutes < 60) return `in ${minutes} min`;
+        const hours = Math.round(minutes / 60);
+        if (hours < 12) return `in ~${hours}h`;
+        return scheduledFor.toLocaleDateString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+      })();
+      return {
+        id: row.id as string,
+        type: 'down_bad' as const,
+        locked: false,
+        targetId: null,
+        riderName: (row.rider_name as string) ?? 'Rider',
+        riderHandle: (row.rider_handle as string) || null,
+        riderAvatarUrl: (row.rider_avatar_url as string) || null,
+        riderVideoUrl: null,
+        riderChillScore: Number(row.rider_chill_score ?? 0),
+        riderCompletedRides: Number(row.rider_completed_rides ?? 0),
+        isCash: Boolean(row.is_cash),
+        pickupAreaSlug: null,
+        dropoffAreaSlug: null,
+        dropoffInMarket: true,
+        destination: (row.dropoff_address as string) || '',
+        pickupAddress: (row.pickup_address as string) || '',
+        time: timeLabel,
+        stops: [],
+        roundTrip: false,
+        price: Number(row.price ?? 0),
+        expiresAt: row.expires_at,
+        createdAt: row.created_at,
+        riderOnline: minutesAgo < 30,
+        // down_bad-specific extras (ignored by other card types)
+        sumExtraText: (row.sum_extra_text as string) || '',
+        sumExtraMediaUrl: (row.sum_extra_media_url as string) || '',
+        sumExtraMediaType: (row.sum_extra_media_type as 'photo' | 'video') || 'photo',
+        isDirectOffer: row.target_driver_id === driverUserId,
+      };
+    });
   }
+
+  // Merge: blast requests surface first (rider personally HMU'd the driver),
+  // then down-bad favors, then regular broadcast/direct requests.
+  const merged = [...blastRequests, ...downBadRequests, ...requests];
+
+  // Cash-preference filtering. Down Bad is exempt: opting into Down Bad is an
+  // explicit choice, so those favors stay visible regardless of cash prefs
+  // (matching the dedicated /driver/down-bad deck, which has no cash gate).
+  type Req = typeof merged[number];
+  const isDownBad = (r: Req) => r.type === 'down_bad';
+  let filtered: Req[] = merged;
+  if (driverPrefs.cash_only) {
+    filtered = merged.filter((r: Req) => r.isCash === true || isDownBad(r));
+  } else if (!driverPrefs.accepts_cash) {
+    filtered = [
+      ...merged.filter((r: Req) => r.isCash !== true || isDownBad(r)),
+      ...merged.filter((r: Req) => r.isCash === true && !isDownBad(r)),
+    ];
+  }
+
+  // Home screen still reads downBadCount to show its "swipe to pick" entry card.
+  // It now equals exactly what's surfaced inline in the feed.
+  const downBadCount = downBadRequests.length;
 
   return NextResponse.json({ requests: filtered, downBadCount });
 }
