@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, KeyboardAvoidingView, Platform,
-  TextInput, ActivityIndicator,
+  TextInput, ActivityIndicator, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -177,6 +177,47 @@ export default function DirectBooking() {
     dismissDraft();
   }
 
+  // Show RESET once the rider has progressed past the starting step or entered a
+  // location. A prefilled driver alone doesn't count — that's not something they
+  // typed, and clearing it would fight the prefill invariant.
+  const canReset = step > minStep || !!pickup || !!dropoff;
+
+  // One-tap reset — wipe the trip back to defaults, drop the saved draft, and
+  // jump to the first valid step. INVARIANT: route through setStep (goToStep) and
+  // floor at minStep so a prefilled rider is never bounced to driver search; their
+  // chosen driver is preserved. A manual-search rider gets a full wipe incl. driver.
+  function startOver() {
+    setStep(minStep);
+    if (!prefillHandle) {
+      setHandleInput('');
+      setDriver(null);
+      setDriverError(null);
+      setSearchResults([]);
+    }
+    setPickup(null);
+    setDropoff(null);
+    setTimePreset('now');
+    setPrice(25);
+    setIsCash(false);
+    setSelectedServices(new Map());
+    setError(null);
+    clearDraft();
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }
+
+  function confirmStartOver() {
+    Alert.alert(
+      'Start over?',
+      prefillHandle
+        ? 'This clears the locations, price, and extras and resets to the first step. Your selected driver stays.'
+        : 'This clears the driver, locations, price, and every other detail and resets to the first step.',
+      [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Start over', style: 'destructive', onPress: startOver },
+      ],
+    );
+  }
+
   const findDriver = useCallback(async (overrideHandle?: string, autoAdvance = false) => {
     const h = (overrideHandle ?? handleInput).trim().replace(/^@/, '');
     if (!h) return;
@@ -333,7 +374,14 @@ export default function DirectBooking() {
             color={colors.blue}
           />
         </View>
-        <View style={{ width: 40 }} />
+        {canReset ? (
+          <TouchableOpacity onPress={confirmStartOver} style={s.resetBtn} hitSlop={12}>
+            <Ionicons name="refresh" size={15} color={colors.textFaint} />
+            <Text style={s.resetText}>RESET</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
       </View>
 
       <ScrollView
@@ -693,6 +741,11 @@ const s = StyleSheet.create({
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerCenter: { alignItems: 'center' },
   headerTitle: { fontFamily: fonts.monoBold, fontSize: 12, color: colors.textPrimary, letterSpacing: 1.5 },
+  resetBtn: {
+    minWidth: 40, height: 40, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'flex-end', gap: 4, paddingLeft: spacing.sm,
+  },
+  resetText: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 1 },
 
   scroll: { flex: 1 },
   content: { padding: spacing.xl, gap: spacing.lg },
