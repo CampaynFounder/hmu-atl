@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
+  ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -104,13 +104,15 @@ export default function BlastBooking() {
   const { pending: pendingDraft, save: saveDraft, clear: clearDraft, dismiss: dismissDraft } =
     useBookingDraft<BlastDraft>('blast');
 
+  // True once the rider has entered anything worth clearing.
+  const started = step > 0 || !!pickup || !!dropoff;
+
   // Persist progress (debounced) once the user has actually started.
   useEffect(() => {
-    const started = step > 0 || !!pickup || !!dropoff;
     if (started) {
       saveDraft({ step, pickup, dropoff, tripType, timeOption, price, priceSetByUser, pref, strictPref });
     }
-  }, [step, pickup, dropoff, tripType, timeOption, price, priceSetByUser, pref, strictPref, saveDraft]);
+  }, [started, step, pickup, dropoff, tripType, timeOption, price, priceSetByUser, pref, strictPref, saveDraft]);
 
   function applyDraft(d: BlastDraft) {
     setStep(d.step);
@@ -123,6 +125,38 @@ export default function BlastBooking() {
     setPref(d.pref);
     setStrictPref(d.strictPref);
     dismissDraft();
+  }
+
+  // One-tap reset — wipe every field back to defaults, drop the saved draft, and
+  // jump to step 0. Lets a rider start a fresh blast (e.g. after one expired with
+  // no driver) without backing out of each stage one by one. clearDraft() also
+  // cancels any pending debounced save so the wiped state can't be resurrected.
+  function startOver() {
+    setStep(0);
+    setPickup(null);
+    setDropoff(null);
+    setEstimate(null);
+    setEstimating(false);
+    setTripType('one_way');
+    setTimeOption('now');
+    setPrice(25);
+    setPriceSetByUser(false);
+    setPref('any');
+    setStrictPref(false);
+    setError(null);
+    clearDraft();
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }
+
+  function confirmStartOver() {
+    Alert.alert(
+      'Start over?',
+      'This clears the pickup, dropoff, price, and every other detail and resets to the first step.',
+      [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Start over', style: 'destructive', onPress: startOver },
+      ],
+    );
   }
 
   // Auto-fetch estimate when both locations are set
@@ -242,7 +276,14 @@ export default function BlastBooking() {
           <Text style={s.headerTitle}>BLAST</Text>
           <StepDots total={TOTAL} current={step} />
         </View>
-        <View style={{ width: 40 }} />
+        {started ? (
+          <TouchableOpacity onPress={confirmStartOver} style={s.resetBtn} hitSlop={12}>
+            <Ionicons name="refresh" size={15} color={colors.textFaint} />
+            <Text style={s.resetText}>RESET</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
       </View>
 
       <ScrollView
@@ -565,6 +606,11 @@ const s = StyleSheet.create({
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerCenter: { alignItems: 'center' },
   headerTitle: { fontFamily: fonts.monoBold, fontSize: 12, color: colors.green, letterSpacing: 2 },
+  resetBtn: {
+    minWidth: 40, height: 40, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'flex-end', gap: 4, paddingLeft: spacing.sm,
+  },
+  resetText: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 1 },
 
   scroll: { flex: 1 },
   content: { padding: spacing.xl, gap: spacing.lg },
