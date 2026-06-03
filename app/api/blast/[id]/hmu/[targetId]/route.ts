@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { notifyUser } from '@/lib/ably/server';
+import { markBlastTargetNotified } from '@/lib/blast/notify-target';
 import { notifyDriverBlastHmu } from '@/lib/sms/textbee';
 
 export const runtime = 'nodejs';
@@ -24,7 +25,8 @@ export async function POST(
 
   // Verify rider owns this blast and it's still active
   const blastRows = await sql`
-    SELECT p.id, p.price, p.time_window, p.expires_at, u.id AS rider_id
+    SELECT p.id, p.price, p.time_window, p.expires_at,
+           p.pickup_address, p.dropoff_address, u.id AS rider_id
     FROM hmu_posts p
     JOIN users u ON u.id = p.user_id
     WHERE p.id = ${blastId}
@@ -39,12 +41,13 @@ export async function POST(
   }
   const blast = blastRows[0] as {
     id: string; price: number; time_window: Record<string, unknown>;
-    expires_at: string; rider_id: string;
+    expires_at: string; pickup_address: string | null;
+    dropoff_address: string | null; rider_id: string;
   };
 
   // Verify this driver is a target of this blast
   const targetRows = await sql`
-    SELECT bdt.driver_id, bdt.hmu_at, bdt.passed_at,
+    SELECT bdt.driver_id, bdt.hmu_at, bdt.passed_at, bdt.notified_at,
            dp.handle, u.phone
     FROM blast_driver_targets bdt
     JOIN driver_profiles dp ON dp.user_id = bdt.driver_id
@@ -58,16 +61,42 @@ export async function POST(
   }
   const target = targetRows[0] as {
     driver_id: string; hmu_at: string | null; passed_at: string | null;
-    handle: string; phone: string | null;
+    notified_at: string | null; handle: string; phone: string | null;
   };
 
   // Already matched or passed — idempotent 200
   if (target.hmu_at) return NextResponse.json({ ok: true, alreadyResponded: true });
 
+  // Re-tap guard — mirror /hmu-fallback: once this driver is notified, a second
+  // swipe must not re-stamp notified_at or re-fire the push/SMS. markBlastTargetNotified
+  // is itself idempotent on the column, but bailing here also stops the
+  // duplicate blast_rider_hmu ping + textbee SMS below.
+  if (target.notified_at) {
+    return NextResponse.json({ error: 'Driver already notified' }, { status: 400 });
+  }
+
   const tw = blast.time_window ?? {};
   const pickup = typeof tw.pickup === 'object' && tw.pickup !== null
     ? (tw.pickup as Record<string, unknown>)
     : {};
+
+  // ── Visibility contract: stamp notified_at + fire blast_invite ──
+  // WITHOUT this the card never appears in the driver feed (the feed query
+  // hard-filters on notified_at IS NOT NULL). Mirrors hmu-fallback exactly —
+  // both routes funnel through the same helper so they can't drift again.
+  const dbPickupLabel = (blast.pickup_address as string | null)?.split(',')[0]?.trim()
+    || (pickup.short_label as string | undefined)
+    || (pickup.address as string | undefined)
+    || 'Pickup';
+  const dbDropoffLabel = (blast.dropoff_address as string | null)?.split(',')[0]?.trim() || 'Dropoff';
+  await markBlastTargetNotified({
+    blastId,
+    targetId,
+    driverId: target.driver_id,
+    priceDollars: Number(blast.price),
+    pickupLabel: dbPickupLabel,
+    dropoffLabel: dbDropoffLabel,
+  });
 
   // Notify driver via Ably (shows as live toast in their feed)
   await notifyUser(target.driver_id, 'blast_rider_hmu', {

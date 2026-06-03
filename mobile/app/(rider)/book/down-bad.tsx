@@ -122,6 +122,38 @@ export default function DownBadBooking() {
     dismissDraft();
   }
 
+  // One-tap reset — wipe every field back to defaults, drop the saved draft, and
+  // jump to step 0, so the rider can start a fresh Down Bad without backing out of
+  // each stage. clearDraft() also cancels any pending debounced save. (config is
+  // API-loaded, not reset; prefillHandle targeting comes from the route, untouched.)
+  const canReset = step > 0 || !!pickup || !!dropoff;
+  function startOver() {
+    setStep(0);
+    setPickup(null);
+    setDropoff(null);
+    setAmount(10);
+    setPassengers(1);
+    setLuggage('none');
+    setSumText('');
+    setMediaUri(null);
+    setMediaUrl(null);
+    setMediaType('photo');
+    setDisclaimerAcked(false);
+    setError(null);
+    clearDraft();
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }
+  function confirmStartOver() {
+    Alert.alert(
+      'Start over?',
+      'This clears the locations, cash amount, photo, and every other detail and resets to the first step.',
+      [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Start over', style: 'destructive', onPress: startOver },
+      ],
+    );
+  }
+
   useEffect(() => {
     async function loadConfig() {
       try {
@@ -341,7 +373,14 @@ export default function DownBadBooking() {
           <Text style={s.headerTitle}>DOWN BAD</Text>
           <StepDots total={TOTAL} current={step} />
         </View>
-        <View style={{ width: 40 }} />
+        {canReset ? (
+          <TouchableOpacity onPress={confirmStartOver} style={s.resetBtn} hitSlop={12}>
+            <Ionicons name="refresh" size={15} color={colors.textFaint} />
+            <Text style={s.resetText}>RESET</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
       </View>
 
       <ScrollView
@@ -594,6 +633,11 @@ const s = StyleSheet.create({
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerCenter: { alignItems: 'center' },
   headerTitle: { fontFamily: fonts.monoBold, fontSize: 12, color: colors.amber, letterSpacing: 2 },
+  resetBtn: {
+    minWidth: 40, height: 40, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'flex-end', gap: 4, paddingLeft: spacing.sm,
+  },
+  resetText: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 1 },
 
   scroll: { flex: 1 },
   content: { padding: spacing.xl, gap: spacing.lg },

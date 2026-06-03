@@ -81,6 +81,32 @@ export default function BookDelivery() {
     dismissDraft();
   }
 
+  // One-tap reset — wipe the store run back to defaults, drop the saved draft, and
+  // jump to the first step, so the rider can start fresh without backing out of
+  // each stage. clearDraft() also cancels any pending debounced save.
+  const canReset =
+    step !== 'merchant' || merchantName.trim().length > 0 || !!merchantLocation || !!customerLocation;
+  function startOver() {
+    setStep('merchant');
+    setMerchantName('');
+    setMerchantLocation(null);
+    setCustomerLocation(null);
+    setItems([newItem()]);
+    setEstimate(null);
+    clearDraft();
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }
+  function confirmStartOver() {
+    Alert.alert(
+      'Start over?',
+      'This clears the store, locations, and items and resets to the first step.',
+      [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Start over', style: 'destructive', onPress: startOver },
+      ],
+    );
+  }
+
   // ── Step 1 ──────────────────────────────────────────────────────────────────
 
   const canAdvanceToItems =
@@ -176,7 +202,14 @@ export default function BookDelivery() {
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={s.headerTitle}>REQUEST STORE RUN</Text>
-        <StepIndicator current={step} />
+        <View style={s.headerRight}>
+          {canReset && (
+            <TouchableOpacity onPress={confirmStartOver} hitSlop={12} accessibilityLabel="Start over">
+              <Ionicons name="refresh" size={17} color={colors.textFaint} />
+            </TouchableOpacity>
+          )}
+          <StepIndicator current={step} />
+        </View>
       </View>
 
       {step === 'merchant' && (
@@ -513,6 +546,7 @@ const s = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   headerTitle: { fontFamily: fonts.display, fontSize: 20, color: colors.textPrimary, letterSpacing: 1 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
 
   stepContent: { padding: spacing.xl, paddingBottom: 48, gap: spacing.lg },
   stepTitle: { fontFamily: fonts.display, fontSize: 28, color: colors.textPrimary, letterSpacing: 0.5 },

@@ -29,7 +29,7 @@ interface Stop {
 
 interface BlastRequest {
   id: string;
-  type: 'blast' | 'direct' | 'open';
+  type: 'blast' | 'direct' | 'open' | 'down_bad';
   locked: boolean;
   targetId: string | null;
   riderName: string;
@@ -49,6 +49,11 @@ interface BlastRequest {
   expiresAt: string;
   createdAt: string;
   riderOnline: boolean;
+  // down_bad-specific (the favor the rider is asking for)
+  sumExtraText?: string;
+  sumExtraMediaUrl?: string;
+  sumExtraMediaType?: 'photo' | 'video';
+  isDirectOffer?: boolean;
   // local-only: set after driver taps HMU so the card flips immediately
   _hmuAt?: string;
 }
@@ -382,9 +387,10 @@ function BlastCard({
 
   const pickup = request.pickupAddress || request.pickupAreaSlug || 'Pickup';
   const dropoff = request.destination || request.dropoffAreaSlug || 'Dropoff';
+  const isDownBad = request.type === 'down_bad';
 
   return (
-    <View style={[s.card, shadow.card]}>
+    <View style={[s.card, shadow.card, isDownBad && s.downBadCard]}>
       {/* ── Rider row ── */}
       <View style={s.riderRow}>
         <RiderAvatar url={request.riderAvatarUrl} name={request.riderHandle ?? request.riderName} />
@@ -426,11 +432,29 @@ function BlastCard({
         </View>
       )}
 
+      {/* ── Down Bad favor (the ask + media) ── */}
+      {isDownBad && (request.sumExtraText || request.sumExtraMediaUrl) && (
+        <View style={s.downBadAsk}>
+          {!!request.sumExtraText && (
+            <Text style={s.downBadAskText}>{`“${request.sumExtraText}”`}</Text>
+          )}
+          {!!request.sumExtraMediaUrl && request.sumExtraMediaType === 'photo' && (
+            <Image source={{ uri: request.sumExtraMediaUrl }} style={s.downBadMedia} alt="" />
+          )}
+          {!!request.sumExtraMediaUrl && request.sumExtraMediaType === 'video' && (
+            <View style={[s.downBadMedia, s.downBadVideo]}>
+              <Ionicons name="play-circle" size={36} color={colors.pink} />
+            </View>
+          )}
+        </View>
+      )}
+
       {/* ── Price ── */}
       <Text style={s.price}>${Number(request.price).toFixed(2)}</Text>
 
       {/* ── Meta chips ── */}
       <View style={s.metaRow}>
+        {isDownBad && <MetaChip label={request.isDirectOffer ? '🙏 DOWN BAD · FOR YOU' : '🙏 DOWN BAD'} accent />}
         {riderWantsYou && <MetaChip label="🎯 RIDER WANTS YOU" accent />}
         {request.isCash && <MetaChip label="CASH" cash />}
         {request.roundTrip && <MetaChip label="ROUND TRIP" accent />}
@@ -468,7 +492,7 @@ function BlastCard({
             >
               {acting
                 ? <ActivityIndicator size="small" color={colors.bg} />
-                : <Text style={s.hmuBtnText}>HMU 🤙</Text>
+                : <Text style={s.hmuBtnText}>{isDownBad ? 'HELP OUT 🙏' : 'HMU 🤙'}</Text>
               }
             </TouchableOpacity>
           </>
@@ -600,6 +624,11 @@ const s = StyleSheet.create({
   emptyBody: { fontFamily: fonts.body, fontSize: 14, color: colors.textTertiary, textAlign: 'center', lineHeight: 22 },
 
   card: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.xl, borderWidth: 1, borderColor: colors.borderStrong },
+  downBadCard: { borderColor: colors.pinkBorder },
+  downBadAsk: { marginBottom: spacing.md, gap: spacing.sm },
+  downBadAskText: { fontFamily: fonts.body, fontSize: 14, color: colors.textPrimary, fontStyle: 'italic', lineHeight: 20 },
+  downBadMedia: { width: '100%', height: 160, borderRadius: radius.sm, backgroundColor: colors.cardAlt },
+  downBadVideo: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.pinkBorder },
 
   // Rider row: avatar + name/rides + timer
   riderRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.lg },
