@@ -47,7 +47,7 @@ export async function POST(
 
   // Verify this driver is a target of this blast
   const targetRows = await sql`
-    SELECT bdt.driver_id, bdt.hmu_at, bdt.passed_at,
+    SELECT bdt.driver_id, bdt.hmu_at, bdt.passed_at, bdt.notified_at,
            dp.handle, u.phone
     FROM blast_driver_targets bdt
     JOIN driver_profiles dp ON dp.user_id = bdt.driver_id
@@ -61,11 +61,19 @@ export async function POST(
   }
   const target = targetRows[0] as {
     driver_id: string; hmu_at: string | null; passed_at: string | null;
-    handle: string; phone: string | null;
+    notified_at: string | null; handle: string; phone: string | null;
   };
 
   // Already matched or passed — idempotent 200
   if (target.hmu_at) return NextResponse.json({ ok: true, alreadyResponded: true });
+
+  // Re-tap guard — mirror /hmu-fallback: once this driver is notified, a second
+  // swipe must not re-stamp notified_at or re-fire the push/SMS. markBlastTargetNotified
+  // is itself idempotent on the column, but bailing here also stops the
+  // duplicate blast_rider_hmu ping + textbee SMS below.
+  if (target.notified_at) {
+    return NextResponse.json({ error: 'Driver already notified' }, { status: 400 });
+  }
 
   const tw = blast.time_window ?? {};
   const pickup = typeof tw.pickup === 'object' && tw.pickup !== null
