@@ -12,24 +12,24 @@ import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+import { EarningsChart, EarningsDrillSheet, StackPoint } from '@/components/driver/EarningsChart';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type Period = 'D' | 'W' | 'M';
-type ActiveTile = 'all' | 'cash' | 'digital' | 'noshow';
 
 interface TimeseriesPoint {
   day: string;
   cash: number;
   nonCash: number;
+  /** Net store-run / delivery courier earnings for the day. */
+  delivery?: number;
   rides: number;
 }
 
 interface AnalyticsResponse {
   timeseries: TimeseriesPoint[];
 }
-
-interface BarPoint { label: string; value: number; }
 
 interface UserMeResponse {
   id: string;
@@ -53,6 +53,7 @@ interface BalanceResponse {
   cashEarnings: { rides: number; total: number };
   digitalEarnings: { rides: number; total: number };
   noShowEarnings: { rides: number; total: number };
+  deliveryEarnings?: { jobs: number; total: number };
   flags: { depositsDetailSheet: boolean };
 }
 
@@ -93,41 +94,68 @@ async function registerPushToken(clerkToken: string) {
   }).catch(() => {});
 }
 
-// Returns [] for 'noshow' since that data isn't in the timeseries
-function buildWalletBars(ts: TimeseriesPoint[], period: Period, tile: ActiveTile): BarPoint[] {
-  if (!ts?.length || tile === 'noshow') return [];
+// Build the stacked chart buckets for the active period. Each bucket carries
+// all three revenue streams (cash / app pay / delivery) so the chart can stack
+// them — parity with the web EarningsChart.
+const r2 = (v: number) => Math.round(v * 100) / 100;
 
-  function val(p: TimeseriesPoint): number {
-    if (tile === 'cash') return p.cash;
-    if (tile === 'digital') return p.nonCash;
-    return p.cash + p.nonCash;
-  }
+function buildWalletStacks(ts: TimeseriesPoint[], period: Period): StackPoint[] {
+  if (!ts?.length) return [];
 
   if (period === 'D') {
-    return ts.slice(-7).map((p) => ({
-      label: new Date(p.day + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' }),
-      value: Math.round(val(p) * 100) / 100,
-    }));
+    return ts.slice(-7).map((p) => {
+      const d = new Date(p.day + 'T12:00:00');
+      return {
+        label: d.toLocaleDateString('en-US', { weekday: 'short' }),
+        fullLabel: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+        cash: r2(p.cash),
+        nonCash: r2(p.nonCash),
+        delivery: r2(p.delivery ?? 0),
+        rides: p.rides,
+      };
+    });
   }
 
   if (period === 'W') {
-    const weeks: Record<string, number> = {};
+    const weeks = new Map<string, StackPoint>();
     ts.slice(-28).forEach((p) => {
       const d = new Date(p.day + 'T12:00:00');
       const ws = new Date(d);
       ws.setDate(d.getDate() - d.getDay());
-      const key = ws.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      weeks[key] = (weeks[key] ?? 0) + val(p);
+      const key = ws.toISOString().slice(0, 10);
+      const label = ws.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const cur = weeks.get(key) ?? {
+        label, fullLabel: `Week of ${label}`, cash: 0, nonCash: 0, delivery: 0, rides: 0,
+      };
+      cur.cash += p.cash;
+      cur.nonCash += p.nonCash;
+      cur.delivery += p.delivery ?? 0;
+      cur.rides += p.rides;
+      weeks.set(key, cur);
     });
-    return Object.entries(weeks).map(([label, value]) => ({ label, value: Math.round(value * 100) / 100 }));
+    return [...weeks.values()].map(roundStack);
   }
 
-  const months: Record<string, number> = {};
+  const months = new Map<string, StackPoint>();
   ts.forEach((p) => {
-    const key = new Date(p.day + 'T12:00:00').toLocaleDateString('en-US', { month: 'short' });
-    months[key] = (months[key] ?? 0) + val(p);
+    const d = new Date(p.day + 'T12:00:00');
+    const key = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+    const label = d.toLocaleDateString('en-US', { month: 'short' });
+    const cur = months.get(key) ?? {
+      label, fullLabel: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+      cash: 0, nonCash: 0, delivery: 0, rides: 0,
+    };
+    cur.cash += p.cash;
+    cur.nonCash += p.nonCash;
+    cur.delivery += p.delivery ?? 0;
+    cur.rides += p.rides;
+    months.set(key, cur);
   });
-  return Object.entries(months).map(([label, value]) => ({ label, value: Math.round(value * 100) / 100 }));
+  return [...months.values()].map(roundStack);
+}
+
+function roundStack(s: StackPoint): StackPoint {
+  return { ...s, cash: r2(s.cash), nonCash: r2(s.nonCash), delivery: r2(s.delivery), rides: s.rides };
 }
 
 // ── Animated counter hook ─────────────────────────────────────────────────────
@@ -353,7 +381,7 @@ function DriverWalletCard({
   isFirst: boolean;
 }) {
   const [period, setPeriod] = useState<Period>('D');
-  const [activeTile, setActiveTile] = useState<ActiveTile>('all');
+  const [drill, setDrill] = useState<StackPoint | null>(null);
   const [method, setMethod] = useState<'standard' | 'instant'>('standard');
   const [cashing, setCashing] = useState(false);
   const [result, setResult] = useState<CashoutResult | null>(null);
@@ -362,17 +390,15 @@ function DriverWalletCard({
   const showInstant = balance.instantEligible && balance.platformInstantEnabled;
   const cashableAmount = method === 'instant' ? balance.instantAvailable : balance.available;
   const depositMode = isDepositMode(balance.activeMode);
-  const bars = buildWalletBars(timeseries, period, activeTile);
+  const stacks = buildWalletStacks(timeseries, period);
+  const stacksTotal = stacks.reduce((s, p) => s + p.cash + p.nonCash + p.delivery, 0);
 
   const cashTotal = balance.cashEarnings?.total ?? 0;
   const digitalTotal = balance.digitalEarnings?.total ?? 0;
   const noShowTotal = balance.noShowEarnings?.total ?? 0;
+  const deliveryTotal = balance.deliveryEarnings?.total ?? 0;
   const hasNoShow = (balance.noShowEarnings?.rides ?? 0) > 0 || noShowTotal > 0;
-
-  function selectTile(tile: ActiveTile) {
-    haptic(Haptics.ImpactFeedbackStyle.Light);
-    setActiveTile((prev) => (prev === tile ? 'all' : tile));
-  }
+  const hasDelivery = (balance.deliveryEarnings?.jobs ?? 0) > 0 || deliveryTotal > 0;
 
   function selectPeriod(p: Period) {
     haptic(Haptics.ImpactFeedbackStyle.Light);
@@ -441,39 +467,35 @@ function DriverWalletCard({
       {/* ── Pending line ── */}
       {balance.pending > 0 && <PendingLine pending={balance.pending} fundsAvailableOn={balance.fundsAvailableOn} />}
 
-      {/* ── Earnings tiles ── */}
+      {/* ── Earnings tiles (summary; the chart below stacks all streams) ── */}
       <View style={wc.tilesRow}>
         <EarningsTile
           label="CASH"
           amount={cashTotal}
           rides={balance.cashEarnings?.rides ?? 0}
           accentColor={colors.cash}
-          accentDim={colors.cashDim}
-          accentBorder={colors.cashBorder}
-          active={activeTile === 'cash'}
-          onPress={() => selectTile('cash')}
         />
         <EarningsTile
           label="DEPOSITS"
           amount={digitalTotal}
           rides={balance.digitalEarnings?.rides ?? 0}
           accentColor={colors.green}
-          accentDim={colors.greenDim}
-          accentBorder={colors.greenBorder}
-          active={activeTile === 'digital'}
-          onPress={() => selectTile('digital')}
-          hasArrow
         />
+        {hasDelivery && (
+          <EarningsTile
+            label="DELIVERY"
+            amount={deliveryTotal}
+            rides={balance.deliveryEarnings?.jobs ?? 0}
+            ridesNoun="job"
+            accentColor={colors.blue}
+          />
+        )}
         {hasNoShow && (
           <EarningsTile
             label="NO-SHOW"
             amount={noShowTotal}
             rides={balance.noShowEarnings?.rides ?? 0}
             accentColor={colors.pink}
-            accentDim={colors.pinkDim}
-            accentBorder={colors.pinkBorder}
-            active={activeTile === 'noshow'}
-            onPress={() => selectTile('noshow')}
           />
         )}
       </View>
@@ -495,22 +517,14 @@ function DriverWalletCard({
       </View>
 
       {/* ── Chart ── */}
-      {activeTile === 'noshow' ? (
-        <View style={wc.noShowChart}>
-          <Ionicons name="shield-checkmark-outline" size={26} color={colors.pink} />
-          <Text style={wc.noShowText}>
-            {noShowTotal > 0
-              ? `$${noShowTotal.toFixed(2)} from ${balance.noShowEarnings?.rides} no-show${(balance.noShowEarnings?.rides ?? 0) !== 1 ? 's' : ''}`
-              : 'You get paid when riders ghost'}
-          </Text>
-        </View>
-      ) : bars.length > 0 ? (
-        <AnimatedBarChart bars={bars} />
+      {stacks.length > 0 && stacksTotal > 0 ? (
+        <EarningsChart data={stacks} onDrill={(p) => { setDrill(p); }} />
       ) : (
         <View style={wc.chartEmpty}>
           <Text style={wc.chartEmptyText}>Complete a ride to see your chart</Text>
         </View>
       )}
+      <EarningsDrillSheet point={drill} onClose={() => setDrill(null)} />
 
       {/* ── Divider ── */}
       <View style={wc.divider} />
@@ -640,101 +654,24 @@ function PendingLine({ pending, fundsAvailableOn }: { pending: number; fundsAvai
 }
 
 function EarningsTile({
-  label, amount, rides, accentColor, accentDim, accentBorder,
-  active, onPress, hasArrow,
+  label, amount, rides, accentColor, ridesNoun = 'ride',
 }: {
-  label: string; amount: number; rides: number;
-  accentColor: string; accentDim: string; accentBorder: string;
-  active: boolean; onPress: () => void; hasArrow?: boolean;
+  label: string; amount: number; rides: number; accentColor: string; ridesNoun?: string;
 }) {
   const display = useAnimatedAmount(amount);
-  const scale = useRef(new Animated.Value(1)).current;
-  const pressIn = () => Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 50, bounciness: 0 }).start();
-  const pressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 3 }).start();
+  // Pluralize the count noun: "job" → "jobs", "ride" → "rides",
+  // "delivery" → "deliveries".
+  const plural = rides === 1
+    ? ridesNoun
+    : ridesNoun.endsWith('y') ? `${ridesNoun.slice(0, -1)}ies` : `${ridesNoun}s`;
 
   return (
-    <Pressable onPress={onPress} onPressIn={pressIn} onPressOut={pressOut} style={{ flex: 1 }}>
-      <Animated.View style={[
-        wc.tile,
-        {
-          backgroundColor: active ? accentDim : 'transparent',
-          borderColor: active ? accentBorder : colors.border,
-        },
-        { transform: [{ scale }] },
-      ]}>
-        <View style={wc.tileLabelRow}>
-          <Text style={[wc.tileLabel, { color: accentColor }]}>{label}</Text>
-          {hasArrow && <Text style={[wc.tileChevron, { color: accentColor }]}>›</Text>}
-        </View>
-        <Text style={[wc.tileAmount, { color: accentColor }]}>${display}</Text>
-        <Text style={wc.tileRides}>{rides} ride{rides !== 1 ? 's' : ''}</Text>
-      </Animated.View>
-    </Pressable>
-  );
-}
-
-// Animated bar chart — bars spring from 0 to target height on mount and on
-// any change to the bars array (period switch or tile filter).
-const MAX_BARS = 12;
-
-function AnimatedBarChart({ bars }: { bars: BarPoint[] }) {
-  const animVals = useRef<Animated.Value[]>(
-    Array.from({ length: MAX_BARS }, () => new Animated.Value(0))
-  ).current;
-  const prevLabels = useRef<string[]>([]);
-
-  useEffect(() => {
-    if (!bars.length) return;
-    const max = Math.max(...bars.map((b) => b.value), 1);
-
-    const labelsChanged =
-      bars.length !== prevLabels.current.length ||
-      bars.some((b, i) => b.label !== prevLabels.current[i]);
-
-    if (labelsChanged) {
-      animVals.forEach((av) => av.setValue(0));
-    }
-
-    prevLabels.current = bars.map((b) => b.label);
-
-    Animated.stagger(
-      40,
-      bars.map((bar, i) =>
-        Animated.spring(animVals[i], {
-          toValue: Math.max((bar.value / max) * 100, bar.value > 0 ? 5 : 0),
-          useNativeDriver: false,
-          speed: 14,
-          bounciness: 3,
-        })
-      )
-    ).start();
-  }, [bars, animVals]);
-
-  return (
-    <View style={wc.chart}>
-      {bars.map((bar, i) => (
-        <View key={bar.label} style={wc.barCol}>
-          {bar.value > 0 && (
-            <Text style={wc.barAmt}>
-              ${bar.value >= 100 ? Math.round(bar.value) : bar.value.toFixed(0)}
-            </Text>
-          )}
-          <View style={wc.barTrack}>
-            <Animated.View
-              style={[
-                wc.barFill,
-                {
-                  height: animVals[i].interpolate({
-                    inputRange: [0, 100],
-                    outputRange: ['0%', '100%'],
-                  }),
-                },
-              ]}
-            />
-          </View>
-          <Text style={wc.barLabel}>{bar.label}</Text>
-        </View>
-      ))}
+    <View style={[wc.tile, { borderColor: colors.border }]}>
+      <View style={wc.tileLabelRow}>
+        <Text style={[wc.tileLabel, { color: accentColor }]}>{label}</Text>
+      </View>
+      <Text style={[wc.tileAmount, { color: accentColor }]}>${display}</Text>
+      <Text style={wc.tileRides}>{rides} {plural}</Text>
     </View>
   );
 }
@@ -860,7 +797,6 @@ const wc = StyleSheet.create({
   tile: { borderRadius: radius.cardInner, padding: spacing.md, borderWidth: 1 },
   tileLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   tileLabel: { fontFamily: fonts.mono, fontSize: 9, letterSpacing: 1, textTransform: 'uppercase' },
-  tileChevron: { fontSize: 14, lineHeight: 14 },
   tileAmount: { fontFamily: fonts.display, fontSize: 18, lineHeight: 20, marginBottom: 2 },
   tileRides: { fontFamily: fonts.body, fontSize: 10, color: colors.textFaint },
 
@@ -870,16 +806,8 @@ const wc = StyleSheet.create({
   periodText: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 1 },
   periodTextActive: { color: colors.bg },
 
-  chart: { flexDirection: 'row', alignItems: 'flex-end', height: 110, gap: 4, marginBottom: spacing.sm },
-  barCol: { flex: 1, alignItems: 'center', height: '100%', justifyContent: 'flex-end', gap: 3 },
-  barAmt: { fontFamily: fonts.mono, fontSize: 8, color: colors.textFaint, textAlign: 'center' },
-  barTrack: { width: '100%', flex: 1, justifyContent: 'flex-end', borderRadius: 4, overflow: 'hidden', backgroundColor: colors.cardAlt },
-  barFill: { width: '100%', backgroundColor: colors.green, borderRadius: 4 },
-  barLabel: { fontFamily: fonts.mono, fontSize: 8, color: colors.textFaint, textAlign: 'center' },
   chartEmpty: { height: 80, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm },
   chartEmptyText: { fontFamily: fonts.body, fontSize: 13, color: colors.textFaint },
-  noShowChart: { height: 80, alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginBottom: spacing.sm },
-  noShowText: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.pink, textAlign: 'center' },
 
   divider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.lg },
 

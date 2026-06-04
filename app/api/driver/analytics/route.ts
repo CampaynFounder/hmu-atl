@@ -92,12 +92,46 @@ export async function GET() {
       ORDER BY day ASC
     ` as Record<string, unknown>[];
 
-    const timeseries = fillDailyGaps(dailyRows.map(d => ({
-      day: String(d.day).slice(0, 10),
-      cash: Math.round(Number(d.cash || 0) * 100) / 100,
-      nonCash: Math.round(Number(d.non_cash || 0) * 100) / 100,
-      rides: Number(d.rides || 0),
-    })), 30);
+    // Daily delivery (store-run) earnings (last 30 days). A courier's net
+    // earnings on a delivery is the delivery fee minus the platform cut — the
+    // merchant spend is a reimbursement pass-through, not income (mirrors the
+    // courierPayout math in app/api/delivery/[id]/verify). Only completed,
+    // payment-captured jobs count, so this never shows notional revenue.
+    const deliveryRows = await sql`
+      SELECT
+        DATE(completed_at AT TIME ZONE 'America/New_York') as day,
+        SUM(GREATEST(delivery_fee_cents - platform_fee_cents, 0)) / 100.0 as delivery,
+        COUNT(*) as jobs
+      FROM delivery_requests
+      WHERE courier_id = ${userId}
+        AND status = 'completed'
+        AND payment_captured = true
+        AND completed_at >= NOW() - INTERVAL '30 days'
+      GROUP BY DATE(completed_at AT TIME ZONE 'America/New_York')
+      ORDER BY day ASC
+    ` as Record<string, unknown>[];
+
+    // Merge ride + delivery days into one keyed map so a day with only a
+    // delivery (no rides) still gets a bar.
+    const byDay = new Map<string, { day: string; cash: number; nonCash: number; delivery: number; rides: number }>();
+    for (const d of dailyRows) {
+      const key = String(d.day).slice(0, 10);
+      byDay.set(key, {
+        day: key,
+        cash: Math.round(Number(d.cash || 0) * 100) / 100,
+        nonCash: Math.round(Number(d.non_cash || 0) * 100) / 100,
+        delivery: 0,
+        rides: Number(d.rides || 0),
+      });
+    }
+    for (const d of deliveryRows) {
+      const key = String(d.day).slice(0, 10);
+      const existing = byDay.get(key) ?? { day: key, cash: 0, nonCash: 0, delivery: 0, rides: 0 };
+      existing.delivery = Math.round(Number(d.delivery || 0) * 100) / 100;
+      byDay.set(key, existing);
+    }
+
+    const timeseries = fillDailyGaps([...byDay.values()], 30);
 
     // Get driver's areas for comparison
     const driverProfileRows = await sql`
@@ -203,17 +237,17 @@ export async function GET() {
 
 // Pad the time-series with zero-rides for empty days so the chart has a continuous x-axis.
 function fillDailyGaps(
-  rows: { day: string; cash: number; nonCash: number; rides: number }[],
+  rows: { day: string; cash: number; nonCash: number; delivery: number; rides: number }[],
   days: number,
-): { day: string; cash: number; nonCash: number; rides: number }[] {
+): { day: string; cash: number; nonCash: number; delivery: number; rides: number }[] {
   const byDay = new Map(rows.map(r => [r.day, r]));
-  const out: { day: string; cash: number; nonCash: number; rides: number }[] = [];
+  const out: { day: string; cash: number; nonCash: number; delivery: number; rides: number }[] = [];
   const today = new Date();
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
     const key = d.toISOString().slice(0, 10);
-    out.push(byDay.get(key) || { day: key, cash: 0, nonCash: 0, rides: 0 });
+    out.push(byDay.get(key) || { day: key, cash: 0, nonCash: 0, delivery: 0, rides: 0 });
   }
   return out;
 }

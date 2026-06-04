@@ -145,6 +145,23 @@ export async function GET() {
     const noShowRides = Number((noShowRows[0] as Record<string, unknown>).no_show_rides || 0);
     const noShowTotal = Number((noShowRows[0] as Record<string, unknown>).no_show_total || 0);
 
+    // Delivery (store-run) earnings — net courier fee (delivery fee minus the
+    // platform cut), completed + captured jobs only. This feeds the earnings
+    // breakdown / chart ONLY; delivery payouts are not yet in the Stripe
+    // balance, so they are deliberately kept out of `available`/cashout to
+    // avoid surfacing a phantom withdrawable balance.
+    const deliveryRows = await sql`
+      SELECT
+        COUNT(*) as delivery_jobs,
+        COALESCE(SUM(GREATEST(delivery_fee_cents - platform_fee_cents, 0)), 0) / 100.0 as delivery_total
+      FROM delivery_requests
+      WHERE courier_id = ${driverUserId}
+        AND status = 'completed'
+        AND payment_captured = true
+    `;
+    const deliveryJobs = Number((deliveryRows[0] as Record<string, unknown>).delivery_jobs || 0);
+    const deliveryTotal = Number((deliveryRows[0] as Record<string, unknown>).delivery_total || 0);
+
     // Per-driver feature flag for the Deposits Detail Sheet overlay. Dormant
     // when the flag row is missing — keeps the tile static (pre-launch
     // behavior). The client gates tappability on this value.
@@ -167,6 +184,7 @@ export async function GET() {
       cashEarnings: { rides: cashRides, total: cashTotal },
       digitalEarnings: { rides: digitalRides, total: digitalTotal },
       noShowEarnings: { rides: noShowRides, total: noShowTotal },
+      deliveryEarnings: { jobs: deliveryJobs, total: deliveryTotal },
       flags: { depositsDetailSheet },
     });
   } catch (error) {
