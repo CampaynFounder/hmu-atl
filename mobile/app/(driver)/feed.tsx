@@ -76,6 +76,7 @@ export default function DriverFeed() {
   const [token, setToken] = useState<string | null>(null);
   const [cancelNotice, setCancelNotice] = useState(false);
   const [riderHmuIds, setRiderHmuIds] = useState<Set<string>>(new Set());
+  const [marketSlug, setMarketSlug] = useState<string | null>(null);
 
   const driverId = user?.publicMetadata?.databaseId as string | undefined;
   const { registerFeedRefresh } = useNotifications();
@@ -95,8 +96,9 @@ export default function DriverFeed() {
   const fetchRequests = useCallback(async () => {
     try {
       const t = await getTokenRef.current();
-      const data = await apiClient<{ requests: BlastRequest[] }>('/drivers/requests', t);
+      const data = await apiClient<{ requests: BlastRequest[]; marketSlug?: string | null }>('/drivers/requests', t);
       setRequests(data.requests ?? []);
+      if (data.marketSlug) setMarketSlug(data.marketSlug);
     } catch (err) {
       console.warn('[feed] fetchRequests error:', err);
     }
@@ -127,7 +129,15 @@ export default function DriverFeed() {
     finally { setDeliveriesLoading(false); setRefreshing(false); }
   }, []);
 
-  useEffect(() => { void fetchRequests(); }, [fetchRequests]);
+  // Initial load + backstop poll. Ably (market:{slug}:feed + user:{id}:notify)
+  // is the fast path, but a 20s poll guarantees a new request surfaces even if a
+  // socket drops — matching the web driver feed, which polls every 15s. Without
+  // this the mobile feed only ever fetched once on mount.
+  useEffect(() => {
+    void fetchRequests();
+    const id = setInterval(() => void fetchRequests(), 20_000);
+    return () => clearInterval(id);
+  }, [fetchRequests]);
   useEffect(() => { if (tab === 'deliveries') void fetchDeliveries(); }, [tab, fetchDeliveries]);
 
   // Register with the global notification context so events arriving while the
@@ -200,6 +210,19 @@ export default function DriverFeed() {
           router.push({ pathname: '/(driver)/ride/active' as any, params: { rideId } });
         }
       }
+    },
+  });
+
+  // Market feed channel — every NEW market-wide request broadcasts here:
+  // open rider_request, Down Bad, and store-run/delivery. The web driver feeds
+  // already subscribe to this; mobile didn't, so these never auto-surfaced in a
+  // logged-in driver's view. Refetch on any event (deliveries on delivery_posted).
+  useAbly({
+    channelName: marketSlug ? `market:${marketSlug}:feed` : null,
+    token,
+    onMessage: (msg) => {
+      if (msg.name === 'delivery_posted') void fetchDeliveries();
+      else void fetchRequests();
     },
   });
 

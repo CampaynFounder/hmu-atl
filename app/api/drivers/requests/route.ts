@@ -12,6 +12,13 @@ export async function GET() {
   const driverUserId = (userRows[0] as { id: string; market_id: string | null }).id;
   const driverMarketId = (userRows[0] as { id: string; market_id: string | null }).market_id;
 
+  // Market slug so the mobile feed can subscribe to market:{slug}:feed — the
+  // channel new requests broadcast on (web already subscribes; mobile didn't).
+  const marketRows = driverMarketId
+    ? await sql`SELECT slug FROM markets WHERE id = ${driverMarketId} LIMIT 1`
+    : [];
+  const marketSlug = (marketRows[0] as { slug: string } | undefined)?.slug ?? null;
+
   // Driver routing preferences
   const prefRows = await sql`
     SELECT accepts_cash, cash_only, area_slugs, services_entire_market, accepts_long_distance, accepts_down_bad
@@ -361,5 +368,5 @@ export async function GET() {
   // It now equals exactly what's surfaced inline in the feed.
   const downBadCount = downBadRequests.length;
 
-  return NextResponse.json({ requests: filtered, downBadCount });
+  return NextResponse.json({ requests: filtered, downBadCount, marketSlug });
 }
