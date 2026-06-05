@@ -363,7 +363,7 @@ export default function DownBadBooking() {
           <ResumeDraftSheet
             label="ride request"
             onResume={() => applyDraft(pendingDraft)}
-            onStartOver={clearDraft}
+            onStartOver={startOver}
           />
         )}
         <TouchableOpacity onPress={back} style={s.backBtn} hitSlop={12}>
