@@ -265,7 +265,7 @@ export default function BlastBooking() {
         <ResumeDraftSheet
           label="blast"
           onResume={() => applyDraft(pendingDraft)}
-          onStartOver={clearDraft}
+          onStartOver={startOver}
         />
       )}
       <View style={s.header}>

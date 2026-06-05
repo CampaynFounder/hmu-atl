@@ -194,7 +194,7 @@ export default function BookDelivery() {
         <ResumeDraftSheet
           label="store run"
           onResume={() => applyDraft(pendingDraft)}
-          onStartOver={clearDraft}
+          onStartOver={startOver}
         />
       )}
       <View style={s.header}>

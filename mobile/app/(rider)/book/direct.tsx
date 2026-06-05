@@ -358,7 +358,7 @@ export default function DirectBooking() {
         <ResumeDraftSheet
           label="booking"
           onResume={() => applyDraft(pendingDraft)}
-          onStartOver={clearDraft}
+          onStartOver={startOver}
         />
       )}
       {/* Header */}
