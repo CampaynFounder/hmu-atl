@@ -17,8 +17,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getPlatformConfig } from '@/lib/platform-config/get';
-import { resolveMarketForUser } from '@/lib/markets/resolver';
-import { publishToChannel, notifyUser } from '@/lib/ably/server';
+import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
+import { publishToChannel } from '@/lib/ably/server';
 import { notifyDriverDownBadPosted } from '@/lib/sms/textbee';
 
 interface DownBadConfig {
@@ -230,7 +230,12 @@ export async function POST(req: NextRequest) {
 
     const postId = (rows[0] as { id: string }).id;
 
-    publishToChannel(`market:${market.slug}:down-bad`, 'down_bad_posted', {
+    // Publish to the market feed channel — the SAME channel open rider_requests
+    // use (app/api/rider/posts) and that every driver feed (web + mobile) listens
+    // on. Previously this went to `market:{slug}:down-bad`, which NO client
+    // subscribed to, so the request never auto-surfaced in a logged-in driver's
+    // view. feedChannelForMarket() is the single source of truth for that name.
+    publishToChannel(feedChannelForMarket(market.slug), 'down_bad_posted', {
       postId, price,
       mediaType: sum_extra_media_type,
       posterUrl: sum_extra_poster_url ?? null,
@@ -238,43 +243,25 @@ export async function POST(req: NextRequest) {
       dropoffAddress: dropoff_address,
     }).catch(() => {});
 
-    // Fan out to drivers. Mirrors the feed visibility gate (GET /api/drivers/
-    // requests): a broadcast down-bad reaches every opted-in active driver in
-    // the market; a direct offer reaches only its target driver.
-    const driverRows = await sql`
-      SELECT u.id AS user_id, dp.phone
+    // SMS opted-in drivers (fire-and-forget). Realtime surfacing is handled by
+    // the market-feed publish above — this is just the push notification.
+    // Mirrors the feed visibility gate: broadcast down-bads SMS every opted-in
+    // active driver in the market; a direct offer only its target. Capped at 15
+    // to preserve the prior cost profile.
+    const smsDriverRows = await sql`
+      SELECT dp.phone
       FROM driver_profiles dp
       JOIN users u ON u.id = dp.user_id
       WHERE dp.accepts_down_bad = true
+        AND dp.phone IS NOT NULL
+        AND length(dp.phone) >= 10
         AND u.account_status = 'active'
         AND u.market_id = ${market.market_id}
         AND (${targetDriverId}::uuid IS NULL OR u.id = ${targetDriverId}::uuid)
-      LIMIT 50
-    ` as { user_id: string; phone: string | null }[];
-
-    // Realtime: push to each driver's personal notify channel so their request
-    // feed refetches live — the same `user:{id}:notify` rail Direct bookings
-    // ride. MUST be awaited: Cloudflare Workers kill unawaited promises the
-    // moment the response returns, so a fire-and-forget push never lands.
-    await Promise.allSettled(
-      driverRows.map((row) =>
-        notifyUser(row.user_id, 'down_bad_posted', {
-          postId,
-          price,
-          isDirectOffer: row.user_id === targetDriverId,
-        }),
-      ),
-    );
-
-    // SMS opted-in drivers (fire-and-forget). Capped at 15 to preserve the
-    // prior cost profile — the Ably push above already reaches everyone.
-    let smsSent = 0;
-    for (const row of driverRows) {
-      if (smsSent >= 15) break;
-      if (row.phone && row.phone.length >= 10) {
-        notifyDriverDownBadPosted(row.phone, price, { market: market.slug }).catch(() => {});
-        smsSent++;
-      }
+      LIMIT 15
+    ` as { phone: string }[];
+    for (const row of smsDriverRows) {
+      notifyDriverDownBadPosted(row.phone, price, { market: market.slug }).catch(() => {});
     }
 
     return NextResponse.json({ postId, expiresAt: expiresAt.toISOString() }, { status: 201 });
