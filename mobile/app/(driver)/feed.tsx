@@ -18,6 +18,7 @@ import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
 import { useNotifications } from '@/contexts/notifications';
 import { CommentsAccordion } from '@/components/CommentsAccordion';
+import { SwipeDeck } from '@/components/SwipeDeck';
 import type { DeliveryOpportunity } from '@/shared/delivery-types';
 
 // Matches the camelCase shape returned by GET /api/drivers/requests
@@ -141,12 +142,19 @@ export default function DriverFeed() {
     onMessage: (msg) => {
       // direct_booking_request fires when a rider specifically books this driver.
       // blast_invite fires when the market fan-out includes this driver.
+      // down_bad_posted fires when a rider posts a Down Bad favor to the market
+      // (or directly to this driver) — same per-driver rail as direct bookings.
       if (
         msg.name === 'blast_invite' ||
         msg.name === 'blast_cancelled' ||
-        msg.name === 'direct_booking_request'
+        msg.name === 'direct_booking_request' ||
+        msg.name === 'down_bad_posted'
       ) {
         void fetchRequests();
+      }
+      // delivery_posted fires when a rider creates a store run in this market.
+      if (msg.name === 'delivery_posted') {
+        void fetchDeliveries();
       }
       if (msg.name === 'blast_expired') {
         const d = msg.data as Record<string, unknown>;
@@ -281,6 +289,11 @@ export default function DriverFeed() {
             color={tab === 'deliveries' ? colors.pink : colors.textFaint}
           />
           <Text style={[s.tabBtnText, tab === 'deliveries' && s.tabBtnTextDelivery]}>DELIVERIES</Text>
+          {tab !== 'deliveries' && deliveries.length > 0 && (
+            <View style={s.tabDot}>
+              <Text style={s.tabDotText}>{deliveries.length}</Text>
+            </View>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -292,31 +305,48 @@ export default function DriverFeed() {
       )}
 
       {tab === 'rides' ? (
-        <FlatList
-          data={active}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={s.list}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.green} />}
-          ListEmptyComponent={
-            <View style={s.empty}>
-              <Text style={s.emptyEmoji}>👀</Text>
-              <Text style={s.emptyTitle}>No requests right now</Text>
-              <Text style={s.emptyBody}>
-                Sit tight — we'll notify you when a rider blasts your area.
-              </Text>
+        active.length === 0 ? (
+          <TouchableOpacity style={s.empty} activeOpacity={0.7} onPress={onRefresh}>
+            <Text style={s.emptyEmoji}>👀</Text>
+            <Text style={s.emptyTitle}>No requests right now</Text>
+            <Text style={s.emptyBody}>
+              Sit tight — we'll notify you the moment a rider blasts your area.
+            </Text>
+            <View style={s.emptyRefresh}>
+              {refreshing
+                ? <ActivityIndicator size="small" color={colors.green} />
+                : <>
+                    <Ionicons name="refresh" size={13} color={colors.green} />
+                    <Text style={s.emptyRefreshText}>TAP TO REFRESH</Text>
+                  </>
+              }
             </View>
-          }
-          renderItem={({ item }) => (
-            <BlastCard
-              request={item}
-              acting={acting === item.id}
-              riderWantsYou={riderHmuIds.has(item.id)}
-              onHmu={() => handleHmu(item)}
-              onPass={() => handlePass(item)}
-              token={token}
-            />
-          )}
-        />
+          </TouchableOpacity>
+        ) : (
+          <SwipeDeck
+            items={active}
+            keyExtractor={(item) => item.id}
+            rightLabel="HMU"
+            leftLabel="NAH"
+            onSwipeRight={(item) => handleHmu(item)}
+            onSwipeLeft={(item) => handlePass(item)}
+            renderCard={(item) => (
+              <DeckRequestCard
+                request={item}
+                riderWantsYou={riderHmuIds.has(item.id)}
+                token={token}
+              />
+            )}
+            renderControls={({ onLeft, onRight, topItem }) => (
+              <DeckControls
+                onPass={onLeft}
+                onHmu={onRight}
+                isDownBad={topItem?.type === 'down_bad'}
+                disabled={!topItem}
+              />
+            )}
+          />
+        )
       ) : (
         <FlatList
           data={deliveries}
@@ -360,19 +390,16 @@ export default function DriverFeed() {
   );
 }
 
-function BlastCard({
-  request, acting, riderWantsYou, onHmu, onPass, token,
+// Full-height card body for the driver swipe deck. Same information as BlastCard
+// (rider, route, price, Down Bad favor, reputation) but without inline action
+// buttons — the deck supplies swipe + the PASS/HMU controls below the stack.
+function DeckRequestCard({
+  request, riderWantsYou, token,
 }: {
   request: BlastRequest;
-  acting: boolean;
   riderWantsYou: boolean;
-  onHmu: () => void;
-  onPass: () => void;
   token: string | null;
 }) {
-  const alreadyHmd = !!request._hmuAt;
-
-  // Live countdown — recalculates every second
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -388,9 +415,10 @@ function BlastCard({
   const pickup = request.pickupAddress || request.pickupAreaSlug || 'Pickup';
   const dropoff = request.destination || request.dropoffAreaSlug || 'Dropoff';
   const isDownBad = request.type === 'down_bad';
+  const isDirect = request.type === 'direct';
 
   return (
-    <View style={[s.card, shadow.card, isDownBad && s.downBadCard]}>
+    <View style={[s.deckCard, shadow.card, isDownBad && s.downBadCard]}>
       {/* ── Rider row ── */}
       <View style={s.riderRow}>
         <RiderAvatar url={request.riderAvatarUrl} name={request.riderHandle ?? request.riderName} />
@@ -417,54 +445,59 @@ function BlastCard({
         </View>
       </View>
 
-      {/* ── Route ── */}
-      <View style={s.routeRow}>
-        <Ionicons name="navigate-outline" size={13} color={colors.textFaint} style={{ marginRight: 4 }} />
-        <Text style={s.area} numberOfLines={1}>{pickup} → {dropoff}</Text>
+      {/* ── Meta chips ── */}
+      <View style={s.metaRow}>
+        {isDownBad && <MetaChip label={request.isDirectOffer ? '🙏 DOWN BAD · FOR YOU' : '🙏 DOWN BAD'} accent />}
+        {isDirect && <MetaChip label="🎯 BOOKED YOU" accent />}
+        {riderWantsYou && <MetaChip label="🎯 RIDER WANTS YOU" accent />}
+        {request.isCash && <MetaChip label="CASH" cash />}
+        {request.roundTrip && <MetaChip label="ROUND TRIP" accent />}
+        {request.time ? <MetaChip label={request.time} /> : null}
+        {request.riderChillScore > 0 && (
+          <MetaChip label={`${Math.round(request.riderChillScore)} chill`} accent />
+        )}
       </View>
-      {request.stops.length > 0 && (
-        <View style={s.stopsRow}>
-          <Ionicons name="git-branch-outline" size={12} color={colors.textFaint} style={{ marginRight: 4 }} />
-          <Text style={s.stopsText} numberOfLines={1}>
-            {request.stops.length} stop{request.stops.length > 1 ? 's' : ''}
-            {request.stops[0]?.address ? `: ${request.stops[0].address}` : ''}
-          </Text>
+
+      {/* ── Route ── */}
+      <View style={s.deckRoute}>
+        <View style={s.routeRow}>
+          <Ionicons name="navigate-outline" size={14} color={colors.textFaint} style={{ marginRight: 6 }} />
+          <Text style={s.deckArea} numberOfLines={2}>{pickup} → {dropoff}</Text>
         </View>
-      )}
+        {request.stops.length > 0 && (
+          <View style={s.stopsRow}>
+            <Ionicons name="git-branch-outline" size={12} color={colors.textFaint} style={{ marginRight: 4 }} />
+            <Text style={s.stopsText} numberOfLines={1}>
+              {request.stops.length} stop{request.stops.length > 1 ? 's' : ''}
+              {request.stops[0]?.address ? `: ${request.stops[0].address}` : ''}
+            </Text>
+          </View>
+        )}
+      </View>
 
       {/* ── Down Bad favor (the ask + media) ── */}
       {isDownBad && (request.sumExtraText || request.sumExtraMediaUrl) && (
         <View style={s.downBadAsk}>
           {!!request.sumExtraText && (
-            <Text style={s.downBadAskText}>{`“${request.sumExtraText}”`}</Text>
+            <Text style={s.downBadAskText} numberOfLines={3}>{`“${request.sumExtraText}”`}</Text>
           )}
           {!!request.sumExtraMediaUrl && request.sumExtraMediaType === 'photo' && (
-            <Image source={{ uri: request.sumExtraMediaUrl }} style={s.downBadMedia} alt="" />
+            <Image source={{ uri: request.sumExtraMediaUrl }} style={s.deckDownBadMedia} alt="" />
           )}
           {!!request.sumExtraMediaUrl && request.sumExtraMediaType === 'video' && (
-            <View style={[s.downBadMedia, s.downBadVideo]}>
+            <View style={[s.deckDownBadMedia, s.downBadVideo]}>
               <Ionicons name="play-circle" size={36} color={colors.pink} />
             </View>
           )}
         </View>
       )}
 
+      <View style={{ flex: 1 }} />
+
       {/* ── Price ── */}
-      <Text style={s.price}>${Number(request.price).toFixed(2)}</Text>
+      <Text style={s.deckPrice}>${Number(request.price).toFixed(2)}</Text>
 
-      {/* ── Meta chips ── */}
-      <View style={s.metaRow}>
-        {isDownBad && <MetaChip label={request.isDirectOffer ? '🙏 DOWN BAD · FOR YOU' : '🙏 DOWN BAD'} accent />}
-        {riderWantsYou && <MetaChip label="🎯 RIDER WANTS YOU" accent />}
-        {request.isCash && <MetaChip label="CASH" cash />}
-        {request.roundTrip && <MetaChip label="ROUND TRIP" accent />}
-        {request.time && <MetaChip label={request.time} />}
-        {request.riderChillScore > 0 && (
-          <MetaChip label={`${Math.round(request.riderChillScore)} chill`} accent />
-        )}
-      </View>
-
-      {/* ── Rider comments accordion ── */}
+      {/* ── Rider comments ── */}
       {request.riderHandle && (
         <CommentsAccordion
           handle={request.riderHandle}
@@ -472,32 +505,40 @@ function BlastCard({
           accentColor={colors.textFaint}
         />
       )}
+    </View>
+  );
+}
 
-      {/* ── Actions ── */}
-      <View style={s.actions}>
-        {alreadyHmd ? (
-          <View style={s.hmdConfirm}>
-            <Ionicons name="checkmark-circle" size={16} color={colors.green} />
-            <Text style={s.hmdConfirmText}>HMU Sent</Text>
-          </View>
-        ) : (
-          <>
-            <TouchableOpacity style={s.passBtn} onPress={onPass} disabled={acting}>
-              <Text style={s.passBtnText}>PASS</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.hmuBtn, (acting || isExpired) && s.disabled]}
-              onPress={onHmu}
-              disabled={acting || isExpired}
-            >
-              {acting
-                ? <ActivityIndicator size="small" color={colors.bg} />
-                : <Text style={s.hmuBtnText}>{isDownBad ? 'HELP OUT 🙏' : 'HMU 🤙'}</Text>
-              }
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
+// PASS / HMU controls under the deck. Trigger the top card's swipe animation so
+// a button tap reads the same as a manual swipe.
+function DeckControls({
+  onPass, onHmu, isDownBad, disabled,
+}: {
+  onPass: () => void;
+  onHmu: () => void;
+  isDownBad: boolean;
+  disabled: boolean;
+}) {
+  return (
+    <View style={s.deckControls}>
+      <TouchableOpacity
+        style={[s.deckCtrlBtn, s.deckCtrlPass, disabled && s.disabled]}
+        onPress={onPass}
+        disabled={disabled}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="close" size={26} color={colors.red} />
+        <Text style={[s.deckCtrlLabel, { color: colors.red }]}>PASS</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[s.deckCtrlBtn, s.deckCtrlHmu, disabled && s.disabled]}
+        onPress={onHmu}
+        disabled={disabled}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="paper-plane" size={24} color={colors.green} />
+        <Text style={[s.deckCtrlLabel, { color: colors.green }]}>{isDownBad ? 'HELP' : 'HMU'}</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -686,6 +727,48 @@ const s = StyleSheet.create({
   tabBtnText: { fontFamily: fonts.mono, fontSize: 11, color: colors.textFaint, letterSpacing: 1.5 },
   tabBtnTextActive: { color: colors.green },
   tabBtnTextDelivery: { color: colors.pink },
+  tabDot: {
+    minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5,
+    backgroundColor: colors.pink, alignItems: 'center', justifyContent: 'center',
+  },
+  tabDotText: { fontFamily: fonts.monoBold, fontSize: 10, color: colors.bg },
+
+  // ── Swipe deck ──
+  deckCard: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.xl,
+    marginVertical: spacing.md,
+  },
+  deckRoute: { marginTop: spacing.md },
+  deckArea: { flex: 1, fontFamily: fonts.body, fontSize: 15, color: colors.textPrimary, lineHeight: 21 },
+  deckDownBadMedia: {
+    width: '100%', height: 150, borderRadius: radius.cardInner, marginTop: spacing.sm,
+    backgroundColor: colors.bg,
+  },
+  deckPrice: { fontFamily: fonts.display, fontSize: 44, color: colors.green, marginBottom: spacing.sm },
+  deckControls: {
+    flexDirection: 'row', justifyContent: 'center', gap: spacing.xxxl,
+    paddingVertical: spacing.lg, paddingBottom: spacing.xl,
+  },
+  deckCtrlBtn: {
+    width: 78, height: 78, borderRadius: 39, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.card, borderWidth: 1.5, gap: 2,
+  },
+  deckCtrlPass: { borderColor: colors.redBorder },
+  deckCtrlHmu: { borderColor: colors.greenBorder },
+  deckCtrlLabel: { fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 1 },
+
+  emptyRefresh: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.xl,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
+    borderRadius: radius.pill, borderWidth: 1, borderColor: colors.greenBorder,
+    backgroundColor: colors.greenDim,
+  },
+  emptyRefreshText: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.green, letterSpacing: 1 },
 
   // Delivery card
   deliveryCard: { borderColor: colors.pinkBorder },

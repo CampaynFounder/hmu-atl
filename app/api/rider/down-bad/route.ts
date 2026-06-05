@@ -18,7 +18,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getPlatformConfig } from '@/lib/platform-config/get';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
-import { publishToChannel } from '@/lib/ably/server';
+import { publishToChannel, notifyUser } from '@/lib/ably/server';
 import { notifyDriverDownBadPosted } from '@/lib/sms/textbee';
 
 interface DownBadConfig {
@@ -238,23 +238,44 @@ export async function POST(req: NextRequest) {
       dropoffAddress: dropoff_address,
     }).catch(() => {});
 
-    // SMS all opted-in drivers in this market (fire-and-forget)
-    sql`
-      SELECT dp.phone
+    // Fan out to drivers. Mirrors the feed visibility gate (GET /api/drivers/
+    // requests): a broadcast down-bad reaches every opted-in active driver in
+    // the market; a direct offer reaches only its target driver.
+    const driverRows = await sql`
+      SELECT u.id AS user_id, dp.phone
       FROM driver_profiles dp
       JOIN users u ON u.id = dp.user_id
       WHERE dp.accepts_down_bad = true
-        AND dp.phone IS NOT NULL
-        AND length(dp.phone) >= 10
         AND u.account_status = 'active'
         AND u.market_id = ${market.market_id}
-      LIMIT 15
-    `.then((driverRows: unknown[]) => {
-      for (const row of driverRows) {
-        const phone = (row as { phone: string }).phone;
-        notifyDriverDownBadPosted(phone, price, { market: market.slug }).catch(() => {});
+        AND (${targetDriverId}::uuid IS NULL OR u.id = ${targetDriverId}::uuid)
+      LIMIT 50
+    ` as { user_id: string; phone: string | null }[];
+
+    // Realtime: push to each driver's personal notify channel so their request
+    // feed refetches live — the same `user:{id}:notify` rail Direct bookings
+    // ride. MUST be awaited: Cloudflare Workers kill unawaited promises the
+    // moment the response returns, so a fire-and-forget push never lands.
+    await Promise.allSettled(
+      driverRows.map((row) =>
+        notifyUser(row.user_id, 'down_bad_posted', {
+          postId,
+          price,
+          isDirectOffer: row.user_id === targetDriverId,
+        }),
+      ),
+    );
+
+    // SMS opted-in drivers (fire-and-forget). Capped at 15 to preserve the
+    // prior cost profile — the Ably push above already reaches everyone.
+    let smsSent = 0;
+    for (const row of driverRows) {
+      if (smsSent >= 15) break;
+      if (row.phone && row.phone.length >= 10) {
+        notifyDriverDownBadPosted(row.phone, price, { market: market.slug }).catch(() => {});
+        smsSent++;
       }
-    }).catch(() => {});
+    }
 
     return NextResponse.json({ postId, expiresAt: expiresAt.toISOString() }, { status: 201 });
   } catch (err) {
