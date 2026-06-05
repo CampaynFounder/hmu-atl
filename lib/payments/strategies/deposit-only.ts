@@ -226,12 +226,18 @@ export class DepositOnlyStrategy implements PricingStrategy {
     const youEarned = round2(depositNet + extrasNet + cashReceived);
     const total = round2(input.agreedPrice + succeededExtrasSubtotal);
 
+    // Base Ride Fare is shown as muted CONTEXT only — it is NOT summed into the
+    // total. The additive identity the driver can verify is:
+    //   deposit + cash + extrasNet − hmuFee − stripeFee = Total Earnings
+    // (Pull Up Cash = fare − deposit; extras are charged digitally on top of
+    // the fare, so they never reduce the cash the rider hands over.)
     const driverRows: BreakdownResult['driverRows'] = [
-      { label: 'Deposit', value: round2(input.visibleDeposit), role: 'amount' },
-      { label: 'Pull Up Cash', value: cashReceived, role: 'amount' },
-      ...(extrasNet > 0 ? [{ label: 'HMU Extras', value: extrasNet, role: 'amount' as const }] : []),
-      { label: 'HMU Fees Paid', value: hmuFeePaid, role: 'fee' },
-      { label: 'Stripe Fees Paid', value: stripeFeePaid, role: 'fee' },
+      { label: 'Base Ride Fare', value: round2(input.agreedPrice), role: 'muted' },
+      { label: 'Deposit Collected by HMU', value: round2(input.visibleDeposit), role: 'amount' },
+      { label: 'Cash Paid Directly to You', value: cashReceived, role: 'amount' },
+      ...(extrasNet > 0 ? [{ label: 'Extras (paid in app)', value: extrasNet, role: 'amount' as const }] : []),
+      { label: 'HMU Fee', value: hmuFeePaid, role: 'fee' },
+      { label: 'Stripe Processing', value: stripeFeePaid, role: 'fee' },
       { label: 'Total Earnings', value: youEarned, role: 'total' },
     ];
 

@@ -33,11 +33,6 @@ export async function computeRideBreakdown(rideId: string): Promise<BreakdownRes
   if (!rideRows.length) return null;
   const ride = rideRows[0] as Record<string, unknown>;
 
-  const isCash = !!ride.is_cash;
-  const agreedPrice = Number(ride.final_agreed_price ?? ride.amount ?? 0);
-  const visibleDeposit = Number(ride.visible_deposit ?? 0);
-  const addOnTotal = Number(ride.add_on_total ?? 0);
-
   const addOnRows = await sql`
     SELECT id, name, subtotal, status, stripe_charge_status,
            platform_fee_cents, driver_amount_cents, stripe_fee_cents
@@ -45,6 +40,31 @@ export async function computeRideBreakdown(rideId: string): Promise<BreakdownRes
     WHERE ride_id = ${rideId} AND status NOT IN ('removed', 'rejected')
     ORDER BY added_at
   ` as Array<Record<string, unknown>>;
+
+  return buildBreakdownFromRows(ride, addOnRows);
+}
+
+/**
+ * Columns the breakdown needs off a `rides` row. Any query feeding
+ * buildBreakdownFromRows / computeBreakdownsForRides must select these.
+ */
+export const BREAKDOWN_RIDE_COLUMNS =
+  'is_cash, final_agreed_price, amount, pricing_mode_key, visible_deposit, ' +
+  'add_on_total, driver_payout_amount, platform_fee_amount, stripe_fee_amount';
+
+/**
+ * Pure-ish breakdown builder: given a `rides` row (with the columns in
+ * BREAKDOWN_RIDE_COLUMNS) and its `ride_add_ons` rows, delegate to the ride's
+ * pricing strategy. No DB access — safe to call in a loop after a batched fetch.
+ */
+export function buildBreakdownFromRows(
+  ride: Record<string, unknown>,
+  addOnRows: Array<Record<string, unknown>>,
+): BreakdownResult {
+  const isCash = !!ride.is_cash;
+  const agreedPrice = Number(ride.final_agreed_price ?? ride.amount ?? 0);
+  const visibleDeposit = Number(ride.visible_deposit ?? 0);
+  const addOnTotal = Number(ride.add_on_total ?? 0);
 
   const extras: BreakdownExtra[] = addOnRows.map(r => ({
     id: String(r.id),
@@ -80,6 +100,41 @@ export async function computeRideBreakdown(rideId: string): Promise<BreakdownRes
     extrasStripeFee,
     extras,
   });
+}
+
+/**
+ * Batched breakdown for a list of ride rows (e.g. the My Rides page). Fetches
+ * all add-ons in ONE query, then builds each breakdown in memory — avoids the
+ * N+1 of calling computeRideBreakdown per ride. The passed ride rows must
+ * include `id` plus BREAKDOWN_RIDE_COLUMNS.
+ */
+export async function computeBreakdownsForRides(
+  rideRows: Array<Record<string, unknown>>,
+): Promise<Map<string, BreakdownResult>> {
+  const ids = rideRows.map(r => String(r.id));
+  const out = new Map<string, BreakdownResult>();
+  if (!ids.length) return out;
+
+  const addOnRows = await sql`
+    SELECT ride_id, id, name, subtotal, status, stripe_charge_status,
+           platform_fee_cents, driver_amount_cents, stripe_fee_cents
+    FROM ride_add_ons
+    WHERE ride_id = ANY(${ids}::uuid[]) AND status NOT IN ('removed', 'rejected')
+    ORDER BY added_at
+  ` as Array<Record<string, unknown>>;
+
+  const byRide = new Map<string, Array<Record<string, unknown>>>();
+  for (const a of addOnRows) {
+    const rid = String(a.ride_id);
+    const list = byRide.get(rid) ?? [];
+    list.push(a);
+    byRide.set(rid, list);
+  }
+
+  for (const ride of rideRows) {
+    out.set(String(ride.id), buildBreakdownFromRows(ride, byRide.get(String(ride.id)) ?? []));
+  }
+  return out;
 }
 
 export type { BreakdownResult, BreakdownExtra };

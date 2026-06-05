@@ -117,8 +117,31 @@ export async function GET() {
         AND status IN ('ended', 'completed')
         AND (no_show_percent IS NULL OR no_show_percent = 0)
     `;
-    const cashRides = Number((cashRows[0] as Record<string, unknown>).cash_rides || 0);
-    const cashTotal = Number((cashRows[0] as Record<string, unknown>).cash_total || 0);
+    const legacyCashRides = Number((cashRows[0] as Record<string, unknown>).cash_rides || 0);
+    const legacyCashTotal = Number((cashRows[0] as Record<string, unknown>).cash_total || 0);
+
+    // Deposit-only Pull Up Cash: the rider hands the driver the fare minus the
+    // digital deposit, in person. is_cash is FALSE on these rides (they carry a
+    // digital deposit), so the legacy cash query above misses them entirely —
+    // which is why deposit-mode drivers saw $0 cash. Count it here and fold it
+    // into the cash figure so the wallet reflects real cash in hand. (Extras
+    // are charged digitally, so they do NOT add to the cash remainder.)
+    const depositCashRows = await sql`
+      SELECT
+        COUNT(*) as rides,
+        COALESCE(SUM(GREATEST(COALESCE(final_agreed_price, amount, 0) - COALESCE(visible_deposit, 0), 0)), 0) as cash_total
+      FROM rides
+      WHERE driver_id = ${driverUserId}
+        AND pricing_mode_key = 'deposit_only'
+        AND (is_cash IS NULL OR is_cash = false)
+        AND status IN ('ended', 'completed')
+        AND (no_show_percent IS NULL OR no_show_percent = 0)
+    `;
+    const depositCashRides = Number((depositCashRows[0] as Record<string, unknown>).rides || 0);
+    const depositCashTotal = Number((depositCashRows[0] as Record<string, unknown>).cash_total || 0);
+
+    const cashRides = legacyCashRides + depositCashRides;
+    const cashTotal = Math.round((legacyCashTotal + depositCashTotal) * 100) / 100;
 
     const digitalRows = await sql`
       SELECT
@@ -145,6 +168,23 @@ export async function GET() {
     const noShowRides = Number((noShowRows[0] as Record<string, unknown>).no_show_rides || 0);
     const noShowTotal = Number((noShowRows[0] as Record<string, unknown>).no_show_total || 0);
 
+    // Delivery (store-run) earnings — net courier fee (delivery fee minus the
+    // platform cut), completed + captured jobs only. This feeds the earnings
+    // breakdown / chart ONLY; delivery payouts are not yet in the Stripe
+    // balance, so they are deliberately kept out of `available`/cashout to
+    // avoid surfacing a phantom withdrawable balance.
+    const deliveryRows = await sql`
+      SELECT
+        COUNT(*) as delivery_jobs,
+        COALESCE(SUM(GREATEST(delivery_fee_cents - platform_fee_cents, 0)), 0) / 100.0 as delivery_total
+      FROM delivery_requests
+      WHERE courier_id = ${driverUserId}
+        AND status = 'completed'
+        AND payment_captured = true
+    `;
+    const deliveryJobs = Number((deliveryRows[0] as Record<string, unknown>).delivery_jobs || 0);
+    const deliveryTotal = Number((deliveryRows[0] as Record<string, unknown>).delivery_total || 0);
+
     // Per-driver feature flag for the Deposits Detail Sheet overlay. Dormant
     // when the flag row is missing — keeps the tile static (pre-launch
     // behavior). The client gates tappability on this value.
@@ -167,6 +207,7 @@ export async function GET() {
       cashEarnings: { rides: cashRides, total: cashTotal },
       digitalEarnings: { rides: digitalRides, total: digitalTotal },
       noShowEarnings: { rides: noShowRides, total: noShowTotal },
+      deliveryEarnings: { jobs: deliveryJobs, total: deliveryTotal },
       flags: { depositsDetailSheet },
     });
   } catch (error) {

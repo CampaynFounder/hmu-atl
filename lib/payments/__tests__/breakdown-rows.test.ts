@@ -1,9 +1,12 @@
 // buildBreakdownRows() identity tests for each strategy.
 //
 // Contract every strategy must keep for digital rides:
-//   driver-side: sum(driverRows non-total) === total === sum(riderRows non-total)
-// In other words: rider's "what I paid" total === driver's "ride total" ===
-// what the rider's card was actually charged ($agreedPrice + succeeded extras).
+//   rider-side: sum(riderRows non-total) === total === what the rider's card
+//               was actually charged ($agreedPrice + succeeded extras).
+//   driver-side: the rows are an EARNINGS view — amounts minus fee rows equal
+//               youEarned (the driver's displayed "Total Earnings"). This is
+//               deposit + cash + extrasNet − fees (deposit mode) or
+//               fare + add-ons − fees (full-fare mode).
 
 import { describe, it, expect } from 'vitest';
 import { depositOnlyStrategy } from '../strategies/deposit-only';
@@ -28,6 +31,14 @@ function sumNonTotal(rows: BreakdownRow[]): number {
   return rows
     .filter(r => r.role !== 'total')
     .reduce((s, r) => s + r.value, 0);
+}
+
+// Driver earnings identity: amount rows minus fee rows (muted context rows like
+// "Base Ride Fare" are excluded — they are not part of the sum).
+function earnedFromRows(rows: BreakdownRow[]): number {
+  return rows
+    .filter(r => r.role === 'amount' || r.role === 'fee')
+    .reduce((s, r) => s + (r.role === 'fee' ? -r.value : r.value), 0);
 }
 
 function getTotal(rows: BreakdownRow[]): number {
@@ -88,19 +99,37 @@ describe('DepositOnlyStrategy.buildBreakdownRows', () => {
     expect(getTotal(out.riderRows)).toBeCloseTo(28, 2);
   });
 
-  it('HMU Fees Paid on driver rows is NET of Stripe fee, not gross', () => {
+  it('HMU Fee on driver rows is NET of Stripe fee, not gross', () => {
     const out = depositOnlyStrategy.buildBreakdownRows({
       ...baseInput,
       platformFeeAmount: 2.5,
       stripeFeeAmount: 0.66,
     });
-    const hmu = out.driverRows.find(r => r.label === 'HMU Fees Paid')?.value ?? 0;
-    const stripe = out.driverRows.find(r => r.label === 'Stripe Fees Paid')?.value ?? 0;
+    const hmu = out.driverRows.find(r => r.label === 'HMU Fee')?.value ?? 0;
+    const stripe = out.driverRows.find(r => r.label === 'Stripe Processing')?.value ?? 0;
     // gross = 2.50, stripe = 0.66 → hmu net = 1.84
     expect(hmu).toBeCloseTo(1.84, 2);
     expect(stripe).toBeCloseTo(0.66, 2);
     // And gross is conserved: hmu net + stripe = original app fee
     expect(hmu + stripe).toBeCloseTo(2.5, 2);
+  });
+
+  it('driver earnings identity: deposit + cash + extrasNet − fees === youEarned', () => {
+    const out = depositOnlyStrategy.buildBreakdownRows({
+      ...baseInput,
+      addOnTotal: 6,
+      extrasDriverAmount: 4.8,
+      extrasPlatformFee: 1.2,
+      extrasStripeFee: 0.78,
+      extras: [
+        { id: 'e1', name: 'Stop', subtotal: 3, driverAmount: 2.4, platformFee: 0.6, status: 'confirmed', chargeStatus: 'succeeded' },
+        { id: 'e2', name: 'Stop', subtotal: 3, driverAmount: 2.4, platformFee: 0.6, status: 'confirmed', chargeStatus: 'succeeded' },
+      ],
+    });
+    // Base Ride Fare is muted context only — excluded from the sum.
+    expect(out.driverRows.find(r => r.label === 'Base Ride Fare')?.role).toBe('muted');
+    expect(earnedFromRows(out.driverRows)).toBeCloseTo(out.youEarned, 2);
+    expect(getTotal(out.driverRows)).toBeCloseTo(out.youEarned, 2);
   });
 
   it('cash ride collapses to a single row on both sides', () => {
@@ -118,9 +147,10 @@ describe('DepositOnlyStrategy.buildBreakdownRows', () => {
 });
 
 describe('LegacyFullFareStrategy.buildBreakdownRows', () => {
-  it('digital ride: driverRows sum === total === riderRows sum', () => {
-    // Money conservation: driver + gross_app_fee = captured. Gross app fee
-    // splits into platform NET + Stripe processing fee.
+  it('digital ride: fare + add-ons − fees === youEarned; riderRows sum === total', () => {
+    // Money conservation: captured = fare + add-ons. The driver-side rows are
+    // an earnings view (fare + add-ons − HMU − Stripe = Total Earnings); the
+    // rider-side rows still partition the captured total.
     const out = legacyFullFareStrategy.buildBreakdownRows({
       ...baseInput,
       agreedPrice: 20,
@@ -130,7 +160,8 @@ describe('LegacyFullFareStrategy.buildBreakdownRows', () => {
       stripeFeeAmount: 0.5,
     });
     expect(out.total).toBeCloseTo(25, 2);
-    expect(sumNonTotal(out.driverRows)).toBeCloseTo(out.total, 2);
+    expect(earnedFromRows(out.driverRows)).toBeCloseTo(out.youEarned, 2);
+    expect(getTotal(out.driverRows)).toBeCloseTo(out.youEarned, 2);
     expect(sumNonTotal(out.riderRows)).toBeCloseTo(out.total, 2);
     expect(out.youEarned).toBeCloseTo(22.5, 2);
   });

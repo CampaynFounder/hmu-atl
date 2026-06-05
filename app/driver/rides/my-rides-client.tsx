@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 import DealPill from '@/components/driver/deal-pill';
 import RideCommentThread from '@/components/shared/ride-comment-thread';
+import { BreakdownCard } from '@/components/ride/breakdown-card';
+import type { BreakdownRow } from '@/lib/payments/strategies/types';
 
 interface Ride {
   id: string;
@@ -21,6 +23,11 @@ interface Ride {
   waivedFee: number;
   addOnTotal: number;
   isCash: boolean;
+  /** Canonical money-conserving driver rows (deposit/cash/fees/total). */
+  breakdownRows: BreakdownRow[] | null;
+  /** Real total earnings incl. Pull Up Cash (not just the digital payout). */
+  youEarned: number;
+  extrasFailed: number;
   rating: string | null;
   createdAt: string;
   startedAt: string | null;
@@ -71,7 +78,10 @@ export default function MyRidesClient({ rides, currentUserId }: Props) {
   });
 
   const completedRides = rides.filter(r => r.status === 'completed');
-  const totalEarned = completedRides.reduce((s, r) => s + r.payout, 0);
+  // Real earnings include Pull Up Cash, not just the digital payout. Summing
+  // r.payout (deposit-minus-fee) here is what made "Earned" read absurdly low
+  // for deposit-mode drivers.
+  const totalEarned = completedRides.reduce((s, r) => s + r.youEarned, 0);
   const totalFees = completedRides.reduce((s, r) => s + r.platformFee, 0);
 
   return (
@@ -278,8 +288,8 @@ function RideCard({ ride, expanded, onToggle, showComments }: { ride: Ride; expa
       {/* Price summary row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
         <div style={{ fontSize: 12, color: '#888' }}>
-          {ride.payout > 0
-            ? `You kept $${ride.payout.toFixed(2)}`
+          {ride.youEarned > 0
+            ? `You earned $${ride.youEarned.toFixed(2)}`
             : ride.status === 'cancelled' ? 'Cancelled' : ''}
         </div>
         <div style={{ fontFamily: "var(--font-display, 'Bebas Neue', sans-serif)", fontSize: 22, color: '#00E676' }}>
@@ -345,21 +355,25 @@ function RideCard({ ride, expanded, onToggle, showComments }: { ride: Ride; expa
             </div>
           )}
 
-          {/* Financial breakdown */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <Row label="Base fare" value={`$${ride.price.toFixed(2)}`} />
-            {ride.addOnTotal > 0 && <Row label="Add-ons" value={`+$${ride.addOnTotal.toFixed(2)}`} color="#00E676" />}
-            <Row label="Ride total" value={`$${rideTotal.toFixed(2)}`} bold />
-            {ride.stripeFee > 0 && <Row label="Stripe processing" value={`-$${ride.stripeFee.toFixed(2)}`} color="#FF5252" />}
-            {ride.platformFee > 0 && <Row label="HMU platform fee" value={`-$${ride.platformFee.toFixed(2)}`} color="#FF5252" />}
-            {ride.waivedFee > 0 && <Row label="Launch Offer savings" value={`$${ride.waivedFee.toFixed(2)}`} color="#00E676" />}
-            {ride.payout > 0 && (
-              <>
-                <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 4, paddingTop: 4 }} />
-                <Row label="You kept" value={`$${ride.payout.toFixed(2)}`} bold color="#00E676" />
-              </>
-            )}
-          </div>
+          {/* Financial breakdown — canonical, money-conserving rows shared
+              with the ride-detail screen. Deposit-mode rides correctly show
+              Deposit + Cash Paid Directly to You + fees + Total Earnings. */}
+          {ride.breakdownRows && ride.breakdownRows.length > 0 ? (
+            <>
+              <BreakdownCard rows={ride.breakdownRows} extrasFailed={ride.extrasFailed} />
+              {ride.waivedFee > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <Row label="Launch Offer savings" value={`$${ride.waivedFee.toFixed(2)}`} color="#00E676" />
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <Row label="Base fare" value={`$${ride.price.toFixed(2)}`} />
+              {ride.addOnTotal > 0 && <Row label="Add-ons" value={`+$${ride.addOnTotal.toFixed(2)}`} color="#00E676" />}
+              <Row label="Ride total" value={`$${rideTotal.toFixed(2)}`} bold />
+            </div>
+          )}
 
           {/* Timestamps */}
           <div style={{ marginTop: 10, display: 'flex', gap: 12, fontSize: 11, color: '#555' }}>
