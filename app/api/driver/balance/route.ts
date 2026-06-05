@@ -117,8 +117,31 @@ export async function GET() {
         AND status IN ('ended', 'completed')
         AND (no_show_percent IS NULL OR no_show_percent = 0)
     `;
-    const cashRides = Number((cashRows[0] as Record<string, unknown>).cash_rides || 0);
-    const cashTotal = Number((cashRows[0] as Record<string, unknown>).cash_total || 0);
+    const legacyCashRides = Number((cashRows[0] as Record<string, unknown>).cash_rides || 0);
+    const legacyCashTotal = Number((cashRows[0] as Record<string, unknown>).cash_total || 0);
+
+    // Deposit-only Pull Up Cash: the rider hands the driver the fare minus the
+    // digital deposit, in person. is_cash is FALSE on these rides (they carry a
+    // digital deposit), so the legacy cash query above misses them entirely —
+    // which is why deposit-mode drivers saw $0 cash. Count it here and fold it
+    // into the cash figure so the wallet reflects real cash in hand. (Extras
+    // are charged digitally, so they do NOT add to the cash remainder.)
+    const depositCashRows = await sql`
+      SELECT
+        COUNT(*) as rides,
+        COALESCE(SUM(GREATEST(COALESCE(final_agreed_price, amount, 0) - COALESCE(visible_deposit, 0), 0)), 0) as cash_total
+      FROM rides
+      WHERE driver_id = ${driverUserId}
+        AND pricing_mode_key = 'deposit_only'
+        AND (is_cash IS NULL OR is_cash = false)
+        AND status IN ('ended', 'completed')
+        AND (no_show_percent IS NULL OR no_show_percent = 0)
+    `;
+    const depositCashRides = Number((depositCashRows[0] as Record<string, unknown>).rides || 0);
+    const depositCashTotal = Number((depositCashRows[0] as Record<string, unknown>).cash_total || 0);
+
+    const cashRides = legacyCashRides + depositCashRides;
+    const cashTotal = Math.round((legacyCashTotal + depositCashTotal) * 100) / 100;
 
     const digitalRows = await sql`
       SELECT

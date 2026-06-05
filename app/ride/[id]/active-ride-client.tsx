@@ -14,6 +14,7 @@ import AddOnMenuSheet from '@/components/ride/add-on-menu-sheet';
 import DriverAddOnApproval from '@/components/ride/driver-add-on-approval';
 import SafetyCheckOverlay from '@/components/ride/safety-check-overlay';
 import SafetyTile from '@/components/ride/safety-tile';
+import { BreakdownCard } from '@/components/ride/breakdown-card';
 import dynamic from 'next/dynamic';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
@@ -4762,95 +4763,6 @@ export default function ActiveRideClient({
 }
 
 // ── Sub-components ──
-
-function BreakdownCard({
-  rows,
-  audience = 'driver',
-  extrasFailed,
-}: {
-  rows: { label: string; value: number; role: 'amount' | 'muted' | 'fee' | 'total' }[];
-  audience?: 'driver' | 'rider';
-  extrasFailed: number;
-}) {
-  const visible = rows;
-  const heading = audience === 'driver' ? 'WHAT YOU EARNED' : 'WHAT YOU PAID';
-
-  return (
-    <div style={{
-      backgroundColor: COLORS.card,
-      borderRadius: 16,
-      padding: '16px',
-    }}>
-      <div style={{
-        fontSize: 11,
-        color: COLORS.grayLight,
-        letterSpacing: 1,
-        marginBottom: 12,
-        fontFamily: FONTS.display,
-      }}>
-        {heading}
-      </div>
-
-      {visible.map((row, idx) => {
-        const isTotal = row.role === 'total';
-        const isMuted = row.role === 'muted';
-        const isFee = row.role === 'fee';
-        // Divider before the total row, and before the first fee row.
-        const prevRole = idx > 0 ? visible[idx - 1].role : null;
-        const showDivider = (isTotal && prevRole !== 'total') ||
-          (isFee && prevRole !== 'fee' && prevRole !== null);
-
-        return (
-          <div key={`${row.label}-${idx}`}>
-            {showDivider && (
-              <div style={{
-                height: 1,
-                background: 'rgba(255,255,255,0.08)',
-                margin: '10px 0',
-              }} />
-            )}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'baseline',
-              padding: isTotal ? '6px 0' : '5px 0',
-            }}>
-              <span style={{
-                fontSize: isTotal ? 15 : 13,
-                color: isMuted ? COLORS.gray : isFee ? COLORS.orange : COLORS.grayLight,
-                fontWeight: isTotal ? 600 : 400,
-              }}>
-                {row.label}
-              </span>
-              <span style={{
-                fontFamily: FONTS.mono,
-                fontSize: isTotal ? 18 : 14,
-                color: isMuted ? COLORS.gray : isFee ? COLORS.orange : '#fff',
-                fontWeight: isTotal ? 700 : 500,
-              }}>
-                {isFee ? `−$${Number(row.value || 0).toFixed(2)}` : `$${Number(row.value || 0).toFixed(2)}`}
-              </span>
-            </div>
-          </div>
-        );
-      })}
-
-      {extrasFailed > 0 && (
-        <div style={{
-          marginTop: 10,
-          padding: '8px 10px',
-          background: 'rgba(244,67,54,0.10)',
-          border: '1px solid rgba(244,67,54,0.30)',
-          borderRadius: 8,
-          fontSize: 12,
-          color: COLORS.red,
-        }}>
-          {extrasFailed} extra{extrasFailed === 1 ? '' : 's'} failed to charge — not included in total
-        </div>
-      )}
-    </div>
-  );
-}
 
 function ActionButton({
   label,

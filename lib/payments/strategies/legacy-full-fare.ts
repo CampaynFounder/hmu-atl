@@ -141,11 +141,15 @@ export class LegacyFullFareStrategy implements PricingStrategy {
       isCash: false,
       youEarned: driverNet,
       total,
+      // Full-fare mode: the WHOLE fare (+ add-ons) is captured digitally —
+      // there is no cash remainder. Fees come out of the full fare, so:
+      //   fare + add-ons − HMU fee − Stripe = Total Earnings (driver net).
       driverRows: [
-        { label: 'You Kept', value: driverNet, role: 'amount' },
-        { label: 'HMU Split', value: hmuSplitNet, role: 'muted' },
-        { label: 'Stripe Fee', value: stripeFee, role: 'muted' },
-        { label: 'Total', value: total, role: 'total' },
+        { label: 'Ride Fare', value: fareCaptured, role: 'amount' },
+        ...(addOnsCaptured > 0 ? [{ label: 'Add-ons', value: addOnsCaptured, role: 'amount' as const }] : []),
+        { label: 'HMU Fee', value: hmuSplitNet, role: 'fee' },
+        { label: 'Stripe Processing', value: stripeFee, role: 'fee' },
+        { label: 'Total Earnings', value: driverNet, role: 'total' },
       ],
       riderRows: [
         { label: 'Fare Paid', value: fareCaptured, role: 'amount' },
