@@ -6,6 +6,7 @@ import { pool } from '@/lib/db/client';
 import { getCurrentUser } from '@/lib/auth/guards';
 import { isValidCoordinates } from '@/lib/geo/distance';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
+import { notifyUser } from '@/lib/ably/server';
 import { z } from 'zod';
 import crypto from 'crypto';
 
@@ -125,6 +126,31 @@ export async function POST(req: NextRequest) {
       }
 
       await client.query('COMMIT');
+
+      // Realtime fanout: push to every active driver in this market so their
+      // delivery feed refetches live — the same `user:{id}:notify` rail Direct
+      // bookings ride. Without this, store runs only surfaced on a manual tab
+      // switch / pull-to-refresh. MUST be awaited — Cloudflare Workers kill
+      // unawaited promises the moment the response returns. Best-effort: a
+      // notify failure never fails the (already-committed) request.
+      try {
+        const { rows: driverRows } = await client.query(
+          `SELECT dp.user_id AS id
+             FROM driver_profiles dp
+             JOIN users u ON u.id = dp.user_id
+            WHERE u.account_status = 'active'
+              AND u.market_id = $1
+            LIMIT 100`,
+          [market.market_id],
+        );
+        await Promise.allSettled(
+          driverRows.map((r: { id: string }) =>
+            notifyUser(r.id, 'delivery_posted', { deliveryId }),
+          ),
+        );
+      } catch (notifyErr) {
+        console.error('[delivery/request] driver notify fanout failed:', notifyErr);
+      }
 
       return NextResponse.json({
         deliveryId,
