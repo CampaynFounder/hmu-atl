@@ -30,6 +30,7 @@
     "expo-secure-store": "~56.0.4",
     "expo-status-bar": "~56.0.4",
     "expo-task-manager": "~56.0.15",
+    "expo-video": "~56.1.2",
     "expo-web-browser": "~56.0.5",
     "posthog-react-native": "^4.45.16",
     "react": "19.2.3",

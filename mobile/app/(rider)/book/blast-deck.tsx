@@ -22,9 +22,9 @@ import * as Haptics from 'expo-haptics';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
-import { CommentsAccordion } from '@/components/CommentsAccordion';
+import { useVideoPlayer, VideoView } from 'expo-video';
 
-const { width: W, height: H } = Dimensions.get('window');
+const { width: W } = Dimensions.get('window');
 const SWIPE_THRESHOLD = W * 0.32;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -49,24 +49,20 @@ interface TargetedDriver {
   minutesAway: number | null;
 }
 
-// ── Rating chips ──────────────────────────────────────────────────────────────
+// ── Autoplaying video background (top card only) ──────────────────────────────
+// TikTok-style: the driver's intro video autoplays muted + looping behind the
+// card, with their photo as the poster/fallback underneath.
 
-function RatingChips({ ratings }: { ratings: TargetedDriver['ratings'] }) {
-  const chips = [
-    { label: '✅ CHILL',      count: ratings.chill,       color: colors.green,  dim: colors.greenDim,  border: colors.greenBorder },
-    { label: '😎 COOL AF',    count: ratings.coolAf,      color: colors.blue,   dim: colors.blueDim,   border: colors.blueBorder },
-    { label: '👀 KINDA CREEPY', count: ratings.kindaCreepy, color: colors.amber,  dim: colors.amberDim,  border: colors.amberBorder },
-    { label: '🚩 WEIRDO',     count: ratings.weirdo,      color: colors.red,    dim: colors.redDim,    border: colors.redBorder },
-  ].filter(c => c.count > 0);
-
-  if (!chips.length) return null;
+function CardVideo({ uri, poster }: { uri: string; poster: string | null }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
   return (
-    <View style={dc.chips}>
-      {chips.map(c => (
-        <View key={c.label} style={[dc.chip, { backgroundColor: c.dim, borderColor: c.border }]}>
-          <Text style={[dc.chipText, { color: c.color }]}>{c.label} {c.count}</Text>
-        </View>
-      ))}
+    <View style={StyleSheet.absoluteFill}>
+      {poster ? <Image source={{ uri: poster }} style={dc.photo} resizeMode="cover" alt="" /> : null}
+      <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
     </View>
   );
 }
@@ -74,14 +70,13 @@ function RatingChips({ ratings }: { ratings: TargetedDriver['ratings'] }) {
 // ── Single swipeable card ─────────────────────────────────────────────────────
 
 function DriverCard({
-  driver, onSwipeRight, onSwipeLeft, isTop, stackIndex, token,
+  driver, onSwipeRight, onSwipeLeft, isTop, stackIndex,
 }: {
   driver: TargetedDriver;
   onSwipeRight: () => void;
   onSwipeLeft: () => void;
   isTop: boolean;
   stackIndex: number;
-  token: string | null;
 }) {
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
@@ -130,21 +125,23 @@ function DriverCard({
     opacity: interpolate(tx.value, [-160, -80, 0], [1, 0.6, 0], Extrapolation.CLAMP),
   }));
 
-  const hasPhoto = !!driver.photoUrl;
+  const initial = (driver.displayName || driver.handle || '?')[0]?.toUpperCase();
 
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View style={[dc.card, cardStyle, shadow.card]}>
-        {/* Background photo */}
-        {hasPhoto ? (
-          <Image source={{ uri: driver.photoUrl! }} style={dc.photo} resizeMode="cover" />
+        {/* Full-bleed media: autoplay video (top card) → photo → initial */}
+        {isTop && driver.videoUrl ? (
+          <CardVideo uri={driver.videoUrl} poster={driver.photoUrl} />
+        ) : driver.photoUrl ? (
+          <Image source={{ uri: driver.photoUrl }} style={dc.photo} resizeMode="cover" alt="" />
         ) : (
           <View style={[dc.photo, dc.photoFallback]}>
-            <Text style={dc.photoInitial}>{(driver.displayName || driver.handle)[0]?.toUpperCase()}</Text>
+            <Text style={dc.photoInitial}>{initial}</Text>
           </View>
         )}
 
-        {/* HMU / NAH overlays */}
+        {/* HMU / NAH swipe overlays */}
         <Animated.View style={[dc.indicator, dc.indicatorRight, hmuStyle]}>
           <Text style={dc.indicatorText}>HMU</Text>
         </Animated.View>
@@ -152,103 +149,38 @@ function DriverCard({
           <Text style={dc.indicatorText}>NAH</Text>
         </Animated.View>
 
-        {/* Info panel */}
+        {/* Minimal overlay: name/@handle · minutes away · price + on-card actions */}
         <View style={dc.scrim} />
         <View style={dc.info}>
-          {/* Name + price */}
-          <View style={dc.nameRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={dc.name} numberOfLines={1}>{driver.displayName}</Text>
-              <Text style={dc.handle}>@{driver.handle}</Text>
-            </View>
-            <View style={dc.priceWrap}>
-              <Text style={dc.priceLabel}>from</Text>
-              <Text style={dc.price}>${driver.minPrice}</Text>
-            </View>
-          </View>
-
-          {/* Stats row */}
-          <View style={dc.stats}>
+          <View style={dc.infoLeft}>
+            <Text style={dc.name} numberOfLines={1}>{driver.displayName}</Text>
+            <Text style={dc.handle}>@{driver.handle}</Text>
             {driver.minutesAway != null && (
-              <View style={[dc.stat, dc.statEta]}>
-                <Ionicons name="time-outline" size={12} color={colors.green} />
-                <Text style={[dc.statText, { color: colors.green }]}>~{driver.minutesAway} min away</Text>
+              <View style={dc.metaRow}>
+                <Ionicons name="time-outline" size={13} color={colors.green} />
+                <Text style={dc.metaText}>~{driver.minutesAway} min away</Text>
               </View>
             )}
-            {driver.distanceMi != null && (
-              <View style={dc.stat}>
-                <Ionicons name="location-outline" size={12} color={colors.textFaint} />
-                <Text style={dc.statText}>{driver.distanceMi.toFixed(1)} mi</Text>
-              </View>
-            )}
-            {driver.chillScore > 0 && (
-              <View style={dc.stat}>
-                <Ionicons name="star" size={12} color={colors.green} />
-                <Text style={dc.statText}>{driver.chillScore}%</Text>
-              </View>
-            )}
-            {driver.acceptanceRate != null && (
-              <View style={dc.stat}>
-                <Ionicons name="checkmark-circle" size={12} color={
-                  driver.acceptanceRate >= 90 ? colors.green :
-                  driver.acceptanceRate >= 75 ? colors.amber : colors.textFaint
-                } />
-                <Text style={dc.statText}>{driver.acceptanceRate}% acc</Text>
-              </View>
-            )}
-            {driver.vehicleSummary && (
-              <View style={dc.stat}>
-                <Ionicons name="car-outline" size={12} color={colors.textFaint} />
-                <Text style={dc.statText} numberOfLines={1}>{driver.vehicleSummary}</Text>
-              </View>
-            )}
-            {driver.tier === 'hmu_first' && (
-              <View style={[dc.stat, { backgroundColor: colors.cashDim, borderColor: colors.cashBorder, borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 6 }]}>
-                <Text style={[dc.statText, { color: colors.cash }]}>HMU 1ST</Text>
-              </View>
-            )}
+            <Text style={dc.price}>
+              <Text style={dc.priceLabel}>from </Text>${driver.minPrice}
+            </Text>
           </View>
 
-          {/* Rating chips */}
-          <RatingChips ratings={driver.ratings} />
-
-          {/* Comments accordion */}
-          <CommentsAccordion handle={driver.handle} token={token} />
+          {isTop && (
+            <View style={dc.actions}>
+              <TouchableOpacity style={[dc.actBtn, dc.passBtn]} onPress={onSwipeLeft} activeOpacity={0.85}>
+                <Ionicons name="close" size={26} color={colors.red} />
+              </TouchableOpacity>
+              <TouchableOpacity style={[dc.actBtn, dc.hmuBtn]} onPress={onSwipeRight} activeOpacity={0.85}>
+                <Ionicons name="paper-plane" size={24} color={colors.bg} />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </Animated.View>
     </GestureDetector>
   );
 }
-
-// ── Action buttons ────────────────────────────────────────────────────────────
-
-function ActionButtons({ onNah, onHmu, disabled }: {
-  onNah: () => void; onHmu: () => void; disabled: boolean;
-}) {
-  return (
-    <View style={ab.row}>
-      <TouchableOpacity style={[ab.btn, ab.nah]} onPress={onNah} disabled={disabled} activeOpacity={0.8}>
-        <Ionicons name="close" size={28} color={colors.red} />
-        <Text style={[ab.label, { color: colors.red }]}>NAH</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={[ab.btn, ab.hmu]} onPress={onHmu} disabled={disabled} activeOpacity={0.8}>
-        <Ionicons name="paper-plane" size={28} color={colors.green} />
-        <Text style={[ab.label, { color: colors.green }]}>HMU</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-const ab = StyleSheet.create({
-  row: { flexDirection: 'row', justifyContent: 'center', gap: spacing.xxxl, paddingVertical: spacing.xl },
-  btn: {
-    width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.card, borderWidth: 1.5, gap: 2,
-  },
-  nah: { borderColor: colors.redBorder },
-  hmu: { borderColor: colors.greenBorder },
-  label: { fontFamily: fonts.monoBold, fontSize: 9, letterSpacing: 1 },
-});
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 
@@ -408,22 +340,12 @@ export default function BlastDeck() {
                   isTop={isTop}
                   onSwipeRight={() => void handleHmu(driver)}
                   onSwipeLeft={handleNah}
-                  token={token}
                 />
               </View>
             );
           })
         )}
       </View>
-
-      {/* Action buttons */}
-      {!loading && !isDone && (
-        <ActionButtons
-          onNah={handleNah}
-          onHmu={() => void handleHmu(remaining[0])}
-          disabled={false}
-        />
-      )}
 
       {/* Progress */}
       {!loading && drivers.length > 0 && (
@@ -436,9 +358,6 @@ export default function BlastDeck() {
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-
-const CARD_W = W - spacing.xl * 2;
-const CARD_H = H * 0.60;
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
@@ -482,21 +401,18 @@ const s = StyleSheet.create({
 
 const dc = StyleSheet.create({
   card: {
-    width: CARD_W, height: CARD_H,
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     borderRadius: 24, overflow: 'hidden',
     backgroundColor: colors.card,
-    position: 'absolute',
-    top: 0,
-    borderTopWidth: 2, borderTopColor: colors.greenBorder,
   },
   photo: { ...StyleSheet.absoluteFill },
   photoFallback: {
     backgroundColor: colors.cardAlt, alignItems: 'center', justifyContent: 'center',
   },
-  photoInitial: { fontFamily: fonts.display, fontSize: 100, color: colors.border },
+  photoInitial: { fontFamily: fonts.display, fontSize: 120, color: colors.border },
 
   indicator: {
-    position: 'absolute', top: spacing.xl, paddingHorizontal: spacing.lg,
+    position: 'absolute', top: spacing.xxl, paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm, borderRadius: radius.cardInner, borderWidth: 3,
   },
   indicatorRight: { left: spacing.xl, borderColor: colors.green, backgroundColor: colors.greenDim },
@@ -504,27 +420,27 @@ const dc = StyleSheet.create({
   indicatorText: { fontFamily: fonts.display, fontSize: 28, letterSpacing: 2, color: colors.textPrimary },
 
   scrim: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, height: 220,
-    backgroundColor: 'rgba(8,8,8,0.86)',
+    position: 'absolute', bottom: 0, left: 0, right: 0, height: 260,
+    backgroundColor: 'rgba(8,8,8,0.82)',
   },
-  info: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: spacing.xl, gap: spacing.sm },
-
-  nameRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.md },
-  name: { fontFamily: fonts.monoBold, fontSize: 17, color: colors.textPrimary },
-  handle: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, marginTop: 2 },
-  priceWrap: { alignItems: 'flex-end' },
-  priceLabel: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint },
-  price: { fontFamily: fonts.display, fontSize: 28, color: colors.green, lineHeight: 30 },
-
-  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  stat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  statEta: {
-    backgroundColor: colors.greenDim, borderRadius: radius.pill,
-    paddingHorizontal: 7, paddingVertical: 2, borderWidth: 1, borderColor: colors.greenBorder,
+  info: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    padding: spacing.xl,
+    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.lg,
   },
-  statText: { fontFamily: fonts.mono, fontSize: 10, color: colors.textTertiary },
+  infoLeft: { flex: 1, gap: 4 },
+  name: { fontFamily: fonts.monoBold, fontSize: 20, color: colors.textPrimary },
+  handle: { fontFamily: fonts.mono, fontSize: 11, color: colors.textFaint },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 },
+  metaText: { fontFamily: fonts.mono, fontSize: 12, color: colors.green },
+  priceLabel: { fontFamily: fonts.mono, fontSize: 11, color: colors.textFaint },
+  price: { fontFamily: fonts.display, fontSize: 30, color: colors.green, marginTop: 2 },
 
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  chip: { borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1 },
-  chipText: { fontFamily: fonts.mono, fontSize: 8, letterSpacing: 0.5 },
+  actions: { flexDirection: 'column-reverse', gap: spacing.md, alignItems: 'center' },
+  actBtn: {
+    width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5,
+  },
+  passBtn: { backgroundColor: 'rgba(8,8,8,0.5)', borderColor: colors.redBorder },
+  hmuBtn: { backgroundColor: colors.green, borderColor: colors.green },
 });

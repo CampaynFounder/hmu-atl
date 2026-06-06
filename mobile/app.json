@@ -58,6 +58,7 @@
       "expo-router",
       "./plugins/withCxxFlags",
       "expo-secure-store",
+      "expo-video",
       [
         "expo-build-properties",
         {
