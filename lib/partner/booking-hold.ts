@@ -15,6 +15,7 @@ import { sql } from '@/lib/db/client';
 import { stripe } from '@/lib/stripe/connect';
 import { publishAdminEvent } from '@/lib/ably/server';
 import { dispatchPartnerEvent } from '@/lib/partner/webhooks';
+import { customerDefaultPaymentMethod } from '@/lib/partner/payer';
 
 function isMock(): boolean {
   return process.env.STRIPE_MOCK === 'true';
@@ -25,16 +26,9 @@ interface PartnerBookingRow {
   partner_id: string;
   delivery_fee_cents: number;
   driver_id: string;
+  payer_mode: 'vendor_funded' | 'pass_through';
   vendor_stripe_customer_id: string | null;
-}
-
-async function vendorDefaultPaymentMethod(customerId: string): Promise<string | null> {
-  const customer = await stripe.customers.retrieve(customerId);
-  if (!customer || customer.deleted) return null;
-  const def = customer.invoice_settings?.default_payment_method;
-  if (def) return typeof def === 'string' ? def : def.id;
-  const list = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 });
-  return list.data[0]?.id ?? null;
+  rider_customer_id: string | null;
 }
 
 /**
@@ -50,9 +44,11 @@ export async function maybePlacePartnerHold(
 ): Promise<void> {
   const rows = await sql`
     SELECT pb.id, pb.partner_id, pb.delivery_fee_cents, pb.driver_id,
-           p.vendor_stripe_customer_id
+           p.payer_mode, p.vendor_stripe_customer_id,
+           pr.stripe_customer_id AS rider_customer_id
     FROM partner_bookings pb
     JOIN api_partners p ON p.id = pb.partner_id
+    LEFT JOIN partner_riders pr ON pr.user_id = pb.rider_id AND pr.partner_id = pb.partner_id
     WHERE pb.post_id = ${postId} AND pb.status = 'pending_accept'
     LIMIT 1
   `;
@@ -66,21 +62,26 @@ export async function maybePlacePartnerHold(
     const driverStripeAccountId = (driverRows[0] as { stripe_account_id: string | null } | undefined)
       ?.stripe_account_id;
     if (!driverStripeAccountId) throw new Error('driver has no Stripe connected account');
-    if (!pb.vendor_stripe_customer_id) throw new Error('partner has no vendor Stripe customer');
+
+    // Funding customer depends on payer mode: the rider's own guest customer
+    // (pass_through) or the partner's shared vendor customer (vendor_funded).
+    const fundingCustomer =
+      pb.payer_mode === 'pass_through' ? pb.rider_customer_id : pb.vendor_stripe_customer_id;
+    if (!fundingCustomer) throw new Error('no funding Stripe customer for this booking');
 
     let paymentIntentId: string;
 
     if (isMock()) {
       paymentIntentId = `pi_partner_mock_${postId}`;
     } else {
-      const pmId = await vendorDefaultPaymentMethod(pb.vendor_stripe_customer_id);
-      if (!pmId) throw new Error('vendor customer has no payment method on file');
+      const pmId = await customerDefaultPaymentMethod(fundingCustomer);
+      if (!pmId) throw new Error('funding customer has no payment method on file');
 
       const pi = await stripe.paymentIntents.create(
         {
           amount: pb.delivery_fee_cents,
           currency: 'usd',
-          customer: pb.vendor_stripe_customer_id,
+          customer: fundingCustomer,
           payment_method: pmId,
           capture_method: 'manual',
           confirm: true,

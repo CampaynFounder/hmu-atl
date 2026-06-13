@@ -18,6 +18,7 @@ import { createTentativeBooking } from '@/lib/schedule/conflicts';
 import { notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { resolveFeePolicy, computeDeliverySplit } from '@/lib/partner/fees';
 import { resolvePartnerRider } from '@/lib/partner/rider';
+import { customerDefaultPaymentMethod } from '@/lib/partner/payer';
 import { dispatchPartnerEvent } from '@/lib/partner/webhooks';
 import type { PartnerContext } from '@/lib/partner/auth';
 
@@ -93,11 +94,8 @@ export async function createPartnerDeliveryBooking(
   const marketSlug = typeof body.market_slug === 'string' ? body.market_slug.toLowerCase() : '';
   if (!marketSlug) return fail(400, 'bad_request', 'market_slug is required');
 
-  // --- payer config (PR2b supports vendor_funded only) ---
-  if (partner.payerMode !== 'vendor_funded') {
-    return fail(501, 'not_implemented', 'Only vendor_funded partners are supported right now');
-  }
-  if (!partner.vendorStripeCustomerId) {
+  // --- payer config ---
+  if (partner.payerMode === 'vendor_funded' && !partner.vendorStripeCustomerId) {
     return fail(400, 'partner_not_configured', 'Partner has no vendor Stripe customer on file');
   }
 
@@ -150,17 +148,34 @@ export async function createPartnerDeliveryBooking(
     driver_payout_cents: split.driverPayoutCents,
   };
 
-  // --- synthetic rider ---
+  // --- synthetic rider (+ guest Stripe customer for pass_through) ---
   const rider = await resolvePartnerRider(
-    partner.id,
+    { id: partner.id, payerMode: partner.payerMode, vendorStripeCustomerId: partner.vendorStripeCustomerId },
     {
       ref: extRef,
       name: typeof body.external_rider?.name === 'string' ? body.external_rider.name : null,
       phone: typeof body.external_rider?.phone === 'string' ? body.external_rider.phone : null,
     },
     market.market_id,
-    partner.vendorStripeCustomerId,
   );
+
+  // --- funding source must have a card on file before we commit a driver ---
+  const fundingCustomer =
+    partner.payerMode === 'pass_through' ? rider.stripeCustomerId : partner.vendorStripeCustomerId;
+  if (!fundingCustomer) {
+    return fail(400, 'partner_not_configured', 'No funding Stripe customer for this booking');
+  }
+  const pm = await customerDefaultPaymentMethod(fundingCustomer);
+  if (!pm) {
+    if (partner.payerMode === 'pass_through') {
+      return fail(
+        402,
+        'payment_setup_required',
+        'No card on file for this customer. POST /api/partner/v1/payment-setup to collect one, then retry.',
+      );
+    }
+    return fail(400, 'partner_not_configured', 'Vendor Stripe customer has no card on file');
+  }
 
   // --- create the direct_booking post (price = delivery fee in dollars) ---
   const timeWindow: Record<string, unknown> = {
