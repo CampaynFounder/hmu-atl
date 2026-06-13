@@ -13,6 +13,7 @@
 import { sql } from '@/lib/db/client';
 import { stripe } from '@/lib/stripe/connect';
 import { publishAdminEvent } from '@/lib/ably/server';
+import { dispatchPartnerEvent } from '@/lib/partner/webhooks';
 
 function isMock(): boolean {
   return process.env.STRIPE_MOCK === 'true';
@@ -30,6 +31,8 @@ export interface PartnerCaptureOutcome {
 
 interface CaptureRow {
   id: string;
+  partner_id: string;
+  post_id: string;
   payment_intent_id: string | null;
   delivery_fee_cents: number;
   platform_fee_cents: number;
@@ -47,8 +50,8 @@ interface CaptureRow {
  */
 export async function maybeCapturePartnerHold(rideId: string): Promise<PartnerCaptureOutcome> {
   const rows = await sql`
-    SELECT id, payment_intent_id, delivery_fee_cents, platform_fee_cents,
-           driver_payout_cents, rider_id, driver_id
+    SELECT id, partner_id, post_id, payment_intent_id, delivery_fee_cents,
+           platform_fee_cents, driver_payout_cents, rider_id, driver_id
     FROM partner_bookings
     WHERE ride_id = ${rideId} AND status = 'accepted'
     LIMIT 1
@@ -98,6 +101,15 @@ export async function maybeCapturePartnerHold(rideId: string): Promise<PartnerCa
       rideId,
       deliveryFeeCents: pb.delivery_fee_cents,
       platformFeeCents: pb.platform_fee_cents,
+    }).catch(() => {});
+    dispatchPartnerEvent(pb.partner_id, 'booking.captured', {
+      booking_id: pb.post_id,
+      ride_id: rideId,
+      fee_split: {
+        delivery_fee_cents: pb.delivery_fee_cents,
+        platform_fee_cents: pb.platform_fee_cents,
+        driver_payout_cents: pb.driver_payout_cents,
+      },
     }).catch(() => {});
 
     return { handled: true, driverReceives: driverDollars, platformFee: platformDollars };

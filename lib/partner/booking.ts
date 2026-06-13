@@ -18,6 +18,7 @@ import { createTentativeBooking } from '@/lib/schedule/conflicts';
 import { notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { resolveFeePolicy, computeDeliverySplit } from '@/lib/partner/fees';
 import { resolvePartnerRider } from '@/lib/partner/rider';
+import { dispatchPartnerEvent } from '@/lib/partner/webhooks';
 import type { PartnerContext } from '@/lib/partner/auth';
 
 interface Coord {
@@ -231,6 +232,12 @@ export async function createPartnerDeliveryBooking(
     partnerId: partner.id,
     driverId: driver.user_id,
     deliveryFeeCents,
+  }).catch(() => {});
+  dispatchPartnerEvent(partner.id, 'booking.created', {
+    booking_id: postId,
+    status: 'pending_accept',
+    driver_handle: handle,
+    fee_split: feeSplit,
   }).catch(() => {});
 
   return { ok: true, bookingId: postId, status: 'pending_accept', expiresAt, feeSplit };

@@ -248,41 +248,42 @@ Price a trip (distance, suggested fare, deposit). No booking is created.
 
 ---
 
-### 🚧 `POST /api/partner/v1/bookings` — *planned, not yet live*
+### ✅ `POST /api/partner/v1/bookings`
 
-Books a specific driver for a delivery and (on driver accept) holds the delivery
-fee against your funding source, paying out to the driver's connected account.
+Books a specific driver for a delivery. On driver accept, HMU holds the delivery
+fee against your funding source; at ride start it captures and pays out to the
+driver's connected account (minus your configured commission). Requires the
+`bookings:write` scope. Currently supports **`vendor_funded`** partners only.
 
-> **This contract is not final and the endpoint is not deployed yet.** It is
-> published here so you can design your integration. We'll confirm the final
-> shape before go-live.
+**Lifecycle:** `pending_accept` → `accepted` (driver accepted, hold placed) →
+`captured` (ride started, driver paid) — or `cancelled` / `hold_failed`.
 
-**Planned body:**
+**Body:**
 
 ```jsonc
 {
   "driver_handle": "alex_atl",
   "external_rider": {                 // your customer (not an HMU user)
-    "ref": "your-customer-id-123",
+    "ref": "your-customer-id-123",    // stable per customer — reused across orders
     "name": "Jordan",
     "phone": "+14045551212"
   },
   "pickup":  { "lat": 33.78, "lng": -84.38, "address": "Store, Midtown" },
   "dropoff": { "lat": 33.84, "lng": -84.37, "address": "123 Main St" },
   "delivery_fee_cents": 800,          // the fee HMU charges + splits
-  "market_slug": "atl",
-  "scheduled_for": null               // ISO time, or null = ASAP
+  "market_slug": "atl"
 }
 ```
 
-Send an `Idempotency-Key: <uuid>` header so retries don't double-book.
+Send an `Idempotency-Key: <uuid>` header so retries don't double-book — a repeat
+with the same key replays the original response.
 
-**Planned response** `201`:
+**Response** `201`:
 
 ```jsonc
 {
-  "booking_id": "…",
-  "status": "pending_accept",         // → accepted → in_progress → completed
+  "booking_id": "…",                  // use this for cancel + to match webhooks
+  "status": "pending_accept",
   "expires_at": "2026-06-13T20:15:00Z",
   "fee_split": {
     "delivery_fee_cents": 800,
@@ -292,17 +293,59 @@ Send an `Idempotency-Key: <uuid>` header so retries don't double-book.
 }
 ```
 
-Booking-time errors you should handle: `403 driver_not_bookable` (driver hasn't
-opted into partner bookings), `409 driver_unavailable`, `402` (funding issue).
+Booking-time errors: `400 bad_request` (validation), `400 unknown_market`,
+`403 driver_not_bookable` (driver hasn't opted into partner bookings),
+`403 market_not_allowed`, `404 driver_not_found`, `409 driver_unavailable`,
+`409 driver_not_payable`, `404 not_available` (partner bookings disabled).
 
 ---
 
-### 🚧 Status updates — webhooks + polling — *planned*
+### ✅ `DELETE /api/partner/v1/bookings/{id}`
 
-You won't poll the driver's live state. HMU will **POST signed events** to a
-`webhook_url` you register (booking matched, driver en route, started, completed,
-cancelled), with `GET /api/partner/v1/bookings/{id}` as a polling fallback.
-Webhook signing mirrors the inbound `X-HMU-Signature` scheme.
+Cancel a booking (the `{id}` is the `booking_id` from create) before it's
+captured. Releases any held authorization. Requires `bookings:write`.
+
+**Response** `200`: `{ "booking_id": "…", "status": "cancelled" }`
+`409 not_cancelable` if the delivery already started (captured); idempotent if
+already cancelled.
+
+---
+
+### ✅ Status updates — outbound webhooks
+
+Register a `webhook_url` (and webhook signing secret) with HMU. We **POST signed
+events** there as the booking moves through its lifecycle, with automatic retries
+(exponential backoff over ~6 attempts) if your endpoint is down.
+
+**Events:**
+
+| `type` | When |
+|---|---|
+| `booking.created` | booking accepted into the system, awaiting driver |
+| `booking.accepted` | a driver accepted; delivery-fee hold placed |
+| `booking.hold_failed` | driver accepted but the card hold failed |
+| `booking.captured` | ride started; fee captured; driver paid out |
+| `booking.cancelled` | booking cancelled (by you or the system) |
+
+**Payload** (POST body):
+
+```jsonc
+{
+  "id": "<delivery id>",              // unique per delivery attempt
+  "type": "booking.captured",
+  "data": {
+    "booking_id": "…",                // matches the create response
+    "ride_id": "…",
+    "fee_split": { "delivery_fee_cents": 800, "platform_fee_cents": 120, "driver_payout_cents": 680 }
+  }
+}
+```
+
+**Verifying the signature:** each POST carries `X-HMU-Signature: t=<unix>,v1=<hmac>`
+— the same scheme you use outbound. Recompute `HMAC-SHA256(webhook_secret,
+` ``${t}.${rawBody}`` `)` and compare to `v1`; reject if it doesn't match or `t`
+is stale. Respond `2xx` to acknowledge; any other status (or a timeout) triggers
+retries.
 
 ---
 

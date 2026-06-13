@@ -35,6 +35,7 @@ on:
           - cancel-timeouts
           - blast-target-expiry
           - posts-expire
+          - partner-webhooks
 
 jobs:
   conversation-agent:
@@ -166,4 +167,27 @@ jobs:
             --max-time 60 \
             -H "X-Cron-Secret: $CRON_SECRET" \
             https://atl.hmucashride.com/api/blast/cron/expire)
+          echo "$response"
+
+  partner-webhooks:
+    name: Partner webhook delivery retry sweep
+    # Redelivers pending outbound partner webhooks whose backoff has elapsed.
+    # Endpoint = /api/partner/cron/retry-webhooks (lib/partner/webhooks).
+    if: github.event.schedule == '*/5 * * * *' || github.event.inputs.job == 'partner-webhooks'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Retry pending partner webhooks
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is not set"
+            exit 1
+          fi
+          response=$(curl --fail-with-body --silent --show-error \
+            --max-time 60 \
+            -X POST \
+            -H "X-Cron-Secret: $CRON_SECRET" \
+            https://atl.hmucashride.com/api/partner/cron/retry-webhooks)
           echo "$response"
