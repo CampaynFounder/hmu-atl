@@ -300,6 +300,31 @@ Booking-time errors: `400 bad_request` (validation), `400 unknown_market`,
 
 ---
 
+### ✅ `POST /api/partner/v1/bookings/{id}/complete`
+
+Call this when the delivery is done. HMU **captures the held delivery fee**
+(pays the driver out to their connected account, minus commission) and marks the
+booking completed. Requires `bookings:write`. Idempotent.
+
+The booking must be in `accepted` state (a driver accepted and the hold was
+placed). This is how a partner delivery's payment is captured — there is no
+rider "I'm in" tap for an API booking.
+
+**Response** `200`:
+```jsonc
+{
+  "booking_id": "…",
+  "status": "completed",
+  "already_complete": false,
+  "driver_payout_cents": 680,
+  "platform_fee_cents": 120
+}
+```
+Errors: `409 not_completable` (no driver has accepted yet), `502 capture_failed`
+(payment capture failed — the booking is left `accepted` so you can retry).
+
+---
+
 ### ✅ `DELETE /api/partner/v1/bookings/{id}`
 
 Cancel a booking (the `{id}` is the `booking_id` from create) before it's
