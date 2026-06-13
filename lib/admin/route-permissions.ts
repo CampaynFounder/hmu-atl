@@ -99,6 +99,8 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/sms-templates',       rule: { kind: 'permission', slug: 'admin.smstemplates' } },
   { pattern: '/admin/chill-config',        rule: { kind: 'super' } },
   { pattern: '/admin/down-bad',            rule: { kind: 'super' } },
+  { pattern: '/admin/partner-fees',        rule: { kind: 'super' } }, // controls money split on partner deliveries — super only
+
   { pattern: '/admin/cold-start',          rule: { kind: 'super' } }, // changes prod compute billing — super only
 
   // ── TOOLS ───────────────────────────────────────────────────────────
