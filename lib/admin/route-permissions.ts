@@ -100,6 +100,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/chill-config',        rule: { kind: 'super' } },
   { pattern: '/admin/down-bad',            rule: { kind: 'super' } },
   { pattern: '/admin/partner-fees',        rule: { kind: 'super' } }, // controls money split on partner deliveries — super only
+  { pattern: '/admin/partner-keys',        rule: { kind: 'super' } }, // mints live partner API credentials — super only
 
   { pattern: '/admin/cold-start',          rule: { kind: 'super' } }, // changes prod compute billing — super only
 

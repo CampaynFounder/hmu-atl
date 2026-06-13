@@ -56,6 +56,7 @@ export default async function DriverProfilePage() {
         plateState: ((p.vehicle_info as Record<string, unknown>)?.plate_state as string) || 'GA',
         vehicleMpg: ((p.vehicle_info as Record<string, unknown>)?.vehicle_mpg as number) || null,
         acceptDirectBookings: (p.accept_direct_bookings as boolean) ?? true,
+        acceptPartnerBookings: (p.accept_partner_bookings as boolean) ?? false,
         minRiderChillScore: Number(p.min_rider_chill_score ?? 0),
         requireOgStatus: (p.require_og_status as boolean) || false,
         showVideoOnLink: (p.show_video_on_link as boolean) ?? true,
