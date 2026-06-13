@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { captureRiderPayment } from '@/lib/payments/escrow';
+import { maybeCapturePartnerHold } from '@/lib/partner/booking-capture';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 import { syncBookingFromRide } from '@/lib/schedule/conflicts';
 import { getPlatformConfig } from '@/lib/platform-config/get';
@@ -83,7 +84,19 @@ export async function POST(
       const idempotencyKey = `capture_${rideId}_${Date.now()}`;
       await sql`UPDATE rides SET capture_idempotency_key = ${idempotencyKey} WHERE id = ${rideId} AND capture_idempotency_key IS NULL`;
 
-      captureResult = await captureRiderPayment(rideId);
+      // Partner delivery rides capture with the delivery-fee split (not the
+      // ride's tiered fee). maybeCapturePartnerHold returns handled:false for
+      // normal rides, so they fall through to the standard capture.
+      const partnerCapture = await maybeCapturePartnerHold(rideId);
+      if (partnerCapture.handled) {
+        captureResult = {
+          ...captureResult,
+          driverReceives: partnerCapture.driverReceives ?? 0,
+          platformReceives: partnerCapture.platformFee ?? 0,
+        };
+      } else {
+        captureResult = await captureRiderPayment(rideId);
+      }
     }
 
     // Transition to active. auto_confirmed is always false now — rider must
