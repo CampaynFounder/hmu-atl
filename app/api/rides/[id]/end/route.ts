@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { captureRiderPayment } from '@/lib/payments/escrow';
+import { maybeCapturePartnerHold } from '@/lib/partner/booking-capture';
 import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { isWithinProximity } from '@/lib/geo/distance';
 import { calculateAndStoreRideAnalytics } from '@/lib/rides/analytics';
@@ -55,7 +56,16 @@ export async function POST(
 
     if (!isCashRide && ride.payment_intent_id && ride.funds_held && !ride.payment_captured) {
       try {
-        payoutResult = await captureRiderPayment(rideId);
+        // Partner delivery rides capture with the delivery-fee split; normal
+        // rides fall through to the standard fallback capture.
+        const partnerCapture = await maybeCapturePartnerHold(rideId);
+        payoutResult = partnerCapture.handled
+          ? {
+              driverReceives: partnerCapture.driverReceives ?? 0,
+              platformReceives: partnerCapture.platformFee ?? 0,
+              capHit: false,
+            }
+          : await captureRiderPayment(rideId);
       } catch (e) {
         console.error('Payment capture failed:', e);
       }
