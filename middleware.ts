@@ -215,6 +215,7 @@ const isPublicRoute = createRouteMatcher([
   '/auth-callback/blast',  // post-Clerk handoff; renders mid-handshake for spinner state
   '/api/blast/estimate',   // pre-auth pricing estimate for the blast form
   '/api/blast',            // blast booking endpoint — auth checked in handler, returns 401 JSON if unauthorized
+  '/api/partner/(.*)',     // partner API — API-key + HMAC auth enforced in-handler (lib/partner/auth.ts), not Clerk
   '/api/public/(.*)',
   '/api/rider/browse/(.*)',
   '/privacy',
