@@ -358,6 +358,18 @@ already cancelled.
 
 ---
 
+### ✅ Blasts — broadcast to many drivers *(requires `blasts:write`)*
+
+Instead of naming one driver, broadcast the request to all matched, opted-in drivers and let them respond; then pick a winner. The winner folds into the same lifecycle as a direct booking (use `/complete` + `/cancel` with the returned `blast_id`).
+
+- **`POST /api/partner/v1/blasts`** — body is the same as a booking minus `driver_handle`. Returns `{ blast_id, targeted_count, expires_at, fee_split }`. Honors `Idempotency-Key`.
+- **`GET /api/partner/v1/blasts/{id}/offers`** — poll driver responses:
+  ```jsonc
+  { "blast_id": "…", "status": "active",
+    "offers": [ { "target_id": "…", "driver_handle": "alex", "responded": true, "counter_price_cents": null, "selected": false } ] }
+  ```
+- **`POST /api/partner/v1/blasts/{id}/select/{target_id}`** — pick the winner. Creates the ride + places the delivery-fee hold. Returns `{ booking_id, ride_id, driver_id, status: "accepted" }`. `409` if the blast was already matched/expired. Then capture with `POST /bookings/{booking_id}/complete` exactly like a direct booking.
+
 ### ✅ Status updates — outbound webhooks
 
 Register a `webhook_url` (and webhook signing secret) with HMU. We **POST signed
