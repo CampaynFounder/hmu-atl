@@ -248,6 +248,28 @@ Price a trip (distance, suggested fare, deposit). No booking is created.
 
 ---
 
+### Payer modes
+
+Your partner account is one of two **payer modes** (set by HMU):
+- **`vendor_funded`** — the delivery fee is charged to *your* Stripe customer (one card on file for your account). Nothing extra to do per booking.
+- **`pass_through`** — each of your customers pays with their own card. Collect it first via `payment-setup` (below); the same customer is reused at booking time.
+
+### ✅ `POST /api/partner/v1/payment-setup` *(pass_through only)*
+
+Returns a Stripe **SetupIntent** so your frontend can attach a card to the guest customer with Stripe.js. Requires `bookings:write`.
+
+**Body:** `{ "external_rider": { "ref": "cust-1", "name": "Jordan" }, "market_slug": "atl" }`
+
+**Response** `200`:
+```jsonc
+{
+  "customer_id": "cus_…",
+  "client_secret": "seti_…_secret_…",   // confirm with Stripe.js using the key below
+  "publishable_key": "pk_live_…"
+}
+```
+After the card is attached, create the booking normally (same `external_rider.ref`). If you skip this, `POST /bookings` returns `402 payment_setup_required`.
+
 ### ✅ `POST /api/partner/v1/bookings`
 
 Books a specific driver for a delivery. On driver accept, HMU holds the delivery
