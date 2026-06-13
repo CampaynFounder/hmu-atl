@@ -28,6 +28,8 @@ export async function PATCH(req: NextRequest) {
     plate_state?: string;
     accepts_cash?: boolean;
     cash_only?: boolean;
+    /** Opt in to third-party (partner API) delivery/ride bookings. */
+    accept_partner_bookings?: boolean;
     allow_in_route_stops?: boolean;
     wait_minutes?: number;
     advance_notice_hours?: number;
@@ -110,6 +112,14 @@ export async function PATCH(req: NextRequest) {
     `;
   }
 
+  // Partner-bookings consent (third-party API deliveries/rides).
+  if (body.accept_partner_bookings !== undefined) {
+    await sql`
+      UPDATE driver_profiles SET accept_partner_bookings = ${body.accept_partner_bookings}, updated_at = NOW()
+      WHERE user_id = ${userId}
+    `;
+  }
+
   if (body.show_video_on_link !== undefined || body.profile_visible !== undefined || body.fwu !== undefined) {
     await sql`
       UPDATE driver_profiles SET
@@ -131,6 +141,7 @@ export async function PATCH(req: NextRequest) {
   const current = await sql`
     SELECT accept_direct_bookings, min_rider_chill_score, require_og_status,
            show_video_on_link, profile_visible, fwu, accepts_cash, cash_only,
+           accept_partner_bookings,
            allow_in_route_stops, wait_minutes, advance_notice_hours, phone,
            deposit_floor
     FROM driver_profiles WHERE user_id = ${userId} LIMIT 1
@@ -139,6 +150,7 @@ export async function PATCH(req: NextRequest) {
 
   return NextResponse.json({
     acceptDirectBookings: row.accept_direct_bookings,
+    acceptPartnerBookings: row.accept_partner_bookings,
     minRiderChillScore: row.min_rider_chill_score,
     requireOgStatus: row.require_og_status,
     showVideoOnLink: row.show_video_on_link,
