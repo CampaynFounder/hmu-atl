@@ -6,6 +6,7 @@
 import { sql } from '@/lib/db/client';
 import { publishAdminEvent } from '@/lib/ably/server';
 import { releasePartnerHold } from '@/lib/partner/booking-capture';
+import { dispatchPartnerEvent } from '@/lib/partner/webhooks';
 
 export type CancelResult =
   | { ok: true; status: 'cancelled' }
@@ -46,5 +47,6 @@ export async function cancelPartnerBooking(partnerId: string, postId: string): P
   await sql`UPDATE partner_bookings SET status = 'cancelled', updated_at = NOW() WHERE id = ${pb.id}`;
 
   publishAdminEvent('partner_booking_cancelled', { partnerBookingId: pb.id, postId }).catch(() => {});
+  dispatchPartnerEvent(partnerId, 'booking.cancelled', { booking_id: postId }).catch(() => {});
   return { ok: true, status: 'cancelled' };
 }

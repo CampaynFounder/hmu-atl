@@ -14,6 +14,7 @@
 import { sql } from '@/lib/db/client';
 import { stripe } from '@/lib/stripe/connect';
 import { publishAdminEvent } from '@/lib/ably/server';
+import { dispatchPartnerEvent } from '@/lib/partner/webhooks';
 
 function isMock(): boolean {
   return process.env.STRIPE_MOCK === 'true';
@@ -113,6 +114,10 @@ export async function maybePlacePartnerHold(
           status = 'accepted', updated_at = NOW()
       WHERE id = ${pb.id}
     `;
+    dispatchPartnerEvent(pb.partner_id, 'booking.accepted', {
+      booking_id: postId,
+      ride_id: rideId,
+    }).catch(() => {});
   } catch (e) {
     console.error('[partner/hold] failed to place hold:', e);
     await sql`
@@ -124,6 +129,10 @@ export async function maybePlacePartnerHold(
       postId,
       rideId,
       reason: e instanceof Error ? e.message : String(e),
+    }).catch(() => {});
+    dispatchPartnerEvent(pb.partner_id, 'booking.hold_failed', {
+      booking_id: postId,
+      ride_id: rideId,
     }).catch(() => {});
   }
 }
