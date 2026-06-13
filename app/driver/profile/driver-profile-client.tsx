@@ -35,6 +35,7 @@ interface ProfileData {
   plateState: string;
   vehicleMpg: number | null;
   acceptDirectBookings: boolean;
+  acceptPartnerBookings: boolean;
   minRiderChillScore: number;
   requireOgStatus: boolean;
   showVideoOnLink: boolean;
@@ -184,12 +185,13 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
     try {
       let res: Response;
 
-      if ('acceptDirectBookings' in patch || 'minRiderChillScore' in patch || 'requireOgStatus' in patch || 'showVideoOnLink' in patch || 'profileVisible' in patch || 'fwu' in patch || 'acceptsCash' in patch || 'cashOnly' in patch || 'waitMinutes' in patch || 'advanceNoticeHours' in patch || 'allowInRouteStops' in patch) { // eslint-disable-line @typescript-eslint/no-unused-vars
+      if ('acceptDirectBookings' in patch || 'acceptPartnerBookings' in patch || 'minRiderChillScore' in patch || 'requireOgStatus' in patch || 'showVideoOnLink' in patch || 'profileVisible' in patch || 'fwu' in patch || 'acceptsCash' in patch || 'cashOnly' in patch || 'waitMinutes' in patch || 'advanceNoticeHours' in patch || 'allowInRouteStops' in patch) { // eslint-disable-line @typescript-eslint/no-unused-vars
         res = await fetch('/api/drivers/booking-settings', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             accept_direct_bookings: patch.acceptDirectBookings ?? data.acceptDirectBookings,
+            accept_partner_bookings: patch.acceptPartnerBookings ?? data.acceptPartnerBookings,
             min_rider_chill_score: patch.minRiderChillScore ?? data.minRiderChillScore,
             require_og_status: patch.requireOgStatus ?? data.requireOgStatus,
             show_video_on_link: patch.showVideoOnLink ?? data.showVideoOnLink,
@@ -498,6 +500,19 @@ export default function DriverProfileClient({ profile, user, payout, subscriptio
             <button
               className={`toggle ${data.acceptDirectBookings ? 'on' : 'off'}`}
               onClick={() => update({ acceptDirectBookings: !data.acceptDirectBookings })}
+            >
+              <div className="toggle-thumb" />
+            </button>
+          </div>
+
+          <div className="dp-row">
+            <div className="dp-row-left">
+              <div className="dp-row-label">Accept partner deliveries</div>
+              <div className="dp-row-sub">Get delivery jobs from HMU partner apps, paid to your account</div>
+            </div>
+            <button
+              className={`toggle ${data.acceptPartnerBookings ? 'on' : 'off'}`}
+              onClick={() => update({ acceptPartnerBookings: !data.acceptPartnerBookings })}
             >
               <div className="toggle-thumb" />
             </button>
