@@ -13,6 +13,7 @@ import { parseNaturalTime } from '@/lib/schedule/parse-time';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
 import { generateRefCode } from '@/lib/rides/ref-code';
 import { driverAllowsCashOnly } from '@/lib/payments/strategies';
+import { maybePlacePartnerHold } from '@/lib/partner/booking-hold';
 
 export async function POST(
   req: NextRequest,
@@ -425,6 +426,14 @@ export async function POST(
     `;
 
     const rideId = (rideRows[0] as { id: string }).id;
+
+    // Partner delivery bookings: place the delivery-fee hold now that a ride
+    // exists. No-ops for normal bookings (no partner_bookings row), and never
+    // throws — a hold failure is recorded on the partner_bookings row, not
+    // surfaced as an accept failure.
+    await maybePlacePartnerHold(postId, rideId, driverUserId).catch((e) => {
+      console.error('maybePlacePartnerHold threw (ignored):', e);
+    });
 
     // Notify rider via Ably
     await notifyUser(riderId, 'booking_accepted', {
