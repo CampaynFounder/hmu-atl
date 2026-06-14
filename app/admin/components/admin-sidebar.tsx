@@ -24,6 +24,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
     items: [
       { href: '/admin', label: 'Live Ops', icon: '⚡' },
       { href: '/admin/blast', label: 'Blast Monitor', icon: '📡' },
+      { href: '/admin/dashboards', label: 'Dashboards', icon: '📊' },
       { href: '/admin/growth', label: 'Growth', icon: '📈' },
       { href: '/admin/money', label: 'Revenue', icon: '💰' },
       { href: '/admin/pricing', label: 'Pricing', icon: '⚙️' },
@@ -43,6 +44,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/engage', label: 'Engage', icon: '📞' },
       { href: '/admin/hmus', label: 'HMUs', icon: '📣' },
       { href: '/admin/suspect-usage', label: 'Suspect Usage', icon: '🚨' },
+      { href: '/admin/comments', label: 'Comment Moderation', icon: '🗨️' },
     ],
   },
   {
@@ -83,6 +85,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/partner-fees', label: 'Partner Delivery Fees', icon: '💳' },
       { href: '/admin/partner-keys', label: 'Partner API Keys', icon: '🔌' },
       { href: '/admin/down-bad', label: 'Down Bad Config', icon: '😮‍💨' },
+      { href: '/admin/chill-config', label: 'Chill Score Config', icon: '😎' },
       { href: '/admin/onboarding-config', label: 'Onboarding Config', icon: '🛂' },
       { href: '/admin/realtime-notifications', label: 'Realtime Banners', icon: '⚡' },
       { href: '/admin/rider-browse-banner', label: 'Browse Banner', icon: '📣' },
@@ -91,6 +94,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/voip-debug', label: 'VoIP Debug', icon: '📡' },
       { href: '/admin/voip-config', label: 'VoIP Config', icon: '🔧' },
       { href: '/admin/sms-templates', label: 'SMS Templates', icon: '✉️' },
+      { href: '/admin/system-health', label: 'System Health', icon: '🩺' },
       { href: '/admin/audit', label: 'Audit Log', icon: '📋' },
     ],
   },

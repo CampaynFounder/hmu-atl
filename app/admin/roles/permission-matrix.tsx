@@ -4,9 +4,13 @@
 // the section/level grid (view / edit / publish per page) and exposes the
 // selected permissions via a controlled `value` + `onChange`.
 
-const PERMISSION_SECTIONS = [
+// Exported so the search-manifest parity test can assert every permission
+// slug referenced in route-permissions.ts is assignable here (no orphan slugs
+// like the old monitor.blasts gap that made a page super-only by accident).
+export const PERMISSION_SECTIONS = [
   { group: 'MONITOR', items: [
     { key: 'monitor.liveops', label: 'Live Ops' },
+    { key: 'monitor.blasts', label: 'Blast Monitor' },
     { key: 'monitor.revenue', label: 'Revenue' },
     { key: 'monitor.pricing', label: 'Pricing' },
     { key: 'monitor.schedules', label: 'Schedules' },
@@ -21,6 +25,7 @@ const PERMISSION_SECTIONS = [
     { key: 'act.engage', label: 'Engage Console' },
     { key: 'act.hmus', label: 'HMUs' },
     { key: 'act.suspect', label: 'Suspect Usage' },
+    { key: 'act.comments', label: 'Comment Moderation' },
   ]},
   { group: 'GROW', items: [
     { key: 'grow.coverage', label: 'Coverage Map' },
@@ -55,6 +60,7 @@ const PERMISSION_SECTIONS = [
     { key: 'admin.maintenance', label: 'Maintenance' },
     { key: 'admin.voip', label: 'VoIP Debug' },
     { key: 'admin.smstemplates', label: 'SMS Templates' },
+    { key: 'admin.systemhealth', label: 'System Health' },
     { key: 'admin.dashboards', label: 'Dashboards' },
     { key: 'admin.audit', label: 'Audit Log' },
   ]},

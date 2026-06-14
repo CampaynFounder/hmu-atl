@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
     // No query — return the visible set sorted by section then label so the
     // palette can show a useful "browse" view on first focus.
     const sectionOrder: Record<string, number> = {
-      Monitor: 0, Act: 1, Grow: 2, Raise: 3, System: 4,
+      Monitor: 0, Act: 1, Grow: 2, Raise: 3, System: 4, Tools: 5,
     };
     const sorted = [...visible].sort((a, b) => {
       const s = sectionOrder[a.section] - sectionOrder[b.section];

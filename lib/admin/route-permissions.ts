@@ -52,13 +52,14 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/support',             rule: { kind: 'permission', slug: 'act.support' } },
   { pattern: '/admin/notifications',       rule: { kind: 'permission', slug: 'act.notifications' } },
   { pattern: '/admin/disputes',            rule: { kind: 'permission', slug: 'act.disputes' } },
-  { pattern: '/admin/blast',               rule: { kind: 'permission', slug: 'monitor.blasts.view' } },
+  { pattern: '/admin/blast',               rule: { kind: 'permission', slug: 'monitor.blasts' } }, // canAccess appends `.view` → checks monitor.blasts.view (matches the page-level guard)
   { pattern: '/admin/safety',              rule: { kind: 'permission', slug: 'act.safety' } }, // includes /admin/safety/archive, /admin/safety/test
   { pattern: '/admin/users',               rule: { kind: 'permission', slug: 'act.users' } },
   { pattern: '/admin/ride-requests',       rule: { kind: 'permission', slug: 'act.rides' } },
   { pattern: '/admin/engage',              rule: { kind: 'permission', slug: 'act.engage' } }, // outreach console — text riders who requested + drivers who missed
   { pattern: '/admin/hmus',                rule: { kind: 'permission', slug: 'act.hmus' } },
   { pattern: '/admin/suspect-usage',       rule: { kind: 'permission', slug: 'act.suspect' } },
+  { pattern: '/admin/comments',            rule: { kind: 'permission', slug: 'act.comments' } }, // GPT-flagged comment moderation queue
 
   // ── GROW ────────────────────────────────────────────────────────────
   { pattern: '/admin/coverage',             rule: { kind: 'permission', slug: 'grow.coverage' } },
@@ -98,6 +99,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/voip-debug',          rule: { kind: 'permission', slug: 'admin.voip' } },
   { pattern: '/admin/voip-config',         rule: { kind: 'permission', slug: 'admin.voip' } },
   { pattern: '/admin/sms-templates',       rule: { kind: 'permission', slug: 'admin.smstemplates' } },
+  { pattern: '/admin/system-health',       rule: { kind: 'permission', slug: 'admin.systemhealth' } }, // Stripe/Ably/API health + dead-letter queue
   { pattern: '/admin/chill-config',        rule: { kind: 'super' } },
   { pattern: '/admin/down-bad',            rule: { kind: 'super' } },
   { pattern: '/admin/partner-fees',        rule: { kind: 'super' } }, // controls money split on partner deliveries — super only

@@ -1,14 +1,12 @@
-import { redirect } from 'next/navigation';
-import { auth } from '@clerk/nextjs/server';
-import { sql } from '@/lib/db/client';
 import SystemHealthClient from './system-health-client';
 
+// Access is enforced centrally by app/admin/layout.tsx against the
+// `admin.systemhealth` rule in lib/admin/route-permissions.ts (same guard,
+// sidebar filter, and search filter every other admin page uses). The page
+// itself just renders — no bespoke is_admin check, which previously let any
+// admin reach it by URL regardless of role permissions.
 export const dynamic = 'force-dynamic';
 
-export default async function SystemHealthPage() {
-  const { userId: clerkId } = await auth();
-  if (!clerkId) redirect('/sign-in');
-  const rows = await sql`SELECT is_admin FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
-  if (!rows.length || !(rows[0] as { is_admin: boolean }).is_admin) redirect('/');
+export default function SystemHealthPage() {
   return <SystemHealthClient />;
 }
