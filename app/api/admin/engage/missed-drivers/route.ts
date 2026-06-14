@@ -114,13 +114,14 @@ export async function GET(req: NextRequest) {
       m.driver_id,
       COALESCE(dp.display_name, dp.first_name) AS driver_name,
       dp.handle AS driver_handle,
-      dp.phone AS driver_phone,
+      COALESCE(dp.phone, du.phone) AS driver_phone,
       EXISTS (SELECT 1 FROM admin_sms_sent s WHERE s.recipient_id = m.driver_id) AS driver_admin_texted,
       (SELECT MAX(s.sent_at) FROM admin_sms_sent s WHERE s.recipient_id = m.driver_id) AS driver_last_admin_sms_at,
       COALESCE(rp.display_name, rp.first_name) AS rider_name,
       rp.handle AS rider_handle
     FROM misses m
     JOIN driver_profiles dp ON dp.user_id = m.driver_id
+    LEFT JOIN users du ON du.id = m.driver_id
     LEFT JOIN rider_profiles rp ON rp.user_id = m.rider_user_id
     WHERE (${marketId}::uuid IS NULL OR m.market_id = ${marketId})
       AND (${filterReason}::text IS NULL OR m.miss_reason = ${filterReason})
@@ -130,6 +131,7 @@ export async function GET(req: NextRequest) {
         OR dp.first_name ILIKE ${searchLike}
         OR dp.handle ILIKE ${searchLike}
         OR dp.phone ILIKE ${searchLike}
+        OR du.phone ILIKE ${searchLike}
       )
     ORDER BY m.requested_at DESC
     LIMIT ${limit}

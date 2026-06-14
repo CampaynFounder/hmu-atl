@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
       u.profile_type,
       COALESCE(dp.display_name, dp.first_name, rp.display_name, rp.first_name) AS name,
       COALESCE(dp.handle, rp.handle) AS handle,
-      COALESCE(dp.phone, rp.phone) AS phone,
+      COALESCE(dp.phone, rp.phone, u.phone) AS phone,
       u.last_sign_in_at,
       u.sign_in_count,
       EXISTS (SELECT 1 FROM admin_sms_sent s WHERE s.recipient_id = u.id) AS admin_texted,
