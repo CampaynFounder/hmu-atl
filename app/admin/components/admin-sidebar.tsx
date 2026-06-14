@@ -40,6 +40,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/safety', label: 'Safety', icon: '🛡️', badgeCategory: 'safety', badgeColor: 'red' },
       { href: '/admin/users', label: 'Users', icon: '👥', badgeCategory: 'users', badgeColor: 'green' },
       { href: '/admin/ride-requests', label: 'Ride Requests', icon: '🚖' },
+      { href: '/admin/engage', label: 'Engage', icon: '📞' },
       { href: '/admin/hmus', label: 'HMUs', icon: '📣' },
       { href: '/admin/suspect-usage', label: 'Suspect Usage', icon: '🚨' },
     ],

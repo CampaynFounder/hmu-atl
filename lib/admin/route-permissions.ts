@@ -56,6 +56,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/safety',              rule: { kind: 'permission', slug: 'act.safety' } }, // includes /admin/safety/archive, /admin/safety/test
   { pattern: '/admin/users',               rule: { kind: 'permission', slug: 'act.users' } },
   { pattern: '/admin/ride-requests',       rule: { kind: 'permission', slug: 'act.rides' } },
+  { pattern: '/admin/engage',              rule: { kind: 'permission', slug: 'act.engage' } }, // outreach console — text riders who requested + drivers who missed
   { pattern: '/admin/hmus',                rule: { kind: 'permission', slug: 'act.hmus' } },
   { pattern: '/admin/suspect-usage',       rule: { kind: 'permission', slug: 'act.suspect' } },
 
