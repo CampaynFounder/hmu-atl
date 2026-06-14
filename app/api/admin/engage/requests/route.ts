@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
       u.id AS user_id,
       COALESCE(rp.display_name, rp.first_name) AS rider_name,
       rp.handle AS rider_handle,
-      rp.phone AS rider_phone,
+      COALESCE(rp.phone, u.phone) AS rider_phone,
       EXISTS (SELECT 1 FROM admin_sms_sent s WHERE s.recipient_id = u.id) AS rider_admin_texted,
       (SELECT MAX(s.sent_at) FROM admin_sms_sent s WHERE s.recipient_id = u.id) AS rider_last_admin_sms_at,
       p.target_driver_id,
@@ -118,6 +118,7 @@ export async function GET(req: NextRequest) {
         OR rp.first_name ILIKE ${searchLike}
         OR rp.handle ILIKE ${searchLike}
         OR rp.phone ILIKE ${searchLike}
+        OR u.phone ILIKE ${searchLike}
         OR p.pickup_address ILIKE ${searchLike}
         OR p.dropoff_address ILIKE ${searchLike}
       )
