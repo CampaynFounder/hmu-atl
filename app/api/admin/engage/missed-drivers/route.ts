@@ -31,8 +31,10 @@ export interface MissedDriverRow {
   driver_phone: string | null;
   driver_admin_texted: boolean;
   driver_last_admin_sms_at: string | null;
+  rider_id: string | null;
   rider_name: string | null;
   rider_handle: string | null;
+  rider_phone: string | null;
 }
 
 export async function GET(req: NextRequest) {
@@ -117,12 +119,15 @@ export async function GET(req: NextRequest) {
       COALESCE(dp.phone, du.phone) AS driver_phone,
       EXISTS (SELECT 1 FROM admin_sms_sent s WHERE s.recipient_id = m.driver_id) AS driver_admin_texted,
       (SELECT MAX(s.sent_at) FROM admin_sms_sent s WHERE s.recipient_id = m.driver_id) AS driver_last_admin_sms_at,
+      m.rider_user_id AS rider_id,
       COALESCE(rp.display_name, rp.first_name) AS rider_name,
-      rp.handle AS rider_handle
+      rp.handle AS rider_handle,
+      COALESCE(rp.phone, ru.phone) AS rider_phone
     FROM misses m
     JOIN driver_profiles dp ON dp.user_id = m.driver_id
     LEFT JOIN users du ON du.id = m.driver_id
     LEFT JOIN rider_profiles rp ON rp.user_id = m.rider_user_id
+    LEFT JOIN users ru ON ru.id = m.rider_user_id
     WHERE (${marketId}::uuid IS NULL OR m.market_id = ${marketId})
       AND (${filterReason}::text IS NULL OR m.miss_reason = ${filterReason})
       AND (

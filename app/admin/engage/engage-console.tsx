@@ -58,8 +58,10 @@ interface MissedRow {
   driver_phone: string | null;
   driver_admin_texted: boolean;
   driver_last_admin_sms_at: string | null;
+  rider_id: string | null;
   rider_name: string | null;
   rider_handle: string | null;
+  rider_phone: string | null;
 }
 
 interface ActiveRow {
@@ -130,15 +132,20 @@ function Card({ children }: { children: React.ReactNode }) {
 function TextButton({ label, texted, lastAt, disabled, onClick }: {
   label: string; texted?: boolean; lastAt?: string | null; disabled?: boolean; onClick: () => void;
 }) {
+  // Disabled (no phone on file) stays fully opaque and clearly visible — a faded
+  // chip read as "missing". We show a muted grey chip with "· no #" instead.
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className="text-[11px] font-semibold px-3 py-1.5 rounded-full transition-colors disabled:opacity-40 flex items-center gap-1.5"
-      style={{ background: 'rgba(0,230,118,0.15)', color: '#00E676' }}
-      title={disabled ? 'No phone on file' : texted ? `Last texted ${timeAgo(lastAt ?? null)}` : undefined}
+      className="text-[11px] font-semibold px-3 py-1.5 rounded-full transition-colors flex items-center gap-1.5"
+      style={disabled
+        ? { background: 'var(--admin-bg-active)', color: 'var(--admin-text-muted)', cursor: 'not-allowed' }
+        : { background: 'rgba(0,230,118,0.15)', color: '#00E676' }}
+      title={disabled ? 'No phone number on file for this person' : texted ? `Last texted ${timeAgo(lastAt ?? null)}` : undefined}
     >
-      <span>💬</span>{label}{texted ? <span style={{ color: 'var(--admin-text-muted)' }}>·✓</span> : null}
+      <span>💬</span>{label}
+      {disabled ? <span className="opacity-80">· no #</span> : texted ? <span style={{ color: 'var(--admin-text-muted)' }}>·✓</span> : null}
     </button>
   );
 }
@@ -389,15 +396,20 @@ export function EngageConsole() {
               </div>
               <Route pickup={m.pickup_address} dropoff={m.dropoff_address} />
               {m.rider_name && (
-                <div className="text-[11px] mt-1" style={{ color: 'var(--admin-text-muted)' }}>Rider: {m.rider_name}</div>
+                <div className="text-[11px] mt-1" style={{ color: 'var(--admin-text-muted)' }}>Rider: {m.rider_name}{m.rider_handle ? ` · @${m.rider_handle}` : ''}</div>
               )}
-              <div className="flex items-center gap-2 mt-3">
+              <div className="flex flex-wrap items-center gap-2 mt-3">
                 <TextButton
                   label="Text driver"
                   texted={m.driver_admin_texted}
                   lastAt={m.driver_last_admin_sms_at}
                   disabled={!m.driver_phone}
                   onClick={() => setConvo({ phone: m.driver_phone!, name: m.driver_name, userType: 'driver', userId: m.driver_id, context: `Missed a ${money(m.price)} ride · ${REASON_LABEL[m.miss_reason]}` })}
+                />
+                <TextButton
+                  label="Text rider"
+                  disabled={!m.rider_phone}
+                  onClick={() => setConvo({ phone: m.rider_phone!, name: m.rider_name, userType: 'rider', userId: m.rider_id ?? undefined, context: `Their ${money(m.price)} request went unanswered` })}
                 />
               </div>
             </Card>
