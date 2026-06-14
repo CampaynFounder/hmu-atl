@@ -18,6 +18,7 @@ const PERMISSION_SECTIONS = [
     { key: 'act.safety', label: 'Safety' },
     { key: 'act.users', label: 'Users' },
     { key: 'act.rides', label: 'Ride Requests' },
+    { key: 'act.engage', label: 'Engage Console' },
     { key: 'act.hmus', label: 'HMUs' },
     { key: 'act.suspect', label: 'Suspect Usage' },
   ]},
