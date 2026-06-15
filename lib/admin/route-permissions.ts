@@ -100,6 +100,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/sms-templates',       rule: { kind: 'permission', slug: 'admin.smstemplates' } },
   { pattern: '/admin/chill-config',        rule: { kind: 'super' } },
   { pattern: '/admin/down-bad',            rule: { kind: 'super' } },
+  { pattern: '/admin/booking-types',       rule: { kind: 'super' } }, // per-market rollout switches for direct/blast/down-bad/delivery — super only
   { pattern: '/admin/partner-fees',        rule: { kind: 'super' } }, // controls money split on partner deliveries — super only
   { pattern: '/admin/partner-keys',        rule: { kind: 'super' } }, // mints live partner API credentials — super only
 

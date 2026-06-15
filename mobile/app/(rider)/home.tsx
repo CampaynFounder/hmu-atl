@@ -43,6 +43,24 @@ interface BookingMode {
   delay: number;
 }
 
+// Which booking types are live for the rider's market. Defaults to all-on so
+// there's no "coming soon" flash before /rider/booking-availability resolves
+// (the home spinner covers that first fetch).
+interface BookingAvailability {
+  direct: boolean;
+  blast: boolean;
+  downBad: boolean;
+  delivery: boolean;
+}
+
+// Booking card `type` → availability key (down-bad's API key is camelCase).
+const AVAIL_KEY: Record<BookingMode['type'], keyof BookingAvailability> = {
+  direct: 'direct',
+  blast: 'blast',
+  'down-bad': 'downBad',
+  delivery: 'delivery',
+};
+
 const BOOKING_MODES: BookingMode[] = [
   {
     type: 'direct',
@@ -100,19 +118,24 @@ export default function RiderHome() {
   const insets = useSafeAreaInsets();
 
   const [activeReqCount, setActiveReqCount] = useState(0);
+  const [availability, setAvailability] = useState<BookingAvailability>({
+    direct: true, blast: true, downBad: true, delivery: true,
+  });
   const [loading, setLoading] = useState(true);
   const hasLoaded = useRef(false);
 
   const checkActive = useCallback(async () => {
     try {
       const t = await getToken();
-      const [ride, blast, direct, downBad, delivery] = await Promise.allSettled([
+      const [ride, blast, direct, downBad, delivery, avail] = await Promise.allSettled([
         apiClient<ActiveRide>('/rides/active', t),
         apiClient<{ blast: unknown }>('/blast/active', t),
         apiClient<{ post: unknown }>('/rider/direct/active', t),
         apiClient<{ post: unknown }>('/rider/down-bad/active', t),
         apiClient<{ delivery: unknown }>('/delivery/active', t),
+        apiClient<BookingAvailability>('/rider/booking-availability', t),
       ]);
+      if (avail.status === 'fulfilled' && avail.value) setAvailability(avail.value);
       // An in-flight ride (not yet ended) counts as an active item too, so the
       // home banner points the rider to Requests where the ride is managed.
       const r = ride.status === 'fulfilled' ? ride.value : null;
@@ -184,6 +207,7 @@ export default function RiderHome() {
               <BookingCard
                 key={mode.type}
                 mode={mode}
+                enabled={availability[AVAIL_KEY[mode.type]]}
                 onPress={() => router.push(`/(rider)/book/${mode.type}` as never)}
               />
             ))}
@@ -194,11 +218,42 @@ export default function RiderHome() {
   );
 }
 
-function BookingCard({ mode, onPress }: { mode: BookingMode; onPress: () => void }) {
+function BookingCard({ mode, enabled, onPress }: { mode: BookingMode; enabled: boolean; onPress: () => void }) {
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
+
+  // Disabled types still render (so riders learn what's coming) but as a
+  // greyed, non-interactive "COMING SOON" tile — accent stripe and colored
+  // CTA drop out; the one-line description stays.
+  if (!enabled) {
+    return (
+      <Animated.View entering={FadeInUp.delay(mode.delay).duration(400)}>
+        <View
+          style={[s.bookCard, s.bookCardDisabled, { borderColor: colors.border }]}
+          accessibilityState={{ disabled: true }}
+        >
+          <View style={[s.bookAccent, { backgroundColor: colors.border }]} />
+          <View style={s.bookBody}>
+            <View style={s.bookTop}>
+              <View style={[s.bookIconWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Ionicons name={mode.icon} size={22} color={colors.textFaint} />
+              </View>
+              <View style={s.bookTitles}>
+                <Text style={[s.bookTitle, { color: colors.textTertiary }]}>{mode.title}</Text>
+                <Text style={s.bookSubtitle}>{mode.subtitle}</Text>
+              </View>
+              <View style={s.comingSoonPill}>
+                <Text style={s.comingSoonText}>COMING SOON</Text>
+              </View>
+            </View>
+            <Text style={s.bookDesc}>{mode.desc}</Text>
+          </View>
+        </View>
+      </Animated.View>
+    );
+  }
 
   return (
     <Animated.View
@@ -290,8 +345,19 @@ const s = StyleSheet.create({
     borderWidth: 1, overflow: 'hidden',
     flexDirection: 'row',
   },
+  bookCardDisabled: { opacity: 0.55 },
   bookAccent: { width: 4 },
   bookBody: { flex: 1, padding: spacing.xl, gap: spacing.md },
+
+  comingSoonPill: {
+    backgroundColor: colors.card,
+    borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm, paddingVertical: 4,
+  },
+  comingSoonText: {
+    fontFamily: fonts.mono, fontSize: 8, color: colors.textFaint, letterSpacing: 1.5,
+  },
 
   bookTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   bookIconWrap: {

@@ -55,3 +55,6 @@ pitchvideos/
 
 # Claude Code harness (local config, task outputs, transcripts)
 .claude/
+
+# App Store submission assets (screenshots/previews — not source)
+app-store-assets/

@@ -5,6 +5,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db/client';
 import { getCurrentUser } from '@/lib/auth/guards';
+import { resolveMarketForUser } from '@/lib/markets/resolver';
+import { isBookingTypeEnabled } from '@/lib/markets/booking-types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -28,6 +30,13 @@ export async function GET(req: NextRequest) {
 
     if (isNaN(lat) || isNaN(lng)) {
       return NextResponse.json({ error: 'lat and lng required' }, { status: 400 });
+    }
+
+    // Per-market rollout gate — when Delivery is OFF for the courier's market,
+    // surface nothing (defense-in-depth behind /api/delivery/request).
+    const market = await resolveMarketForUser(user.id);
+    if (!market || !(await isBookingTypeEnabled(market.market_id, 'delivery'))) {
+      return NextResponse.json({ opportunities: [] });
     }
 
     const { rows } = await pool.query(
