@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { getMarketBookingFlags } from '@/lib/markets/booking-types';
 
 export async function GET() {
   const { userId: clerkId } = await auth();
@@ -18,6 +19,13 @@ export async function GET() {
     ? await sql`SELECT slug FROM markets WHERE id = ${driverMarketId} LIMIT 1`
     : [];
   const marketSlug = (marketRows[0] as { slug: string } | undefined)?.slug ?? null;
+
+  // Per-market booking-type rollout flags. Defense-in-depth behind the create
+  // routes: a type that's OFF for this market never surfaces in the feed. A
+  // null market means no posts match anyway, so all-disabled is correct.
+  const flags = driverMarketId
+    ? await getMarketBookingFlags(driverMarketId)
+    : { direct: false, blast: false, downBad: false, delivery: false };
 
   // Driver routing preferences
   const prefRows = await sql`
@@ -82,9 +90,11 @@ export async function GET() {
           AND ri.driver_id = ${driverUserId}
       )
       AND (
-        -- Direct booking targeting this driver (not area-gated)
+        -- Direct booking targeting this driver (not area-gated).
+        -- Gated by the per-market Direct rollout flag.
         (p.status = 'active'
           AND p.post_type = 'direct_booking'
+          AND ${flags.direct}::boolean = TRUE
           AND p.target_driver_id = ${driverUserId}
           AND p.booking_expires_at > NOW())
         OR
@@ -134,7 +144,8 @@ export async function GET() {
   // ── Blast requests — blasts where this driver was notified (initial fanout
   // OR rider swiped HMU on them as a fallback) and hasn't yet responded. ──────
   // Separate query so we don't need a UNION that forces identical column shapes.
-  const blastRows = await sql`
+  // Skipped entirely when Blast is OFF for this market.
+  const blastRows = flags.blast ? await sql`
     SELECT
       p.id,
       p.status,
@@ -174,7 +185,7 @@ export async function GET() {
       p.price DESC NULLS LAST,
       p.expires_at ASC NULLS LAST,
       bdt.notified_at DESC
-  `;
+  ` : [];
 
   const blastRequests = blastRows.map((row: Record<string, unknown>) => {
     const createdAt = new Date(row.created_at as string);
@@ -258,7 +269,7 @@ export async function GET() {
   // driver, excluding posts already passed. Accept/decline reuse the shared
   // /api/bookings/[postId] endpoints (they branch on post_type='down_bad'). ──
   let downBadRequests: Array<Record<string, unknown>> = [];
-  if (driverPrefs.accepts_down_bad) {
+  if (driverPrefs.accepts_down_bad && flags.downBad) {
     const downBadRows = await sql`
       SELECT
         p.id,

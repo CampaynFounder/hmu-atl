@@ -6,6 +6,7 @@ import { pool } from '@/lib/db/client';
 import { getCurrentUser } from '@/lib/auth/guards';
 import { isValidCoordinates } from '@/lib/geo/distance';
 import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
+import { isBookingTypeEnabled } from '@/lib/markets/booking-types';
 import { publishToChannel } from '@/lib/ably/server';
 import { z } from 'zod';
 import crypto from 'crypto';
@@ -73,6 +74,11 @@ export async function POST(req: NextRequest) {
 
     const market = await resolveMarketForUser(user.id);
     if (!market) return NextResponse.json({ error: 'No active market at delivery address' }, { status: 400 });
+
+    // Per-market rollout gate.
+    if (!(await isBookingTypeEnabled(market.market_id, 'delivery'))) {
+      return NextResponse.json({ error: 'Delivery not available in your market yet' }, { status: 403 });
+    }
 
     const distanceMiles = haversineMiles(
       { lat: d.merchantLat, lng: d.merchantLng },

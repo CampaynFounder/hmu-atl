@@ -87,9 +87,11 @@ const chip = StyleSheet.create({
 
 // ── Driver card ───────────────────────────────────────────────────────────────
 
-function DriverCardView({ driver, cardH, onHmu, onDownBad }: {
+function DriverCardView({ driver, cardH, canDirect, canDownBad, onHmu, onDownBad }: {
   driver: DriverCard;
   cardH: number;
+  canDirect: boolean;
+  canDownBad: boolean;
   onHmu: (handle: string) => void;
   onDownBad: (handle: string) => void;
 }) {
@@ -224,19 +226,26 @@ function DriverCardView({ driver, cardH, onHmu, onDownBad }: {
           </View>
         )}
 
-        {/* HMU button */}
-        <Animated.View style={animStyle}>
-          <Pressable
-            style={s.hmuBtn}
-            onPressIn={() => { scale.value = withSpring(0.97, { damping: 20 }); }}
-            onPressOut={() => { scale.value = withSpring(1, { damping: 20 }); }}
-            onPress={() => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onHmu(driver.handle); }}
-          >
-            <Text style={s.hmuBtnText}>HMU @{driver.handle} →</Text>
-          </Pressable>
-        </Animated.View>
+        {/* HMU button — Direct booking entry. Hidden when Direct is OFF for
+            this market so Browse can't bypass the home gate. */}
+        {canDirect ? (
+          <Animated.View style={animStyle}>
+            <Pressable
+              style={s.hmuBtn}
+              onPressIn={() => { scale.value = withSpring(0.97, { damping: 20 }); }}
+              onPressOut={() => { scale.value = withSpring(1, { damping: 20 }); }}
+              onPress={() => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onHmu(driver.handle); }}
+            >
+              <Text style={s.hmuBtnText}>HMU @{driver.handle} →</Text>
+            </Pressable>
+          </Animated.View>
+        ) : (
+          <View style={s.comingSoonBtn}>
+            <Text style={s.comingSoonBtnText}>DIRECT BOOKING — COMING SOON</Text>
+          </View>
+        )}
 
-        {driver.acceptsDownBad && (
+        {driver.acceptsDownBad && canDownBad && (
           <TouchableOpacity
             style={s.downBadLink}
             activeOpacity={0.7}
@@ -278,6 +287,10 @@ export default function BrowseDrivers() {
   const [accFilter, setAccFilter] = useState<AccFilter>(0);
 
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  // Per-market booking-type availability — defaults on so there's no flicker
+  // before the fetch resolves. Gates the HMU (Direct) + Down Bad entry points.
+  const [canDirect, setCanDirect] = useState(true);
+  const [canDownBad, setCanDownBad] = useState(true);
   const hasLoaded = useRef(false);
   const offsetRef = useRef(0);
 
@@ -347,6 +360,18 @@ export default function BrowseDrivers() {
     }
   }, [getToken, buildUrl]);
 
+  // Fetch booking-type availability once — gates Direct/Down Bad entry points.
+  useEffect(() => {
+    (async () => {
+      try {
+        const t = await getToken();
+        const a = await apiClient<{ direct: boolean; downBad: boolean }>('/rider/booking-availability', t);
+        setCanDirect(a.direct);
+        setCanDownBad(a.downBad);
+      } catch { /* leave defaults on */ }
+    })();
+  }, [getToken]);
+
   // Get GPS on mount (non-blocking) — refetch with distance when available
   useEffect(() => {
     Location.requestForegroundPermissionsAsync().then(({ status }) => {
@@ -378,13 +403,15 @@ export default function BrowseDrivers() {
     <DriverCardView
       driver={item}
       cardH={CARD_H}
+      canDirect={canDirect}
+      canDownBad={canDownBad}
       onHmu={handleHmu}
       onDownBad={(handle) => router.push({
         pathname: '/(rider)/book/down-bad',
         params: { prefillHandle: handle },
       } as never)}
     />
-  ), [CARD_H]);
+  ), [CARD_H, canDirect, canDownBad]);
 
   const getItemLayout = useCallback((_: unknown, index: number) => ({
     length: CARD_H, offset: CARD_H * index, index,
@@ -642,6 +669,13 @@ const s = StyleSheet.create({
     marginTop: spacing.xs,
   },
   hmuBtnText: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.bg, letterSpacing: 1.5 },
+
+  comingSoonBtn: {
+    backgroundColor: colors.card, borderRadius: radius.pill,
+    borderWidth: 1, borderColor: colors.border,
+    paddingVertical: 14, alignItems: 'center', marginTop: spacing.xs,
+  },
+  comingSoonBtnText: { fontFamily: fonts.mono, fontSize: 11, color: colors.textFaint, letterSpacing: 1.5 },
 
   downBadLink: { alignItems: 'center', paddingVertical: spacing.xs },
   downBadText: { fontFamily: fonts.body, fontSize: 12, color: colors.amber },

@@ -18,6 +18,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getPlatformConfig } from '@/lib/platform-config/get';
 import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
+import { isBookingTypeEnabled } from '@/lib/markets/booking-types';
 import { publishToChannel } from '@/lib/ably/server';
 import { notifyDriverDownBadPosted } from '@/lib/sms/textbee';
 
@@ -188,6 +189,15 @@ export async function POST(req: NextRequest) {
     market = await resolveMarketForUser(rider.id);
   } catch {
     return NextResponse.json({ error: 'No live market available. Try again later.', code: 'no_market' }, { status: 503 });
+  }
+
+  // Per-market rollout gate (in addition to the global config.enabled master
+  // switch checked above). Both must be true for Down Bad to be live here.
+  if (!(await isBookingTypeEnabled(market.market_id, 'downBad'))) {
+    return NextResponse.json(
+      { error: 'Down Bad not available in your market yet', code: 'feature_disabled' },
+      { status: 403 },
+    );
   }
 
   // Cancel any existing active Down Bad post for this rider (one at a time)

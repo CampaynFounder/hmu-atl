@@ -18,6 +18,7 @@ import {
 import { logSuspectEvent } from '@/lib/admin/suspect-events';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 import { resolveMarketForUser } from '@/lib/markets/resolver';
+import { isBookingTypeEnabled } from '@/lib/markets/booking-types';
 import { driverAllowsCashOnly } from '@/lib/payments/strategies';
 import { parseRoute, resolveProvidedSlugs } from '@/lib/markets/parse-areas';
 import { parseNaturalTime } from '@/lib/schedule/parse-time';
@@ -247,6 +248,15 @@ export async function POST(
   }
 
   const market = await resolveMarketForUser(rider.id);
+
+  // Per-market rollout gate for Direct booking.
+  if (!(await isBookingTypeEnabled(market.market_id, 'direct'))) {
+    return NextResponse.json(
+      { error: 'Direct booking not available in your market yet', code: 'feature_disabled' },
+      { status: 403 },
+    );
+  }
+
   // Driver's market is the wall-clock anchor for the typed time. For most
   // bookings this matches the rider's market; cross-market bookings still
   // resolve "5pm" against where the ride actually happens.

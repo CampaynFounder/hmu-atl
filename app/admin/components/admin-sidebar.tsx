@@ -83,6 +83,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/partner-fees', label: 'Partner Delivery Fees', icon: '💳' },
       { href: '/admin/partner-keys', label: 'Partner API Keys', icon: '🔌' },
       { href: '/admin/down-bad', label: 'Down Bad Config', icon: '😮‍💨' },
+      { href: '/admin/booking-types', label: 'Booking Types', icon: '🎚️' },
       { href: '/admin/onboarding-config', label: 'Onboarding Config', icon: '🛂' },
       { href: '/admin/realtime-notifications', label: 'Realtime Banners', icon: '⚡' },
       { href: '/admin/rider-browse-banner', label: 'Browse Banner', icon: '📣' },
