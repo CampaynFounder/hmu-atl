@@ -216,6 +216,8 @@ const isPublicRoute = createRouteMatcher([
   '/api/blast/estimate',   // pre-auth pricing estimate for the blast form
   '/api/blast',            // blast booking endpoint — auth checked in handler, returns 401 JSON if unauthorized
   '/api/partner/(.*)',     // partner API — API-key + HMAC auth enforced in-handler (lib/partner/auth.ts), not Clerk
+  '/api/mobile/demo-signin',   // reviewer OTP bypass — called pre-auth, gated by fixed demo code in-handler
+  '/api/mobile/provision-demo', // one-time demo provisioning — gated by DEMO_PROVISION_SECRET in-handler, not Clerk
   '/api/public/(.*)',
   '/api/rider/browse/(.*)',
   '/privacy',
