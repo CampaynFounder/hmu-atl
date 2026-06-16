@@ -42,7 +42,26 @@ interface SmsStats {
   byEventType: { type: string; count: number }[];
 }
 
-export function MessageHistory() {
+interface MessageHistoryProps {
+  // Which SMS number this inbox is bound to. Defaults to 'main' (the existing
+  // Messages page). The Rider Growth console passes 'rider_growth' so every
+  // read/send/mark-read is scoped to the separate VoIP.ms line.
+  line?: 'main' | 'rider_growth';
+  title?: string;
+  emptyHint?: string;
+  // Rider Growth is inbox-first: hide the global SMS-spend stat cards and the
+  // support playbook strip (the playbook send path is main-line only).
+  showStats?: boolean;
+  showPlaybook?: boolean;
+}
+
+export function MessageHistory({
+  line = 'main',
+  title = 'Messages',
+  emptyHint = 'Send an SMS from Outreach or User Management to start a conversation.',
+  showStats = true,
+  showPlaybook = true,
+}: MessageHistoryProps = {}) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [smsStats, setSmsStats] = useState<SmsStats | null>(null);
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
@@ -113,14 +132,14 @@ export function MessageHistory() {
         fetch('/api/admin/messages', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone }),
+          body: JSON.stringify({ phone, line }),
         })
       ));
       // Also clear any with empty phone
       await fetch('/api/admin/messages', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: 'ALL' }),
+        body: JSON.stringify({ phone: 'ALL', line }),
       });
     } catch {}
     fetchThreads();
@@ -130,7 +149,7 @@ export function MessageHistory() {
     await fetch('/api/admin/messages', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone }),
+      body: JSON.stringify({ phone, line }),
     });
     fetchThreads();
   };
@@ -138,8 +157,8 @@ export function MessageHistory() {
   const fetchThreads = useCallback(async () => {
     try {
       const url = selectedMarketId
-        ? `/api/admin/messages?marketId=${selectedMarketId}`
-        : '/api/admin/messages';
+        ? `/api/admin/messages?marketId=${selectedMarketId}&line=${line}`
+        : `/api/admin/messages?line=${line}`;
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
@@ -148,7 +167,7 @@ export function MessageHistory() {
       }
     } catch {}
     setLoading(false);
-  }, [selectedMarketId]);
+  }, [selectedMarketId, line]);
 
   useEffect(() => { fetchThreads(); }, [fetchThreads]);
 
@@ -156,14 +175,14 @@ export function MessageHistory() {
     setDrillFilter(filter);
     setDrillLoading(true);
     try {
-      const res = await fetch(`/api/admin/messages?filter=${filter}${mq}`);
+      const res = await fetch(`/api/admin/messages?filter=${filter}${mq}&line=${line}`);
       if (res.ok) {
         const data = await res.json();
         setDrillMessages(data.messages ?? []);
       }
     } catch {}
     setDrillLoading(false);
-  }, [mq]);
+  }, [mq, line]);
 
   const retrySms = useCallback(async (smsLogId: string, overrideMessage?: string) => {
     setRetrying(prev => ({ ...prev, [smsLogId]: 'sending' }));
@@ -191,14 +210,14 @@ export function MessageHistory() {
   const openConversation = useCallback(async (phone: string) => {
     setSelectedPhone(phone);
     try {
-      const res = await fetch(`/api/admin/messages?phone=${phone}`);
+      const res = await fetch(`/api/admin/messages?phone=${phone}&line=${line}`);
       if (res.ok) {
         const data = await res.json();
         setConversation(data);
         fetchThreads();
       }
     } catch {}
-  }, [fetchThreads]);
+  }, [fetchThreads, line]);
 
   // Deep-link: ?phone=4045551234 opens the matching thread on first paint.
   // Used by /admin/marketing's "Thread" button so admins can jump straight
@@ -275,6 +294,7 @@ export function MessageHistory() {
           body: JSON.stringify({
             recipients: [{ phone: selectedPhone, name: conversation?.userName }],
             message: replyText.trim(),
+            line,
           }),
         });
         if (res.ok) {
@@ -312,9 +332,9 @@ export function MessageHistory() {
 
   // Refetch whenever the audience pill changes (also covers the seed above).
   useEffect(() => {
-    if (!conversation) return;
+    if (!conversation || !showPlaybook) return;
     fetchPlaybook(playbookAudience);
-  }, [conversation, playbookAudience, fetchPlaybook]);
+  }, [conversation, playbookAudience, fetchPlaybook, showPlaybook]);
 
   const filteredPlaybook = useMemo(() => {
     const q = playbookSearch.trim().toLowerCase();
@@ -426,7 +446,9 @@ export function MessageHistory() {
         </div>
 
         {/* Playbook strip — pre-canned answers super admins curate at /admin/playbook.
-            Audience pre-filtered to the recipient's profile_type when known. */}
+            Audience pre-filtered to the recipient's profile_type when known.
+            Hidden on lines without playbook support (e.g. Rider Growth). */}
+        {showPlaybook && (
         <div className="border-t border-neutral-800 pt-2">
           <button
             onClick={() => setPlaybookOpen(!playbookOpen)}
@@ -516,6 +538,7 @@ export function MessageHistory() {
             </>
           )}
         </div>
+        )}
 
         {/* Reply */}
         <div className="pt-3 border-t border-neutral-800">
@@ -571,11 +594,11 @@ export function MessageHistory() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">Messages</h1>
+        <h1 className="text-xl font-bold">{title}</h1>
       </div>
 
       {/* SMS Cost Stats — clickable for drill-down */}
-      {smsStats && (
+      {showStats && smsStats && (
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           {([
             { key: 'outbound' as const, label: 'Outbound', value: smsStats.outbound, color: 'var(--admin-text)' },
@@ -604,7 +627,7 @@ export function MessageHistory() {
       )}
 
       {/* Drill-down message list */}
-      {drillFilter && (
+      {showStats && drillFilter && (
         <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
             <h2 className="text-sm font-semibold capitalize">{drillFilter} Messages</h2>
@@ -698,7 +721,7 @@ export function MessageHistory() {
       )}
 
       {/* Event type breakdown */}
-      {smsStats && smsStats.byEventType.length > 0 && (
+      {showStats && smsStats && smsStats.byEventType.length > 0 && (
         <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
           <div className="text-[10px] font-bold tracking-[2px] text-neutral-600 uppercase mb-3" style={{ fontFamily: "'Space Mono', monospace" }}>By Type</div>
           <div className="flex flex-wrap gap-2">
@@ -744,7 +767,7 @@ export function MessageHistory() {
             <div className="p-8 text-center text-neutral-500 text-sm">Loading conversations...</div>
           ) : threads.length === 0 ? (
             <div className="p-8 text-center text-neutral-500 text-sm">
-              No message history yet. Send an SMS from Outreach or User Management to start a conversation.
+              No message history yet. {emptyHint}
             </div>
           ) : (
             <>

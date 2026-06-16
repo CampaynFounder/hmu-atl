@@ -65,6 +65,8 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/activation',          rule: { kind: 'permission', slug: 'grow.activation' } },
   { pattern: '/admin/marketing',           rule: { kind: 'permission', slug: 'grow.outreach' } },
   { pattern: '/admin/messages',            rule: { kind: 'permission', slug: 'grow.messages' } },
+  { pattern: '/admin/rider-growth',        rule: { kind: 'permission', slug: 'grow.ridergrowth' } }, // 2nd VoIP line — rider-acquisition SMS inbox
+
   { pattern: '/admin/playbook',            rule: { kind: 'permission', slug: 'grow.playbook' } },
   { pattern: '/admin/leads',               rule: { kind: 'permission', slug: 'grow.leads' } },
   { pattern: '/admin/events',              rule: { kind: 'permission', slug: 'grow.events' } },

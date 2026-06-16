@@ -11,12 +11,19 @@ export const runtime = 'nodejs';
 const VOIPMS_API_URL = 'https://voip.ms/api/v1/rest.php';
 const CONFIG_KEY = 'voipms.webhook';
 
+// Includes the rider_growth line's per-market DIDs (the 2nd VoIP.ms number that
+// backs /admin/rider-growth) so ops can confirm they're set + webhook-registered.
 const MARKET_DID_ENV: Record<string, string> = {
   atl:  'VOIPMS_DID_ATL',
   nola: 'VOIPMS_DID_NOLA',
   hou:  'VOIPMS_DID_HOU',
   dal:  'VOIPMS_DID_DAL',
   mem:  'VOIPMS_DID_MEM',
+  'atl (rider growth)':  'VOIPMS_DID_RIDERGROWTH_ATL',
+  'nola (rider growth)': 'VOIPMS_DID_RIDERGROWTH_NOLA',
+  'hou (rider growth)':  'VOIPMS_DID_RIDERGROWTH_HOU',
+  'dal (rider growth)':  'VOIPMS_DID_RIDERGROWTH_DAL',
+  'mem (rider growth)':  'VOIPMS_DID_RIDERGROWTH_MEM',
 };
 
 async function getDIDRegisteredUrl(username: string, password: string, did: string): Promise<string | null> {

@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
 import { sendSms } from '@/lib/sms/textbee';
+import { asLineKey } from '@/lib/sms/lines';
 import { sql } from '@/lib/db/client';
 import { resolveActionItem } from '@/lib/admin/action-items';
 import { wasRecentlySent, DEFAULT_DEDUP_WINDOW_HOURS } from '@/lib/sms/dedup';
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
   if (!admin) return unauthorizedResponse();
 
   try {
-    const { recipients, message, link, eventType, dedup } = await req.json() as {
+    const { recipients, message, link, eventType, dedup, line } = await req.json() as {
       recipients: Recipient[];
       message?: string;
       link?: string;
@@ -43,7 +44,11 @@ export async function POST(req: NextRequest) {
       // so the nudge-button can prompt the admin if a duplicate would result.
       // ackDuplicate=true bypasses the 409 (admin saw the warning + said send).
       dedup?: { enabled?: boolean; windowHours?: number; ackDuplicate?: boolean };
+      // Which number to send from. Defaults to 'main'. The Rider Growth console
+      // passes 'rider_growth' so replies land on its separate VoIP.ms line.
+      line?: string;
     };
+    const sendLine = asLineKey(line);
     const messageEventType = eventType || 'marketing';
     const linkEventType = eventType ? `${eventType}_link` : 'marketing_link';
 
@@ -107,6 +112,7 @@ export async function POST(req: NextRequest) {
           eventType: messageEventType,
           market: 'atl',
           userId: recipient.userId,
+          line: sendLine,
         });
         if (result.success) recipientSent++;
         else recipientError = result.error || 'Failed';
@@ -121,6 +127,7 @@ export async function POST(req: NextRequest) {
           eventType: linkEventType,
           market: 'atl',
           userId: recipient.userId,
+          line: sendLine,
         });
         if (result.success) recipientSent++;
         else recipientError = result.error || 'Link send failed';
