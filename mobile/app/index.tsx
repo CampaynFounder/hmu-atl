@@ -24,6 +24,7 @@ export default function Index() {
           profileType: string;
           accountStatus: string;
           isSuperAdmin?: boolean;
+          isDemo?: boolean;
         }>('/users/me', token);
 
         if (me.accountStatus === 'pending') {
@@ -35,8 +36,10 @@ export default function Index() {
         setUser({ profileType: me.profileType, isSuperAdmin: !!me.isSuperAdmin });
 
         // Geo-based market check — skipped in dev builds to avoid simulator location issues.
+        // Also skipped for app-store reviewer demo accounts, which run from
+        // outside an active market and would otherwise hit the coming-soon screen.
         // In production, fails open on denied permission or API error.
-        if (!__DEV__) {
+        if (!__DEV__ && !me.isDemo) {
           try {
             const { status } = await Location.requestForegroundPermissionsAsync();
             if (status === 'granted') {
