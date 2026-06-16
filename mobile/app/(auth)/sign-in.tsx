@@ -13,12 +13,17 @@ import { apiClient } from '@/lib/api';
 // reviewer's typed code is sent to /mobile/demo-signin, which returns a Clerk
 // sign-in ticket we redeem here. Real users' phone-OTP flow is untouched, and
 // the whole path is inert in builds where the env var is unset.
-const DEMO_PHONE = process.env.EXPO_PUBLIC_DEMO_PHONE ?? '';
+// Comma-separated list of demo phones (e.g. a rider demo + a driver demo),
+// matched against the entered number. Inert when the env var is unset.
+const DEMO_PHONES = (process.env.EXPO_PUBLIC_DEMO_PHONE ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 const norm10 = (v: string) => {
   const d = (v || '').replace(/\D/g, '');
   return d.length >= 10 ? d.slice(-10) : d;
 };
-const isDemoPhone = (v: string) => !!DEMO_PHONE && norm10(v) === norm10(DEMO_PHONE);
+const isDemoPhone = (v: string) => DEMO_PHONES.some((p) => norm10(p) === norm10(v));
 
 export default function SignIn() {
   const { signIn, setActive, isLoaded } = useSignIn();

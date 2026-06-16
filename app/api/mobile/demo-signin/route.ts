@@ -20,7 +20,12 @@ import { clerkClient } from '@clerk/nextjs/server';
 
 export const runtime = 'nodejs';
 
-const DEMO_PHONE = process.env.DEMO_LOGIN_PHONE || '';
+// Comma-separated list of E.164 demo phones (e.g. one rider + one driver demo
+// account), all sharing the same bypass code. A single value works too.
+const DEMO_PHONES = (process.env.DEMO_LOGIN_PHONE || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 const DEMO_CODE = process.env.DEMO_LOGIN_CODE || '';
 
 // Last-10-digit NANPA compare so "+1 (678) 813-1008" == "6788131008".
@@ -39,7 +44,7 @@ function safeEqual(a: string, b: string): boolean {
 
 export async function POST(req: NextRequest) {
   // Feature disabled unless explicitly configured.
-  if (!DEMO_PHONE || !DEMO_CODE) {
+  if (DEMO_PHONES.length === 0 || !DEMO_CODE) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
@@ -50,16 +55,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   }
 
-  const phoneOk = norm10(body.phone ?? '') === norm10(DEMO_PHONE);
+  // Match the submitted phone to a configured demo phone; use the configured
+  // (E.164) value for the Clerk lookup so the format is always exact.
+  const matched = DEMO_PHONES.find((p) => norm10(p) === norm10(body.phone ?? ''));
   const codeOk = safeEqual(body.code ?? '', DEMO_CODE);
   // Single generic 401 for any mismatch — don't reveal which field was wrong.
-  if (!phoneOk || !codeOk) {
+  if (!matched || !codeOk) {
     return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
   }
 
   try {
     const clerk = await clerkClient();
-    const list = await clerk.users.getUserList({ phoneNumber: [DEMO_PHONE], limit: 1 });
+    const list = await clerk.users.getUserList({ phoneNumber: [matched], limit: 1 });
     const user = list.data[0];
     if (!user) {
       // Misconfiguration: phone/code matched but the demo user isn't provisioned.
