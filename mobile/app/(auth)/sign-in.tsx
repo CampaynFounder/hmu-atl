@@ -6,6 +6,19 @@ import {
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { colors, fonts, radius, spacing } from '@/lib/theme';
+import { apiClient } from '@/lib/api';
+
+// App-store reviewer login. When this build's EXPO_PUBLIC_DEMO_PHONE is set and
+// the user enters that exact number, we skip Clerk's SMS OTP entirely: the
+// reviewer's typed code is sent to /mobile/demo-signin, which returns a Clerk
+// sign-in ticket we redeem here. Real users' phone-OTP flow is untouched, and
+// the whole path is inert in builds where the env var is unset.
+const DEMO_PHONE = process.env.EXPO_PUBLIC_DEMO_PHONE ?? '';
+const norm10 = (v: string) => {
+  const d = (v || '').replace(/\D/g, '');
+  return d.length >= 10 ? d.slice(-10) : d;
+};
+const isDemoPhone = (v: string) => !!DEMO_PHONE && norm10(v) === norm10(DEMO_PHONE);
 
 export default function SignIn() {
   const { signIn, setActive, isLoaded } = useSignIn();
@@ -16,9 +29,18 @@ export default function SignIn() {
   const [step, setStep] = useState<'phone' | 'code'>('phone');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [demo, setDemo] = useState(false);
 
   async function sendCode() {
     if (!isLoaded) return;
+    // Demo account: don't ask Clerk to send an SMS — just advance to the code
+    // screen so the reviewer's flow looks identical to a real sign-in.
+    if (isDemoPhone(phone)) {
+      setDemo(true);
+      setError(null);
+      setStep('code');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -51,13 +73,29 @@ export default function SignIn() {
     setLoading(true);
     setError(null);
     try {
+      if (demo) {
+        // Reviewer bypass: exchange the fixed code for a Clerk sign-in ticket,
+        // then complete the session with it (no OTP was ever sent).
+        const { ticket } = await apiClient<{ ticket: string }>('/mobile/demo-signin', null, {
+          method: 'POST',
+          body: JSON.stringify({ phone, code }),
+        });
+        const result = await signIn!.create({ strategy: 'ticket', ticket });
+        if (result.status === 'complete') {
+          await setActive!({ session: result.createdSessionId });
+          router.replace('/');
+        } else {
+          setError('Could not complete sign-in');
+        }
+        return;
+      }
       const result = await signIn!.attemptFirstFactor({ strategy: 'phone_code', code });
       if (result.status === 'complete') {
         await setActive!({ session: result.createdSessionId });
         router.replace('/');
       }
     } catch (e: any) {
-      setError(e.errors?.[0]?.message ?? 'Invalid code');
+      setError(e.errors?.[0]?.message ?? e?.message ?? 'Invalid code');
     } finally {
       setLoading(false);
     }
@@ -106,16 +144,16 @@ export default function SignIn() {
               autoComplete="one-time-code"
             />
             <TouchableOpacity
-              style={[s.btn, (code.length < 6 || loading) && s.btnDisabled]}
+              style={[s.btn, (code.length < (demo ? 1 : 6) || loading) && s.btnDisabled]}
               onPress={verifyCode}
-              disabled={loading || code.length < 6}
+              disabled={loading || code.length < (demo ? 1 : 6)}
             >
               {loading
                 ? <ActivityIndicator color={colors.bg} />
                 : <Text style={s.btnText}>VERIFY</Text>
               }
             </TouchableOpacity>
-            <TouchableOpacity style={s.ghost} onPress={() => setStep('phone')}>
+            <TouchableOpacity style={s.ghost} onPress={() => { setDemo(false); setCode(''); setStep('phone'); }}>
               <Text style={s.ghostText}>← Change number</Text>
             </TouchableOpacity>
           </>
