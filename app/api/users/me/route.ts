@@ -3,6 +3,20 @@ import { auth, clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { resolveMarketBySlug, MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver';
 
+// App-store reviewer demo accounts (same list as the demo-signin bypass). When a
+// user's phone matches, /users/me returns isDemo:true so the app can skip the
+// geo market gate — reviewers run from outside an active market and would
+// otherwise be bounced to the "not in your area" screen.
+const DEMO_PHONES = (process.env.DEMO_LOGIN_PHONE || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .map((p) => p.replace(/\D/g, '').slice(-10));
+const isDemoPhone = (phone: string | null | undefined): boolean => {
+  const d = (phone || '').replace(/\D/g, '').slice(-10);
+  return d.length === 10 && DEMO_PHONES.includes(d);
+};
+
 /** PATCH /api/users/me — set profileType on first mobile sign-up */
 export async function PATCH(request: NextRequest) {
   const { userId: clerkId } = await auth();
@@ -32,7 +46,7 @@ export async function GET(request: NextRequest) {
   // One query joins the user with their driver handle so /d/[handle] can cheaply
   // check "is this page about me?" without a second fetch.
   const rows = await sql`
-    SELECT u.id, u.profile_type, u.account_status, u.is_admin,
+    SELECT u.id, u.profile_type, u.account_status, u.is_admin, u.phone,
            dp.handle AS driver_handle,
            ar.is_super
     FROM users u
@@ -89,6 +103,7 @@ export async function GET(request: NextRequest) {
     driver_handle: string | null;
     is_admin: boolean;
     is_super: boolean | null;
+    phone: string | null;
   };
   return NextResponse.json({
     id: user.id,
@@ -96,5 +111,6 @@ export async function GET(request: NextRequest) {
     accountStatus: user.account_status,
     driverHandle: user.driver_handle || null,
     isSuperAdmin: !!(user.is_admin && user.is_super),
+    isDemo: isDemoPhone(user.phone),
   });
 }
