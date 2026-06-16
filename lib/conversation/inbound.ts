@@ -5,6 +5,7 @@
 import { sql } from '@/lib/db/client';
 import { sendSms } from '@/lib/sms/textbee';
 import { isFeatureEnabled } from '@/lib/feature-flags';
+import { getNormalizedDidsForLine } from '@/lib/sms/lines';
 import { getConfig } from './config';
 import { handleReply } from './orchestrator';
 
@@ -59,8 +60,20 @@ export async function handleConversationInbound(
   phone10: string,
   message: string,
   voipmsId: string | null,
+  toDid: string | null = null,
 ): Promise<InboundResult> {
   try {
+    // The conversation agent only operates on the main line. Inbound that landed
+    // on a secondary number (e.g. Rider Growth) must never trigger an auto-reply
+    // from that number — those are handled by a human in the admin console.
+    if (toDid) {
+      const toDid10 = toDid.replace(/\D/g, '').slice(-10);
+      if (getNormalizedDidsForLine('rider_growth').includes(toDid10)) {
+        console.log('[conversation/inbound] short-circuit: non-main line', { phone10, toDid10 });
+        return { handled: false, reason: 'non-main-line' };
+      }
+    }
+
     const flagOn = await isFeatureEnabled(FLAG);
     if (!flagOn) {
       console.log('[conversation/inbound] short-circuit: flag off', { phone10 });

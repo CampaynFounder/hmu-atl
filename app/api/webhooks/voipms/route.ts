@@ -133,7 +133,7 @@ async function handleInbound(
   // feature flag is off or the sender has no active thread. STOP keyword
   // handling also lives here.
   try {
-    await handleConversationInbound(fromPhone, message, voipmsId || null);
+    await handleConversationInbound(fromPhone, message, voipmsId || null, toDid || null);
   } catch (error) {
     console.error('[VOIPMS WEBHOOK] conversation routing failed:', error);
   }

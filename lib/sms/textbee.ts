@@ -12,37 +12,15 @@
 
 import { sql } from '@/lib/db/client';
 import { renderTemplate } from './templates';
+import { getDidForLine, type SmsLineKey } from './lines';
 
 const API_URL = 'https://voip.ms/api/v1/rest.php';
 const MAX_RETRIES = 1;
 const RETRY_DELAY_MS = 1500;
 
-// ── Market → DID mapping ──
-// When a market's env var is unset (e.g. NOLA pilot before a 504 DID is
-// purchased), resolution falls through to VOIPMS_DID_ATL so outbound SMS keeps
-// working with the ATL number.
-const MARKET_DIDS: Record<string, string> = {
-  atl: 'VOIPMS_DID_ATL',
-  nola: 'VOIPMS_DID_NOLA',
-  hou: 'VOIPMS_DID_HOU',
-  dal: 'VOIPMS_DID_DAL',
-  mem: 'VOIPMS_DID_MEM',
-};
-
-function getDidForMarket(market: string = 'atl'): string | null {
-  const envKey = MARKET_DIDS[market.toLowerCase()];
-  if (envKey) {
-    // Use direct property access — Cloudflare Workers Proxy needs known keys
-    switch (market.toLowerCase()) {
-      case 'atl': return process.env.VOIPMS_DID_ATL || null;
-      case 'nola': return process.env.VOIPMS_DID_NOLA || process.env.VOIPMS_DID_ATL || null;
-      case 'hou': return process.env.VOIPMS_DID_HOU || null;
-      case 'dal': return process.env.VOIPMS_DID_DAL || null;
-      case 'mem': return process.env.VOIPMS_DID_MEM || null;
-    }
-  }
-  return process.env.VOIPMS_DID_ATL || null;
-}
+// DID resolution (per line + market) lives in ./lines.ts. The default line is
+// 'main' (the original platform number); pass options.line = 'rider_growth' to
+// send from the separate rider-acquisition number.
 
 // ── Normalize phone to 10-digit NANPA ──
 function normalizePhone(phone: string): string {
@@ -64,6 +42,9 @@ interface SmsOptions {
   userId?: string;
   eventType?: string;
   market?: string;
+  // Which phone number to send from. Defaults to 'main'. 'rider_growth' uses
+  // the separate VoIP.ms number that backs the /admin/rider-growth console.
+  line?: SmsLineKey;
 }
 
 // ── Log to sms_log table ──
@@ -108,7 +89,7 @@ export async function sendSms(
   let message = rawMessage;
   const username = process.env.VOIPMS_API_USERNAME;
   const password = process.env.VOIPMS_API_PASSWORD;
-  const did = getDidForMarket(options.market);
+  const did = getDidForLine(options.line ?? 'main', options.market);
 
   console.log('[SMS] Attempting send to:', to, '| Username set:', !!username, '| Password set:', !!password, '| DID:', did);
 

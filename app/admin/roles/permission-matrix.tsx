@@ -27,6 +27,7 @@ const PERMISSION_SECTIONS = [
     { key: 'grow.activation', label: 'Activation' },
     { key: 'grow.outreach', label: 'Outreach' },
     { key: 'grow.messages', label: 'Messages' },
+    { key: 'grow.ridergrowth', label: 'Rider Growth' },
     { key: 'grow.playbook', label: 'Playbook' },
     { key: 'grow.leads', label: 'Leads' },
     { key: 'grow.events', label: 'Event Inquiries' },

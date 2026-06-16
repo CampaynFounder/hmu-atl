@@ -11,11 +11,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
 import { publishAdminEvent } from '@/lib/ably/server';
+import { asLineKey, getNormalizedDidsForLine } from '@/lib/sms/lines';
 
 async function resolveMarketSlug(marketId: string | null): Promise<string | null> {
   if (!marketId) return null;
   const rows = await sql`SELECT slug FROM markets WHERE id = ${marketId} LIMIT 1`;
   return (rows[0] as { slug?: string } | undefined)?.slug || null;
+}
+
+// SMS "line" scoping. A message belongs to a line by DID: outbound carries
+// sms_log.from_did, inbound carries sms_inbound.to_did. The rider_growth line
+// shows only its own DIDs; the main line shows everything that ISN'T a
+// rider_growth DID (legacy NULL/empty DIDs stay on main). Empty config uses a
+// sentinel so ANY/ALL stay well-typed and rider_growth resolves to no rows.
+function lineDidParam(): string[] {
+  const dids = getNormalizedDidsForLine('rider_growth');
+  return dids.length ? dids : ['__none__'];
 }
 
 export async function GET(req: NextRequest) {
@@ -26,16 +37,25 @@ export async function GET(req: NextRequest) {
   const phone = searchParams.get('phone');
   const filter = searchParams.get('filter'); // 'inbound', 'outbound', 'failed'
   const marketSlug = await resolveMarketSlug(searchParams.get('marketId'));
+  // Line scoping: 'main' (default) hides rider_growth DIDs; 'rider_growth' shows
+  // only them. rgDids drives the DID membership filter on inbound/outbound rows.
+  const isRg = asLineKey(searchParams.get('line')) === 'rider_growth';
+  const rgDids = lineDidParam();
 
   // Drill-down: return filtered message list
   if (filter) {
     let rows;
     if (filter === 'inbound') {
-      // sms_inbound has no market column — always admin-global.
+      // sms_inbound has no market column — market-global, but line-scoped by to_did.
       rows = await sql`
         SELECT id, from_phone as phone, message, created_at, 'inbound' as direction,
           NULL as event_type, NULL as status
-        FROM sms_inbound ORDER BY created_at DESC LIMIT 100
+        FROM sms_inbound
+        WHERE CASE WHEN ${isRg ? 1 : 0} = 1
+          THEN COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+          ELSE COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+        END
+        ORDER BY created_at DESC LIMIT 100
       `;
     } else if (filter === 'failed') {
       rows = marketSlug
@@ -43,12 +63,21 @@ export async function GET(req: NextRequest) {
             SELECT id, to_phone as phone, message, event_type, status, error, created_at,
               'outbound' as direction
             FROM sms_log WHERE status = 'failed' AND market = ${marketSlug}
+            AND CASE WHEN ${isRg ? 1 : 0} = 1
+              THEN COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+              ELSE COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+            END
             ORDER BY created_at DESC LIMIT 100
           `
         : await sql`
             SELECT id, to_phone as phone, message, event_type, status, error, created_at,
               'outbound' as direction
-            FROM sms_log WHERE status = 'failed' ORDER BY created_at DESC LIMIT 100
+            FROM sms_log WHERE status = 'failed'
+            AND CASE WHEN ${isRg ? 1 : 0} = 1
+              THEN COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+              ELSE COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+            END
+            ORDER BY created_at DESC LIMIT 100
           `;
     } else {
       rows = marketSlug
@@ -56,12 +85,21 @@ export async function GET(req: NextRequest) {
             SELECT id, to_phone as phone, message, event_type, status, created_at,
               'outbound' as direction
             FROM sms_log WHERE status = 'sent' AND market = ${marketSlug}
+            AND CASE WHEN ${isRg ? 1 : 0} = 1
+              THEN COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+              ELSE COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+            END
             ORDER BY created_at DESC LIMIT 100
           `
         : await sql`
             SELECT id, to_phone as phone, message, event_type, status, created_at,
               'outbound' as direction
-            FROM sms_log WHERE status = 'sent' ORDER BY created_at DESC LIMIT 100
+            FROM sms_log WHERE status = 'sent'
+            AND CASE WHEN ${isRg ? 1 : 0} = 1
+              THEN COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+              ELSE COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+            END
+            ORDER BY created_at DESC LIMIT 100
           `;
     }
     return NextResponse.json({
@@ -89,6 +127,10 @@ export async function GET(req: NextRequest) {
           'outbound' as direction
         FROM sms_log
         WHERE to_phone = ${normalized}
+        AND CASE WHEN ${isRg ? 1 : 0} = 1
+          THEN COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+          ELSE COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+        END
         ORDER BY created_at DESC
         LIMIT 50
       `,
@@ -97,15 +139,24 @@ export async function GET(req: NextRequest) {
           'inbound' as direction
         FROM sms_inbound
         WHERE from_phone = ${normalized}
+        AND CASE WHEN ${isRg ? 1 : 0} = 1
+          THEN COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+          ELSE COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+        END
         ORDER BY created_at DESC
         LIMIT 50
       `,
     ]);
 
-    // Mark inbound as read
+    // Mark inbound as read — scoped to this line so opening a rider_growth
+    // thread doesn't clear unread on a same-number main-line conversation.
     const updated = await sql`
       UPDATE sms_inbound SET read = true
       WHERE from_phone = ${normalized} AND read = false
+      AND CASE WHEN ${isRg ? 1 : 0} = 1
+        THEN COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+        ELSE COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+      END
       RETURNING id
     ` as { id: string }[];
     if (updated.length > 0) {
@@ -207,9 +258,17 @@ export async function GET(req: NextRequest) {
         WITH all_messages AS (
           SELECT to_phone as phone, message, created_at, 'outbound' as direction, false as unread
           FROM sms_log WHERE market = ${marketSlug}
+          AND CASE WHEN ${isRg ? 1 : 0} = 1
+            THEN COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+            ELSE COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+          END
           UNION ALL
           SELECT from_phone as phone, message, created_at, 'inbound' as direction, NOT read as unread
           FROM sms_inbound
+          WHERE CASE WHEN ${isRg ? 1 : 0} = 1
+            THEN COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+            ELSE COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+          END
         ),
         latest AS (
           SELECT phone,
@@ -248,9 +307,17 @@ export async function GET(req: NextRequest) {
         WITH all_messages AS (
           SELECT to_phone as phone, message, created_at, 'outbound' as direction, false as unread
           FROM sms_log
+          WHERE CASE WHEN ${isRg ? 1 : 0} = 1
+            THEN COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+            ELSE COALESCE(RIGHT(REGEXP_REPLACE(from_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+          END
           UNION ALL
           SELECT from_phone as phone, message, created_at, 'inbound' as direction, NOT read as unread
           FROM sms_inbound
+          WHERE CASE WHEN ${isRg ? 1 : 0} = 1
+            THEN COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+            ELSE COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+          END
         ),
         latest AS (
           SELECT phone,
@@ -315,17 +382,36 @@ export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return unauthorizedResponse();
 
-  const { phone } = await req.json();
+  const { phone, line } = await req.json();
   if (!phone) return NextResponse.json({ error: 'phone required' }, { status: 400 });
 
+  // Scope mark-read to the line so "mark all read" on one surface doesn't clear
+  // the other's unread (and the badge counts, which are line-split).
+  const isRg = asLineKey(line) === 'rider_growth';
+  const rgDids = lineDidParam();
+
   if (phone === 'ALL') {
-    const updated = await sql`UPDATE sms_inbound SET read = true WHERE read = false RETURNING id` as { id: string }[];
+    const updated = await sql`
+      UPDATE sms_inbound SET read = true WHERE read = false
+      AND CASE WHEN ${isRg ? 1 : 0} = 1
+        THEN COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+        ELSE COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+      END
+      RETURNING id
+    ` as { id: string }[];
     if (updated.length > 0) {
       publishAdminEvent('message_read', { phone: 'ALL', count: updated.length }).catch(() => {});
     }
   } else {
     const normalized = phone.replace(/\D/g, '');
-    const updated = await sql`UPDATE sms_inbound SET read = true WHERE from_phone = ${normalized} AND read = false RETURNING id` as { id: string }[];
+    const updated = await sql`
+      UPDATE sms_inbound SET read = true WHERE from_phone = ${normalized} AND read = false
+      AND CASE WHEN ${isRg ? 1 : 0} = 1
+        THEN COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') = ANY(${rgDids})
+        ELSE COALESCE(RIGHT(REGEXP_REPLACE(to_did, '[^0-9]', '', 'g'), 10), '') <> ALL(${rgDids})
+      END
+      RETURNING id
+    ` as { id: string }[];
     if (updated.length > 0) {
       publishAdminEvent('message_read', { phone: normalized, count: updated.length }).catch(() => {});
     }

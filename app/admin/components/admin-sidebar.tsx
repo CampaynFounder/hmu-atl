@@ -52,6 +52,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/activation', label: 'Activation', icon: '🚀' },
       { href: '/admin/marketing', label: 'Outreach', icon: '📣' },
       { href: '/admin/messages', label: 'Messages', icon: '💬', badgeCategory: 'messages', badgeColor: 'green' },
+      { href: '/admin/rider-growth', label: 'Rider Growth', icon: '📈', badgeCategory: 'ridergrowth', badgeColor: 'green' },
       { href: '/admin/playbook', label: 'Playbook', icon: '📚' },
       { href: '/admin/leads', label: 'Leads', icon: '📧', badgeCategory: 'leads', badgeColor: 'green' },
       { href: '/admin/events', label: 'Event Inquiries', icon: '🎟️', badgeCategory: 'events', badgeColor: 'green' },
