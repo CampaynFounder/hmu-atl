@@ -181,6 +181,11 @@ export default function ActiveRideScreen() {
   const [priceReason, setPriceReason] = useState('');
   const [proposingPrice, setProposingPrice] = useState(false);
 
+  // Prominent background-location disclosure (Google Play policy: must be shown
+  // before the OS background-permission request). Gates startRideTracking.
+  const [showLocDisclosure, setShowLocDisclosure] = useState(false);
+  const pendingTrack = useRef<{ rideId: string; token: string } | null>(null);
+
   // Add-ons
   const [addOns, setAddOns] = useState<AddOn[]>([]);
 
@@ -542,6 +547,21 @@ export default function ActiveRideScreen() {
 
   // ── State transition handlers ──────────────────────────────────────────────
 
+  // Start ride tracking, but if background location isn't granted yet, show the
+  // prominent disclosure first and defer the actual request until the driver
+  // accepts it (Google Play background-location policy).
+  async function maybeStartTrackingWithDisclosure(rideIdArg: string, tokenArg: string) {
+    try {
+      const { status } = await Location.getBackgroundPermissionsAsync();
+      if (status === 'granted') {
+        void startRideTracking(rideIdArg, tokenArg);
+        return;
+      }
+    } catch { /* fall through to disclosure */ }
+    pendingTrack.current = { rideId: rideIdArg, token: tokenArg };
+    setShowLocDisclosure(true);
+  }
+
   async function goOtw() {
     if (!rideId || acting) return;
     setActing(true);
@@ -551,8 +571,10 @@ export default function ActiveRideScreen() {
       const t = await getToken();
       await apiClient(`/rides/${rideId}/otw`, t, { method: 'POST' });
       setRide((prev) => prev ? { ...prev, status: 'otw', otwAt: new Date().toISOString() } : prev);
-      // Start background GPS so rider can track driver approach even if driver switches apps
-      if (t) void startRideTracking(rideId, t);
+      // Start background GPS so rider can track driver approach even if driver
+      // switches apps — shows the prominent disclosure first if we don't already
+      // hold background permission (Google Play requires it before the request).
+      if (t) await maybeStartTrackingWithDisclosure(rideId, t);
     } catch (e: any) {
       setError(e.message ?? 'Could not mark OTW');
     } finally {
@@ -1108,6 +1130,40 @@ export default function ActiveRideScreen() {
         </View>
       </Modal>
 
+      {/* Prominent background-location disclosure — shown before the OS request
+          so Google Play's foreground-service / background location policy is met.
+          Not dismissable by tapping out: the driver must choose Allow or Not now. */}
+      <Modal transparent visible={showLocDisclosure} animationType="fade" onRequestClose={() => { setShowLocDisclosure(false); pendingTrack.current = null; }}>
+        <View style={s.locDiscOverlay}>
+          <View style={[s.locDiscCard, { paddingBottom: insets.bottom + spacing.lg }]}>
+            <Ionicons name="location" size={32} color={colors.green} style={{ alignSelf: 'center' }} />
+            <Text style={s.locDiscTitle}>LOCATION DURING YOUR RIDE</Text>
+            <Text style={s.locDiscBody}>
+              HMU ATL collects your location in the background to track your active ride and share your live
+              location with your rider — even when the app is closed or not in use. We only do this while a ride
+              is active, and tracking stops as soon as the ride ends.
+            </Text>
+            <TouchableOpacity
+              style={s.locDiscBtn}
+              onPress={() => {
+                setShowLocDisclosure(false);
+                const p = pendingTrack.current;
+                pendingTrack.current = null;
+                if (p) void startRideTracking(p.rideId, p.token);
+              }}
+            >
+              <Text style={s.locDiscBtnText}>ALLOW LOCATION</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.locDiscGhost}
+              onPress={() => { setShowLocDisclosure(false); pendingTrack.current = null; }}
+            >
+              <Text style={s.locDiscGhostText}>Not now</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Error banner ── */}
       {error && (
         <View style={s.errorBanner}>
@@ -1425,6 +1481,18 @@ const s = StyleSheet.create({
   },
   priceModalBtn: { backgroundColor: colors.green, borderRadius: radius.pill, paddingVertical: spacing.md, alignItems: 'center', justifyContent: 'center' },
   priceModalBtnText: { fontFamily: fonts.mono, fontSize: 14, color: colors.bg, letterSpacing: 1 },
+
+  locDiscOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  locDiscCard: {
+    backgroundColor: colors.bg, borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card,
+    borderTopWidth: 1, borderColor: colors.border, padding: spacing.xl, gap: spacing.md,
+  },
+  locDiscTitle: { fontFamily: fonts.mono, fontSize: 13, color: colors.textPrimary, letterSpacing: 2, textAlign: 'center' },
+  locDiscBody: { fontFamily: fonts.body, fontSize: 14, lineHeight: 21, color: colors.textSecondary, textAlign: 'center' },
+  locDiscBtn: { backgroundColor: colors.green, borderRadius: radius.pill, paddingVertical: spacing.md, alignItems: 'center', justifyContent: 'center', marginTop: spacing.sm },
+  locDiscBtnText: { fontFamily: fonts.mono, fontSize: 14, color: colors.bg, letterSpacing: 1 },
+  locDiscGhost: { alignItems: 'center', paddingVertical: spacing.sm },
+  locDiscGhostText: { fontFamily: fonts.body, fontSize: 14, color: colors.textFaint },
   driverCancelLink: { alignItems: 'center', paddingVertical: spacing.md, marginTop: spacing.sm },
   driverCancelText: { fontFamily: fonts.body, fontSize: 14, color: colors.red },
   card: {
