@@ -110,15 +110,38 @@ export function GlobalRideAlert() {
         const key = `ride_cancelled:${rideId}`;
         const last = lastAlertKeyRef.current;
         if (last && last.key === key && Date.now() - last.at < DEDUP_WINDOW_MS) return;
-        lastAlertKeyRef.current = { key, at: Date.now() };
-        setAlert({
-          type: 'ride_cancelled',
-          rideId,
-          driverName: (data.driverName as string) || undefined,
-          message: (data.message as string) || 'Ride was cancelled',
-        });
-        if (dismissTimer.current) clearTimeout(dismissTimer.current);
-        dismissTimer.current = setTimeout(() => setAlert(null), 15000);
+        // Identity guard against superseded rides. A cancel for an OLD ride can
+        // arrive after the rider has already rebooked — either as an Ably rewind
+        // replay (2-min window) or because they cancelled and re-requested within
+        // seconds. The 30s age gate above cannot catch the immediate-rebook case,
+        // so reconcile against the DB (source of truth): if the rider's CURRENT
+        // active ride is a DIFFERENT ride, this cancel is for a superseded one and
+        // must NOT pop a full-screen "RIDE CANCELLED" over the new booking.
+        void (async () => {
+          try {
+            const res = await fetch('/api/rides/active');
+            if (res.ok) {
+              const active = await res.json();
+              if (active?.hasActiveRide && active.rideId && active.rideId !== rideId) {
+                return; // superseded by a newer ride — suppress the stale cancel
+              }
+            }
+          } catch {
+            // Fail open: a flaky lookup must never swallow a genuine "your driver
+            // cancelled" alert. Worst case is the pre-existing behaviour.
+          }
+          const recheck = lastAlertKeyRef.current;
+          if (recheck && recheck.key === key && Date.now() - recheck.at < DEDUP_WINDOW_MS) return;
+          lastAlertKeyRef.current = { key, at: Date.now() };
+          setAlert({
+            type: 'ride_cancelled',
+            rideId,
+            driverName: (data.driverName as string) || undefined,
+            message: (data.message as string) || 'Ride was cancelled',
+          });
+          if (dismissTimer.current) clearTimeout(dismissTimer.current);
+          dismissTimer.current = setTimeout(() => setAlert(null), 15000);
+        })();
       } else if (rideId && ['otw', 'here'].includes(status)) {
         setAlert({
           type: 'ride_status',
