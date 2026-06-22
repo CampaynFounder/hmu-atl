@@ -254,7 +254,19 @@ export default function ActiveRideScreen() {
         ])
       )
     ).start();
-  }, []);
+  }, [rideId]);
+
+  // Reset transient per-ride overlays whenever the ride changes. Expo Router
+  // reuses this screen across rideId param changes, so without this a previous
+  // ride's "RIDE CANCELLED" (or rating) overlay carries onto the next ride and
+  // only a full app reload clears it. Keyed to rideId so it's scoped per ride.
+  useEffect(() => {
+    setShowCancel(false);
+    cancelSlide.setValue(300);
+    setShowRating(false);
+    ratingSlide.setValue(300);
+    setCancelReq(null);
+  }, [rideId]);
 
   // Ably — subscribe to ride channel for live status updates
   useAbly({
@@ -285,6 +297,11 @@ export default function ActiveRideScreen() {
         });
       }
       if (msg.name === 'status_change') {
+        // Suppress stale Ably rewind replays. The ride channel uses rewind:'2m',
+        // so a reconnect (or this screen being reused for a new ride) can replay
+        // an OLD 'cancelled'/'ended' event and re-open the overlay on top of a
+        // live ride. Real-time status events are <1s old; >30s means a replay.
+        if (msg.timestamp && Date.now() - msg.timestamp > 30_000) return;
         const d = msg.data as Record<string, unknown>;
         const newStatus = d.status as string;
         setRide((prev) => {
@@ -1190,7 +1207,11 @@ export default function ActiveRideScreen() {
             <Text style={s.ratingSub}>The rider cancelled this ride.</Text>
             <TouchableOpacity
               style={[s.submitBtn, { backgroundColor: colors.green, marginTop: spacing.xl }]}
-              onPress={() => router.replace('/(driver)/home')}
+              onPress={() => {
+                setShowCancel(false);
+                cancelSlide.setValue(300);
+                router.replace('/(driver)/home');
+              }}
               activeOpacity={0.85}
             >
               <Text style={s.submitLabel}>GO HOME</Text>
