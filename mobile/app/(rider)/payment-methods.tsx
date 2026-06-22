@@ -67,6 +67,7 @@ export default function PaymentMethods() {
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [selecting, setSelecting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -81,6 +82,24 @@ export default function PaymentMethods() {
   }, [getToken]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  // Switch the active (charged) card by tapping it — no need to delete the old
+  // one. The ride hold charges whichever method is is_default on the backend.
+  async function makeDefault(method: PaymentMethod) {
+    if (method.isDefault || selecting) return;
+    setSelecting(method.id);
+    const prev = methods;
+    setMethods(ms => ms.map(m => ({ ...m, isDefault: m.id === method.id }))); // optimistic
+    try {
+      const t = await getToken();
+      await apiClient(`/rider/payment-methods/${method.id}/default`, t, { method: 'PATCH' });
+    } catch (e: any) {
+      setMethods(prev); // revert if it didn't persist
+      Alert.alert('Error', e.message ?? 'Could not switch payment method');
+    } finally {
+      setSelecting(null);
+    }
+  }
 
   async function removeCard(method: PaymentMethod) {
     Alert.alert(
@@ -153,24 +172,35 @@ export default function PaymentMethods() {
                     entering={FadeInUp.delay(i * 60).duration(350)}
                     style={[s.cardRow, shadow.card, m.isDefault && { borderColor: colors.greenBorder }]}
                   >
-                    {/* Brand + number */}
-                    <View style={[s.brandBadge, { backgroundColor: `${color}18`, borderColor: `${color}40` }]}>
-                      <Text style={[s.brandText, { color }]}>{brandLabel(m)}</Text>
-                    </View>
-
-                    <View style={s.cardInfo}>
-                      <Text style={s.cardNumber}>
-                        {m.last4 ? `•••• ${m.last4}` : brandLabel(m)}
-                      </Text>
-                      <View style={s.cardMeta}>
-                        {exp && <Text style={s.cardExp}>Exp {exp}</Text>}
-                        {m.isDefault && (
-                          <View style={s.defaultBadge}>
-                            <Text style={s.defaultText}>DEFAULT</Text>
-                          </View>
-                        )}
+                    {/* Tap the card to make it the active (charged) method */}
+                    <TouchableOpacity
+                      style={s.cardTap}
+                      onPress={() => makeDefault(m)}
+                      disabled={m.isDefault || selecting != null}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[s.brandBadge, { backgroundColor: `${color}18`, borderColor: `${color}40` }]}>
+                        <Text style={[s.brandText, { color }]}>{brandLabel(m)}</Text>
                       </View>
-                    </View>
+
+                      <View style={s.cardInfo}>
+                        <Text style={s.cardNumber}>
+                          {m.last4 ? `•••• ${m.last4}` : brandLabel(m)}
+                        </Text>
+                        <View style={s.cardMeta}>
+                          {exp && <Text style={s.cardExp}>Exp {exp}</Text>}
+                          {selecting === m.id ? (
+                            <ActivityIndicator size="small" color={colors.green} />
+                          ) : m.isDefault ? (
+                            <View style={s.defaultBadge}>
+                              <Text style={s.defaultText}>DEFAULT</Text>
+                            </View>
+                          ) : (
+                            <Text style={s.tapHint}>TAP TO USE</Text>
+                          )}
+                        </View>
+                      </View>
+                    </TouchableOpacity>
 
                     {/* Remove */}
                     {!m.isDefault || methods.length > 1 ? (
@@ -248,6 +278,7 @@ const s = StyleSheet.create({
     padding: spacing.lg, flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     borderWidth: 1, borderColor: colors.border,
   },
+  cardTap: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   brandBadge: {
     width: 54, height: 34, borderRadius: radius.tag,
     alignItems: 'center', justifyContent: 'center', borderWidth: 1,
@@ -262,6 +293,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 7, paddingVertical: 2, borderWidth: 1, borderColor: colors.greenBorder,
   },
   defaultText: { fontFamily: fonts.mono, fontSize: 8, color: colors.green, letterSpacing: 1 },
+  tapHint: { fontFamily: fonts.mono, fontSize: 8, color: colors.textFaint, letterSpacing: 1 },
   removeBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
 
   addBtn: {
