@@ -26,3 +26,23 @@ re-broke this by restoring/advancing the step without honoring the prefill.
 `lib/api.ts` `apiClient` has a 30s `AbortController` timeout. Without it a hung
 origin (Neon stall, CF holding the socket) leaves a submit button spinning
 forever. Keep the timeout; do not strip the signal when adding fetch options.
+
+## A cancelled ride must never bleed into a rebooking
+Every booking is a fresh `rides` row (new UUID); cancellation is an in-place
+`UPDATE ... WHERE id = rideId` on that one row; `/api/rides/active` whitelists
+live statuses and excludes `cancelled`. So the **DB is the source of truth and is
+always right** — the failure mode is the realtime layer, not storage.
+
+- A `status_change`/`cancelled` Ably event can be a **rewind replay** (2-min
+  window) or a stale cancel for a ride the rider just **rebooked within seconds**.
+  Never render a destructive "RIDE CANCELLED" surface straight from the event.
+- **Scope cancel events by `rideId` and reconcile against `/api/rides/active`**
+  before showing them: if the rider's *current* active ride is a different
+  `rideId`, the cancel is for a superseded ride — suppress it. A time-based age
+  gate alone CANNOT catch immediate rebooking; identity reconciliation can.
+- Web enforces this in `components/global-ride-alert.tsx` (the `status === 'cancelled'`
+  branch). Mobile realtime handlers (`contexts/notifications.tsx`,
+  `app/(rider)/ride/active.tsx`) must follow the same rule.
+- DB backstop: `uq_one_active_ride_per_rider` (migration
+  `2026-06-22-one-active-ride-per-rider.sql`) makes two simultaneous live rides
+  per rider impossible, so the `active` lookup can never be ambiguous.
