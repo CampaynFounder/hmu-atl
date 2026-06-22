@@ -13,6 +13,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
+import { PaymentIcon } from 'react-native-payment-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 
@@ -57,6 +58,21 @@ function brandColor(method: PaymentMethod): string {
   if (method.isGooglePay) return colors.blue;
   if (method.isCashAppPay) return '#00C853';
   return BRAND_COLORS[method.brand ?? ''] ?? colors.textFaint;
+}
+
+// Map a card brand to a react-native-payment-icons type for the real network
+// mark. Wallets (Apple/Google/Cash App) return null — that package has no
+// wallet marks, so they keep the styled label until official assets are added.
+const BRAND_ICON_TYPE = {
+  visa: 'visa', mastercard: 'mastercard', amex: 'amex', american_express: 'amex',
+  discover: 'discover', diners: 'diners', diners_club: 'diners', jcb: 'jcb',
+  unionpay: 'unionpay', union_pay: 'unionpay', maestro: 'maestro',
+} as const;
+
+function cardIconType(method: PaymentMethod): (typeof BRAND_ICON_TYPE)[keyof typeof BRAND_ICON_TYPE] | null {
+  if (method.isApplePay || method.isGooglePay || method.isCashAppPay) return null;
+  const key = (method.brand ?? '').toLowerCase().replace(/\s+/g, '_');
+  return BRAND_ICON_TYPE[key as keyof typeof BRAND_ICON_TYPE] ?? null;
 }
 
 export default function PaymentMethods() {
@@ -166,6 +182,7 @@ export default function PaymentMethods() {
               {methods.map((m, i) => {
                 const color = brandColor(m);
                 const exp = expDisplay(m);
+                const iconType = cardIconType(m);
                 return (
                   <Animated.View
                     key={m.id}
@@ -179,9 +196,16 @@ export default function PaymentMethods() {
                       disabled={m.isDefault || selecting != null}
                       activeOpacity={0.7}
                     >
-                      <View style={[s.brandBadge, { backgroundColor: `${color}18`, borderColor: `${color}40` }]}>
-                        <Text style={[s.brandText, { color }]}>{brandLabel(m)}</Text>
-                      </View>
+                      {/* Brand mark — real network logo for cards, styled label for wallets */}
+                      {iconType ? (
+                        <View style={s.brandMark}>
+                          <PaymentIcon type={iconType} width={48} />
+                        </View>
+                      ) : (
+                        <View style={[s.brandBadge, { backgroundColor: `${color}18`, borderColor: `${color}40` }]}>
+                          <Text style={[s.brandText, { color }]}>{brandLabel(m)}</Text>
+                        </View>
+                      )}
 
                       <View style={s.cardInfo}>
                         <Text style={s.cardNumber}>
@@ -283,6 +307,7 @@ const s = StyleSheet.create({
     width: 54, height: 34, borderRadius: radius.tag,
     alignItems: 'center', justifyContent: 'center', borderWidth: 1,
   },
+  brandMark: { width: 54, height: 34, alignItems: 'center', justifyContent: 'center' },
   brandText: { fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 0.5 },
   cardInfo: { flex: 1, gap: 4 },
   cardNumber: { fontFamily: fonts.mono, fontSize: 14, color: colors.textPrimary, letterSpacing: 1 },
