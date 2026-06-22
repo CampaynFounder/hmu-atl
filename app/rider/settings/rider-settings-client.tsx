@@ -6,6 +6,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { ChevronLeft, Shield, CreditCard, Clock, MessageCircle, LogOut } from 'lucide-react';
 import AuthManagement from '@/components/shared/auth-management';
+import { PaymentMark } from '@/components/payments/payment-mark';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
@@ -186,17 +187,6 @@ function PaymentTab() {
     setMethods(prev => prev.filter(m => m.id !== id));
   }
 
-  const brandIcons: Record<string, string> = {
-    visa: '💳', mastercard: '💳', amex: '💳', discover: '💳', cashapp: '💸',
-  };
-
-  function getMethodIcon(m: typeof methods[0]) {
-    if (m.isApplePay) return '🍎';
-    if (m.isGooglePay) return '📱';
-    if (m.isCashAppPay) return '💸';
-    return brandIcons[m.brand || ''] || '💳';
-  }
-
   function getMethodLabel(m: typeof methods[0]) {
     if (m.isApplePay) return m.last4 ? `Apple Pay ••••${m.last4}` : 'Apple Pay';
     if (m.isGooglePay) return m.last4 ? `Google Pay ••••${m.last4}` : 'Google Pay';
@@ -236,7 +226,7 @@ function PaymentTab() {
                 background: '#1a1a1a', border: m.isDefault ? '1px solid rgba(0,230,118,0.3)' : '1px solid rgba(255,255,255,0.06)',
                 borderRadius: '14px', padding: '14px 16px',
               }}>
-                <span style={{ fontSize: '20px' }}>{getMethodIcon(m)}</span>
+                <PaymentMark m={m} width={42} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: '14px', fontWeight: 600 }}>
                     {getMethodLabel(m)}
