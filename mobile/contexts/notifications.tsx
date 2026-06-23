@@ -1,6 +1,19 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
+import { Platform } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
+import * as Notifications from 'expo-notifications';
 import { API_BASE } from '@/lib/api';
+
+// Foreground pushes still surface a banner + sound (background/closed are shown
+// by the OS automatically). Set once at module load.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 export interface AppNotification {
   id: string;
@@ -48,6 +61,42 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const feedRefreshCallbacks = useRef<Set<() => void>>(new Set());
   const rideRefreshCallbacks = useRef<Set<() => void>>(new Set());
+
+  // Register this device for OS-level push as soon as the user is signed in —
+  // for riders AND drivers (previously only driver home registered, and without
+  // a permission prompt, so the token fetch silently failed). Asks permission,
+  // gets the Expo push token, and syncs it to /users/push-token. Best-effort.
+  useEffect(() => {
+    if (!isSignedIn) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const current = await Notifications.getPermissionsAsync();
+        let granted = current.granted
+          || current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+        if (!granted) {
+          const req = await Notifications.requestPermissionsAsync();
+          granted = req.granted;
+        }
+        if (!granted || cancelled) return;
+        const tokenResp = await Notifications.getExpoPushTokenAsync().catch(() => null);
+        if (!tokenResp || cancelled) return;
+        const clerkToken = await getTokenRef.current();
+        if (!clerkToken || cancelled) return;
+        await fetch(`${API_BASE}/users/push-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clerkToken}` },
+          body: JSON.stringify({
+            push_token: tokenResp.data,
+            push_platform: Platform.OS === 'ios' ? 'ios' : 'android',
+          }),
+        }).catch(() => {});
+      } catch {
+        // push is best-effort — never block the app on it
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isSignedIn]);
 
   const enqueue = useCallback((n: AppNotification) => {
     setBannerQueue((q) => [...q, n]);
