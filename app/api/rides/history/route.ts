@@ -2,6 +2,23 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 
+// Human label for how the ride was booked, derived from hmu_posts.post_type.
+// Surfaced in the native ride-detail drill-down.
+function bookingMethod(postType: string | null): string {
+  switch (postType) {
+    case 'blast':
+    case 'rider_seeking_driver':
+      return 'Blast';
+    case 'down_bad':
+      return 'Down Bad';
+    case 'direct_booking':
+    case 'rider_request':
+      return 'Direct';
+    default:
+      return 'Direct';
+  }
+}
+
 export async function GET() {
   try {
     const { userId: clerkId } = await auth();
@@ -37,7 +54,8 @@ export async function GET() {
         dp.handle as driver_handle,
         rp.first_name as rider_name,
         rp.handle as rider_handle,
-        hp.time_window
+        hp.time_window,
+        hp.post_type
       FROM rides r
       LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
       LEFT JOIN rider_profiles rp ON rp.user_id = r.rider_id
@@ -71,6 +89,7 @@ export async function GET() {
         dropoff_address: (r.dropoff_address as string) || dropoffAddr,
         destination: (tw?.destination as string) || (r.dropoff_address as string) || dropoffAddr,
         is_cash: r.is_cash ?? false,
+        booking_method: bookingMethod((r.post_type as string) ?? null),
         created_at: r.created_at,
         started_at: r.started_at,
         ended_at: r.ended_at,

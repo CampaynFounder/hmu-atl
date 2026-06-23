@@ -39,6 +39,7 @@ export interface RideRecord {
   dropoff_address: string | null;
   destination: string | null;
   is_cash: boolean;
+  booking_method?: string | null;
   created_at: string;
   started_at: string | null;
   ended_at: string | null;
