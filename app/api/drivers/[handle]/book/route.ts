@@ -8,6 +8,7 @@ import {
   checkRiderRequestConflict,
 } from '@/lib/db/direct-bookings';
 import { notifyUser, publishAdminEvent } from '@/lib/ably/server';
+import { notifyUserWithPush } from '@/lib/notify';
 import { notifyDriverNewBooking } from '@/lib/sms/textbee';
 import {
   checkDriverAvailability,
@@ -323,8 +324,12 @@ export async function POST(
 
   // Fire Ably notification to driver
   try {
-    await notifyUser(driverUserId, 'direct_booking_request', {
+    await notifyUserWithPush(driverUserId, 'direct_booking_request', {
       postId: post.id, price, areas, expiresAt: post.booking_expires_at,
+    }, {
+      title: 'New ride request 🚗',
+      body: `A rider wants you${price ? ` — $${price}` : ''}. Tap to respond.`,
+      data: { type: 'direct_booking_request', postId: post.id },
     });
   } catch (e) {
     console.error('Ably notify failed:', e);
