@@ -274,6 +274,12 @@ export default function RideDetail() {
                   {ride.is_cash ? 'CASH RIDE' : 'DIGITAL RIDE'}
                 </Text>
               </View>
+              <View style={[s.typePill, { backgroundColor: colors.blueDim, borderColor: colors.blueBorder, marginTop: spacing.sm }]}>
+                <Ionicons name="pricetag-outline" size={12} color={colors.blue} />
+                <Text style={[s.typeText, { color: colors.blue }]}>
+                  {(ride.booking_method ?? 'Direct').toUpperCase()}
+                </Text>
+              </View>
             </>
           )}
 
