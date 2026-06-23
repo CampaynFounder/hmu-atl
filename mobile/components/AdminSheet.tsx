@@ -76,21 +76,36 @@ type DayFilter = 0 | 1 | 7 | 30;
 
 // ── SECTION: Activity ─────────────────────────────────────────────────────────
 
+interface AdminRide {
+  id: string; refCode: string | null; status: string; amount: number;
+  pickupAddress: string | null; dropoffAddress: string | null;
+  isCash: boolean; bookingMethod: string;
+  driverName: string | null; driverHandle: string | null;
+  riderName: string | null; riderHandle: string | null;
+  createdAt: string; startedAt: string | null; endedAt: string | null;
+}
+
 function ActivitySection({ days, market, token }: { days: DayFilter; market: MarketSlug; token: string | null }) {
   const [data, setData] = useState<{
     total: number; completed: number; cancelled: number;
     fulfillment_rate: number; avg_fare: number;
-    rides?: { id: string; status: string; amount: number; pickup_address: string; dropoff_address: string; created_at: string }[];
+    rides?: AdminRide[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<AdminRide | null>(null);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       try {
-        const res = await apiClient<{ rides: { id: string; status: string; price?: number; amount?: number; pickup_address?: string; dropoff_address?: string; createdAt?: string; created_at?: string; refCode?: string; marketId?: string }[] }>(
-          '/admin/rides/history', token,
-        );
+        const res = await apiClient<{ rides: Array<{
+          id: string; refCode?: string | null; status: string; price?: number;
+          pickupAddress?: string | null; dropoffAddress?: string | null;
+          isCash?: boolean; bookingMethod?: string;
+          driverName?: string | null; driverHandle?: string | null;
+          riderName?: string | null; riderHandle?: string | null;
+          createdAt?: string; startedAt?: string | null; endedAt?: string | null;
+        }> }>('/admin/rides/history', token);
         const cutoff = days === 0 ? 0 : Date.now() - days * 86_400_000;
         // Filter by time window client-side (server returns last 200 ordered by date).
         // days===0 = ALL TIME: cutoff is 0 so nothing is filtered out.
@@ -99,7 +114,7 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
         const allRides = res.rides ?? [];
         const rides = allRides.filter(r => {
           if (cutoff === 0) return true; // ALL TIME — keep everything
-          const ts = parseTs(r.createdAt ?? r.created_at);
+          const ts = parseTs(r.createdAt);
           if (ts > 0 && ts < cutoff) return false;
           return true; // market filtering via marketId would need server-side; omit for now
         });
@@ -108,19 +123,28 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
         const total = rides.length;
         const avg_fare = completed > 0
           ? rides.filter(r => r.status === 'completed' || r.status === 'ended')
-              .reduce((s, r) => s + (r.price ?? r.amount ?? 0), 0) / completed
+              .reduce((s, r) => s + (r.price ?? 0), 0) / completed
           : 0;
         setData({
           total, completed, cancelled,
           fulfillment_rate: total > 0 ? Math.round(completed / (completed + cancelled) * 100) : 0,
           avg_fare: Math.round(avg_fare * 100) / 100,
-          rides: rides.map(r => ({
+          rides: rides.map((r): AdminRide => ({
             id: r.id ?? '',
+            refCode: r.refCode ?? null,
             status: r.status,
-            amount: r.price ?? r.amount ?? 0,
-            pickup_address: r.pickup_address ?? r.refCode ?? '',
-            dropoff_address: r.dropoff_address ?? '',
-            created_at: r.createdAt ?? r.created_at ?? '',
+            amount: r.price ?? 0,
+            pickupAddress: r.pickupAddress ?? null,
+            dropoffAddress: r.dropoffAddress ?? null,
+            isCash: r.isCash ?? false,
+            bookingMethod: r.bookingMethod ?? 'Direct',
+            driverName: r.driverName ?? null,
+            driverHandle: r.driverHandle ?? null,
+            riderName: r.riderName ?? null,
+            riderHandle: r.riderHandle ?? null,
+            createdAt: r.createdAt ?? '',
+            startedAt: r.startedAt ?? null,
+            endedAt: r.endedAt ?? null,
           })),
         });
       } catch { setData(null); }
@@ -137,6 +161,7 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
   };
 
   return (
+    <>
     <ScrollView contentContainerStyle={{ gap: spacing.md }} keyboardShouldPersistTaps="handled">
       <View style={sc.statsGrid}>
         <StatCard label="TOTAL" value={String(data?.total ?? 0)} />
@@ -148,11 +173,13 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
       {!data?.rides?.length
         ? <EmptyState msg="NO RIDES IN PERIOD" />
         : data.rides.slice(0, 20).map(r => (
-          <View key={r.id} style={[sc.row, shadow.card]}>
+          <TouchableOpacity key={r.id} style={[sc.row, shadow.card]} onPress={() => setSelected(r)} activeOpacity={0.7}>
             <View style={[sc.statusDot, { backgroundColor: STATUS_COLOR[r.status] ?? colors.textFaint }]} />
             <View style={{ flex: 1, gap: 2 }}>
-              <Text style={sc.rowTitle} numberOfLines={1}>{r.pickup_address ?? '—'}</Text>
-              <Text style={sc.rowSub} numberOfLines={1}>{r.dropoff_address ?? '—'}</Text>
+              <Text style={sc.rowTitle} numberOfLines={1}>{r.pickupAddress ?? '—'}</Text>
+              <Text style={sc.rowSub} numberOfLines={1}>
+                {(r.riderHandle ? `@${r.riderHandle}` : r.riderName ?? 'rider')} → {(r.driverHandle ? `@${r.driverHandle}` : r.driverName ?? 'driver')}
+              </Text>
             </View>
             <View style={{ alignItems: 'flex-end', gap: 2 }}>
               <Text style={[sc.tag, { color: STATUS_COLOR[r.status] ?? colors.textFaint }]}>
@@ -162,10 +189,60 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
                 <Text style={sc.rowSub}>${r.amount}</Text>
               )}
             </View>
-          </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+          </TouchableOpacity>
         ))
       }
     </ScrollView>
+    <AdminRideDetailModal ride={selected} onClose={() => setSelected(null)} />
+    </>
+  );
+}
+
+function AdminRideDetailModal({ ride, onClose }: { ride: AdminRide | null; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  if (!ride) return null;
+  const fmt = (ts: string | null) => {
+    if (!ts) return '—';
+    const ms = parseTs(ts);
+    if (!ms) return '—';
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleString();
+  };
+  const Row = ({ label, value }: { label: string; value: string }) => (
+    <View style={sc.detailRow}>
+      <Text style={sc.detailLabel}>{label}</Text>
+      <Text style={sc.detailValue} numberOfLines={2}>{value}</Text>
+    </View>
+  );
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <View style={sc.detailBackdrop}>
+        <View style={[sc.detailSheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+          <View style={sc.detailHandle} />
+          <View style={sc.detailHeader}>
+            <Text style={sc.detailTitle}>RIDE DETAIL</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={10}>
+              <Ionicons name="close" size={22} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ gap: 2 }}>
+            <Row label="STATUS"    value={ride.status.toUpperCase()} />
+            <Row label="RIDER"     value={ride.riderHandle ? `@${ride.riderHandle}` : ride.riderName ?? '—'} />
+            <Row label="DRIVER"    value={ride.driverHandle ? `@${ride.driverHandle}` : ride.driverName ?? '—'} />
+            <Row label="AMOUNT"    value={`${ride.isCash ? '💵 ' : ''}$${ride.amount.toFixed(2)}`} />
+            <Row label="BOOKING"   value={ride.bookingMethod} />
+            <Row label="PAYMENT"   value={ride.isCash ? 'Cash' : 'Digital'} />
+            <Row label="PICKUP"    value={ride.pickupAddress ?? '—'} />
+            <Row label="DROPOFF"   value={ride.dropoffAddress ?? '—'} />
+            <Row label="REQUESTED" value={fmt(ride.createdAt)} />
+            <Row label="STARTED"   value={fmt(ride.startedAt)} />
+            <Row label="ENDED"     value={fmt(ride.endedAt)} />
+            {ride.refCode ? <Row label="REF" value={ride.refCode} /> : null}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -1713,6 +1790,27 @@ const sc = StyleSheet.create({
   rowTitle: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.textPrimary },
   rowSub: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint },
   tag: { fontFamily: fonts.mono, fontSize: 9, letterSpacing: 0.5 },
+  detailBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  detailSheet: {
+    backgroundColor: colors.bg, borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card,
+    paddingHorizontal: spacing.xl, paddingTop: spacing.md, maxHeight: '80%',
+    borderTopWidth: 1, borderColor: colors.border,
+  },
+  detailHandle: {
+    width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border,
+    alignSelf: 'center', marginBottom: spacing.md,
+  },
+  detailHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  detailTitle: { fontFamily: fonts.monoBold, fontSize: 12, color: colors.textPrimary, letterSpacing: 1.5 },
+  detailRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, gap: spacing.md,
+  },
+  detailLabel: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1 },
+  detailValue: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.textPrimary, flex: 1, textAlign: 'right' },
   avatar: {
     width: 36, height: 36, borderRadius: 18, alignItems: 'center',
     justifyContent: 'center', borderWidth: 1,

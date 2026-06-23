@@ -1,23 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-
-// Human label for how the ride was booked, derived from hmu_posts.post_type.
-// Surfaced in the native ride-detail drill-down.
-function bookingMethod(postType: string | null): string {
-  switch (postType) {
-    case 'blast':
-    case 'rider_seeking_driver':
-      return 'Blast';
-    case 'down_bad':
-      return 'Down Bad';
-    case 'direct_booking':
-    case 'rider_request':
-      return 'Direct';
-    default:
-      return 'Direct';
-  }
-}
+import { bookingMethod } from '@/lib/rides/booking-method';
 
 export async function GET() {
   try {
