@@ -29,6 +29,7 @@ interface RideDetail {
   pickup_address: string | null;
   dropoff_address: string | null;
   is_cash: boolean;
+  booking_method?: string | null;
   created_at: string;
   started_at: string | null;
   ended_at: string | null;
@@ -403,6 +404,7 @@ export default function RiderRideDetail() {
             <DetailRow label="DRIVER" value={ride.driver_handle ? `@${ride.driver_handle}` : ride.driver_name ?? '—'} />
             <DetailRow label="DATE"   value={fmtDate(ride.created_at)} />
             <DetailRow label="AMOUNT" value={`${ride.is_cash ? '💵 ' : ''}$${price.toFixed(2)}`} />
+            <DetailRow label="BOOKING" value={ride.booking_method ?? '—'} />
             <DetailRow label="STATUS" value={ride.status.toUpperCase()} />
           </View>
         </View>
