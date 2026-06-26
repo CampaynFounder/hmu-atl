@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate, notifyUser, publishAdminEvent, publishToChannel } from '@/lib/ably/server';
+import { notifyUserWithPush } from '@/lib/notify';
 import { notifyRiderBookingAccepted, notifyDriverDownBadTaken } from '@/lib/sms/textbee';
 import {
   checkDriverAvailability,
@@ -229,9 +230,13 @@ export async function POST(
       `;
       const rideId = (rideRows[0] as { id: string }).id;
 
-      await notifyUser(riderId, 'booking_accepted', {
+      await notifyUserWithPush(riderId, 'booking_accepted', {
         rideId, postId, driverUserId, driverName, price,
         message: `${driverName} is running it!`,
+      }, {
+        title: 'Ride accepted 🤝',
+        body: `${driverName} is running it${price ? ` — $${price}` : ''}.`,
+        data: { type: 'booking_accepted', rideId },
       }).catch(() => {});
 
       await publishRideUpdate(rideId, 'status_change', {
@@ -435,14 +440,18 @@ export async function POST(
       console.error('maybePlacePartnerHold threw (ignored):', e);
     });
 
-    // Notify rider via Ably
-    await notifyUser(riderId, 'booking_accepted', {
+    // Notify rider via Ably + push
+    await notifyUserWithPush(riderId, 'booking_accepted', {
       rideId,
       postId,
       driverUserId,
       driverName,
       price,
       message: `${driverName} accepted your ride!`,
+    }, {
+      title: 'Ride accepted 🤝',
+      body: `${driverName} accepted your ride${price ? ` — $${price}` : ''}.`,
+      data: { type: 'booking_accepted', rideId },
     }).catch(() => {});
 
     await publishRideUpdate(rideId, 'status_change', {

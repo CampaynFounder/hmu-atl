@@ -53,6 +53,9 @@ export function RideMap({
   }, [mapboxToken]);
 
   const driverVisible = showsDriverMarker(status) && !!driverLocation;
+  // First camera move snaps instantly; later moves animate. Tracks whether the
+  // initial framing has happened so live driver updates still glide smoothly.
+  const didInit = useRef(false);
 
   // All points the camera should keep in view.
   const visiblePoints = useMemo<LatLng[]>(() => {
@@ -65,12 +68,24 @@ export function RideMap({
     return pts;
   }, [pickup, dropoff, stops, driverVisible, driverLocation, riderLocation]);
 
+  // Initial camera position, known at mount from pickup/dropoff. Feeding this to
+  // <Camera defaultSettings> makes the first frame render already on the ride —
+  // instead of Mapbox's default world view, which then has to animate all the way
+  // down (the slow "globe → street" fly-in).
+  const initialCenter = useMemo<[number, number] | undefined>(() => {
+    const p = pickup ?? dropoff ?? stops[0] ?? driverLocation ?? riderLocation;
+    return p ? [p.lng, p.lat] : undefined;
+  }, [pickup, dropoff, stops, driverLocation, riderLocation]);
+
   // Fit camera to the visible points (debounced via the effect's natural batching).
   useEffect(() => {
     const cam = cameraRef.current;
     if (!cam || visiblePoints.length === 0) return;
+    // 0ms = instant snap on the first framing; animate (600/700ms) afterwards.
+    const dur = didInit.current ? 600 : 0;
     if (visiblePoints.length === 1) {
-      cam.setCamera({ centerCoordinate: [visiblePoints[0].lng, visiblePoints[0].lat], zoomLevel: 14, animationDuration: 600 });
+      cam.setCamera({ centerCoordinate: [visiblePoints[0].lng, visiblePoints[0].lat], zoomLevel: 14, animationDuration: dur });
+      didInit.current = true;
       return;
     }
     let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
@@ -78,7 +93,8 @@ export function RideMap({
       minLng = Math.min(minLng, p.lng); maxLng = Math.max(maxLng, p.lng);
       minLat = Math.min(minLat, p.lat); maxLat = Math.max(maxLat, p.lat);
     }
-    cam.fitBounds([maxLng, maxLat], [minLng, minLat], [80, 60, 80, 60], 700);
+    cam.fitBounds([maxLng, maxLat], [minLng, minLat], [80, 60, 80, 60], didInit.current ? 700 : 0);
+    didInit.current = true;
   }, [visiblePoints]);
 
   // Fetch the route line for the current leg. Re-fetch when the leg endpoints
@@ -119,12 +135,16 @@ export function RideMap({
       <MapView
         style={StyleSheet.absoluteFill}
         styleURL={DARK_STYLE}
+        projection="mercator"
         scaleBarEnabled={false}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}
       >
-        <Camera ref={cameraRef} />
+        <Camera
+          ref={cameraRef}
+          defaultSettings={initialCenter ? { centerCoordinate: initialCenter, zoomLevel: 12 } : undefined}
+        />
 
         {route && (
           <ShapeSource id="ride-route" shape={route}>

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { ChevronLeft, Shield, CreditCard, Clock, MessageCircle, LogOut } from 'lucide-react';
 import AuthManagement from '@/components/shared/auth-management';
+import { PaymentMark } from '@/components/payments/payment-mark';
 
 const InlinePaymentForm = dynamic(() => import('@/components/payments/inline-payment-form'), { ssr: false });
 
@@ -176,25 +177,27 @@ function PaymentTab() {
       .finally(() => setLoading(false));
   });
 
+  const [switchingId, setSwitchingId] = useState<string | null>(null);
+
   async function handleSetDefault(id: string) {
-    await fetch(`/api/rider/payment-methods/${id}/default`, { method: 'PATCH' });
+    const prevMethods = methods;
+    setSwitchingId(id);
+    // Optimistic — flip the badge immediately.
     setMethods(prev => prev.map(m => ({ ...m, isDefault: m.id === id })));
+    try {
+      const r = await fetch(`/api/rider/payment-methods/${id}/default`, { method: 'PATCH' });
+      if (!r.ok) throw new Error('failed');
+    } catch {
+      setMethods(prevMethods); // revert if the switch didn't persist
+      setError('Could not switch payment method — try again.');
+    } finally {
+      setSwitchingId(null);
+    }
   }
 
   async function handleDelete(id: string) {
     await fetch(`/api/rider/payment-methods/${id}`, { method: 'DELETE' });
     setMethods(prev => prev.filter(m => m.id !== id));
-  }
-
-  const brandIcons: Record<string, string> = {
-    visa: '💳', mastercard: '💳', amex: '💳', discover: '💳', cashapp: '💸',
-  };
-
-  function getMethodIcon(m: typeof methods[0]) {
-    if (m.isApplePay) return '🍎';
-    if (m.isGooglePay) return '📱';
-    if (m.isCashAppPay) return '💸';
-    return brandIcons[m.brand || ''] || '💳';
   }
 
   function getMethodLabel(m: typeof methods[0]) {
@@ -231,12 +234,19 @@ function PaymentTab() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {methods.map(m => (
-              <div key={m.id} style={{
-                display: 'flex', alignItems: 'center', gap: '12px',
-                background: '#1a1a1a', border: m.isDefault ? '1px solid rgba(0,230,118,0.3)' : '1px solid rgba(255,255,255,0.06)',
-                borderRadius: '14px', padding: '14px 16px',
-              }}>
-                <span style={{ fontSize: '20px' }}>{getMethodIcon(m)}</span>
+              <div
+                key={m.id}
+                onClick={() => { if (!m.isDefault && switchingId == null) handleSetDefault(m.id); }}
+                title={m.isDefault ? undefined : 'Tap to use this card'}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '12px',
+                  background: '#1a1a1a', border: m.isDefault ? '1px solid rgba(0,230,118,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                  borderRadius: '14px', padding: '14px 16px',
+                  cursor: m.isDefault ? 'default' : 'pointer',
+                  opacity: switchingId === m.id ? 0.6 : 1,
+                  transition: 'border-color 0.15s ease, opacity 0.15s ease',
+                }}>
+                <PaymentMark m={m} width={42} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: '14px', fontWeight: 600 }}>
                     {getMethodLabel(m)}
@@ -253,15 +263,15 @@ function PaymentTab() {
                       Default
                     </span>
                   ) : (
-                    <button onClick={() => handleSetDefault(m.id)} style={{
+                    <button onClick={(e) => { e.stopPropagation(); handleSetDefault(m.id); }} style={{
                       fontSize: '11px', color: '#888', background: 'none', border: '1px solid rgba(255,255,255,0.1)',
                       borderRadius: '100px', padding: '4px 8px', cursor: 'pointer',
                       fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
                     }}>
-                      Set default
+                      {switchingId === m.id ? 'Switching…' : 'Set default'}
                     </button>
                   )}
-                  <button onClick={() => handleDelete(m.id)} style={{
+                  <button onClick={(e) => { e.stopPropagation(); handleDelete(m.id); }} style={{
                     fontSize: '11px', color: '#FF5252', background: 'none', border: 'none', cursor: 'pointer', padding: '4px',
                     fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
                   }}>
