@@ -1,9 +1,16 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ColorValue } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, fonts } from '@/lib/theme';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+// Locked visual height of the tab bar content band. The system-bar inset is
+// added to BOTH height and paddingBottom below so it cancels out of the usable
+// band (stays a constant 46px) and only ever adds dead space beneath the icons
+// — keeping content anchored above the Android nav bar without drifting.
+const TAB_BASE_HEIGHT = 64;
 
 function tabIcon(active: IoniconName, inactive: IoniconName) {
   return ({ focused, color }: { focused: boolean; color: ColorValue }) => (
@@ -12,6 +19,7 @@ function tabIcon(active: IoniconName, inactive: IoniconName) {
 }
 
 export default function RiderLayout() {
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       screenOptions={{
@@ -20,8 +28,8 @@ export default function RiderLayout() {
           backgroundColor: '#0e0e0e',
           borderTopColor: colors.border,
           borderTopWidth: 1,
-          height: 64,
-          paddingBottom: 10,
+          height: TAB_BASE_HEIGHT + insets.bottom,
+          paddingBottom: 10 + insets.bottom,
           paddingTop: 8,
         },
         tabBarActiveTintColor: colors.green,
