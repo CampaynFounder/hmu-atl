@@ -297,6 +297,12 @@ export default function ActiveRideClient({
   const shouldTrackGps = isDriver && ['matched', 'otw', 'here', 'confirming', 'active'].includes(ride.status);
   const geo = useGeolocation({ rideId, enabled: shouldTrackGps });
 
+  // "Inbound" = rider has pulled up (COO) but the driver hasn't tapped OTW yet.
+  // The DB status is still 'matched'; we light up the live-map surface (driver
+  // marker, route line, ETA) from this moment so both sides progress in
+  // parallel from Pull Up. See lib/rides/stage-contract.ts → 'inbound'.
+  const inbound = !!ride.cooAt && ride.status === 'matched';
+
   // Ably real-time subscription
   const handleAblyMessage = useCallback((msg: { name: string; data: unknown }) => {
     const data = msg.data as Record<string, unknown>;
@@ -1102,7 +1108,7 @@ export default function ActiveRideClient({
     const map = mapRef.current;
     if (!map || typeof mapboxgl === 'undefined') return;
     if (!driverLocation) return;
-    if (!['otw', 'here', 'confirming', 'active'].includes(ride.status)) return;
+    if (!inbound && !['otw', 'here', 'confirming', 'active'].includes(ride.status)) return;
 
     // Throttle route fetches to max once per 15 seconds
     const now = Date.now();
@@ -1161,7 +1167,7 @@ export default function ActiveRideClient({
 
     // ── Rider trip preview line (OTW/HERE only): pickup → stops → dropoff ──
     // Shows rider their full upcoming route in blue while waiting for driver
-    if (!isDriver && ['otw', 'here', 'confirming'].includes(ride.status) && ride.pickupLat && ride.pickupLng && ride.dropoffLat && ride.dropoffLng) {
+    if (!isDriver && (inbound || ['otw', 'here', 'confirming'].includes(ride.status)) && ride.pickupLat && ride.pickupLng && ride.dropoffLat && ride.dropoffLng) {
       let tripCoords = `${ride.pickupLng},${ride.pickupLat}`;
       if (Array.isArray(ride.stops)) {
         for (const s of ride.stops as Array<Record<string, unknown>>) {
@@ -1318,7 +1324,7 @@ export default function ActiveRideClient({
         routeFetchTimer.current = null;
       }
     };
-  }, [driverLocation, ride.status, ride.pickupLat, ride.pickupLng, ride.dropoffLat, ride.dropoffLng, ride.riderLat, ride.riderLng, ride.stops, mapboxToken]);
+  }, [driverLocation, ride.status, ride.cooAt, inbound, ride.pickupLat, ride.pickupLng, ride.dropoffLat, ride.dropoffLng, ride.riderLat, ride.riderLng, ride.stops, mapboxToken]);
 
   // ── Dispute window countdown ──
   useEffect(() => {
@@ -1434,7 +1440,7 @@ export default function ActiveRideClient({
   const lastDirectionsFetch = useRef(0);
   const directionsEta = useRef<{ minutes: number; miles: number } | null>(null);
   useEffect(() => {
-    if (!driverLocation || !['otw', 'here', 'confirming', 'active'].includes(ride.status)) {
+    if (!driverLocation || (!inbound && !['otw', 'here', 'confirming', 'active'].includes(ride.status))) {
       setEta(null);
       return;
     }
@@ -1484,7 +1490,7 @@ export default function ActiveRideClient({
         }
       })
       .catch(() => {}); // silent — Haversine remains as fallback
-  }, [driverLocation, ride.status, ride.riderLat, ride.riderLng, ride.pickupLat, ride.pickupLng, ride.dropoffLat, ride.dropoffLng, mapboxToken]);
+  }, [driverLocation, ride.status, ride.cooAt, inbound, ride.riderLat, ride.riderLng, ride.pickupLat, ride.pickupLng, ride.dropoffLat, ride.dropoffLng, mapboxToken]);
 
   // ── Load chat history on status change (Ably handles real-time messages) ──
   useEffect(() => {
@@ -2441,8 +2447,8 @@ export default function ActiveRideClient({
           </div>
         )}
 
-        {/* ETA tracking banner */}
-        {['otw', 'here', 'confirming', 'active'].includes(ride.status) && (
+        {/* ETA tracking banner — shown from Pull Up (inbound) onward */}
+        {(inbound || ['otw', 'here', 'confirming', 'active'].includes(ride.status)) && (
           <div style={{
             padding: '8px 14px', borderRadius: 12, marginBottom: 8,
             background: etaStale ? 'rgba(255,145,0,0.1)' : 'rgba(0,230,118,0.06)',

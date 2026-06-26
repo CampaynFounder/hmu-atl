@@ -99,3 +99,31 @@ admin:feed                → All system events → Admin dashboard
 6. Use Ably Presence API for driver availability feed — never poll database
 7. Enable message persistence (72hr) on all ride:{ride_id} channels
 8. Every Ably event MUST simultaneously write to Neon. Ably = realtime. Neon = truth.
+
+---
+
+## STAGE PARITY CONTRACT (BOTH SIDES PROGRESS IN PARALLEL)
+
+> Source of truth: **`lib/rides/stage-contract.ts`**. Enforced by **`lib/rides/__tests__/stage-parity.test.ts`**. Read this before adding or changing any ride transition.
+
+**Invariant:** every stage of a direct ride notifies **both** the rider and the driver in realtime, and **both** sides have the surface area to see the other party's live details. Asymmetries (e.g. COO once notified only the driver) crept in because each route hand-rolled its publishes. Two structural guards now prevent that:
+
+1. **`publishRideTransition(ride, event, data)`** (`lib/ably/server.ts`) — the only sanctioned way to broadcast a transition. It fans out to `ride:{id}` **and** `user:{riderId}:notify` **and** `user:{driverId}:notify` **and** `admin:feed` in one call. A transition routed through it **cannot** reach only one party. Pass `{ notify: ['driver'] }` only for genuinely one-directional signals (rare, e.g. rider sharing location).
+2. **`STAGE_CONTRACT`** — declares, per stage, which events both parties must receive and what each side must see. The parity test asserts both halves.
+
+### The `inbound` stage (Pull Up parity)
+
+`coo_at` being set while `status='matched'` is its own logical stage: **`inbound`** — the rider has pulled up, the driver is heading over, and **both sides show the live map immediately** (driver marker + ETA for the rider; rider pickup + rider-ETA-when-shared for the driver). Do **not** wait for the driver to tap OTW to start tracking.
+
+- Gate surface on `isInboundOrLater(status, cooSent)` (web `active-ride-client.tsx` `inbound` const; mobile `ride-status.ts` `showsDriverMarker(status, cooSent)`).
+- Web driver GPS already streams from `matched`; mobile starts streaming on the `coo` event **if** background-location permission is already granted (otherwise the disclosure still appears at OTW).
+
+| Stage | status / flag | Triggered by | Rider must see | Driver must see |
+|---|---|---|---|---|
+| matched | `matched`, no `coo_at` | driver | driver identity, price, route | rider identity, price, route |
+| **inbound** | `matched` + `coo_at` | rider (Pull Up) | **live driver location + ETA to pickup** | **rider pickup + rider live location/ETA when shared** |
+| otw | `otw` | driver | live driver location + ETA | rider pickup, navigation |
+| here | `here` | driver | "driver is HERE", wait timer | rider pickup, wait timer |
+| confirming | `confirming` | driver | "I'm In — Pay $X" prompt | rider-confirming status |
+| active | `active` | rider | live driver location + ETA to dropoff | route to dropoff |
+| ended | `ended` | driver | fare breakdown, rate driver | payout, rate rider |

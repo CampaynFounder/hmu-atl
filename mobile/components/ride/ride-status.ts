@@ -40,7 +40,16 @@ export function statusMeta(status: string, role: 'rider' | 'driver' = 'rider'): 
   return base;
 }
 
-/** Statuses where the driver marker / live tracking is meaningful. */
-export function showsDriverMarker(status: string): boolean {
+/**
+ * Statuses where the driver marker / live tracking is meaningful.
+ *
+ * `cooSent` flips this on at Pull Up: the DB status is still 'matched' after
+ * COO, but the rider has paid the deposit and the driver is heading over, so
+ * both sides should see the live map immediately — not wait for the driver to
+ * tap OTW. Mirror of lib/rides/stage-contract.ts `isInboundOrLater` (kept local
+ * because the mobile package can't import the web `lib/`).
+ */
+export function showsDriverMarker(status: string, cooSent = false): boolean {
+  if (cooSent && status === 'matched') return true;
   return ['otw', 'here', 'confirming', 'active', 'in_progress'].includes(status);
 }

@@ -22,11 +22,19 @@ export async function POST(
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     const userId = (userRows[0] as { id: string }).id;
 
-    // Verify user is part of this ride and ride is active
+    // Verify user is part of this ride and the ride is in a trackable phase.
+    // 'matched' is accepted ONLY once the rider has pulled up (coo_at set) —
+    // the "inbound" stage — so the driver's position reaches the rider from
+    // Pull Up onward, not just after the driver taps OTW. Pre-COO matched
+    // rides still reject (no live tracking before the rider commits).
+    // See lib/rides/stage-contract.ts → 'inbound'.
     const rideRows = await sql`
       SELECT status FROM rides
       WHERE id = ${rideId} AND (driver_id = ${userId} OR rider_id = ${userId})
-      AND status IN ('otw', 'here', 'confirming', 'active')
+      AND (
+        status IN ('otw', 'here', 'confirming', 'active')
+        OR (status = 'matched' AND coo_at IS NOT NULL)
+      )
       LIMIT 1
     `;
     if (!rideRows.length) {

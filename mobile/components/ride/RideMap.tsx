@@ -22,6 +22,9 @@ interface RideMapProps {
   riderLocation: LatLng | null;
   viewerRole: ViewerRole;
   status: string;
+  /** Rider has pulled up (COO sent). Turns on live tracking while status is
+   *  still 'matched', so both sides see the driver from Pull Up onward. */
+  cooSent?: boolean;
   mapboxToken: string;
   style?: ViewStyle;
 }
@@ -31,8 +34,8 @@ type RouteGeoJSON = { type: 'Feature'; geometry: { type: 'LineString'; coordinat
 // Before the ride starts the live leg is driver→pickup; once active it's
 // driver→(stops)→dropoff. Either falls back to pickup→dropoff when there's no
 // driver GPS yet, so the full trip is always drawn.
-function routeLeg(status: string, driver: LatLng | null, pickup: LatLng | null, stops: LatLng[], dropoff: LatLng | null): LatLng[] {
-  const enRoute = ['otw', 'here', 'confirming'].includes(status);
+function routeLeg(status: string, cooSent: boolean, driver: LatLng | null, pickup: LatLng | null, stops: LatLng[], dropoff: LatLng | null): LatLng[] {
+  const enRoute = ['otw', 'here', 'confirming'].includes(status) || (cooSent && status === 'matched');
   const active = ['active', 'in_progress'].includes(status);
   if (enRoute && driver && pickup) return [driver, pickup];
   if (active && driver && dropoff) return [driver, ...stops, dropoff];
@@ -41,7 +44,7 @@ function routeLeg(status: string, driver: LatLng | null, pickup: LatLng | null, 
 }
 
 export function RideMap({
-  pickup, dropoff, stops = [], driverLocation, riderLocation, viewerRole, status, mapboxToken, style,
+  pickup, dropoff, stops = [], driverLocation, riderLocation, viewerRole, status, cooSent = false, mapboxToken, style,
 }: RideMapProps) {
   const cameraRef = useRef<Camera>(null);
   const [route, setRoute] = useState<RouteGeoJSON>(null);
@@ -52,7 +55,7 @@ export function RideMap({
     if (mapboxToken) Mapbox.setAccessToken(mapboxToken);
   }, [mapboxToken]);
 
-  const driverVisible = showsDriverMarker(status) && !!driverLocation;
+  const driverVisible = showsDriverMarker(status, cooSent) && !!driverLocation;
   // First camera move snaps instantly; later moves animate. Tracks whether the
   // initial framing has happened so live driver updates still glide smoothly.
   const didInit = useRef(false);
@@ -101,7 +104,7 @@ export function RideMap({
   // change meaningfully (keyed to ~4-decimal coords ≈ 11m, so small GPS jitter
   // doesn't spam the Directions API).
   useEffect(() => {
-    const leg = routeLeg(status, driverLocation, pickup, stops, dropoff);
+    const leg = routeLeg(status, cooSent, driverLocation, pickup, stops, dropoff);
     if (leg.length < 2 || !mapboxToken) { setRoute(null); return; }
     const key = leg.map((p) => `${p.lng.toFixed(4)},${p.lat.toFixed(4)}`).join(';');
     if (key === lastLegKey.current) return;
@@ -128,7 +131,7 @@ export function RideMap({
       })
       .catch(() => { /* keep the straight-line fallback */ });
     return () => { cancelled = true; };
-  }, [status, driverLocation, pickup, dropoff, stops, mapboxToken]);
+  }, [status, cooSent, driverLocation, pickup, dropoff, stops, mapboxToken]);
 
   return (
     <View style={[styles.wrap, style]}>
