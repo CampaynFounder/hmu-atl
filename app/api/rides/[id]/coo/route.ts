@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/client';
 import { getRideForUser } from '@/lib/rides/state-machine';
 import { holdRiderPayment } from '@/lib/payments/escrow';
 import { publishRideTransition, notifyUser } from '@/lib/ably/server';
+import { afterResponse } from '@/lib/runtime/after-response';
 import { getDriverMenuForRider } from '@/lib/db/service-menu';
 import { getHoldPolicy, calculateDepositAmount } from '@/lib/payments/hold-policy';
 import { driverAllowsCashOnly, resolvePricingStrategy } from '@/lib/payments/strategies';
@@ -220,59 +221,67 @@ export async function POST(
       WHERE id = ${rideId} AND status = 'matched'
     `;
 
-    // Pull Up is a parallel-progression moment: the rider's deposit is held,
-    // the driver gets the rider's pickup, and BOTH sides flip to the live-map
-    // "inbound" surface. Route it through the symmetric transition helper so
-    // the rider is notified too (previously only the driver was), keeping the
-    // two sides in lockstep. See lib/rides/stage-contract.ts → 'inbound'.
-    await publishRideTransition(
-      { rideId, riderId: userId, driverId: ride.driver_id as string },
-      'coo',
-      {
+    // ── Everything below is best-effort and MUST NOT block the response ──
+    // The rider's success is the DB write above (status→coo, pickup stored).
+    // Previously the response awaited ~5 Ably round-trips + 2 SMS DB lookups +
+    // the VoIP fetch, so on a cold Neon compute COO could exceed the mobile
+    // client's 30s timeout → the rider saw "request cancelled", the ride never
+    // flipped, and the driver never received the `coo` event. Defer all of it
+    // to ctx.waitUntil() so the rider gets an instant response and routes
+    // straight to the live ride screen; the realtime fan-out + SMS still fire.
+    afterResponse(async () => {
+      // Pull Up is a parallel-progression moment: notify BOTH parties so the
+      // two sides flip to the live-map "inbound" surface in lockstep.
+      // See lib/rides/stage-contract.ts → 'inbound'.
+      await publishRideTransition(
+        { rideId, riderId: userId, driverId: ride.driver_id as string },
+        'coo',
+        {
+          status: 'coo',
+          riderLat: lat,
+          riderLng: lng,
+          riderLocation: locationText,
+          pickup: validatedPickup || null,
+          dropoff: validatedDropoff || null,
+          stops: validatedStops || null,
+          message: isCashRide ? 'Rider says pull up' : 'Rider says pull up — payment authorized',
+        },
+      );
+
+      // Keep the driver's `ride_update` ping — the driver request-surfacing rail
+      // refetches its feed on user:{id}:notify `ride_update` specifically.
+      await notifyUser(ride.driver_id as string, 'ride_update', {
+        rideId,
         status: 'coo',
         riderLat: lat,
         riderLng: lng,
         riderLocation: locationText,
-        pickup: validatedPickup || null,
-        dropoff: validatedDropoff || null,
-        stops: validatedStops || null,
-        message: isCashRide ? 'Rider says pull up' : 'Rider says pull up — payment authorized',
-      },
-    );
+        message: isCashRide ? 'Rider says pull up' : 'Rider says pull up — payment ready, location shared',
+      }).catch(() => {});
 
-    // Keep the driver's `ride_update` ping — the driver request-surfacing rail
-    // refetches its feed on user:{id}:notify `ride_update` specifically.
-    await notifyUser(ride.driver_id as string, 'ride_update', {
-      rideId,
-      status: 'coo',
-      riderLat: lat,
-      riderLng: lng,
-      riderLocation: locationText,
-      message: isCashRide ? 'Rider says pull up' : 'Rider says pull up — payment ready, location shared',
-    }).catch(() => {});
-
-    // SMS driver that rider is payment ready
-    try {
-      const [driverPhoneRows, riderHandleRows] = await Promise.all([
-        sql`SELECT phone FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1`,
-        sql`SELECT COALESCE(handle, display_name, 'Rider') as name FROM rider_profiles WHERE user_id = ${userId} LIMIT 1`,
-      ]);
-      const driverPhone = (driverPhoneRows[0] as Record<string, unknown>)?.phone as string;
-      const riderName = (riderHandleRows[0] as Record<string, unknown>)?.name as string;
-      if (driverPhone) {
-        const dst = driverPhone.replace(/\D/g, '').replace(/^1/, '');
-        const smsMsg = `HMU: ${riderName} says pull up. Log in to let them know you're OTW. atl.hmucashride.com/ride/${rideId}`;
-        const smsParams = new URLSearchParams({
-          api_username: process.env.VOIPMS_API_USERNAME || '',
-          api_password: process.env.VOIPMS_API_PASSWORD || '',
-          method: 'sendSMS',
-          did: process.env.VOIPMS_DID_ATL || '',
-          dst,
-          message: smsMsg.length > 160 ? smsMsg.slice(0, 157) + '...' : smsMsg,
-        });
-        fetch(`https://voip.ms/api/v1/rest.php?${smsParams.toString()}`).catch(() => {});
-      }
-    } catch { /* non-blocking */ }
+      // SMS driver that rider is payment ready
+      try {
+        const [driverPhoneRows, riderHandleRows] = await Promise.all([
+          sql`SELECT phone FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1`,
+          sql`SELECT COALESCE(handle, display_name, 'Rider') as name FROM rider_profiles WHERE user_id = ${userId} LIMIT 1`,
+        ]);
+        const driverPhone = (driverPhoneRows[0] as Record<string, unknown>)?.phone as string;
+        const riderName = (riderHandleRows[0] as Record<string, unknown>)?.name as string;
+        if (driverPhone) {
+          const dst = driverPhone.replace(/\D/g, '').replace(/^1/, '');
+          const smsMsg = `HMU: ${riderName} says pull up. Log in to let them know you're OTW. atl.hmucashride.com/ride/${rideId}`;
+          const smsParams = new URLSearchParams({
+            api_username: process.env.VOIPMS_API_USERNAME || '',
+            api_password: process.env.VOIPMS_API_PASSWORD || '',
+            method: 'sendSMS',
+            did: process.env.VOIPMS_DID_ATL || '',
+            dst,
+            message: smsMsg.length > 160 ? smsMsg.slice(0, 157) + '...' : smsMsg,
+          });
+          await fetch(`https://voip.ms/api/v1/rest.php?${smsParams.toString()}`).catch(() => {});
+        }
+      } catch { /* non-blocking */ }
+    });
 
     return NextResponse.json({
       status: 'coo',
