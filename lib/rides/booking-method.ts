@@ -1,6 +1,6 @@
 // Human label for how a ride was booked, derived from hmu_posts.post_type.
-// Shared by the admin rides history (list) and detail endpoints so the label
-// stays consistent across the superadmin drill-down.
+// Single source of truth shared by the rider/driver ride history and the admin
+// rides history/detail endpoints so the label stays consistent app-wide.
 export function bookingMethod(postType: string | null): string {
   switch (postType) {
     case 'blast':
