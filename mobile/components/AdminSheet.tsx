@@ -76,11 +76,20 @@ type DayFilter = 0 | 1 | 7 | 30;
 
 // ── SECTION: Activity ─────────────────────────────────────────────────────────
 
+interface AdminRideRow {
+  id: string; status: string; amount: number;
+  pickupAddress: string | null; dropoffAddress: string | null;
+  bookingMethod: string;
+  driverName: string | null; driverHandle: string | null;
+  riderName: string | null; riderHandle: string | null;
+  createdAt: string;
+}
+
 function ActivitySection({ days, market, token }: { days: DayFilter; market: MarketSlug; token: string | null }) {
   const [data, setData] = useState<{
     total: number; completed: number; cancelled: number;
     fulfillment_rate: number; avg_fare: number;
-    rides?: { id: string; status: string; amount: number; pickup_address: string; dropoff_address: string; created_at: string }[];
+    rides?: AdminRideRow[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedRideId, setSelectedRideId] = useState<string | null>(null);
@@ -89,9 +98,14 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
     async function load() {
       setLoading(true);
       try {
-        const res = await apiClient<{ rides: { id: string; status: string; price?: number; amount?: number; pickup_address?: string; dropoff_address?: string; createdAt?: string; created_at?: string; refCode?: string; marketId?: string }[] }>(
-          '/admin/rides/history', token,
-        );
+        const res = await apiClient<{ rides: Array<{
+          id: string; refCode?: string | null; status: string; price?: number;
+          pickupAddress?: string | null; dropoffAddress?: string | null;
+          isCash?: boolean; bookingMethod?: string;
+          driverName?: string | null; driverHandle?: string | null;
+          riderName?: string | null; riderHandle?: string | null;
+          createdAt?: string;
+        }> }>('/admin/rides/history', token);
         const cutoff = days === 0 ? 0 : Date.now() - days * 86_400_000;
         // Filter by time window client-side (server returns last 200 ordered by date).
         // days===0 = ALL TIME: cutoff is 0 so nothing is filtered out.
@@ -100,7 +114,7 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
         const allRides = res.rides ?? [];
         const rides = allRides.filter(r => {
           if (cutoff === 0) return true; // ALL TIME — keep everything
-          const ts = parseTs(r.createdAt ?? r.created_at);
+          const ts = parseTs(r.createdAt);
           if (ts > 0 && ts < cutoff) return false;
           return true; // market filtering via marketId would need server-side; omit for now
         });
@@ -109,19 +123,24 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
         const total = rides.length;
         const avg_fare = completed > 0
           ? rides.filter(r => r.status === 'completed' || r.status === 'ended')
-              .reduce((s, r) => s + (r.price ?? r.amount ?? 0), 0) / completed
+              .reduce((s, r) => s + (r.price ?? 0), 0) / completed
           : 0;
         setData({
           total, completed, cancelled,
           fulfillment_rate: total > 0 ? Math.round(completed / (completed + cancelled) * 100) : 0,
           avg_fare: Math.round(avg_fare * 100) / 100,
-          rides: rides.map(r => ({
+          rides: rides.map((r): AdminRideRow => ({
             id: r.id ?? '',
             status: r.status,
-            amount: r.price ?? r.amount ?? 0,
-            pickup_address: r.pickup_address ?? r.refCode ?? '',
-            dropoff_address: r.dropoff_address ?? '',
-            created_at: r.createdAt ?? r.created_at ?? '',
+            amount: r.price ?? 0,
+            pickupAddress: r.pickupAddress ?? null,
+            dropoffAddress: r.dropoffAddress ?? null,
+            bookingMethod: r.bookingMethod ?? 'Direct',
+            driverName: r.driverName ?? null,
+            driverHandle: r.driverHandle ?? null,
+            riderName: r.riderName ?? null,
+            riderHandle: r.riderHandle ?? null,
+            createdAt: r.createdAt ?? '',
           })),
         });
       } catch { setData(null); }
@@ -162,8 +181,10 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
           >
             <View style={[sc.statusDot, { backgroundColor: STATUS_COLOR[r.status] ?? colors.textFaint }]} />
             <View style={{ flex: 1, gap: 2 }}>
-              <Text style={sc.rowTitle} numberOfLines={1}>{r.pickup_address ?? '—'}</Text>
-              <Text style={sc.rowSub} numberOfLines={1}>{r.dropoff_address ?? '—'}</Text>
+              <Text style={sc.rowTitle} numberOfLines={1}>{r.pickupAddress ?? '—'}</Text>
+              <Text style={sc.rowSub} numberOfLines={1}>
+                {(r.riderHandle ? `@${r.riderHandle}` : r.riderName ?? 'rider')} → {(r.driverHandle ? `@${r.driverHandle}` : r.driverName ?? 'driver')} · {r.bookingMethod}
+              </Text>
             </View>
             <View style={{ alignItems: 'flex-end', gap: 2 }}>
               <Text style={[sc.tag, { color: STATUS_COLOR[r.status] ?? colors.textFaint }]}>
@@ -187,7 +208,7 @@ interface RideDetail {
   id: string;
   refCode: string | null;
   status: string;
-  bookingType: string;
+  bookingMethod: string;
   paymentMethod: 'cash' | 'card';
   marketId: string | null;
   fare: number | null;
@@ -206,6 +227,7 @@ interface RideDetail {
   otwAt: string | null;
   hereAt: string | null;
   startedAt: string | null;
+  endedAt: string | null;
 }
 
 const RIDE_STATUS_COLOR: Record<string, string> = {
@@ -213,12 +235,6 @@ const RIDE_STATUS_COLOR: Record<string, string> = {
   disputed: colors.red, active: colors.blue, in_progress: colors.blue,
   matched: colors.amber, otw: colors.amber, here: colors.amber, confirming: colors.amber,
 };
-
-function BOOKING_LABEL(t: string): string {
-  if (t === 'down_bad') return 'DOWN BAD';
-  if (t === 'standard') return 'STANDARD';
-  return t.replace(/_/g, ' ').toUpperCase();
-}
 
 /** One label/value line inside a detail card. */
 function DetailRow({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
@@ -289,7 +305,7 @@ function RideDetailView({ rideId, token, onBack }: { rideId: string; token: stri
           <View style={rd.headerCard}>
             <View style={{ flex: 1 }}>
               <Text style={rd.refCode}>{ride.refCode ? `#${ride.refCode}` : ride.id.slice(0, 8)}</Text>
-              <Text style={rd.subId}>{ride.marketId ? ride.marketId.toUpperCase() : '—'} · {BOOKING_LABEL(ride.bookingType)} · {ride.paymentMethod.toUpperCase()}</Text>
+              <Text style={rd.subId}>{ride.marketId ? ride.marketId.toUpperCase() : '—'} · {ride.bookingMethod.toUpperCase()} · {ride.paymentMethod.toUpperCase()}</Text>
             </View>
             <View style={[rd.statusPill, { borderColor: statusColor }]}>
               <View style={[sc.statusDot, { backgroundColor: statusColor }]} />
@@ -333,6 +349,7 @@ function RideDetailView({ rideId, token, onBack }: { rideId: string; token: stri
             <DetailRow label="OTW" value={fmtDateTime(ride.otwAt)} />
             <DetailRow label="ARRIVED" value={fmtDateTime(ride.hereAt)} />
             <DetailRow label="STARTED" value={fmtDateTime(ride.startedAt)} />
+            <DetailRow label="ENDED" value={fmtDateTime(ride.endedAt)} />
             <DetailRow label="UPDATED" value={fmtDateTime(ride.updatedAt)} />
           </View>
         </>
