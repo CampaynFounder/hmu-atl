@@ -83,6 +83,7 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
     rides?: { id: string; status: string; amount: number; pickup_address: string; dropoff_address: string; created_at: string }[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedRideId, setSelectedRideId] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -136,6 +137,11 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
     in_progress: colors.blue, matched: colors.amber, otw: colors.amber,
   };
 
+  // Tapping a ride drills into the read-only detail view (parties, money, route, etc.)
+  if (selectedRideId) {
+    return <RideDetailView rideId={selectedRideId} token={token} onBack={() => setSelectedRideId(null)} />;
+  }
+
   return (
     <ScrollView contentContainerStyle={{ gap: spacing.md }} keyboardShouldPersistTaps="handled">
       <View style={sc.statsGrid}>
@@ -148,7 +154,12 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
       {!data?.rides?.length
         ? <EmptyState msg="NO RIDES IN PERIOD" />
         : data.rides.slice(0, 20).map(r => (
-          <View key={r.id} style={[sc.row, shadow.card]}>
+          <TouchableOpacity
+            key={r.id}
+            style={[sc.row, shadow.card]}
+            activeOpacity={0.8}
+            onPress={() => setSelectedRideId(r.id)}
+          >
             <View style={[sc.statusDot, { backgroundColor: STATUS_COLOR[r.status] ?? colors.textFaint }]} />
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={sc.rowTitle} numberOfLines={1}>{r.pickup_address ?? '—'}</Text>
@@ -162,12 +173,205 @@ function ActivitySection({ days, market, token }: { days: DayFilter; market: Mar
                 <Text style={sc.rowSub}>${r.amount}</Text>
               )}
             </View>
-          </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+          </TouchableOpacity>
         ))
       }
     </ScrollView>
   );
 }
+
+// ── Ride detail (read-only drill-down) ────────────────────────────────────────
+
+interface RideDetail {
+  id: string;
+  refCode: string | null;
+  status: string;
+  bookingType: string;
+  paymentMethod: 'cash' | 'card';
+  marketId: string | null;
+  fare: number | null;
+  platformFee: number | null;
+  driverPayout: number | null;
+  deposit: number | null;
+  visibleDeposit: number | null;
+  stripePaymentIntentId: string | null;
+  driver: { id: string | null; name: string | null; handle: string | null; phone: string | null };
+  rider: { id: string | null; name: string | null; handle: string | null; phone: string | null };
+  pickupAddress: string | null;
+  dropoffAddress: string | null;
+  stops: unknown[] | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  otwAt: string | null;
+  hereAt: string | null;
+  startedAt: string | null;
+}
+
+const RIDE_STATUS_COLOR: Record<string, string> = {
+  completed: colors.green, ended: colors.green, cancelled: colors.red,
+  disputed: colors.red, active: colors.blue, in_progress: colors.blue,
+  matched: colors.amber, otw: colors.amber, here: colors.amber, confirming: colors.amber,
+};
+
+function BOOKING_LABEL(t: string): string {
+  if (t === 'down_bad') return 'DOWN BAD';
+  if (t === 'standard') return 'STANDARD';
+  return t.replace(/_/g, ' ').toUpperCase();
+}
+
+/** One label/value line inside a detail card. */
+function DetailRow({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <View style={rd.detailRow}>
+      <Text style={rd.detailLabel}>{label}</Text>
+      <Text style={[rd.detailValue, accent && { color: G }]} numberOfLines={2}>{value}</Text>
+    </View>
+  );
+}
+
+/** A driver/rider party block. */
+function PartyCard({ role, party }: { role: 'DRIVER' | 'RIDER'; party: RideDetail['driver'] }) {
+  return (
+    <View style={rd.partyCard}>
+      <View style={rd.partyHead}>
+        <Ionicons name={role === 'DRIVER' ? 'car' : 'person'} size={14} color={role === 'DRIVER' ? colors.amber : colors.blue} />
+        <Text style={[rd.partyRole, { color: role === 'DRIVER' ? colors.amber : colors.blue }]}>{role}</Text>
+      </View>
+      <Text style={rd.partyName}>{party.name ?? 'Unknown'}{party.handle ? `  @${party.handle}` : ''}</Text>
+      {party.phone && <Text style={rd.partyPhone}>{party.phone}</Text>}
+    </View>
+  );
+}
+
+function fmtDateTime(raw: string | null): string {
+  const ms = parseTs(raw);
+  if (!ms) return '—';
+  return new Date(ms).toLocaleString();
+}
+
+function fmtMoney(v: number | null): string {
+  return v == null ? '—' : `$${v.toFixed(2)}`;
+}
+
+function RideDetailView({ rideId, token, onBack }: { rideId: string; token: string | null; onBack: () => void }) {
+  const [ride, setRide] = useState<RideDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    apiClient<{ ride: RideDetail }>(`/admin/rides/${rideId}`, token)
+      .then(d => { if (!cancelled) setRide(d.ride); })
+      .catch((e: unknown) => { if (!cancelled) setError((e as { message?: string }).message ?? 'Failed to load ride'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [rideId, token]);
+
+  const statusColor = ride ? (RIDE_STATUS_COLOR[ride.status] ?? colors.textFaint) : colors.textFaint;
+
+  return (
+    <ScrollView contentContainerStyle={{ gap: spacing.md, paddingBottom: spacing.xxl }} keyboardShouldPersistTaps="handled">
+      <TouchableOpacity onPress={onBack} style={sc.backBtn}>
+        <Ionicons name="chevron-back" size={16} color={G} />
+        <Text style={[sc.tag, { color: G }]}>RECENT RIDES</Text>
+      </TouchableOpacity>
+
+      {loading ? <LoadingCard /> : error ? (
+        <EmptyState msg={error.toUpperCase()} />
+      ) : !ride ? (
+        <EmptyState msg="RIDE NOT FOUND" />
+      ) : (
+        <>
+          {/* Header: ref + status */}
+          <View style={rd.headerCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={rd.refCode}>{ride.refCode ? `#${ride.refCode}` : ride.id.slice(0, 8)}</Text>
+              <Text style={rd.subId}>{ride.marketId ? ride.marketId.toUpperCase() : '—'} · {BOOKING_LABEL(ride.bookingType)} · {ride.paymentMethod.toUpperCase()}</Text>
+            </View>
+            <View style={[rd.statusPill, { borderColor: statusColor }]}>
+              <View style={[sc.statusDot, { backgroundColor: statusColor }]} />
+              <Text style={[rd.statusPillText, { color: statusColor }]}>{ride.status.toUpperCase()}</Text>
+            </View>
+          </View>
+
+          {/* Money */}
+          <SectionHeader title="PAYMENT" />
+          <View style={sc.statsGrid}>
+            <StatCard label="AMOUNT PAID" value={fmtMoney(ride.fare)} accent />
+            <StatCard label="DRIVER PAYOUT" value={fmtMoney(ride.driverPayout)} />
+            <StatCard label="PLATFORM FEE" value={fmtMoney(ride.platformFee)} />
+            <StatCard label="DEPOSIT" value={fmtMoney(ride.deposit)} />
+          </View>
+          {ride.stripePaymentIntentId && (
+            <View style={rd.card}>
+              <DetailRow label="PAYMENT INTENT" value={ride.stripePaymentIntentId} />
+            </View>
+          )}
+
+          {/* Parties */}
+          <SectionHeader title="PEOPLE" />
+          <PartyCard role="DRIVER" party={ride.driver} />
+          <PartyCard role="RIDER" party={ride.rider} />
+
+          {/* Route */}
+          <SectionHeader title="ROUTE" />
+          <View style={rd.card}>
+            <DetailRow label="PICKUP" value={ride.pickupAddress ?? '—'} />
+            <DetailRow label="DROPOFF" value={ride.dropoffAddress ?? '—'} />
+            {Array.isArray(ride.stops) && ride.stops.length > 0 && (
+              <DetailRow label="STOPS" value={`${ride.stops.length} stop${ride.stops.length === 1 ? '' : 's'}`} />
+            )}
+          </View>
+
+          {/* Timeline */}
+          <SectionHeader title="TIMELINE" />
+          <View style={rd.card}>
+            <DetailRow label="CREATED" value={fmtDateTime(ride.createdAt)} />
+            <DetailRow label="OTW" value={fmtDateTime(ride.otwAt)} />
+            <DetailRow label="ARRIVED" value={fmtDateTime(ride.hereAt)} />
+            <DetailRow label="STARTED" value={fmtDateTime(ride.startedAt)} />
+            <DetailRow label="UPDATED" value={fmtDateTime(ride.updatedAt)} />
+          </View>
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
+const rd = StyleSheet.create({
+  headerCard: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.card, borderRadius: radius.card,
+    padding: spacing.lg, borderWidth: 1, borderColor: colors.border,
+  },
+  refCode: { fontFamily: fonts.monoBold, fontSize: 16, color: colors.textPrimary, letterSpacing: 0.5 },
+  subId: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 0.8, marginTop: 3 },
+  statusPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1,
+  },
+  statusPillText: { fontFamily: fonts.mono, fontSize: 9, letterSpacing: 0.8 },
+
+  card: {
+    backgroundColor: colors.card, borderRadius: radius.card,
+    padding: spacing.lg, gap: spacing.sm, borderWidth: 1, borderColor: colors.border,
+  },
+  detailRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
+  detailLabel: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1, paddingTop: 2 },
+  detailValue: { fontFamily: fonts.body, fontSize: 13, color: colors.textPrimary, flex: 1, textAlign: 'right' },
+
+  partyCard: {
+    backgroundColor: colors.card, borderRadius: radius.card,
+    padding: spacing.lg, gap: 4, borderWidth: 1, borderColor: colors.border,
+  },
+  partyHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  partyRole: { fontFamily: fonts.mono, fontSize: 8, letterSpacing: 1.5 },
+  partyName: { fontFamily: fonts.monoBold, fontSize: 14, color: colors.textPrimary },
+  partyPhone: { fontFamily: fonts.mono, fontSize: 11, color: colors.textTertiary },
+});
 
 // ── SECTION: Revenue ──────────────────────────────────────────────────────────
 
