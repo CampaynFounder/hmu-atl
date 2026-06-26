@@ -11,11 +11,11 @@ export async function generateMetadata(): Promise<Metadata> {
   const canonical = `https://${brand.host}/driver`;
   return {
     title: 'HMU Cash Ride — Make Bank Trips not Blank Trips | Driver Sign Up',
-    description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L. Set your price. Get paid before you go. Sign up free.',
+    description: 'Make Bank Trips not Blank Trips. Set your own price, get paid upfront, and typically earn $150+ per day. Own your rider relationships — bring the riders you meet on other platforms onto HMU. GPS-tracked rides plus cash deliveries. Sign up free.',
     alternates: { canonical },
     openGraph: {
       title: 'HMU Cash Ride — Make Bank Trips not Blank Trips',
-      description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L. Set your price. Get paid before you go. Sign up free.',
+      description: 'Set your own price, get paid upfront, and typically earn $150+. Own your rider relationships and keep the riders you bring. GPS-tracked rides and cash deliveries on the fastest-growing cash ride platform. Sign up free.',
       url: canonical,
       siteName: 'HMUCASHRIDE',
       locale: 'en_US',

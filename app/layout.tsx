@@ -16,6 +16,7 @@ import { SmsOptInGate } from '@/components/auth/sms-opt-in-gate';
 import { GlobalRideAlert } from '@/components/global-ride-alert';
 import { MARKET_SLUG_HEADER } from '@/lib/markets/resolver';
 import { getMarketBranding } from '@/lib/markets/branding';
+import { getFaq } from '@/lib/marketing/faq';
 import './globals.css';
 
 // Clerk primary application domain. Every other market subdomain that renders
@@ -73,13 +74,15 @@ export const metadata: Metadata = {
   },
   manifest: '/manifest.json',
   title: 'HMUCashRide - Drivers Get Paid UpFront',
-  description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L.',
+  description:
+    'Make Bank Trips not Blank Trips. HMU is the fastest-growing cash ride & delivery platform — drivers get paid upfront, every ride is GPS-tracked for safety, and riders can blast one request to all nearby drivers. Built in Atlanta, now launching in communities nationwide after 15,000+ rides.',
   alternates: {
     canonical: 'https://atl.hmucashride.com',
   },
   openGraph: {
     title: 'HMUCashRide - Drivers Get Paid UpFront',
-    description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L.',
+    description:
+      'The fastest-growing cash ride & delivery platform. Drivers get paid upfront and typically earn $150+. Every ride is GPS-tracked for safety. Blast a request to all nearby drivers, book a Down Bad ride when times are hard, or send a cash delivery. Built in Atlanta, launching nationwide.',
     url: 'https://atl.hmucashride.com',
     siteName: 'HMUCASHRIDE',
     locale: 'en_US',
@@ -90,7 +93,8 @@ export const metadata: Metadata = {
     images: ['https://atl.hmucashride.com/og-image.jpeg'],
     card: 'summary_large_image',
     title: 'HMUCashRide - Drivers Get Paid UpFront',
-    description: 'Make Bank Trips not Blank Trips. Ride Scammers Hold the L.',
+    description:
+      'The fastest-growing cash ride & delivery platform. Paid upfront, GPS-tracked rides, blast to all nearby drivers, Down Bad rides, and cash deliveries. Built in Atlanta, launching nationwide after 15,000+ rides.',
   },
   other: {
     'facebook-domain-verification': 'mttfsmzqmugljmd7ybwy3vgb2mzl8i',
@@ -115,16 +119,31 @@ function buildJsonLd(seo: MarketSeo) {
         url: 'https://hmucashride.com',
         logo: 'https://atl.hmucashride.com/og-image.jpeg',
         description:
-          'HMU Cash Ride is the platform behind "hit me up cash ride" — private car rides for cash payment with upfront driver payment verification. How drivers know before they go.',
+          'HMU Cash Ride is the fastest-growing peer-to-peer cash ride and delivery platform in the United States. Drivers get paid upfront and typically earn $150 or more, every ride is GPS-tracked for safety, and riders can blast a single request to all nearby drivers, book a Down Bad ride during temporary hard times, or send a cash delivery. Founded in Atlanta, HMU has completed more than 15,000 rides and is now launching in communities nationwide.',
+        slogan: 'How Drivers Know Before They Go',
         foundingDate: '2026',
+        foundingLocation: {
+          '@type': 'Place',
+          name: 'Atlanta, Georgia',
+        },
         areaServed: areaServedOrg,
         knowsAbout: [
           'private car rides for cash',
           'carpool services for cash',
           'cash ride driver payment',
           'upfront driver payment verification',
+          'in-ride GPS safety tracking',
+          'ride request blast to all nearby drivers',
+          'down bad rides for riders facing hard times',
+          'cash deliveries',
           `peer to peer rides ${seo.city}`,
         ],
+        interactionStatistic: {
+          '@type': 'InteractionCounter',
+          interactionType: 'https://schema.org/TravelAction',
+          userInteractionCount: 15000,
+          description: 'Rides completed on HMU Cash Ride',
+        },
         sameAs: ['https://www.facebook.com/hmucashride'],
       },
       {
@@ -146,7 +165,7 @@ function buildJsonLd(seo: MarketSeo) {
           containedInPlace: { '@type': 'State', name: seo.state },
         },
         description:
-          'Private car rides for cash payment. Carpool services for cash with upfront driver payment verification. Drivers know they are getting paid before they go. No more ride scammers.',
+          'Private car rides and cash deliveries with upfront driver payment. Drivers know they are getting paid before they go and typically earn $150 or more. Every ride is GPS-tracked in real time for the safety of both riders and drivers. Riders can blast a single request to all nearby drivers, book a Down Bad ride during temporary hard times, or send a cash delivery.',
         slogan: 'How Drivers Know Before They Go',
         offers: {
           '@type': 'Offer',
@@ -154,67 +173,65 @@ function buildJsonLd(seo: MarketSeo) {
           priceCurrency: 'USD',
           description: 'Free to sign up. Drivers set their own price.',
         },
+        hasOfferCatalog: {
+          '@type': 'OfferCatalog',
+          name: 'HMU Cash Ride & Delivery Options',
+          itemListElement: [
+            {
+              '@type': 'Offer',
+              itemOffered: {
+                '@type': 'Service',
+                name: 'Direct Cash Ride',
+                description:
+                  'Book a specific nearby driver for a cash ride. Payment is verified upfront and the ride is GPS-tracked end to end.',
+              },
+            },
+            {
+              '@type': 'Offer',
+              itemOffered: {
+                '@type': 'Service',
+                name: 'Blast Ride',
+                description:
+                  'Send one ride request to every nearby driver at once and pick whichever driver responds first or offers the best price.',
+              },
+            },
+            {
+              '@type': 'Offer',
+              itemOffered: {
+                '@type': 'Service',
+                name: 'Down Bad Ride',
+                description:
+                  'Discounted, community-supported rides for riders facing temporary hard times so they can still get where they need to go.',
+              },
+            },
+            {
+              '@type': 'Offer',
+              itemOffered: {
+                '@type': 'Service',
+                name: 'Cash Delivery',
+                description:
+                  'Local pickup and delivery handled by nearby drivers and paid in cash, with the same upfront payment and GPS tracking as a ride.',
+              },
+            },
+          ],
+        },
         additionalType: 'https://schema.org/TaxiService',
         category: [
           'Private Transportation',
           'Carpool Services for Cash',
           'Cash Ride Platform',
           'Peer-to-Peer Rides',
+          'Cash Delivery Service',
         ],
       },
       {
         '@type': 'FAQPage',
         '@id': 'https://hmucashride.com/#faq',
-        mainEntity: [
-          {
-            '@type': 'Question',
-            name: 'What is HMU Cash Ride?',
-            acceptedAnswer: {
-              '@type': 'Answer',
-              text: 'HMU Cash Ride is the first platform built for "hit me up cash ride" — private car rides for cash payment. Unlike Facebook groups where you post and hope for the best, HMU verifies payment upfront so drivers know they are getting paid before they pull up.',
-            },
-          },
-          {
-            '@type': 'Question',
-            name: 'How do cash ride drivers get paid?',
-            acceptedAnswer: {
-              '@type': 'Answer',
-              text: 'Riders pay upfront through the app before the driver leaves. The money is held in escrow and released to the driver after the ride. Drivers set their own price — no surge pricing, no platform deciding what you earn.',
-            },
-          },
-          {
-            '@type': 'Question',
-            name: 'Is HMU Cash Ride safe?',
-            acceptedAnswer: {
-              '@type': 'Answer',
-              text: 'HMU Cash Ride verifies payment before the ride starts — that is how drivers know before they go. Riders are payment-verified, rides are GPS-tracked, and both parties can rate each other. No more ride scammers wasting your gas.',
-            },
-          },
-          {
-            '@type': 'Question',
-            name: 'How is HMU Cash Ride different from Facebook cash ride groups?',
-            acceptedAnswer: {
-              '@type': 'Answer',
-              text: 'Facebook cash ride groups have no payment protection — drivers get scammed, riders ghost, and nobody is verified. HMU Cash Ride holds the rider payment in escrow before the driver pulls up. If they do not pay, they do not ride. It is that simple.',
-            },
-          },
-          {
-            '@type': 'Question',
-            name: `How do I carpool for cash in ${seo.city}?`,
-            acceptedAnswer: {
-              '@type': 'Answer',
-              text: 'Sign up on HMU Cash Ride as a driver, set your price and the areas you serve, and go live. Riders in your area see your post and book directly. You get paid upfront — no chasing payments, no ride scammers, no wasted trips.',
-            },
-          },
-          {
-            '@type': 'Question',
-            name: 'What does HMU Cash Ride cost for drivers?',
-            acceptedAnswer: {
-              '@type': 'Answer',
-              text: 'Free to sign up. HMU takes a small platform fee that is capped daily and weekly — once you hit the cap, the rest of the day is all yours. HMU First members pay a flat 12% with a lower cap and get instant payouts after every ride.',
-            },
-          },
-        ],
+        mainEntity: getFaq(seo.city).map((item) => ({
+          '@type': 'Question',
+          name: item.q,
+          acceptedAnswer: { '@type': 'Answer', text: item.a },
+        })),
       },
     ],
   };
