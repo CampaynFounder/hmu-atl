@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/client';
 import { getRideForUser } from '@/lib/rides/state-machine';
 import { partialCaptureNoShow, cancelPaymentHold } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { notifyUserWithPush } from '@/lib/notify';
 import { getHoldPolicy, calculateNoShowSplit } from '@/lib/payments/hold-policy';
 import { cascadeRideCancel } from '@/lib/rides/cancel-cascade';
 
@@ -143,13 +144,32 @@ export async function POST(
       ? 'Ride cancelled by driver — no charge.'
       : `No-show fee: $${result.captured.toFixed(2)} charged (${chargePercent}%). $${result.riderRefunded.toFixed(2)} refunded.`;
 
-    await notifyUser(ride.rider_id as string, 'ride_update', {
-      rideId,
-      status: chargePercent === 0 ? 'cancelled' : 'ended',
-      pulloff: true,
-      chargePercent,
-      message: riderMessage,
-    }).catch(() => {});
+    if (chargePercent === 0) {
+      // No-charge cancel already runs through cascadeRideCancel above, which
+      // sends the rider an OS push. Keep this leg Ably-only to avoid a
+      // duplicate push.
+      await notifyUser(ride.rider_id as string, 'ride_update', {
+        rideId,
+        status: 'cancelled',
+        pulloff: true,
+        chargePercent,
+        message: riderMessage,
+      }).catch(() => {});
+    } else {
+      // No-show charge — the rider was billed and the ride ended without them.
+      // Push so they learn about the charge even with the app backgrounded.
+      await notifyUserWithPush(ride.rider_id as string, 'ride_update', {
+        rideId,
+        status: 'ended',
+        pulloff: true,
+        chargePercent,
+        message: riderMessage,
+      }, {
+        title: 'No-show fee charged',
+        body: riderMessage,
+        data: { type: 'ride_update', rideId, status: 'ended' },
+      }).catch(() => {});
+    }
 
     // Cancel calendar booking + linked post. If this was a no-show charge,
     // tag the booking as 'no_show' (not plain 'cancelled') so analytics and

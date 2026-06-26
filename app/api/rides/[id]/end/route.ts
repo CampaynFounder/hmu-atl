@@ -4,7 +4,8 @@ import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { captureRiderPayment } from '@/lib/payments/escrow';
 import { maybeCapturePartnerHold } from '@/lib/partner/booking-capture';
-import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
+import { publishRideUpdate, publishAdminEvent } from '@/lib/ably/server';
+import { notifyUserWithPush } from '@/lib/notify';
 import { isWithinProximity } from '@/lib/geo/distance';
 import { calculateAndStoreRideAnalytics } from '@/lib/rides/analytics';
 import { syncBookingFromRide } from '@/lib/schedule/conflicts';
@@ -193,8 +194,12 @@ export async function POST(
       driverReceives: payoutResult.driverReceives,
       disputeWindowMinutes: disputeMinutes,
     }).catch(() => {});
-    await notifyUser(ride.rider_id as string, 'ride_update', {
+    await notifyUserWithPush(ride.rider_id as string, 'ride_update', {
       rideId, status: 'ended', message: 'Ride complete — rate your driver',
+    }, {
+      title: 'Ride complete 🏁',
+      body: 'You\'ve arrived. Tap to rate your driver.',
+      data: { type: 'ride_update', rideId, status: 'ended' },
     }).catch(() => {});
     publishAdminEvent('ride_status_change', {
       rideId, status: 'ended', endVerified,

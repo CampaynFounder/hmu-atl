@@ -25,6 +25,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser } from '@/lib/rides/state-machine';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { notifyUserWithPush } from '@/lib/notify';
 import { cancelPaymentHold, partialCaptureDeposit } from '@/lib/payments/escrow';
 import { getHoldPolicy, calculateCancelSplit } from '@/lib/payments/hold-policy';
 import { cascadeRideCancel, type CancellableRide } from '@/lib/rides/cancel-cascade';
@@ -160,7 +161,13 @@ export async function POST(
       // countdowns in lock-step.
       await Promise.all([
         publishRideUpdate(rideId, 'cancel_request', driverPayload).catch(() => {}),
-        notifyUser(ride.driver_id as string, 'ride_update', driverPayload).catch(() => {}),
+        // Driver must respond before the countdown expires — push so a
+        // backgrounded phone wakes. Rider just acted in-app, so Ably-only.
+        notifyUserWithPush(ride.driver_id as string, 'ride_update', driverPayload, {
+          title: 'Rider wants to cancel ⏳',
+          body: 'Tap to respond before the timer runs out.',
+          data: { type: 'ride_update', rideId, status: 'cancel_requested' },
+        }).catch(() => {}),
         ride.rider_id ? notifyUser(ride.rider_id as string, 'ride_update', driverPayload).catch(() => {}) : Promise.resolve(),
       ]);
 
