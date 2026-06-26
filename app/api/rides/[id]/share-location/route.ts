@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-import { publishRideUpdate, publishAdminEvent } from '@/lib/ably/server';
+import { publishRideTransition } from '@/lib/ably/server';
 
 /**
  * Rider shares their live GPS location in response to a driver request.
@@ -45,21 +45,16 @@ export async function POST(
       WHERE id = ${rideId}
     `;
 
-    // Publish to ride channel — driver sees pin
-    await publishRideUpdate(rideId, 'location_shared', {
-      lat, lng,
-      sharedBy: userId,
-      sharedAt: new Date().toISOString(),
-    }).catch(() => {});
-
-    // Log for admin
-    await publishAdminEvent('location_shared', {
-      rideId,
-      riderId: userId,
-      driverId: ride.driver_id,
-      lat, lng,
-      sharedAt: new Date().toISOString(),
-    }).catch(() => {});
+    // Fan out: ride channel (driver sees the pin live) + driver's notify
+    // channel (reaches a backgrounded driver app) + admin. Only the driver
+    // needs notifying — the rider is the one sharing. Routed through the
+    // symmetric helper so the backgrounded-delivery path isn't forgotten.
+    await publishRideTransition(
+      { rideId, riderId: userId, driverId: (ride.driver_id as string) ?? null },
+      'location_shared',
+      { lat, lng, sharedBy: userId, sharedAt: new Date().toISOString() },
+      { notify: ['driver'] },
+    );
 
     return NextResponse.json({ shared: true });
   } catch (error) {

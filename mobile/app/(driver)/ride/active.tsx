@@ -157,6 +157,9 @@ export default function ActiveRideScreen() {
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [driverLocation, setDriverLocation] = useState<LatLng | null>(null);
+  // Rider's live GPS — seeded from the COO ping and updated whenever the rider
+  // shares location, so the driver can see the rider's pin + ETA to the car.
+  const [riderLocation, setRiderLocation] = useState<LatLng | null>(null);
   const [eta, setEta] = useState<{ mi: number; min: number } | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const chat = useRideMessages(rideId, getToken, ride?.riderId ?? null);
@@ -300,6 +303,22 @@ export default function ActiveRideScreen() {
               : prev.stops,
           };
         });
+        if (typeof d.riderLat === 'number' && typeof d.riderLng === 'number') {
+          setRiderLocation({ lat: d.riderLat as number, lng: d.riderLng as number });
+        }
+        // Rider pulled up — begin streaming the driver's GPS now (not at OTW) so
+        // the rider sees the driver approaching from the moment they pull up
+        // (stage-contract 'inbound'). Only auto-start if background permission is
+        // ALREADY granted; otherwise defer the disclosure prompt to OTW so we
+        // don't surprise first-time drivers earlier than today.
+        void (async () => {
+          try {
+            const { status: bgStatus } = await Location.getBackgroundPermissionsAsync();
+            if (bgStatus !== 'granted') return;
+            const t = await getToken();
+            if (t && rideId) void startRideTracking(rideId, t);
+          } catch { /* non-blocking */ }
+        })();
       }
       if (msg.name === 'status_change') {
         // Suppress stale Ably rewind replays. The ride channel uses rewind:'2m',
@@ -329,6 +348,14 @@ export default function ActiveRideScreen() {
         const d = msg.data as { lat?: number; lng?: number };
         if (typeof d.lat === 'number' && typeof d.lng === 'number') {
           setDriverLocation({ lat: d.lat, lng: d.lng });
+        }
+      }
+      if (msg.name === 'location_shared') {
+        // Rider shared their live GPS — plot the rider pin so the driver can see
+        // where they are + an ETA to the car (stage-contract 'inbound' surface).
+        const d = msg.data as { lat?: number; lng?: number };
+        if (typeof d.lat === 'number' && typeof d.lng === 'number') {
+          setRiderLocation({ lat: d.lat, lng: d.lng });
         }
       }
       if (msg.name === 'chat_message') {
@@ -384,9 +411,12 @@ export default function ActiveRideScreen() {
   // driver the same time/distance read the rider sees.
   const status = ride?.status ?? null;
   const isActive = status === 'active' || status === 'in_progress';
+  // Inbound = rider pulled up (COO) but driver hasn't tapped OTW yet — status is
+  // still 'matched'. Mirror the rider screen: show the ETA-to-pickup from here.
+  const inbound = !!ride?.cooAt && status === 'matched';
   const tLat = isActive ? (ride?.dropoffLat ?? null) : (ride?.pickupLat ?? null);
   const tLng = isActive ? (ride?.dropoffLng ?? null) : (ride?.pickupLng ?? null);
-  const etaPhase = !!status && ['otw', 'here', 'confirming', 'active', 'in_progress'].includes(status);
+  const etaPhase = !!status && (['otw', 'here', 'confirming', 'active', 'in_progress'].includes(status) || inbound);
   useEffect(() => {
     if (!driverLocation || !etaPhase || tLat == null || tLng == null || !MAPBOX_TOKEN) { setEta(null); return; }
     const coords = `${driverLocation.lng},${driverLocation.lat};${tLng},${tLat}`;
@@ -875,15 +905,17 @@ export default function ActiveRideScreen() {
             dropoff={dropoffLL}
             stops={stopsLL}
             driverLocation={driverLocation}
-            riderLocation={null}
+            riderLocation={riderLocation}
             status={ride.status}
+            cooSent={!!ride.cooAt}
             mapboxToken={MAPBOX_TOKEN}
             style={s.map}
           />
         )}
 
-        {/* ── Live ETA — to pickup while en route, to dropoff once active ── */}
-        {['otw', 'here', 'confirming', 'active', 'in_progress'].includes(ride.status) && (
+        {/* ── Live ETA — to pickup from Pull Up (inbound) and while en route,
+            to dropoff once active ── */}
+        {(inbound || ['otw', 'here', 'confirming', 'active', 'in_progress'].includes(ride.status)) && (
           <View style={s.etaBanner}>
             <Ionicons name="navigate" size={16} color={colors.green} />
             <Text style={s.etaText}>

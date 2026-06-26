@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser } from '@/lib/rides/state-machine';
 import { holdRiderPayment } from '@/lib/payments/escrow';
-import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { publishRideTransition, notifyUser } from '@/lib/ably/server';
 import { getDriverMenuForRider } from '@/lib/db/service-menu';
 import { getHoldPolicy, calculateDepositAmount } from '@/lib/payments/hold-policy';
 import { driverAllowsCashOnly, resolvePricingStrategy } from '@/lib/payments/strategies';
@@ -220,18 +220,28 @@ export async function POST(
       WHERE id = ${rideId} AND status = 'matched'
     `;
 
-    // Notify driver with rider's location + validated addresses
-    await publishRideUpdate(rideId, 'coo', {
-      status: 'coo',
-      riderLat: lat,
-      riderLng: lng,
-      riderLocation: locationText,
-      pickup: validatedPickup || null,
-      dropoff: validatedDropoff || null,
-      stops: validatedStops || null,
-      message: isCashRide ? 'Rider says pull up' : 'Rider says pull up — payment authorized',
-    }).catch(() => {});
+    // Pull Up is a parallel-progression moment: the rider's deposit is held,
+    // the driver gets the rider's pickup, and BOTH sides flip to the live-map
+    // "inbound" surface. Route it through the symmetric transition helper so
+    // the rider is notified too (previously only the driver was), keeping the
+    // two sides in lockstep. See lib/rides/stage-contract.ts → 'inbound'.
+    await publishRideTransition(
+      { rideId, riderId: userId, driverId: ride.driver_id as string },
+      'coo',
+      {
+        status: 'coo',
+        riderLat: lat,
+        riderLng: lng,
+        riderLocation: locationText,
+        pickup: validatedPickup || null,
+        dropoff: validatedDropoff || null,
+        stops: validatedStops || null,
+        message: isCashRide ? 'Rider says pull up' : 'Rider says pull up — payment authorized',
+      },
+    );
 
+    // Keep the driver's `ride_update` ping — the driver request-surfacing rail
+    // refetches its feed on user:{id}:notify `ride_update` specifically.
     await notifyUser(ride.driver_id as string, 'ride_update', {
       rideId,
       status: 'coo',

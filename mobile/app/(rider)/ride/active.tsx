@@ -258,9 +258,12 @@ export default function RiderActiveScreen() {
   // driver is streaming GPS (OTW onward).
   const status = ride?.status ?? null;
   const isActive = status === 'active' || status === 'in_progress';
+  // Inbound = rider pulled up (COO) but driver hasn't tapped OTW yet. Status is
+  // still 'matched'; we surface the live driver map + ETA from this moment.
+  const inbound = !!ride?.cooAt && status === 'matched';
   const tLat = isActive ? (ride?.dropoffLat ?? null) : (ride?.pickupLat ?? null);
   const tLng = isActive ? (ride?.dropoffLng ?? null) : (ride?.pickupLng ?? null);
-  const etaPhase = status && ['otw', 'here', 'confirming', 'active', 'in_progress'].includes(status);
+  const etaPhase = !!status && (['otw', 'here', 'confirming', 'active', 'in_progress'].includes(status) || inbound);
   useEffect(() => {
     if (!driverLocation || !etaPhase || tLat == null || tLng == null || !MAPBOX_TOKEN) { setEta(null); return; }
     const coords = `${driverLocation.lng},${driverLocation.lat};${tLng},${tLat}`;
@@ -529,14 +532,16 @@ export default function RiderActiveScreen() {
             driverLocation={driverLocation}
             riderLocation={null}
             status={ride.status}
+            cooSent={!!ride.cooAt}
             mapboxToken={MAPBOX_TOKEN}
             style={s.map}
           />
         )}
 
-        {/* Live ETA — to pickup while the driver is en route, to the
-            destination once the ride is active (mirrors the web app). */}
-        {['otw', 'here', 'active', 'in_progress'].includes(ride.status) && (
+        {/* Live ETA — to pickup from the moment the rider pulls up (inbound)
+            and while the driver is en route, to the destination once the ride
+            is active (mirrors the web app). */}
+        {(inbound || ['otw', 'here', 'active', 'in_progress'].includes(ride.status)) && (
           <View style={s.etaBanner}>
             <Ionicons name="car-sport" size={18} color={colors.green} />
             <Text style={s.etaText}>
