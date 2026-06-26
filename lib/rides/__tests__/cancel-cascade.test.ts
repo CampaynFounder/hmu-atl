@@ -30,6 +30,11 @@ const { cancelRideBooking } = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/schedule/conflicts', () => ({ cancelRideBooking }));
 
+const { sendPushToUser } = vi.hoisted(() => ({
+  sendPushToUser: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('@/lib/push/send', () => ({ sendPushToUser }));
+
 import { cascadeRideCancel } from '../cancel-cascade';
 
 beforeEach(() => {

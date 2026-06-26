@@ -47,6 +47,7 @@
 
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { sendPushToUser } from '@/lib/push/send';
 import { cancelRideBooking } from '@/lib/schedule/conflicts';
 
 export interface CancellableRide {
@@ -190,6 +191,28 @@ export async function cascadeRideCancel(opts: CancelCascadeOptions): Promise<Cas
       notifyUser(userId, 'ride_update', payload).catch((e) =>
         console.error(`[cancel-cascade] notifyUser ${userId} failed:`, e),
       ),
+    );
+  }
+
+  // OS push to whoever DIDN'T just act, so a backgrounded/locked phone learns
+  // the ride is dead (Ably alone only reaches a foregrounded app). The
+  // initiator already saw the result in-app, so we skip them:
+  //   'rider' initiated  → push the driver
+  //   'driver' initiated → push the rider
+  //   'mutual'           → push both (neither necessarily has the app open)
+  // Timeouts are special: the cron backstop can resolve one when BOTH clients
+  // went silent, so push both regardless of the nominal initiator.
+  const pushBoth = initiator === 'mutual' || resolution === 'timeout_no_response';
+  const pushTargets = new Set<string>();
+  if ((pushBoth || initiator === 'rider') && ride.driver_id) pushTargets.add(ride.driver_id);
+  if ((pushBoth || initiator === 'driver') && ride.rider_id) pushTargets.add(ride.rider_id);
+  for (const userId of pushTargets) {
+    earlyAblyJobs.push(
+      sendPushToUser(userId, {
+        title: 'Ride cancelled ❌',
+        body: reason,
+        data: { type: 'ride_update', rideId, status: 'cancelled' },
+      }).catch((e) => console.error(`[cancel-cascade] push ${userId} failed:`, e)),
     );
   }
 

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
-import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { publishRideUpdate } from '@/lib/ably/server';
+import { notifyUserWithPush } from '@/lib/notify';
 import { syncBookingFromRide } from '@/lib/schedule/conflicts';
 
 // Haversine distance in meters
@@ -94,12 +95,18 @@ export async function POST(
       message: 'Driver started the ride — confirm you\'re in the car',
     }).catch(() => {});
 
-    // Also push notification to rider
-    await notifyUser(ride.rider_id as string, 'ride_update', {
+    // OS push to rider — time-critical: they have CONFIRM_TIMEOUT_MS to tap
+    // "I'm In — Pay $X" or risk a no-show pulloff charge. This MUST reach a
+    // backgrounded/locked phone, so it goes via push, not Ably alone.
+    await notifyUserWithPush(ride.rider_id as string, 'ride_update', {
       rideId,
       status: 'confirming',
       confirmDeadline,
       message: 'Confirm you\'re in the car to start the ride',
+    }, {
+      title: 'Tap to start your ride 🚗',
+      body: 'Your driver started the ride — confirm you\'re in to pay & go.',
+      data: { type: 'ride_update', rideId, status: 'confirming' },
     }).catch(() => {});
 
     return NextResponse.json({
