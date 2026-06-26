@@ -22,17 +22,17 @@ export async function GET(
       r.id, r.ref_code, r.status, r.is_cash, r.market_id,
       COALESCE(r.final_agreed_price, r.amount) AS fare,
       r.amount, r.final_agreed_price,
-      r.platform_fee_cents, r.driver_amount_cents,
-      r.deposit_amount, r.visible_deposit,
-      r.stripe_payment_intent_id,
+      r.platform_fee_amount, r.driver_payout_amount,
+      r.visible_deposit,
+      r.payment_intent_id,
       r.pickup_address, r.dropoff_address,
       r.pickup_lat, r.pickup_lng, r.dropoff_lat, r.dropoff_lng,
       r.stops,
       r.created_at, r.updated_at, r.otw_at, r.here_at, r.started_at, r.ended_at,
       r.driver_id, r.rider_id,
       hp.post_type,
-      COALESCE(dp.display_name, dp.first_name) AS driver_name, dp.handle AS driver_handle, ud.phone AS driver_phone,
-      COALESCE(rp.display_name, rp.first_name) AS rider_name, rp.handle AS rider_handle, ur.phone AS rider_phone
+      COALESCE(dp.display_name, dp.first_name) AS driver_name, dp.handle AS driver_handle, COALESCE(dp.phone, ud.phone) AS driver_phone,
+      COALESCE(rp.display_name, rp.first_name) AS rider_name, rp.handle AS rider_handle, COALESCE(rp.phone, ur.phone) AS rider_phone
     FROM rides r
     LEFT JOIN driver_profiles dp ON dp.user_id = r.driver_id
     LEFT JOIN rider_profiles  rp ON rp.user_id = r.rider_id
@@ -47,7 +47,6 @@ export async function GET(
   if (!r) return NextResponse.json({ error: 'Ride not found' }, { status: 404 });
 
   const num = (v: unknown): number | null => (v == null ? null : Number(v));
-  const cents = (v: unknown): number | null => (v == null ? null : Number(v) / 100);
 
   return NextResponse.json({
     ride: {
@@ -58,13 +57,12 @@ export async function GET(
       paymentMethod: r.is_cash ? 'cash' : 'card',
       marketId: r.market_id ?? null,
 
-      // Money
+      // Money — platform_fee_amount / driver_payout_amount are NUMERIC dollars
       fare: num(r.fare),                              // amount paid by rider (COALESCE agreed → amount)
-      platformFee: cents(r.platform_fee_cents),       // HMU cut
-      driverPayout: cents(r.driver_amount_cents),     // driver take-home
-      deposit: num(r.deposit_amount),
-      visibleDeposit: num(r.visible_deposit),
-      stripePaymentIntentId: r.stripe_payment_intent_id ?? null,
+      platformFee: num(r.platform_fee_amount),        // HMU cut
+      driverPayout: num(r.driver_payout_amount),      // driver take-home
+      deposit: num(r.visible_deposit),
+      stripePaymentIntentId: r.payment_intent_id ?? null,
 
       // Parties
       driver: {

@@ -215,7 +215,6 @@ interface RideDetail {
   platformFee: number | null;
   driverPayout: number | null;
   deposit: number | null;
-  visibleDeposit: number | null;
   stripePaymentIntentId: string | null;
   driver: { id: string | null; name: string | null; handle: string | null; phone: string | null };
   rider: { id: string | null; name: string | null; handle: string | null; phone: string | null };
