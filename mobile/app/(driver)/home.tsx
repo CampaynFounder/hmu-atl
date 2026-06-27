@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { EarningsChart, EarningsDrillSheet, StackPoint } from '@/components/driver/EarningsChart';
+import { useHmuFirst, formatPrice } from '@/hooks/use-hmu-first';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -245,6 +246,7 @@ export default function DriverHome() {
   const handle = driverHandle ?? (user?.fullName ?? 'Driver');
   const isFirst = (user?.publicMetadata?.tier as string) === 'hmu_first';
   const depositMode = isDepositMode(balance?.activeMode);
+  const hmuFirst = useHmuFirst();
 
   if (loading) {
     return (
@@ -348,15 +350,15 @@ export default function DriverHome() {
         )
       }
 
-      {/* HMU First upsell */}
-      {!isFirst && (
+      {/* HMU First upsell — suppressed when a superadmin closes enrollment. */}
+      {!isFirst && hmuFirst.enabled && (
         <DepthButton
           onPress={() => { haptic(Haptics.ImpactFeedbackStyle.Medium); router.push('/(driver)/payout-setup'); }}
           style={s.upsell}
         >
           <View style={s.upsellRow}>
             <Text style={s.upsellTitle}>GO HMU FIRST</Text>
-            <Text style={s.upsellPrice}>$9.99/mo</Text>
+            <Text style={s.upsellPrice}>{formatPrice(hmuFirst.priceCents)}/mo</Text>
           </View>
           <Text style={s.upsellBody}>Lower fee cap, instant payouts, priority support.</Text>
           <View style={s.upsellCta}>
@@ -516,14 +518,19 @@ function DriverWalletCard({
         ))}
       </View>
 
-      {/* ── Chart ── */}
-      {stacks.length > 0 && stacksTotal > 0 ? (
+      {/* ── Chart ── always render the frame so the axis, micro-animation, and
+          DAY/WEEK/MONTH filter stay alive even before the first earnings; a
+          subtle hint overlays an empty range instead of a dead box. */}
+      <View style={wc.chartWrap}>
         <EarningsChart data={stacks} onDrill={(p) => { setDrill(p); }} />
-      ) : (
-        <View style={wc.chartEmpty}>
-          <Text style={wc.chartEmptyText}>Complete a ride to see your chart</Text>
-        </View>
-      )}
+        {stacksTotal === 0 && (
+          <View style={wc.chartEmptyOverlay} pointerEvents="none">
+            <Text style={wc.chartEmptyText}>
+              {timeseries.length > 0 ? 'No earnings in this range yet' : 'Complete a ride to see your chart'}
+            </Text>
+          </View>
+        )}
+      </View>
       <EarningsDrillSheet point={drill} onClose={() => setDrill(null)} />
 
       {/* ── Divider ── */}
@@ -806,8 +813,16 @@ const wc = StyleSheet.create({
   periodText: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 1 },
   periodTextActive: { color: colors.bg },
 
-  chartEmpty: { height: 80, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm },
-  chartEmptyText: { fontFamily: fonts.body, fontSize: 13, color: colors.textFaint },
+  chartWrap: { position: 'relative' },
+  chartEmptyOverlay: {
+    position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  chartEmptyText: {
+    fontFamily: fonts.body, fontSize: 13, color: colors.textTertiary,
+    backgroundColor: 'rgba(8,8,8,0.55)', paddingHorizontal: spacing.md, paddingVertical: 4,
+    borderRadius: radius.tag, overflow: 'hidden',
+  },
 
   divider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.lg },
 

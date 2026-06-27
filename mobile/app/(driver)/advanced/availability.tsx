@@ -11,7 +11,7 @@ import { useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
+import { colors, fonts, radius, spacing, shadow, toggle } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 
 const DAYS = [
@@ -118,9 +118,9 @@ export default function AvailabilityScreen() {
                   <Switch
                     value={active}
                     onValueChange={(v) => toggleDay(day.key, v)}
-                    trackColor={{ false: colors.cardAlt, true: colors.greenBorder }}
-                    thumbColor={active ? colors.green : colors.textFaint}
-                    ios_backgroundColor={colors.cardAlt}
+                    trackColor={{ false: toggle.trackOff, true: toggle.green.trackOn }}
+                    thumbColor={active ? toggle.green.thumbOn : toggle.thumbOff}
+                    ios_backgroundColor={toggle.trackOff}
                   />
                 </View>
               </View>

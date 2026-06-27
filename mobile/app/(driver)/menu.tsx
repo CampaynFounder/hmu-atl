@@ -11,7 +11,7 @@ import { useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
+import { colors, fonts, radius, spacing, shadow, toggle } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 
 // ── Quick-add presets ──────────────────────────────────────────────────────────
@@ -364,9 +364,9 @@ export default function MenuScreen() {
                     <Switch
                       value={item.is_active}
                       onValueChange={() => toggleItem(item)}
-                      trackColor={{ false: colors.cardAlt, true: colors.greenBorder }}
-                      thumbColor={item.is_active ? colors.green : colors.textFaint}
-                      ios_backgroundColor={colors.cardAlt}
+                      trackColor={{ false: toggle.trackOff, true: toggle.green.trackOn }}
+                      thumbColor={item.is_active ? toggle.green.thumbOn : toggle.thumbOff}
+                      ios_backgroundColor={toggle.trackOff}
                     />
                     <TouchableOpacity
                       style={s.deleteBtn}

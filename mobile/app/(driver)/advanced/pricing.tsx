@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
+import { colors, fonts, radius, spacing, shadow, toggle } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 
 interface PricingData {
@@ -215,11 +215,11 @@ export default function PricingScreen() {
           </View>
 
           {/* Deposit Floor */}
-          <SectionHeader label="DEPOSIT FLOOR" hint="The minimum deposit a rider must put down to book you. Leave blank for the platform default." />
+          <SectionHeader label="DEPOSIT FLOOR" hint="The deposit a rider puts down to book you. We charge whichever is lower — your amount or the platform default — so a high floor never blocks a booking. Leave blank to just use the platform default." />
           <View style={[s.card, shadow.card]}>
             <PriceRow
               label="MIN DEPOSIT"
-              sub="Platform default: $5"
+              sub="We use the lower of this and the $5 platform default"
               value={depositFloor}
               onChangeText={v => debouncedSaveDeposit(v)}
               onBlur={v => saveDepositFloor(v)}
@@ -238,8 +238,9 @@ export default function PricingScreen() {
               <Switch
                 value={storeRunsEnabled}
                 onValueChange={toggleStoreRuns}
-                trackColor={{ false: colors.border, true: colors.pinkBorder }}
-                thumbColor={storeRunsEnabled ? colors.pink : colors.textFaint}
+                trackColor={{ false: toggle.trackOff, true: toggle.pink.trackOn }}
+                thumbColor={storeRunsEnabled ? toggle.pink.thumbOn : toggle.thumbOff}
+                ios_backgroundColor={toggle.trackOff}
               />
             </View>
             {storeRunsEnabled && (

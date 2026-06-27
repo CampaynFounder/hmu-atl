@@ -69,6 +69,18 @@ export const spacing = {
   xxxl: 32,
 } as const;
 
+// Switch / toggle colors. The default RN dark-on-dark thumb + faint track read
+// as "disabled" and are nearly invisible. These give an OFF state that is
+// clearly a real control (light thumb on a visible neutral track) and an ON
+// state with a saturated, on-brand track. Pick a variant per feature color.
+export const toggle = {
+  trackOff: '#3a3a3c',
+  thumbOff: '#f4f3f4',
+  green: { trackOn: 'rgba(0,230,118,0.5)', thumbOn: colors.green },
+  red: { trackOn: 'rgba(255,82,82,0.5)', thumbOn: colors.red },
+  pink: { trackOn: 'rgba(255,64,129,0.5)', thumbOn: colors.pink },
+} as const;
+
 export const shadow = {
   card: {
     shadowColor: '#000',

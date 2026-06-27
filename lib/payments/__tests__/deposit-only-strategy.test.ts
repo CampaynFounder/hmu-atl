@@ -48,6 +48,16 @@ describe('clampDeposit', () => {
   it('handles a tiny total fare gracefully (deposit = total)', () => {
     expect(clampDeposit(100, 3, DEFAULT_DEPOSIT_ONLY_CONFIG)).toBe(3);
   });
+
+  it('honors a driver floor below the platform min (lower of the two)', () => {
+    // floorOverride below the $5 platform default lowers the effective minimum.
+    expect(clampDeposit(3, 20, DEFAULT_DEPOSIT_ONLY_CONFIG, 3)).toBe(3);
+  });
+
+  it('does not let a driver floor ABOVE the platform min reduce a higher request', () => {
+    // A $10 floor with a $10 request still yields $10 (min(5,10)=5 floor, request wins).
+    expect(clampDeposit(10, 40, DEFAULT_DEPOSIT_ONLY_CONFIG, 10)).toBe(10);
+  });
 });
 
 describe('calculateDepositFeeCents', () => {
@@ -112,14 +122,16 @@ describe('DepositOnlyStrategy.calculateHold', () => {
     expect(decision.holdMode).toBe('deposit_only');
   });
 
-  it('clamps a sub-minimum selection up to the configured minimum', async () => {
+  it('honors a driver deposit floor below the platform minimum (lower of the two)', async () => {
+    // selectedDeposit IS the driver's deposit_floor. A driver willing to take a
+    // $1 deposit is NOT forced up to the $5 platform default.
     const decision = await strategy.calculateHold({
       driverId: 'd1', riderId: 'r1', driverTier: 'free',
       agreedPrice: 20, addOnReserve: 0,
       selectedDeposit: 1,
     });
-    expect(decision.visibleDeposit).toBe(5);
-    expect(decision.authorizeAmountCents).toBe(500);
+    expect(decision.visibleDeposit).toBe(1);
+    expect(decision.authorizeAmountCents).toBe(100);
   });
 
   it('clamps an over-cap selection down to 50% of fare', async () => {
