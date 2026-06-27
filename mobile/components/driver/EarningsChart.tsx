@@ -5,23 +5,24 @@
 //   • DEPOSITS  — digital deposits + extras (app pay)        (green)
 //   • DELIVERY  — store-run / delivery net courier fees      (blue)
 //
-// Bars are SVG rects grown from the baseline by a single Reanimated progress
-// value (native-thread, no percentage-string jank). Tapping a bar drills into
-// that period's split via <EarningsDrillSheet/>, which the screen renders.
+// Bars are SVG rects grown from the baseline by a single Animated progress
+// value (0→1). Uses React Native's built-in Animated (NOT reanimated):
+// reanimated's useAnimatedProps on an SVG <Rect> silently no-ops in our build,
+// leaving every bar at height 0 (invisible) — so the legend + gridlines drew
+// but the bars never did. RN Animated + AnimatedRect is the battle-tested path
+// (the drill sheet below already uses it). Tapping a bar drills into that
+// period's split via <EarningsDrillSheet/>, which the screen renders.
 import { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Modal, Pressable, LayoutChangeEvent,
   Animated as RNAnimated, Easing as RNEasing,
 } from 'react-native';
 import Svg, { Rect, Line, Text as SvgText, G } from 'react-native-svg';
-import Animated, {
-  useSharedValue, useAnimatedProps, withTiming, Easing, SharedValue,
-} from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing } from '@/lib/theme';
 
-const AnimatedRect = Animated.createAnimatedComponent(Rect);
+const AnimatedRect = RNAnimated.createAnimatedComponent(Rect);
 
 // Stream colors — aligned to the existing wallet tiles, NOT web's green-cash,
 // so the chart legend matches the CASH / DEPOSITS tiles the driver already sees.
@@ -68,22 +69,21 @@ function Segment({
   x, width, baseline, yTop, height, color, progress, roundTop,
 }: {
   x: number; width: number; baseline: number; yTop: number; height: number;
-  color: string; progress: SharedValue<number>; roundTop: boolean;
+  color: string; progress: RNAnimated.Value; roundTop: boolean;
 }) {
-  const animatedProps = useAnimatedProps(() => {
-    const p = progress.value;
-    return {
-      y: baseline - (baseline - yTop) * p,
-      height: Math.max(height * p, 0),
-    };
-  });
+  // Grow from the baseline: y goes baseline→yTop, height goes 0→height as
+  // progress animates 0→1. Interpolation on RN Animated.Value drives the SVG
+  // rect props directly (useNativeDriver:false — SVG props aren't native-driven).
+  const y = progress.interpolate({ inputRange: [0, 1], outputRange: [baseline, yTop] });
+  const h = progress.interpolate({ inputRange: [0, 1], outputRange: [0, Math.max(height, 0)] });
   return (
     <AnimatedRect
       x={x}
       width={width}
+      y={y}
+      height={h}
       rx={roundTop ? 2 : 0}
       fill={color}
-      animatedProps={animatedProps}
     />
   );
 }
@@ -102,13 +102,18 @@ export function EarningsChart({
   onDrill?: (p: StackPoint, index: number) => void;
 }) {
   const [width, setWidth] = useState(0);
-  const progress = useSharedValue(0);
+  const progress = useRef(new RNAnimated.Value(0)).current;
   // Re-run the grow animation whenever the bucket set changes (period switch).
   const sig = data.map((d) => d.label).join('|') + ':' + data.length;
 
   useEffect(() => {
-    progress.value = 0;
-    progress.value = withTiming(1, { duration: 750, easing: Easing.out(Easing.cubic) });
+    progress.setValue(0);
+    RNAnimated.timing(progress, {
+      toValue: 1,
+      duration: 750,
+      easing: RNEasing.out(RNEasing.cubic),
+      useNativeDriver: false,
+    }).start();
   }, [sig, progress]);
 
   function onLayout(e: LayoutChangeEvent) {
