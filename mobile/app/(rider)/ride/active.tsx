@@ -19,6 +19,9 @@ import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
 import { useNotifications } from '@/contexts/notifications';
 import { RideMap } from '@/components/ride/RideMap';
+import {
+  loadPendingRideLocations, clearPendingRideLocations, type PendingRideLocations,
+} from '@/lib/pending-ride-locations';
 import { toLatLng, LatLng } from '@/components/ride/types';
 import { useRideMessages, ChatMessage } from '@/components/ride/useRideMessages';
 import { RideChat } from '@/components/ride/RideChat';
@@ -122,6 +125,10 @@ export default function RiderActiveScreen() {
   const [token, setToken] = useState<string | null>(null);
   const [driverLocation, setDriverLocation] = useState<LatLng | null>(null);
   const [confirmingRide, setConfirmingRide] = useState(false);
+  // Trip the rider entered at booking — used to render the map before COO and
+  // to fire the inline Pull Up without re-entering addresses.
+  const [pendingLoc, setPendingLoc] = useState<PendingRideLocations | null>(null);
+  const [pullingUp, setPullingUp] = useState(false);
   const [eta, setEta] = useState<{ mi: number; min: number } | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelRequested, setCancelRequested] = useState(false);
@@ -182,6 +189,7 @@ export default function RiderActiveScreen() {
     void fetchRide();
     void fetchMenu();
     void fetchAddOns();
+    void loadPendingRideLocations().then(setPendingLoc);
   }, []);
 
   // Backstop: the always-on user notify channel triggers a re-pull of ride +
@@ -421,6 +429,44 @@ export default function RiderActiveScreen() {
     }
   }
 
+  // Inline Pull Up (COO) — authorizes the deposit hold and sends the rider's
+  // pickup/dropoff/stops to the driver, using the trip they entered at booking
+  // (no re-entry). Falls back to the manual Pull Up screen when there's no
+  // stashed trip (e.g. booked on another device, or the 30-min stash expired).
+  async function doPullUp() {
+    if (pullingUp) return;
+    if (!pendingLoc?.pickup || !pendingLoc?.dropoff) {
+      router.push(`/(rider)/ride/pull-up?rideId=${rideId}` as any);
+      return;
+    }
+    setPullingUp(true);
+    setError(null);
+    try {
+      const t = await getToken();
+      await apiClient(`/rides/${rideId}/coo`, t, {
+        method: 'POST',
+        body: JSON.stringify({
+          lat: pendingLoc.pickup.latitude,
+          lng: pendingLoc.pickup.longitude,
+          locationText: pendingLoc.pickup.address,
+          validatedPickup: pendingLoc.pickup,
+          validatedDropoff: pendingLoc.dropoff,
+          validatedStops: pendingLoc.stops.map((st, i) => ({ ...st, order: i })),
+        }),
+      });
+      await clearPendingRideLocations();
+      setPendingLoc(null);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void fetchRide(); // status flips to coo/inbound → live map + ETA light up
+    } catch (e: any) {
+      const msg: string = e?.message ?? '';
+      if (msg.includes('payment') || msg.includes('card')) setError(msg);
+      else setError(msg || 'Could not pull up. Try again.');
+    } finally {
+      setPullingUp(false);
+    }
+  }
+
   if (loading) {
     // Instant shell: when the caller passed a seed (status + route) we render a
     // meaningful frame immediately instead of a blank spinner, so navigating in
@@ -482,11 +528,16 @@ export default function RiderActiveScreen() {
   const confirmedTotal = confirmedExtras.reduce((s, a) => s + addOnLineTotal(a), 0);
   const totalWithExtras = ride.agreedPrice + confirmedTotal;
 
-  const pickupLL = toLatLng(ride.pickupLat, ride.pickupLng);
-  const dropoffLL = toLatLng(ride.dropoffLat, ride.dropoffLng);
-  const stopsLL = (ride.stops ?? [])
-    .map((st) => toLatLng(st.lat, st.lng))
-    .filter((x): x is LatLng => x !== null);
+  // Before COO the ride row has no coords yet — fall back to the trip the rider
+  // entered at booking (stash) so the map + route render the moment they land.
+  const pickupLL = toLatLng(ride.pickupLat, ride.pickupLng)
+    ?? (pendingLoc?.pickup ? { lat: pendingLoc.pickup.latitude, lng: pendingLoc.pickup.longitude } : null);
+  const dropoffLL = toLatLng(ride.dropoffLat, ride.dropoffLng)
+    ?? (pendingLoc?.dropoff ? { lat: pendingLoc.dropoff.latitude, lng: pendingLoc.dropoff.longitude } : null);
+  const stopsLL = ((ride.stops?.length
+    ? ride.stops.map((st) => toLatLng(st.lat, st.lng))
+    : (pendingLoc?.stops ?? []).map((st) => ({ lat: st.latitude, lng: st.longitude }))
+  )).filter((x): x is LatLng => x !== null);
   const hasMap = !!(pickupLL || dropoffLL) && !!MAPBOX_TOKEN;
   const isConfirming = ride.status === 'confirming';
   // Before COO, the rider's primary action is Pull Up — it authorizes the
@@ -744,17 +795,25 @@ export default function RiderActiveScreen() {
         )}
       </ScrollView>
 
-      {/* Pull Up — authorize the deposit hold on the rider's card (COO) */}
+      {/* Pull Up — authorize the deposit hold on the rider's card (COO). Fires
+          inline using the trip entered at booking; no re-entry, stays here. */}
       {needsPullUp && (
         <View style={[s.bottomBar, { paddingBottom: insets.bottom + spacing.md }]}>
           <TouchableOpacity
-            style={s.imInBtn}
-            onPress={() => router.push(`/(rider)/ride/pull-up?rideId=${rideId}` as any)}
+            style={[s.imInBtn, pullingUp && { opacity: 0.7 }]}
+            onPress={doPullUp}
+            disabled={pullingUp}
             activeOpacity={0.85}
           >
-            <Text style={s.imInBtnText}>PULL UP →</Text>
+            {pullingUp
+              ? <ActivityIndicator size="small" color={colors.bg} />
+              : <Text style={s.imInBtnText}>PULL UP — PAY ${ride.agreedPrice.toFixed(0)}</Text>}
           </TouchableOpacity>
-          <Text style={s.imInSub}>Share your spot & authorize the deposit on your card</Text>
+          <Text style={s.imInSub}>
+            {pendingLoc?.pickup
+              ? 'Authorizes the deposit on your card & sends your spot to the driver'
+              : 'Share your spot & authorize the deposit on your card'}
+          </Text>
         </View>
       )}
 

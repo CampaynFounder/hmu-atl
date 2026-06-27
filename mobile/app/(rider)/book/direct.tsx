@@ -17,6 +17,7 @@ import Animated, { FadeInUp, FadeIn } from 'react-native-reanimated';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient, API_BASE } from '@/lib/api';
 import { AddressInput, ValidatedAddress } from '@/components/AddressInput';
+import { savePendingRideLocations } from '@/lib/pending-ride-locations';
 import { useBookingDraft } from '@/hooks/use-booking-draft';
 import { ResumeDraftSheet } from '@/components/resume-draft-sheet';
 import { HmuImage } from '@/components/HmuImage';
@@ -123,9 +124,13 @@ export default function DirectBooking() {
     return () => { if (searchDebounce.current) clearTimeout(searchDebounce.current); };
   }, [handleInput, browseIndex, driver]);
 
-  // Step 2 — locations
+  // Step 2 — locations. `stops` holds optional waypoints between pickup and
+  // dropoff; a null slot is an empty input awaiting an address (cleared slots
+  // are spliced out). Filtered to real stops on submit.
   const [pickup, setPickup] = useState<ValidatedAddress | null>(null);
   const [dropoff, setDropoff] = useState<ValidatedAddress | null>(null);
+  const [stops, setStops] = useState<(ValidatedAddress | null)[]>([]);
+  const MAX_STOPS = 4;
 
   // Step 3 — when + price
   const [timePreset, setTimePreset] = useState<string>('now');
@@ -146,6 +151,7 @@ export default function DirectBooking() {
     driver: DriverPreview | null;
     pickup: ValidatedAddress | null;
     dropoff: ValidatedAddress | null;
+    stops: (ValidatedAddress | null)[];
     timePreset: string;
     price: number;
     isCash: boolean;
@@ -158,11 +164,11 @@ export default function DirectBooking() {
     const started = !!driver || !!pickup || !!dropoff;
     if (started) {
       saveDraft({
-        step, handleInput, driver, pickup, dropoff, timePreset, price, isCash,
+        step, handleInput, driver, pickup, dropoff, stops, timePreset, price, isCash,
         services: Array.from(selectedServices.entries()),
       });
     }
-  }, [step, handleInput, driver, pickup, dropoff, timePreset, price, isCash, selectedServices, saveDraft]);
+  }, [step, handleInput, driver, pickup, dropoff, stops, timePreset, price, isCash, selectedServices, saveDraft]);
 
   function applyDraft(d: DirectDraft) {
     setStep(d.step);
@@ -170,6 +176,7 @@ export default function DirectBooking() {
     setDriver(d.driver);
     setPickup(d.pickup);
     setDropoff(d.dropoff);
+    setStops(Array.isArray(d.stops) ? d.stops : []);
     setTimePreset(d.timePreset);
     setPrice(d.price);
     setIsCash(d.isCash);
@@ -196,6 +203,7 @@ export default function DirectBooking() {
     }
     setPickup(null);
     setDropoff(null);
+    setStops([]);
     setTimePreset('now');
     setPrice(25);
     setIsCash(false);
@@ -324,6 +332,14 @@ export default function DirectBooking() {
       );
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       clearDraft();
+      // Carry the validated trip forward so Pull Up needs no re-entry. Survives
+      // the accept gap (and app restarts) via AsyncStorage; cleared on COO.
+      await savePendingRideLocations({
+        pickup,
+        dropoff,
+        stops: stops.filter((x): x is ValidatedAddress => !!x),
+        driverHandle: driver.handle,
+      });
       router.replace({
         pathname: '/(rider)/book/waiting',
         params: {
@@ -549,6 +565,32 @@ export default function DirectBooking() {
                 onChange={setDropoff}
               />
             </View>
+
+            {/* Optional stops between pickup and dropoff */}
+            {stops.map((st, i) => (
+              <View key={`stop-${i}`} style={[s.card, shadow.card]}>
+                <AddressInput
+                  label={`STOP ${i + 1}`}
+                  placeholder="Add a stop along the way"
+                  value={st}
+                  onChange={(v) => setStops(prev => {
+                    const next = [...prev];
+                    if (v) next[i] = v; else next.splice(i, 1); // clearing removes the slot
+                    return next;
+                  })}
+                />
+              </View>
+            ))}
+            {stops.length < MAX_STOPS && (
+              <TouchableOpacity
+                style={s.addStopBtn}
+                onPress={() => { setStops(prev => [...prev, null]); void Haptics.selectionAsync(); }}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="add-circle-outline" size={16} color={colors.blue} />
+                <Text style={s.addStopText}>ADD A STOP</Text>
+              </TouchableOpacity>
+            )}
           </Animated.View>
         )}
 
@@ -839,6 +881,14 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border,
   },
   cardLabel: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 3 },
+
+  addStopBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
+    paddingVertical: spacing.md, borderRadius: radius.pill,
+    backgroundColor: colors.blueDim, borderWidth: 1, borderColor: colors.blueBorder,
+    borderStyle: 'dashed',
+  },
+  addStopText: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.blue, letterSpacing: 1.2 },
 
   presetRow: { flexDirection: 'row', gap: spacing.sm },
   preset: {

@@ -17,6 +17,7 @@ import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+import { loadPendingRideLocations, clearPendingRideLocations } from '@/lib/pending-ride-locations';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 
@@ -166,6 +167,8 @@ export default function PullUpScreen() {
 
   const [pickup, setPickup] = useState<ValidatedAddress | null>(null);
   const [dropoff, setDropoff] = useState<ValidatedAddress | null>(null);
+  const [stops, setStops] = useState<(ValidatedAddress | null)[]>([]);
+  const MAX_STOPS = 4;
   const [userCoords, setUserCoords] = useState<[number, number] | null>(null);
   const [gettingLocation, setGettingLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -192,6 +195,19 @@ export default function PullUpScreen() {
       } catch { /* best-effort */ }
     })();
   }, [rideId, getToken]);
+
+  // Prefill from the trip the rider entered at booking, so this fallback screen
+  // needs no re-entry either — they just confirm (or refine the exact spot).
+  useEffect(() => {
+    let active = true;
+    void loadPendingRideLocations().then((loc) => {
+      if (!active || !loc) return;
+      if (loc.pickup) setPickup(loc.pickup);
+      if (loc.dropoff) setDropoff(loc.dropoff);
+      if (loc.stops?.length) setStops(loc.stops);
+    });
+    return () => { active = false; };
+  }, []);
 
   async function addExtra(item: { id: string; name: string }) {
     if (addingId || added.has(item.id)) return;
@@ -262,8 +278,12 @@ export default function PullUpScreen() {
           locationText: pickup.address,
           validatedPickup: pickup,
           validatedDropoff: dropoff,
+          validatedStops: stops
+            .filter((x): x is ValidatedAddress => !!x)
+            .map((st, i) => ({ ...st, order: i })),
         }),
       });
+      await clearPendingRideLocations();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace(`/(rider)/ride/active?rideId=${rideId}` as any);
     } catch (e: any) {
@@ -353,6 +373,30 @@ export default function PullUpScreen() {
           />
         </View>
 
+        {/* Optional stops */}
+        {stops.map((st, i) => (
+          <View key={`stop-${i}`} style={[s.card, shadow.card]}>
+            <AddressInput
+              label={`STOP ${i + 1}`}
+              placeholder="Add a stop along the way"
+              selected={st}
+              onSelect={(v) => setStops(prev => { const next = [...prev]; next[i] = v; return next; })}
+              onClear={() => setStops(prev => prev.filter((_, idx) => idx !== i))}
+              proximity={userCoords ?? undefined}
+            />
+          </View>
+        ))}
+        {stops.length < MAX_STOPS && (
+          <TouchableOpacity
+            style={s.addStopBtn}
+            onPress={() => { setStops(prev => [...prev, null]); void Haptics.selectionAsync(); }}
+            activeOpacity={0.75}
+          >
+            <Ionicons name="add-circle-outline" size={16} color={colors.green} />
+            <Text style={s.addStopText}>ADD A STOP</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Driver extras (optional) */}
         {menu.length > 0 && (
           <View style={[s.card, shadow.card]}>
@@ -428,6 +472,13 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border,
   },
   cardLabel: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 3, marginBottom: spacing.sm },
+  addStopBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
+    paddingVertical: spacing.md, borderRadius: radius.pill, marginBottom: spacing.lg,
+    backgroundColor: colors.greenDim, borderWidth: 1, borderColor: colors.greenBorder,
+    borderStyle: 'dashed',
+  },
+  addStopText: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.green, letterSpacing: 1.2 },
   cardBody: { fontFamily: fonts.body, fontSize: 14, color: colors.textTertiary, lineHeight: 22 },
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   timeText: { fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.textPrimary },
