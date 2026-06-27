@@ -28,6 +28,9 @@ export async function GET() {
         dp.accepts_long_distance,
         dp.pricing,
         dp.vehicle_info,
+        dp.video_url,
+        dp.vibe_video_url,
+        dp.thumbnail_url,
         dp.accept_direct_bookings,
         dp.min_rider_chill_score,
         dp.require_og_status,
@@ -77,6 +80,14 @@ export async function GET() {
         vehicleMpg: vi.vehicle_mpg != null ? Number(vi.vehicle_mpg) : null,
         photoUrl: (vi.photo_url as string) || null,
       },
+      // Profile media (Media & Video screen): intro video, Vibe reel, cover photo.
+      // Cover photo is written to both vehicle_info.photo_url and thumbnail_url by
+      // the uploader, so fall back between them.
+      media: {
+        videoUrl: (r.video_url as string) || null,
+        vibeVideoUrl: (r.vibe_video_url as string) || null,
+        coverPhotoUrl: (vi.photo_url as string) || (r.thumbnail_url as string) || null,
+      },
       acceptDirectBookings: r.accept_direct_bookings ?? true,
       minRiderChillScore: Number(r.min_rider_chill_score ?? 0),
       requireOgStatus: r.require_og_status ?? false,
@@ -121,7 +132,28 @@ export async function POST(req: NextRequest) {
       phone?: string;
       gender?: string;
       pronouns?: string;
+      // Clear a piece of profile media (Media & Video CRUD on mobile/web).
+      clearMedia?: 'video' | 'vibe' | 'cover';
     };
+
+    // Explicit media removal — COALESCE can't set NULL, so handle it directly.
+    if (body.clearMedia) {
+      if (body.clearMedia === 'video') {
+        await sql`UPDATE driver_profiles SET video_url = NULL, updated_at = NOW() WHERE user_id = ${userId}`;
+      } else if (body.clearMedia === 'vibe') {
+        await sql`UPDATE driver_profiles SET vibe_video_url = NULL, updated_at = NOW() WHERE user_id = ${userId}`;
+      } else if (body.clearMedia === 'cover') {
+        // Cover lives in both thumbnail_url and vehicle_info.photo_url.
+        await sql`
+          UPDATE driver_profiles
+          SET thumbnail_url = NULL,
+              vehicle_info = COALESCE(vehicle_info, '{}'::jsonb) - 'photo_url',
+              updated_at = NOW()
+          WHERE user_id = ${userId}
+        `;
+      }
+      return NextResponse.json({ ok: true });
+    }
 
     await sql`
       UPDATE driver_profiles SET
