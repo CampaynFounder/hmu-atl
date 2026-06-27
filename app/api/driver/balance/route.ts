@@ -29,6 +29,7 @@ export async function GET() {
       stripe_instant_eligible: boolean;
       tier: string;
     };
+    const driverUserId = driver.user_id;
 
     // Active pricing mode drives the driver-facing wallet language: in
     // deposit_only the digital balance is the deposit + extras and the driver
@@ -36,74 +37,18 @@ export async function GET() {
     // fare is already collected. Resolver is 60s-cached and never throws.
     const activeMode = (await resolvePricingStrategy(driver.user_id)).modeKey;
 
-    if (!driver.stripe_account_id) {
-      return NextResponse.json({ available: 0, pending: 0, instantEligible: false, tier: driver.tier, activeMode });
-    }
-
-    if (isMock) {
-      return NextResponse.json({
-        available: 0,
-        pending: 0,
-        instantEligible: false,
-        tier: driver.tier,
-        currency: 'usd',
-        activeMode,
-      });
-    }
-
-    // Fetch Stripe balance + pending balance transactions in parallel — the
-    // second call powers the "$X lands on Apr 22" date the UI surfaces.
-    const [balance, txns] = await Promise.all([
-      stripe.balance.retrieve({ stripeAccount: driver.stripe_account_id }),
-      stripe.balanceTransactions.list(
-        { limit: 10 },
-        { stripeAccount: driver.stripe_account_id }
-      ),
-    ]);
-
-    const available = balance.available.reduce((sum, b) => sum + b.amount, 0) / 100;
-    const pending = balance.pending.reduce((sum, b) => sum + b.amount, 0) / 100;
-    const instantAvailable = balance.instant_available?.reduce((sum, b) => sum + b.amount, 0) ?? 0;
-
-    // Earliest available_on across pending balance transactions = when
-    // Stripe will release the first chunk of pending funds into standard
-    // available. Null when nothing is pending.
-    const pendingUnlocks = txns.data
-      .filter(t => t.status === 'pending')
-      .map(t => t.available_on)
-      .sort((a, b) => a - b);
-    const fundsAvailableOn = pendingUnlocks[0]
-      ? new Date(pendingUnlocks[0] * 1000).toISOString()
-      : null;
-
-    // Platform-level Instant Payouts toggle. Stripe starts new Connect
-    // platforms with a $0.00/day Instant volume cap until they manually
-    // approve an increase — the flag lets the UI show "Instant unlocks
-    // with trust" messaging instead of letting the driver hit a scary
-    // Stripe rejection. Read defensively so a missing row doesn't 500.
-    const configRows = await sql`
-      SELECT config_value FROM platform_config
-      WHERE config_key = 'instant_payouts_enabled' LIMIT 1
-    `;
-    const platformInstantEnabled =
-      (configRows[0] as { config_value?: { enabled?: boolean } } | undefined)
-        ?.config_value?.enabled === true;
-
-    // Determine payout readiness
-    let payoutStatus: string;
-    if (available <= 0 && pending <= 0 && instantAvailable <= 0) {
-      payoutStatus = 'no_balance';
-    } else if (available > 0) {
-      payoutStatus = 'ready';
-    } else if (instantAvailable > 0) {
-      payoutStatus = 'instant_only';
-    } else {
-      payoutStatus = 'pending_hold';
-    }
-
-    // Query cash ride earnings from DB (not in Stripe). Reuse the user id
-    // already loaded above — no need for a second round-trip.
-    const driverUserId = driver.user_id;
+    // ── DB earnings (Stripe-INDEPENDENT) ──────────────────────────────────────
+    // Computed BEFORE any Stripe call, and returned in EVERY path, so the wallet
+    // tiles always render. A driver who has earned but not yet connected/been
+    // approved for Stripe (the platform explicitly lets drivers earn pre-payout),
+    // mock mode, OR any transient Stripe outage must never zero out the
+    // CASH / HMU PAY / NO-SHOW / DELIVERY figures. Stripe powers ONLY the
+    // withdrawable `available` balance further down.
+    //
+    // Regression guard: this block must stay ABOVE the Stripe section. Earnings
+    // are a property of completed rides in our own DB, not of Stripe balance —
+    // moving Stripe in front of them is what made every container read $0 for
+    // drivers without a funded/approved Stripe account.
 
     // Cash and Deposits exclude no-show rides so the three buckets don't
     // double-count. No-shows get their own bucket below.
@@ -193,22 +138,94 @@ export async function GET() {
       { userId: driverUserId },
     );
 
+    const earnings = {
+      cashEarnings: { rides: cashRides, total: cashTotal },
+      digitalEarnings: { rides: digitalRides, total: digitalTotal },
+      noShowEarnings: { rides: noShowRides, total: noShowTotal },
+      deliveryEarnings: { jobs: deliveryJobs, total: deliveryTotal },
+      flags: { depositsDetailSheet },
+    };
+
+    // ── Stripe balance (BEST-EFFORT) ──────────────────────────────────────────
+    // Powers ONLY the withdrawable balance + payout state. No connected account,
+    // mock mode, or a Stripe error leaves these zeroed but never blocks the
+    // earnings above. Wrapped in try/catch so a Stripe outage degrades the
+    // cash-out CTA instead of nuking the whole wallet.
+    let available = 0;
+    let pending = 0;
+    let instantAvailableCents = 0;
+    let fundsAvailableOn: string | null = null;
+    let platformInstantEnabled = false;
+    let payoutStatus = 'no_balance';
+
+    if (driver.stripe_account_id && !isMock) {
+      try {
+        // Fetch Stripe balance + pending balance transactions in parallel — the
+        // second call powers the "$X lands on Apr 22" date the UI surfaces.
+        const [balance, txns] = await Promise.all([
+          stripe.balance.retrieve({ stripeAccount: driver.stripe_account_id }),
+          stripe.balanceTransactions.list(
+            { limit: 10 },
+            { stripeAccount: driver.stripe_account_id }
+          ),
+        ]);
+
+        available = balance.available.reduce((sum, b) => sum + b.amount, 0) / 100;
+        pending = balance.pending.reduce((sum, b) => sum + b.amount, 0) / 100;
+        instantAvailableCents = balance.instant_available?.reduce((sum, b) => sum + b.amount, 0) ?? 0;
+
+        // Earliest available_on across pending balance transactions = when
+        // Stripe will release the first chunk of pending funds into standard
+        // available. Null when nothing is pending.
+        const pendingUnlocks = txns.data
+          .filter(t => t.status === 'pending')
+          .map(t => t.available_on)
+          .sort((a, b) => a - b);
+        fundsAvailableOn = pendingUnlocks[0]
+          ? new Date(pendingUnlocks[0] * 1000).toISOString()
+          : null;
+
+        // Platform-level Instant Payouts toggle. Stripe starts new Connect
+        // platforms with a $0.00/day Instant volume cap until they manually
+        // approve an increase — the flag lets the UI show "Instant unlocks
+        // with trust" messaging instead of letting the driver hit a scary
+        // Stripe rejection. Read defensively so a missing row doesn't 500.
+        const configRows = await sql`
+          SELECT config_value FROM platform_config
+          WHERE config_key = 'instant_payouts_enabled' LIMIT 1
+        `;
+        platformInstantEnabled =
+          (configRows[0] as { config_value?: { enabled?: boolean } } | undefined)
+            ?.config_value?.enabled === true;
+
+        // Determine payout readiness
+        if (available <= 0 && pending <= 0 && instantAvailableCents <= 0) {
+          payoutStatus = 'no_balance';
+        } else if (available > 0) {
+          payoutStatus = 'ready';
+        } else if (instantAvailableCents > 0) {
+          payoutStatus = 'instant_only';
+        } else {
+          payoutStatus = 'pending_hold';
+        }
+      } catch (stripeErr) {
+        // Non-fatal: keep the zeroed balance, still return DB earnings below.
+        console.error('Balance: Stripe fetch failed (non-fatal):', stripeErr);
+      }
+    }
+
     return NextResponse.json({
       available,
       pending,
-      instantAvailable: instantAvailable / 100,
-      instantEligible: driver.stripe_instant_eligible || instantAvailable > 0,
+      instantAvailable: instantAvailableCents / 100,
+      instantEligible: driver.stripe_instant_eligible || instantAvailableCents > 0,
       platformInstantEnabled,
       fundsAvailableOn,
       tier: driver.tier,
       currency: 'usd',
       activeMode,
       payoutStatus,
-      cashEarnings: { rides: cashRides, total: cashTotal },
-      digitalEarnings: { rides: digitalRides, total: digitalTotal },
-      noShowEarnings: { rides: noShowRides, total: noShowTotal },
-      deliveryEarnings: { jobs: deliveryJobs, total: deliveryTotal },
-      flags: { depositsDetailSheet },
+      ...earnings,
     });
   } catch (error) {
     console.error('Balance error:', error);

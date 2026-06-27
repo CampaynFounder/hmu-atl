@@ -27,6 +27,7 @@ import { useRideMessages, ChatMessage } from '@/components/ride/useRideMessages'
 import { RideChat } from '@/components/ride/RideChat';
 import { useRideSafety } from '@/components/ride/useRideSafety';
 import { RideSafety } from '@/components/ride/RideSafety';
+import { RideAcceptedCelebration } from '@/components/ride/RideAcceptedCelebration';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 
@@ -145,6 +146,21 @@ export default function RiderActiveScreen() {
 
   const [showMenu, setShowMenu] = useState(false);
   const menuSlide = useRef(new Animated.Value(400)).current;
+
+  // Celebratory "RIDE ACCEPTED" moment. Fires once, the first time this screen
+  // observes a freshly-matched ride (status 'matched' before the rider has
+  // pulled up — cooAt still null). The screen is reached automatically via the
+  // Ably booking_accepted event, so this is the rider's delight payoff. Guarded
+  // by a ref so a later re-render / status echo can't replay it.
+  const [showAccepted, setShowAccepted] = useState(false);
+  const celebratedRef = useRef(false);
+  useEffect(() => {
+    if (celebratedRef.current) return;
+    if (ride?.status === 'matched' && !ride.cooAt) {
+      celebratedRef.current = true;
+      setShowAccepted(true);
+    }
+  }, [ride?.status, ride?.cooAt]);
 
   // Keep token fresh
   useEffect(() => {
@@ -608,6 +624,20 @@ export default function RiderActiveScreen() {
 
   return (
     <View style={[s.root, { paddingTop: insets.top }]}>
+      {/* Delight: "RIDE ACCEPTED" celebration the moment the rider lands here
+          via the Ably accept event. Renders above everything; auto-dismisses
+          into the Pull Up flow. */}
+      <RideAcceptedCelebration
+        visible={showAccepted}
+        driverName={ride.driverFirstName}
+        driverHandle={ride.driverHandle}
+        avatarUrl={ride.driverAvatarUrl}
+        chillScore={ride.driverChillScore}
+        completedRides={ride.driverCompletedRides}
+        price={ride.agreedPrice}
+        onDismiss={() => setShowAccepted(false)}
+      />
+
       {/* Navbar */}
       <View style={s.navbar}>
         <TouchableOpacity onPress={() => router.back()} style={s.backBtn} activeOpacity={0.7}>
