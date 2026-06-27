@@ -7,6 +7,12 @@ import { sql } from '@/lib/db/client';
 const MIN_DISTANCE_MI = 0.25;
 const MIN_DURATION_MIN = 2;
 
+// How far back the earnings time-series reaches. The mobile DAY/WEEK views still
+// slice the most recent 7/28 days; the MONTH ("ALL") view groups the whole
+// window by month, so this is effectively the chart's all-time horizon. Kept to
+// a year so the daily-gap fill stays bounded while covering every current driver.
+const TIMESERIES_DAYS = 365;
+
 export async function GET() {
   try {
     const { userId: clerkId } = await auth();
@@ -109,7 +115,7 @@ export async function GET() {
       FROM rides
       WHERE driver_id = ${userId}
         AND (payment_captured = true OR status IN ('ended', 'completed'))
-        AND COALESCE(payment_captured_at, ended_at, completed_at, started_at, updated_at) >= NOW() - INTERVAL '30 days'
+        AND COALESCE(payment_captured_at, ended_at, completed_at, started_at, updated_at) >= NOW() - make_interval(days => ${TIMESERIES_DAYS})
       GROUP BY DATE(COALESCE(payment_captured_at, ended_at, completed_at, started_at, updated_at) AT TIME ZONE 'America/New_York')
       ORDER BY day ASC
     ` as Record<string, unknown>[];
@@ -128,7 +134,7 @@ export async function GET() {
       WHERE courier_id = ${userId}
         AND status = 'completed'
         AND payment_captured = true
-        AND completed_at >= NOW() - INTERVAL '30 days'
+        AND completed_at >= NOW() - make_interval(days => ${TIMESERIES_DAYS})
       GROUP BY DATE(completed_at AT TIME ZONE 'America/New_York')
       ORDER BY day ASC
     ` as Record<string, unknown>[];
@@ -153,7 +159,7 @@ export async function GET() {
       byDay.set(key, existing);
     }
 
-    const timeseries = fillDailyGaps([...byDay.values()], 30);
+    const timeseries = fillDailyGaps([...byDay.values()], TIMESERIES_DAYS);
 
     // Get driver's areas for comparison
     const driverProfileRows = await sql`
