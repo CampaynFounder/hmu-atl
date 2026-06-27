@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { notifyUserWithPush } from '@/lib/notify';
 import { syncBookingFromRide } from '@/lib/schedule/conflicts';
 
 // Haversine distance in meters
@@ -94,12 +95,16 @@ export async function POST(
       message: 'Driver started the ride — confirm you\'re in the car',
     }).catch(() => {});
 
-    // Also push notification to rider
-    await notifyUser(ride.rider_id as string, 'ride_update', {
+    // Also push notification to rider — wake them so they can tap "I'm In"
+    await notifyUserWithPush(ride.rider_id as string, 'ride_update', {
       rideId,
       status: 'confirming',
       confirmDeadline,
       message: 'Confirm you\'re in the car to start the ride',
+    }, {
+      title: "You're in? Confirm to start 🚀",
+      body: 'Tap "I\'m In" to start your ride.',
+      data: { type: 'ride_update', rideId, status: 'confirming' },
     }).catch(() => {});
 
     return NextResponse.json({
