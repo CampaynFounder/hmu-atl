@@ -231,37 +231,43 @@ export async function POST(
       `;
       const rideId = (rideRows[0] as { id: string }).id;
 
-      await notifyUserWithPush(riderId, 'booking_accepted', {
-        rideId, postId, driverUserId, driverName, price,
-        message: `${driverName} is running it!`,
-      }, {
-        title: 'Ride accepted 🤝',
-        body: `${driverName} is running it${price ? ` — $${price}` : ''}.`,
-        data: { type: 'booking_accepted', rideId },
-      }).catch(() => {});
+      // Ride created + post marked matched above = the driver's success → return
+      // now and defer notification/FOMO to ctx.waitUntil() so a cold-Neon
+      // response can't exceed the client timeout and strand the driver. Same
+      // fix as the direct path / COO (#420, #425).
+      afterResponse(async () => {
+        await notifyUserWithPush(riderId, 'booking_accepted', {
+          rideId, postId, driverUserId, driverName, price,
+          message: `${driverName} is running it!`,
+        }, {
+          title: 'Ride accepted 🤝',
+          body: `${driverName} is running it${price ? ` — $${price}` : ''}.`,
+          data: { type: 'booking_accepted', rideId },
+        }).catch(() => {});
 
-      await publishRideUpdate(rideId, 'status_change', {
-        status: 'matched',
-        message: 'Down Bad matched — driver incoming!',
-      }).catch(() => {});
+        await publishRideUpdate(rideId, 'status_change', {
+          status: 'matched',
+          message: 'Down Bad matched — driver incoming!',
+        }).catch(() => {});
 
-      publishAdminEvent('ride_created', { rideId, driverUserId, riderId, price, status: 'matched', postType: 'down_bad' }).catch(() => {});
+        publishAdminEvent('ride_created', { rideId, driverUserId, riderId, price, status: 'matched', postType: 'down_bad' }).catch(() => {});
 
-      // FOMO SMS — fire-and-forget to all other market drivers who got the initial notification
-      sql`
-        SELECT u.id, COALESCE(dp.phone, u.phone) AS phone
-        FROM users u
-        JOIN driver_profiles dp ON dp.user_id = u.id
-        WHERE u.market_id = (SELECT market_id FROM users WHERE id = ${riderId} LIMIT 1)
-          AND u.id != ${driverUserId}
-          AND COALESCE(dp.phone, u.phone) IS NOT NULL
-          AND dp.account_status = 'active'
-          AND COALESCE(dp.sms_enabled, TRUE) = TRUE
-      `.then((rows: { id: string; phone: string }[]) => {
-        for (const row of rows) {
-          notifyDriverDownBadTaken(row.phone, { userId: row.id, market: 'atl' }).catch(() => {});
-        }
-      }).catch(() => {});
+        // FOMO SMS to all other market drivers who got the initial notification
+        await sql`
+          SELECT u.id, COALESCE(dp.phone, u.phone) AS phone
+          FROM users u
+          JOIN driver_profiles dp ON dp.user_id = u.id
+          WHERE u.market_id = (SELECT market_id FROM users WHERE id = ${riderId} LIMIT 1)
+            AND u.id != ${driverUserId}
+            AND COALESCE(dp.phone, u.phone) IS NOT NULL
+            AND dp.account_status = 'active'
+            AND COALESCE(dp.sms_enabled, TRUE) = TRUE
+        `.then((rows: { id: string; phone: string }[]) => {
+          for (const row of rows) {
+            notifyDriverDownBadTaken(row.phone, { userId: row.id, market: 'atl' }).catch(() => {});
+          }
+        }).catch(() => {});
+      });
 
       return NextResponse.json({ status: 'matched', rideId });
     }
