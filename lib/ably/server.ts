@@ -16,17 +16,31 @@ export async function publishToChannel(
   const [keyId, keySecret] = apiKey.split(':');
   const authHeader = btoa(`${keyId}:${keySecret}`);
 
-  const res = await fetch(`https://rest.ably.io/channels/${encodeURIComponent(channel)}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Basic ${authHeader}`,
-    },
-    body: JSON.stringify({ name: event, data }),
-  });
-
-  if (!res.ok) {
-    console.error(`Ably publish failed for ${channel}:${event}:`, await res.text());
+  // Bound the publish — a hung Ably REST call (network stall, CF holding the
+  // socket) must never block the route's response. Several transition routes
+  // (otw/here/start/end) await their publishes inline; without this ceiling a
+  // single slow publish could push the whole request past the mobile client's
+  // 30s timeout, surfacing as "request cancelled" to the user.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 6_000);
+  try {
+    const res = await fetch(`https://rest.ably.io/channels/${encodeURIComponent(channel)}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${authHeader}`,
+      },
+      body: JSON.stringify({ name: event, data }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      console.error(`Ably publish failed for ${channel}:${event}:`, await res.text());
+    }
+  } catch (err) {
+    // Includes AbortError on timeout. Realtime is best-effort; Neon is truth.
+    console.error(`Ably publish error for ${channel}:${event}:`, err);
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
