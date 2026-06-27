@@ -21,7 +21,10 @@ interface Props {
 export function PaymentGate({ children }: Props) {
   const { getToken } = useAuth();
   const router = useRouter();
-  const [methods, setMethods] = useState<PaymentMethod[]>([]);
+  // null = not yet known (never had a successful check). We ONLY gate on a
+  // confirmed-empty array — never on null — so a failed/slow check can't falsely
+  // show "link a payment method" to a rider who already has a card.
+  const [methods, setMethods] = useState<PaymentMethod[] | null>(null);
   const [loading, setLoading] = useState(true);
   const hasLoaded = useRef(false);
 
@@ -31,7 +34,9 @@ export function PaymentGate({ children }: Props) {
       const data = await apiClient<{ methods: PaymentMethod[] }>('/rider/payment-methods', t);
       setMethods(data.methods ?? []);
     } catch {
-      setMethods([]);
+      // Do NOT assume "no methods" on error — that wrongly gates a paying rider.
+      // Keep the last known result (or null = unknown → fall through to booking;
+      // COO still enforces a linked card server-side).
     } finally {
       setLoading(false);
       hasLoaded.current = true;
@@ -52,7 +57,9 @@ export function PaymentGate({ children }: Props) {
     );
   }
 
-  if (methods.length === 0) {
+  // Only show the gate when we POSITIVELY confirmed the rider has no card.
+  // null (check never succeeded) falls through to the booking cards.
+  if (methods !== null && methods.length === 0) {
     return (
       <Animated.View entering={FadeIn.duration(400)} style={s.gate}>
         <Animated.View entering={FadeInUp.delay(100).duration(400)} style={[s.gateCard, shadow.card]}>
