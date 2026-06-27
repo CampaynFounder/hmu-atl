@@ -109,7 +109,9 @@ export default function RiderActiveScreen() {
   const { getToken } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { rideId } = useLocalSearchParams<{ rideId: string }>();
+  const { rideId, seedStatus, seedPickup, seedDropoff } = useLocalSearchParams<{
+    rideId: string; seedStatus?: string; seedPickup?: string; seedDropoff?: string;
+  }>();
 
   const [ride, setRide] = useState<RideView | null>(null);
   const [menu, setMenu] = useState<MenuItem[]>([]);
@@ -420,9 +422,46 @@ export default function RiderActiveScreen() {
   }
 
   if (loading) {
+    // Instant shell: when the caller passed a seed (status + route) we render a
+    // meaningful frame immediately instead of a blank spinner, so navigating in
+    // from the Requests tab / active-ride bar feels instant even while the
+    // authoritative /rider-view fetch is still in flight (Neon cold-start).
+    const seedMeta = seedStatus ? statusMeta(seedStatus) : null;
     return (
-      <View style={[s.center, { paddingTop: insets.top }]}>
-        <ActivityIndicator size="large" color={colors.green} />
+      <View style={[s.root, { paddingTop: insets.top }]}>
+        <View style={s.navbar}>
+          <TouchableOpacity onPress={() => router.back()} style={s.backBtn} activeOpacity={0.7}>
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={s.navTitle}>YOUR RIDE</Text>
+          </View>
+          {seedMeta ? (
+            <View style={[s.statusPill, { backgroundColor: seedMeta.bg, borderColor: seedMeta.border }]}>
+              <Text style={[s.statusLabel, { color: seedMeta.color }]}>{seedMeta.label}</Text>
+            </View>
+          ) : <View style={{ width: 40 }} />}
+        </View>
+        {(seedPickup || seedDropoff) ? (
+          <View style={s.content}>
+            <View style={s.card}>
+              <View style={s.routeRow}>
+                <View style={[s.routeDot, { backgroundColor: colors.green }]} />
+                <Text style={s.routeAddr} numberOfLines={1}>{seedPickup || 'Pickup'}</Text>
+              </View>
+              <View style={s.routeLine} />
+              <View style={s.routeRow}>
+                <View style={[s.routeDot, { backgroundColor: colors.amber }]} />
+                <Text style={s.routeAddr} numberOfLines={1}>{seedDropoff || 'Destination'}</Text>
+              </View>
+            </View>
+            <ActivityIndicator size="small" color={colors.green} style={{ marginTop: spacing.xl }} />
+          </View>
+        ) : (
+          <View style={s.center}>
+            <ActivityIndicator size="large" color={colors.green} />
+          </View>
+        )}
       </View>
     );
   }

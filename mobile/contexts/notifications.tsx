@@ -24,6 +24,46 @@ export interface AppNotification {
   timestamp: number;
 }
 
+/** The user's current in-flight ride, tracked app-wide so any screen can route
+ *  back to it and hint the next action. Mirror of the server `/rides/active`
+ *  shape, kept fresh in realtime off the user notify channel. */
+export interface ActiveRideState {
+  rideId: string;
+  status: string;
+  isDriver: boolean;
+  pickupAddress?: string | null;
+  dropoffAddress?: string | null;
+  price?: number | null;
+}
+
+/** The single next thing the user should do, derived from ride status. Drives
+ *  the global ActiveRideBar label + the route it sends them to. */
+export interface NextAction {
+  label: string;
+  route: string;
+}
+
+// Live statuses where a ride is still in-flight (anything past this is history).
+const LIVE_RIDE_STATUSES = ['matched', 'otw', 'here', 'confirming', 'active', 'in_progress'];
+
+function deriveNextAction(ride: ActiveRideState | null): NextAction | null {
+  if (!ride) return null;
+  const route = ride.isDriver
+    ? `/(driver)/ride/active?rideId=${ride.rideId}`
+    : `/(rider)/ride/active?rideId=${ride.rideId}`;
+  const labels: Record<string, string> = ride.isDriver
+    ? {
+        matched: 'Head to your rider', otw: 'Drive to pickup', here: 'Start the ride',
+        confirming: 'Waiting on rider', active: 'Ride in progress', in_progress: 'Ride in progress',
+      }
+    : {
+        matched: 'Pull up to start your ride', otw: 'Your driver is on the way',
+        here: 'Your driver is here — hop in', confirming: "Tap I'm In to start",
+        active: 'Enjoy your ride', in_progress: 'Enjoy your ride',
+      };
+  return { label: labels[ride.status] ?? 'View your ride', route };
+}
+
 interface NotificationContextValue {
   unreadRequestCount: number;
   markRequestsSeen: () => void;
@@ -35,6 +75,12 @@ interface NotificationContextValue {
    *  re-pull authoritative state — a reliable backstop for the per-screen ride
    *  channel, which can briefly drop events around reconnects. */
   registerRideRefresh: (fn: () => void) => () => void;
+  /** The user's current in-flight ride (null when none). Kept fresh in realtime. */
+  activeRide: ActiveRideState | null;
+  /** The next action the user should take on their active ride (null when none). */
+  nextAction: NextAction | null;
+  /** Force a re-pull of /rides/active (e.g. on tab focus). */
+  refreshActiveRide: () => void;
 }
 
 const NotificationContext = createContext<NotificationContextValue>({
@@ -44,6 +90,9 @@ const NotificationContext = createContext<NotificationContextValue>({
   dismissBanner: () => {},
   registerFeedRefresh: () => () => {},
   registerRideRefresh: () => () => {},
+  activeRide: null,
+  nextAction: null,
+  refreshActiveRide: () => {},
 });
 
 export function useNotifications() {
@@ -58,6 +107,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [unreadRequestCount, setUnreadRequestCount] = useState(0);
   const [bannerQueue, setBannerQueue] = useState<AppNotification[]>([]);
   const [currentBanner, setCurrentBanner] = useState<AppNotification | null>(null);
+  const [activeRide, setActiveRide] = useState<ActiveRideState | null>(null);
 
   const feedRefreshCallbacks = useRef<Set<() => void>>(new Set());
   const rideRefreshCallbacks = useRef<Set<() => void>>(new Set());
@@ -135,6 +185,42 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const triggerRideRefresh = useCallback(() => {
     rideRefreshCallbacks.current.forEach((fn) => fn());
   }, []);
+
+  // Pull the user's current in-flight ride from the server (source of truth) and
+  // mirror it into context. Fired on sign-in and whenever a realtime ride event
+  // lands, so any screen can route back to the active ride + hint the next step.
+  const refreshActiveRide = useCallback(() => {
+    void (async () => {
+      try {
+        const t = await getTokenRef.current();
+        if (!t) return;
+        const res = await fetch(`${API_BASE}/rides/active`, {
+          headers: { Authorization: `Bearer ${t}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json() as {
+          hasActiveRide?: boolean; rideId?: string; status?: string; isDriver?: boolean;
+          pickupAddress?: string | null; dropoffAddress?: string | null; price?: number | null;
+        };
+        if (data?.hasActiveRide && data.rideId && data.status && LIVE_RIDE_STATUSES.includes(data.status)) {
+          setActiveRide({
+            rideId: data.rideId, status: data.status, isDriver: !!data.isDriver,
+            pickupAddress: data.pickupAddress ?? null,
+            dropoffAddress: data.dropoffAddress ?? null,
+            price: data.price ?? null,
+          });
+        } else {
+          setActiveRide(null);
+        }
+      } catch { /* best-effort — keep prior state on transient errors */ }
+    })();
+  }, []);
+
+  // Seed + clear the active ride with the auth state.
+  useEffect(() => {
+    if (!isSignedIn) { setActiveRide(null); return; }
+    refreshActiveRide();
+  }, [isSignedIn, refreshActiveRide]);
 
   useEffect(() => {
     if (!isSignedIn || !userId) return;
@@ -264,6 +350,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           route: matchedRideId ? `/(driver)/ride/active?rideId=${matchedRideId}` : '/(driver)/ride/active',
           timestamp: Date.now(),
         });
+        // Driver just won a ride — surface it app-wide immediately (optimistic),
+        // then reconcile with the server.
+        if (matchedRideId) setActiveRide({ rideId: matchedRideId, status: 'matched', isDriver: true });
+        refreshActiveRide();
         triggerFeedRefresh();
         break;
       }
@@ -278,6 +368,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           route: acceptedRideId ? `/(rider)/ride/pull-up?rideId=${acceptedRideId}` : '/(rider)/home',
           timestamp: Date.now(),
         });
+        // Driver accepted the rider's direct booking. Set the active ride the
+        // instant the realtime event lands so the Waiting screen stops its
+        // countdown and routes straight in — no 5s poll lag. Reconcile after.
+        if (acceptedRideId) setActiveRide({ rideId: acceptedRideId, status: 'matched', isDriver: false });
+        refreshActiveRide();
         break;
       }
 
@@ -290,6 +385,14 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         // is what guarantees the rider's extras flip to CONFIRMED the moment the
         // driver approves, and that status changes land even across reconnects.
         triggerRideRefresh();
+
+        // Keep the app-wide active ride status in lockstep (drives the global
+        // ActiveRideBar + REQUESTS badge). Optimistically patch the status, then
+        // reconcile against /rides/active (which also clears it on ended/cancelled).
+        if (status && rideId) {
+          setActiveRide((prev) => (prev && prev.rideId === rideId ? { ...prev, status } : prev));
+        }
+        refreshActiveRide();
 
         if (updateType === 'add_on_confirmed') {
           enqueue({
@@ -380,9 +483,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
   }
 
+  const nextAction = deriveNextAction(activeRide);
+
   return (
     <NotificationContext.Provider
-      value={{ unreadRequestCount, markRequestsSeen, currentBanner, dismissBanner, registerFeedRefresh, registerRideRefresh }}
+      value={{
+        unreadRequestCount, markRequestsSeen, currentBanner, dismissBanner,
+        registerFeedRefresh, registerRideRefresh,
+        activeRide, nextAction, refreshActiveRide,
+      }}
     >
       {children}
     </NotificationContext.Provider>

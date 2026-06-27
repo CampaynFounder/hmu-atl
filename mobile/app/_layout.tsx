@@ -13,6 +13,7 @@ import { DMSans_400Regular, DMSans_500Medium, DMSans_600SemiBold } from '@expo-g
 import { SpaceMono_400Regular, SpaceMono_700Bold } from '@expo-google-fonts/space-mono';
 import { NotificationProvider } from '@/contexts/notifications';
 import { NotificationBanner } from '@/components/NotificationBanner';
+import { ActiveRideBar } from '@/components/ActiveRideBar';
 import { UserProvider } from '@/contexts/UserContext';
 
 // ─── Biometric lock ───────────────────────────────────────────────────────────
@@ -178,6 +179,7 @@ function AuthGate() {
       <NotificationProvider>
         <View style={{ flex: 1 }}>
           <Slot />
+          <ActiveRideBar />
           <NotificationBanner />
         </View>
       </NotificationProvider>

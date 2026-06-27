@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, fonts } from '@/lib/theme';
+import { useNotifications } from '@/contexts/notifications';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -20,6 +21,9 @@ function tabIcon(active: IoniconName, inactive: IoniconName) {
 
 export default function RiderLayout() {
   const insets = useSafeAreaInsets();
+  // Badge the REQUESTS tab while a ride is in-flight — it's the surface that
+  // holds the live ride, so the dot points the rider at their next action.
+  const { activeRide } = useNotifications();
   return (
     <Tabs
       screenOptions={{
@@ -68,6 +72,17 @@ export default function RiderLayout() {
         options={{
           title: 'REQUESTS',
           tabBarIcon: tabIcon('list', 'list-outline'),
+          // Empty-string badge renders as a small dot. Green = "your live ride
+          // is here". Cleared automatically when the ride ends (activeRide null).
+          tabBarBadge: activeRide ? '' : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.green,
+            minWidth: 10,
+            maxWidth: 10,
+            height: 10,
+            borderRadius: 5,
+            marginTop: -2,
+          },
         }}
       />
       <Tabs.Screen

@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInUp, useSharedValue, withRepeat, withTiming, useAnimatedStyle } from 'react-native-reanimated';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+import { useNotifications } from '@/contexts/notifications';
 
 function useCountdown(expiresAt: string) {
   const [secsLeft, setSecsLeft] = useState(() =>
@@ -44,9 +45,20 @@ export default function WaitingScreen() {
 
   const [cancelling, setCancelling] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { activeRide } = useNotifications();
 
   const { secsLeft, display: countdown } = useCountdown(expiresAt ?? '');
   const expired = secsLeft === 0;
+
+  // Instant accept: the global notify channel sets activeRide the moment the
+  // driver accepts (booking_accepted), so we route into the live ride screen
+  // immediately — stopping the countdown without waiting on the 5s poll below.
+  useEffect(() => {
+    if (activeRide?.rideId && !activeRide.isDriver) {
+      if (pollRef.current) clearInterval(pollRef.current);
+      router.replace(`/(rider)/ride/active?rideId=${activeRide.rideId}` as never);
+    }
+  }, [activeRide, router]);
 
   const timerColor = secsLeft > 120 ? colors.green : secsLeft > 30 ? colors.amber : colors.red;
 
