@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishRideUpdate, notifyUser, publishAdminEvent, publishToChannel } from '@/lib/ably/server';
 import { notifyUserWithPush } from '@/lib/notify';
+import { afterResponse } from '@/lib/runtime/after-response';
 import { notifyRiderBookingAccepted, notifyDriverDownBadTaken } from '@/lib/sms/textbee';
 import {
   checkDriverAvailability,
@@ -432,55 +433,64 @@ export async function POST(
 
     const rideId = (rideRows[0] as { id: string }).id;
 
-    // Partner delivery bookings: place the delivery-fee hold now that a ride
-    // exists. No-ops for normal bookings (no partner_bookings row), and never
-    // throws — a hold failure is recorded on the partner_bookings row, not
-    // surfaced as an accept failure.
-    await maybePlacePartnerHold(postId, rideId, driverUserId).catch((e) => {
-      console.error('maybePlacePartnerHold threw (ignored):', e);
-    });
+    // The ride is created and the post is marked matched (above) — that's the
+    // driver's success, so RETURN NOW. Everything below is best-effort
+    // notification + bookkeeping; awaiting it (partner hold, push, Ably, SMS,
+    // calendar confirm) on a cold Neon compute could push the response past the
+    // mobile client's 30s timeout, so `handleHmu` never receives `rideId` to
+    // navigate with — the ride matches server-side but the driver is stranded on
+    // the feed until an app restart. Defer it all to ctx.waitUntil(). Same fix
+    // as the COO route (#420).
+    afterResponse(async () => {
+      // Partner delivery bookings: place the delivery-fee hold now that a ride
+      // exists. No-ops for normal bookings, and never throws.
+      await maybePlacePartnerHold(postId, rideId, driverUserId).catch((e) => {
+        console.error('maybePlacePartnerHold threw (ignored):', e);
+      });
 
-    // Notify rider via Ably + push
-    await notifyUserWithPush(riderId, 'booking_accepted', {
-      rideId,
-      postId,
-      driverUserId,
-      driverName,
-      price,
-      message: `${driverName} accepted your ride!`,
-    }, {
-      title: 'Ride accepted 🤝',
-      body: `${driverName} accepted your ride${price ? ` — $${price}` : ''}.`,
-      data: { type: 'booking_accepted', rideId },
-    }).catch(() => {});
+      // Notify rider via Ably + push that the driver accepted.
+      await notifyUserWithPush(riderId, 'booking_accepted', {
+        rideId,
+        postId,
+        driverUserId,
+        driverName,
+        price,
+        message: `${driverName} accepted your ride!`,
+      }, {
+        title: 'Ride accepted 🤝',
+        body: `${driverName} accepted your ride${price ? ` — $${price}` : ''}.`,
+        data: { type: 'booking_accepted', rideId },
+      }).catch(() => {});
 
-    await publishRideUpdate(rideId, 'status_change', {
-      status: 'matched',
-      message: 'Ride matched — driver will be OTW soon',
-    }).catch(() => {});
+      await publishRideUpdate(rideId, 'status_change', {
+        status: 'matched',
+        message: 'Ride matched — driver will be OTW soon',
+      }).catch(() => {});
 
-    publishAdminEvent('ride_created', { rideId, driverUserId, riderId, price, status: 'matched' }).catch(() => {});
+      publishAdminEvent('ride_created', { rideId, driverUserId, riderId, price, status: 'matched' }).catch(() => {});
 
-    // SMS rider that their booking was accepted
-    try {
-      const riderPhoneRows = await sql`SELECT phone FROM rider_profiles WHERE user_id = ${riderId} LIMIT 1`;
-      const riderPhone = (riderPhoneRows[0] as Record<string, unknown>)?.phone as string;
-      if (riderPhone) {
-        notifyRiderBookingAccepted(riderPhone, driverName, rideId).catch(() => {});
-      }
-    } catch { /* non-blocking */ }
-
-    // Block the driver's calendar — must not be fire-and-forget.
-    try {
-      await confirmTentativeBooking(driverUserId, riderId, rideId, postId, directWindow.startAt, post.market_id as string || null);
-    } catch (e) {
-      console.error('confirmTentativeBooking failed, creating directly:', e);
+      // SMS rider that their booking was accepted
       try {
-        await createRideBooking(driverUserId, riderId, rideId, directWindow.startAt, post.market_id as string || null);
-      } catch (e2) {
-        console.error('createRideBooking also failed:', e2);
+        const riderPhoneRows = await sql`SELECT phone FROM rider_profiles WHERE user_id = ${riderId} LIMIT 1`;
+        const riderPhone = (riderPhoneRows[0] as Record<string, unknown>)?.phone as string;
+        if (riderPhone) {
+          await notifyRiderBookingAccepted(riderPhone, driverName, rideId).catch(() => {});
+        }
+      } catch { /* non-blocking */ }
+
+      // Block the driver's calendar — kept here (not fire-and-forget) so
+      // ctx.waitUntil() keeps the isolate alive until it completes.
+      try {
+        await confirmTentativeBooking(driverUserId, riderId, rideId, postId, directWindow.startAt, post.market_id as string || null);
+      } catch (e) {
+        console.error('confirmTentativeBooking failed, creating directly:', e);
+        try {
+          await createRideBooking(driverUserId, riderId, rideId, directWindow.startAt, post.market_id as string || null);
+        } catch (e2) {
+          console.error('createRideBooking also failed:', e2);
+        }
       }
-    }
+    });
 
     return NextResponse.json({ status: 'matched', rideId });
   } catch (error) {
