@@ -77,18 +77,40 @@ export async function GET() {
     const avgRatePerMinute = ratedMinutes > 0 ? ratedEarned / ratedMinutes : 0;
     const avgRatePerHour = ratedMinutes > 0 ? (ratedEarned / ratedMinutes) * 60 : 0;
 
-    // Daily time-series (last 30 days) — stacked by cash vs non-cash payout.
+    // Daily time-series (last 30 days) — NET earnings on CAPTURED funds, stacked
+    // by cash vs digital. This deliberately tracks money the driver actually
+    // received, not just fully-completed rides, so it matches the wallet:
+    //   • Inclusion = payment_captured (set the moment Stripe captures the
+    //     deposit at "I'm In", and on no-show / after-OTW-cancel captures) OR a
+    //     completed ride (keeps pure-cash rides that never hit Stripe).
+    //   • Date = payment_captured_at (exact capture day) so a started-but-not-
+    //     ended ride's deposit lands on the day it was captured.
+    //   • Digital (non_cash) = driver_payout_amount — already NET of platform +
+    //     Stripe fees; no gross fallback. Counts for every captured ride.
+    //   • Cash = collected in person (no fee → already net). Only counts once the
+    //     rider has actually boarded/completed (never a no-show or pre-board
+    //     cancel), so off-platform cash is never over-counted.
     const dailyRows = await sql`
       SELECT
-        DATE(ended_at AT TIME ZONE 'America/New_York') as day,
-        SUM(CASE WHEN is_cash THEN COALESCE(driver_payout_amount, final_agreed_price, amount, 0) ELSE 0 END) as cash,
-        SUM(CASE WHEN NOT is_cash THEN COALESCE(driver_payout_amount, final_agreed_price, amount, 0) ELSE 0 END) as non_cash,
+        DATE(COALESCE(payment_captured_at, ended_at, completed_at, started_at, updated_at) AT TIME ZONE 'America/New_York') as day,
+        SUM(
+          CASE
+            WHEN COALESCE(no_show_percent, 0) > 0 THEN 0
+            WHEN status IN ('active', 'in_progress', 'ended', 'completed') THEN
+              CASE
+                WHEN is_cash THEN COALESCE(driver_payout_amount, final_agreed_price, amount, 0)
+                ELSE GREATEST(COALESCE(final_agreed_price, amount, 0) - COALESCE(visible_deposit, 0), 0)
+              END
+            ELSE 0
+          END
+        ) as cash,
+        SUM(CASE WHEN is_cash THEN 0 ELSE COALESCE(driver_payout_amount, 0) END) as non_cash,
         COUNT(*) as rides
       FROM rides
       WHERE driver_id = ${userId}
-        AND status IN ('ended', 'completed')
-        AND ended_at >= NOW() - INTERVAL '30 days'
-      GROUP BY DATE(ended_at AT TIME ZONE 'America/New_York')
+        AND (payment_captured = true OR status IN ('ended', 'completed'))
+        AND COALESCE(payment_captured_at, ended_at, completed_at, started_at, updated_at) >= NOW() - INTERVAL '30 days'
+      GROUP BY DATE(COALESCE(payment_captured_at, ended_at, completed_at, started_at, updated_at) AT TIME ZONE 'America/New_York')
       ORDER BY day ASC
     ` as Record<string, unknown>[];
 

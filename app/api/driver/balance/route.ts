@@ -114,7 +114,7 @@ export async function GET() {
       FROM rides
       WHERE driver_id = ${driverUserId}
         AND is_cash = true
-        AND status IN ('ended', 'completed')
+        AND status IN ('active', 'in_progress', 'ended', 'completed')
         AND (no_show_percent IS NULL OR no_show_percent = 0)
     `;
     const legacyCashRides = Number((cashRows[0] as Record<string, unknown>).cash_rides || 0);
@@ -134,7 +134,7 @@ export async function GET() {
       WHERE driver_id = ${driverUserId}
         AND pricing_mode_key = 'deposit_only'
         AND (is_cash IS NULL OR is_cash = false)
-        AND status IN ('ended', 'completed')
+        AND status IN ('active', 'in_progress', 'ended', 'completed')
         AND (no_show_percent IS NULL OR no_show_percent = 0)
     `;
     const depositCashRides = Number((depositCashRows[0] as Record<string, unknown>).rides || 0);
@@ -150,7 +150,7 @@ export async function GET() {
       FROM rides
       WHERE driver_id = ${driverUserId}
         AND (is_cash IS NULL OR is_cash = false)
-        AND status IN ('ended', 'completed')
+        AND (payment_captured = true OR status IN ('ended', 'completed'))
         AND (no_show_percent IS NULL OR no_show_percent = 0)
     `;
     const digitalRides = Number((digitalRows[0] as Record<string, unknown>).digital_rides || 0);
@@ -162,7 +162,7 @@ export async function GET() {
         COALESCE(SUM(driver_payout_amount), 0) as no_show_total
       FROM rides
       WHERE driver_id = ${driverUserId}
-        AND status IN ('ended', 'completed')
+        AND (payment_captured = true OR status IN ('ended', 'completed'))
         AND no_show_percent > 0
     `;
     const noShowRides = Number((noShowRows[0] as Record<string, unknown>).no_show_rides || 0);
