@@ -130,6 +130,10 @@ export default function RiderActiveScreen() {
   const [pendingLoc, setPendingLoc] = useState<PendingRideLocations | null>(null);
   const [pullingUp, setPullingUp] = useState(false);
   const [eta, setEta] = useState<{ mi: number; min: number } | null>(null);
+  // The rider's own live location (streamed to the driver) + their ETA to the
+  // pickup, so both sides see how far the rider is from the car.
+  const [selfLoc, setSelfLoc] = useState<LatLng | null>(null);
+  const [selfEta, setSelfEta] = useState<{ mi: number; min: number } | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelRequested, setCancelRequested] = useState(false);
   const [cancelSecs, setCancelSecs] = useState(0);
@@ -289,6 +293,56 @@ export default function RiderActiveScreen() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [driverLocation, tLat, tLng, etaPhase]);
+
+  // ── Continuous rider location → driver ──────────────────────────────────────
+  // While the rider is heading to the car (inbound/otw/here, before they're in
+  // it), stream their location so the driver sees the rider's live pin + ETA.
+  // Foreground only (the rider is on this screen); stops once the ride starts.
+  const headingToCar = (inbound || status === 'otw' || status === 'here') && !!rideId;
+  useEffect(() => {
+    if (!headingToCar) return;
+    let sub: Location.LocationSubscription | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const perm = await Location.requestForegroundPermissionsAsync();
+        if (perm.status !== 'granted' || cancelled) return;
+        sub = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: 10_000, distanceInterval: 30 },
+          (pos) => {
+            const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            setSelfLoc(loc);
+            // Fire-and-forget — never block the UI on the share.
+            getToken()
+              .then((t) => apiClient(`/rides/${rideId}/share-location`, t, {
+                method: 'POST', body: JSON.stringify(loc),
+              }).catch(() => {}))
+              .catch(() => {});
+          },
+        );
+      } catch { /* location unavailable — degrade silently */ }
+    })();
+    return () => { cancelled = true; sub?.remove(); };
+  }, [headingToCar, rideId, getToken]);
+
+  // The rider's own ETA to pickup (walking — they're on foot heading to the car).
+  const selfPickupLat = ride?.pickupLat ?? pendingLoc?.pickup?.latitude ?? null;
+  const selfPickupLng = ride?.pickupLng ?? pendingLoc?.pickup?.longitude ?? null;
+  useEffect(() => {
+    if (!selfLoc || !headingToCar || selfPickupLat == null || selfPickupLng == null || !MAPBOX_TOKEN) { setSelfEta(null); return; }
+    const coords = `${selfLoc.lng},${selfLoc.lat};${selfPickupLng},${selfPickupLat}`;
+    const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${coords}?access_token=${MAPBOX_TOKEN}&overview=false`;
+    let cancelled = false;
+    fetch(url)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        const route = d?.routes?.[0];
+        if (route) setSelfEta({ mi: route.distance / 1609.34, min: Math.max(1, Math.round(route.duration / 60)) });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selfLoc, headingToCar, selfPickupLat, selfPickupLng]);
 
   // Cancel-request countdown (only active when a request is pending driver reply).
   useEffect(() => {
@@ -648,6 +702,16 @@ export default function RiderActiveScreen() {
           </View>
         )}
 
+        {/* Rider's own ETA to pickup — shown while heading to the car. */}
+        {headingToCar && selfEta && (
+          <View style={s.selfEtaBanner}>
+            <Ionicons name="walk" size={16} color={colors.amber} />
+            <Text style={s.selfEtaText}>
+              You're {selfEta.min} min from pickup ({selfEta.mi.toFixed(1)} mi)
+            </Text>
+          </View>
+        )}
+
         {/* Fare card */}
         <View style={[s.card, shadow.card]}>
           <Text style={s.cardLabel}>{ride.isCash ? 'CASH FARE' : 'AGREED PRICE'}</Text>
@@ -982,6 +1046,14 @@ const s = StyleSheet.create({
     paddingHorizontal: spacing.lg, paddingVertical: spacing.md, marginBottom: spacing.lg,
   },
   etaText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.green, flex: 1 },
+  selfEtaBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.amberDim, borderRadius: radius.card,
+    borderWidth: 1, borderColor: colors.amberBorder,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
+    marginTop: -spacing.sm, marginBottom: spacing.lg,
+  },
+  selfEtaText: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.amber, flex: 1 },
   authRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
   authText: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint },
   cancelPending: {
