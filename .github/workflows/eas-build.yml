@@ -11,12 +11,21 @@ on:
       profile:
         description: 'EAS build profile'
         required: false
-        default: 'development'
+        default: 'preview'
         type: choice
         options:
-          - development
           - preview
+          - development
           - production
+      platform:
+        description: 'Target platform(s)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - ios
+          - android
 
 concurrency:
   group: eas-build-${{ github.ref }}
@@ -24,7 +33,7 @@ concurrency:
 
 jobs:
   build:
-    name: EAS iOS Build
+    name: EAS Build (iOS + Android)
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -47,24 +56,35 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: EAS Build (iOS)
+      # Default to PREVIEW for both platforms. Preview builds are
+      # internal-distribution, NON-development-client release builds
+      # (eas.json `preview` profile: developmentClient=false). A push to main
+      # must never produce a development build.
+      - name: EAS Build
         working-directory: mobile
         run: |
-          PROFILE="${{ github.event.inputs.profile || 'development' }}"
-          echo "Building profile: $PROFILE"
+          PROFILE="${{ github.event.inputs.profile || 'preview' }}"
+          PLATFORM="${{ github.event.inputs.platform || 'all' }}"
+          echo "Building profile: $PROFILE  platform: $PLATFORM"
           eas build \
-            --platform ios \
+            --platform "$PLATFORM" \
             --profile "$PROFILE" \
             --non-interactive \
             --json \
             --no-wait \
             | tee /tmp/build-output.json
-          BUILD_URL=$(cat /tmp/build-output.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0].get('buildDetailsPageUrl',''))" 2>/dev/null || echo "")
-          echo "BUILD_URL=$BUILD_URL" >> $GITHUB_ENV
-          echo "### iOS Build Queued" >> $GITHUB_STEP_SUMMARY
+          echo "### Mobile Build Queued" >> $GITHUB_STEP_SUMMARY
           echo "**Profile:** $PROFILE" >> $GITHUB_STEP_SUMMARY
-          if [ -n "$BUILD_URL" ]; then
-            echo "**EAS Build page:** $BUILD_URL" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Install link will appear on that page once the build completes (~10 min)." >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "**Platform:** $PLATFORM" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          python3 - <<'PY' >> $GITHUB_STEP_SUMMARY
+          import json
+          with open('/tmp/build-output.json') as f:
+              builds = json.load(f)
+          for b in builds:
+              plat = b.get('platform', '?')
+              url = b.get('buildDetailsPageUrl', '')
+              print(f"- **{plat}:** {url}")
+          print("")
+          print("Install link appears on each build page once it finishes (~10–20 min).")
+          PY
