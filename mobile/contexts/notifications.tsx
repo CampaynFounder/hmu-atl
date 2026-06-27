@@ -364,8 +364,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           id: `accepted-${Date.now()}`,
           type: 'matched',
           title: 'DRIVER ACCEPTED',
-          body: 'Share your exact pickup so your driver can navigate to you.',
-          route: acceptedRideId ? `/(rider)/ride/pull-up?rideId=${acceptedRideId}` : '/(rider)/home',
+          body: "You're matched — pull up to lock it in.",
+          // Parity with the driver, who lands on their active ride screen on
+          // accept. The rider's active screen handles the inline Pull Up (COO)
+          // using the addresses they entered at booking — no re-entry, no detour.
+          route: acceptedRideId ? `/(rider)/ride/active?rideId=${acceptedRideId}` : '/(rider)/home',
           timestamp: Date.now(),
         });
         // Driver accepted the rider's direct booking. Set the active ride the
