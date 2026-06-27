@@ -18,9 +18,18 @@ is ONLY for manual handle search (no prefill). Therefore:
   never bounce a prefilled rider back to driver search.
 - If you add a new way to change the step, route it through `goToStep`. If you
   add a new entry point with a pre-selected driver, give it `prefillHandle`.
+- **The prefill must be REACTIVE to the param, never mount-timing-dependent.**
+  `useLocalSearchParams()` can return empty on the first render(s), so
+  `useState(minStep)` may capture `step=0` before `prefillHandle` hydrates. A
+  mount-only effect (`[]` deps) then misses it entirely → the rider is stranded
+  on step 0. The fix (do not remove): an effect keyed on `[prefillHandle]` that
+  enforces the step floor (`setStepRaw(s => Math.max(1, s))`), fills the handle,
+  and loads the driver — idempotent via `!driver && !findingDriver` guards.
 
 Regression history: the "reorder direct booking" + "back-out drafts" PRs each
-re-broke this by restoring/advancing the step without honoring the prefill.
+re-broke this by restoring/advancing the step without honoring the prefill; a
+later regression stranded prefilled riders on step 0 because the prefill effect
+read `prefillHandle` only at mount, before the route params had hydrated.
 
 ## Network calls must never hang the UI
 `lib/api.ts` `apiClient` has a 30s `AbortController` timeout. Without it a hung
