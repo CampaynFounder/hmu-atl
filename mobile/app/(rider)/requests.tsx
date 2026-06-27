@@ -103,6 +103,13 @@ export default function MyRequests() {
   const [items, setItems] = useState<RequestItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // Ticks so an item drops off the instant it expires while the rider is
+  // looking — this page shows LIVE requests only (no dead/expired cards).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -200,6 +207,12 @@ export default function MyRequests() {
 
   const onRefresh = useCallback(() => { setRefreshing(true); void load(); }, [load]);
 
+  // Live-only: hide anything past its expiry. Items without an expiresAt (an
+  // in-flight ride, a store run) are always live.
+  const liveItems = items.filter(
+    (i) => !i.expiresAt || new Date(i.expiresAt).getTime() > now,
+  );
+
   return (
     <View style={[s.root, { paddingTop: insets.top }]}>
       <View style={s.nav}>
@@ -212,7 +225,7 @@ export default function MyRequests() {
         <View style={s.loadingWrap}>
           <ActivityIndicator size="large" color={colors.green} />
         </View>
-      ) : items.length === 0 ? (
+      ) : liveItems.length === 0 ? (
         <Animated.View entering={FadeIn.duration(350)} style={s.empty}>
           <View style={s.emptyIcon}>
             <Ionicons name="paper-plane-outline" size={30} color={colors.textFaint} />
@@ -234,7 +247,7 @@ export default function MyRequests() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.green} />
           }
         >
-          {items.map((item, i) => (
+          {liveItems.map((item, i) => (
             <RequestCard key={item.key} item={item} index={i} />
           ))}
         </ScrollView>
