@@ -232,8 +232,8 @@ export default function MyRequests() {
           </View>
           <Text style={s.emptyTitle}>No active requests</Text>
           <Text style={s.emptyBody}>
-            When you blast, book a driver, or post a Down Bad, it shows up here so you can track
-            responses and manage it.
+            When you book your driver direct, or on the HMU Network, it shows here so you can
+            track it in real time.
           </Text>
           <TouchableOpacity style={s.emptyCta} onPress={() => router.replace('/(rider)/home')} activeOpacity={0.85}>
             <Text style={s.emptyCtaText}>MAKE A REQUEST</Text>
