@@ -9,6 +9,7 @@ import {
 } from '@/lib/db/direct-bookings';
 import { notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { notifyUserWithPush } from '@/lib/notify';
+import { afterResponse } from '@/lib/runtime/after-response';
 import { notifyDriverNewBooking } from '@/lib/sms/textbee';
 import {
   checkDriverAvailability,
@@ -312,6 +313,14 @@ export async function POST(
     expiryMinutes,
   });
 
+  // The post now exists (with its expiry) — that's the rider's success, so the
+  // response returns immediately below. Everything here (calendar hold, driver
+  // push, admin event, VoIP SMS) is best-effort and is deferred to
+  // ctx.waitUntil(): previously the awaited SMS fetch + sms_log insert could
+  // push the response past the client's 30s timeout, so the rider saw "fetch
+  // failed" (and a 0:00 / "expired" countdown) even though the post was created
+  // and the driver was already notified. Same fix as COO / accept (#420/#425).
+  afterResponse(async () => {
   // Always create a tentative hold — "now" bookings need the same
   // double-book protection during the 15-min acceptance window. Pass the
   // resolved duration so round-trip and Mapbox-backed estimates from the
@@ -417,6 +426,7 @@ export async function POST(
   } catch (e) {
     console.error('[BOOK-SMS] Error:', e);
   }
+  });
 
   return NextResponse.json({ postId: post.id, expiresAt: post.booking_expires_at, expiryMinutes }, { status: 201 });
 }
