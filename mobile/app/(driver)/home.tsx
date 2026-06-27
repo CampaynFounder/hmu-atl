@@ -512,7 +512,7 @@ function DriverWalletCard({
             activeOpacity={0.8}
           >
             <Text style={[wc.periodText, period === p && wc.periodTextActive]}>
-              {p === 'D' ? 'DAY' : p === 'W' ? 'WEEK' : 'MONTH'}
+              {p === 'D' ? 'DAY' : p === 'W' ? 'WEEK' : 'ALL'}
             </Text>
           </TouchableOpacity>
         ))}
