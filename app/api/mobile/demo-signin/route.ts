@@ -13,10 +13,12 @@
 //   • Only ever issues a token for the one user whose verified phone == the
 //     configured demo phone. No other account is reachable.
 //   • Token TTL is 5 min and the demo account is a sandbox rider.
-//   • Use a long, random DEMO_LOGIN_CODE (we have no Upstash limiter wired) so a
-//     short numeric code can't be brute-forced into this sandbox account.
+//   • A strict per-IP rate limiter guards the code check, so even a short
+//     numeric DEMO_LOGIN_CODE (app-store reviewers can only type digits) can't
+//     be brute-forced into this sandbox account: 1M combos / 8-per-15min ≈ years.
 import { NextRequest, NextResponse } from 'next/server';
 import { clerkClient } from '@clerk/nextjs/server';
+import { checkRateLimit } from '@/lib/rate-limit/check';
 
 export const runtime = 'nodejs';
 
@@ -46,6 +48,19 @@ export async function POST(req: NextRequest) {
   // Feature disabled unless explicitly configured.
   if (DEMO_PHONES.length === 0 || !DEMO_CODE) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  // Brute-force guard. This endpoint has no Clerk OTP, so a short numeric code is
+  // only safe behind a strict per-IP limiter. A legitimate reviewer types the
+  // code once; 8 attempts / 15 min leaves room for typos while making a 6-digit
+  // sweep take years.
+  const ip = req.headers.get('cf-connecting-ip') || req.headers.get('x-forwarded-for') || 'unknown';
+  const rl = await checkRateLimit({ key: `mobile:demo-signin:${ip}`, limit: 8, windowSeconds: 900 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: 'Too many attempts. Try again shortly.' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } },
+    );
   }
 
   let body: { phone?: string; code?: string };
