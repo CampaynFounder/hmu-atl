@@ -5,6 +5,7 @@ import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { captureRiderPayment } from '@/lib/payments/escrow';
 import { maybeCapturePartnerHold } from '@/lib/partner/booking-capture';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
+import { notifyUserWithPush } from '@/lib/notify';
 import { syncBookingFromRide } from '@/lib/schedule/conflicts';
 import { getPlatformConfig } from '@/lib/platform-config/get';
 
@@ -128,10 +129,14 @@ export async function POST(
       driverReceives: captureResult.driverReceives,
     }).catch(() => {});
 
-    await notifyUser(ride.driver_id as string, 'ride_update', {
+    await notifyUserWithPush(ride.driver_id as string, 'ride_update', {
       rideId,
       status: 'active',
       message: 'Rider confirmed — ride is active!',
+    }, {
+      title: 'Ride started ✅',
+      body: 'Your rider confirmed — the ride is active.',
+      data: { type: 'ride_update', rideId, status: 'active' },
     }).catch(() => {});
 
     return NextResponse.json({
