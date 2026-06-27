@@ -249,7 +249,7 @@ export default function DriverFeed() {
       : 'https://atl.hmucashride.com';
     try {
       await Share.share({
-        message: `Need a ride? HMU 🚗💨 I hold your funds upfront — no gas money wasted. Book me here: ${url}`,
+        message: `Need a ride? HMU 🚗💨 Book me here: ${url}`,
         url,
       });
     } catch { /* user dismissed the share sheet */ }
