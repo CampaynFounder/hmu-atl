@@ -85,9 +85,17 @@ export function clampDeposit(
   requested: number,
   totalFare: number,
   config: DepositOnlyConfig,
+  // A driver's configured deposit floor (dollars). When set, the EFFECTIVE
+  // minimum becomes the LOWER of the platform default and this value, so a
+  // driver who is happy to take a smaller deposit ("don't HMU for less than")
+  // is never forced up to the platform default. Undefined = platform default.
+  floorOverride?: number,
 ): number {
   const cap = Math.min(totalFare, totalFare * config.depositMaxPctOfFare);
-  const min = Math.min(config.depositMin, totalFare); // never exceed total
+  const effectiveMin = floorOverride != null && floorOverride > 0
+    ? Math.min(config.depositMin, floorOverride)
+    : config.depositMin;
+  const min = Math.min(effectiveMin, totalFare); // never exceed total
   const clamped = Math.max(min, Math.min(requested, cap));
   const inc = Math.max(config.depositIncrement, 0.01);
   const rounded = Math.round(clamped / inc) * inc;
@@ -112,7 +120,10 @@ export class DepositOnlyStrategy implements PricingStrategy {
   async calculateHold(input: HoldInput): Promise<HoldDecision> {
     const config = await getDepositOnlyConfig();
     const requested = input.selectedDeposit ?? config.depositMin;
-    const visibleDeposit = clampDeposit(requested, input.agreedPrice, config);
+    // selectedDeposit IS the driver's deposit_floor (see HoldInput). Treat it as
+    // the floor override so the effective minimum is the lower of it and the
+    // platform default — a high platform default never blocks a cheaper driver.
+    const visibleDeposit = clampDeposit(requested, input.agreedPrice, config, input.selectedDeposit);
 
     // Deposit-only authorizes ONLY the deposit. Rider pays the cash remainder
     // to the driver in person.

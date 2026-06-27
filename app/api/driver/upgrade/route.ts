@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import Stripe from 'stripe';
+import { getHmuFirstConfig, HMU_FIRST_DEFAULTS } from '@/lib/hmu-first';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   httpClient: Stripe.createFetchHttpClient(),
@@ -27,6 +28,12 @@ export async function POST() {
 
     if (driver.tier === 'hmu_first') {
       return NextResponse.json({ error: 'Already on HMU First' }, { status: 400 });
+    }
+
+    // Superadmin can close enrollment entirely.
+    const hmuFirst = await getHmuFirstConfig();
+    if (!hmuFirst.enabled) {
+      return NextResponse.json({ error: 'HMU First enrollment is currently closed.' }, { status: 403 });
     }
 
     if (isMock) {
@@ -58,13 +65,27 @@ export async function POST() {
       stripeCustomerId = customer.id;
     }
 
+    // Price: use the configured Stripe Price by default; when a superadmin has
+    // set a custom monthly price, build an ad-hoc recurring price_data line so
+    // the charge matches what the app advertises. Falls back to price_data when
+    // no env Price ID is configured at all.
+    const useCustomPrice = hmuFirst.priceCents !== HMU_FIRST_DEFAULTS.priceCents || !process.env.HMU_FIRST_PRICE_ID;
+    const lineItem: Stripe.Checkout.SessionCreateParams.LineItem = useCustomPrice
+      ? {
+          quantity: 1,
+          price_data: {
+            currency: 'usd',
+            unit_amount: hmuFirst.priceCents,
+            recurring: { interval: 'month' },
+            product_data: { name: 'HMU First' },
+          },
+        }
+      : { price: process.env.HMU_FIRST_PRICE_ID!, quantity: 1 };
+
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: stripeCustomerId,
-      line_items: [{
-        price: process.env.HMU_FIRST_PRICE_ID!,
-        quantity: 1,
-      }],
+      line_items: [lineItem],
       payment_method_types: ['card'],
       allow_promotion_codes: true,
       success_url: `${APP_URL}/driver/home?upgraded=1`,

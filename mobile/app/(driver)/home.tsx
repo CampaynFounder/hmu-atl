@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { EarningsChart, EarningsDrillSheet, StackPoint } from '@/components/driver/EarningsChart';
+import { useHmuFirst, formatPrice } from '@/hooks/use-hmu-first';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -245,6 +246,7 @@ export default function DriverHome() {
   const handle = driverHandle ?? (user?.fullName ?? 'Driver');
   const isFirst = (user?.publicMetadata?.tier as string) === 'hmu_first';
   const depositMode = isDepositMode(balance?.activeMode);
+  const hmuFirst = useHmuFirst();
 
   if (loading) {
     return (
@@ -348,15 +350,15 @@ export default function DriverHome() {
         )
       }
 
-      {/* HMU First upsell */}
-      {!isFirst && (
+      {/* HMU First upsell — suppressed when a superadmin closes enrollment. */}
+      {!isFirst && hmuFirst.enabled && (
         <DepthButton
           onPress={() => { haptic(Haptics.ImpactFeedbackStyle.Medium); router.push('/(driver)/payout-setup'); }}
           style={s.upsell}
         >
           <View style={s.upsellRow}>
             <Text style={s.upsellTitle}>GO HMU FIRST</Text>
-            <Text style={s.upsellPrice}>$9.99/mo</Text>
+            <Text style={s.upsellPrice}>{formatPrice(hmuFirst.priceCents)}/mo</Text>
           </View>
           <Text style={s.upsellBody}>Lower fee cap, instant payouts, priority support.</Text>
           <View style={s.upsellCta}>

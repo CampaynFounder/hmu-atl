@@ -23,7 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
+import { colors, fonts, radius, spacing, shadow, toggle } from '@/lib/theme';
 import { apiClient, API_BASE } from '@/lib/api';
 import * as Haptics from 'expo-haptics';
 
@@ -731,9 +731,125 @@ function RevenueSection({ days, market, token }: { days: DayFilter; market: Mark
           )}
         </View>
       )}
+
+      {/* HMU First enrollment — superadmin toggle + price */}
+      <HmuFirstSection token={token} />
     </ScrollView>
   );
 }
+
+// ── HMU First control (no-code: toggle + price stepper) ───────────────────────
+// GET/PATCH /api/admin/hmu-first-config → { enabled, priceCents }
+
+function HmuFirstSection({ token }: { token: string | null }) {
+  const [enabled, setEnabled] = useState(true);
+  const [priceCents, setPriceCents] = useState(999);
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiClient<{ enabled: boolean; priceCents: number }>('/admin/hmu-first-config', token)
+      .then(d => { setEnabled(d.enabled); setPriceCents(d.priceCents); })
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, [token]);
+
+  async function persist(next: { enabled: boolean; priceCents: number }) {
+    setSaving(true); setErr(null);
+    try {
+      const d = await apiClient<{ enabled: boolean; priceCents: number }>('/admin/hmu-first-config', token, {
+        method: 'PATCH',
+        body: JSON.stringify(next),
+      });
+      setEnabled(d.enabled); setPriceCents(d.priceCents);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      Haptics.selectionAsync().catch(() => {});
+    } catch (e: unknown) {
+      setErr((e as { message?: string }).message ?? 'Save failed');
+    } finally { setSaving(false); }
+  }
+
+  function bumpPrice(deltaCents: number) {
+    setPriceCents(p => Math.min(10000, Math.max(50, p + deltaCents)));
+  }
+
+  if (!loaded) return null;
+
+  const priceDollars = (priceCents / 100).toFixed(2);
+
+  return (
+    <View style={[sc.pricingCard, { borderColor: enabled ? colors.greenBorder : colors.border }]}>
+      <SectionHeader title="HMU FIRST ENROLLMENT" />
+
+      {/* Enrollment open/closed */}
+      <View style={hf.row}>
+        <View style={{ flex: 1 }}>
+          <Text style={sc.rowTitle}>{enabled ? 'Enrollment OPEN' : 'Enrollment CLOSED'}</Text>
+          <Text style={sc.rowSub}>
+            {enabled ? 'Drivers see HMU First upsells and can subscribe' : 'All HMU First upsells hidden; upgrades blocked'}
+          </Text>
+        </View>
+        <Switch
+          value={enabled}
+          onValueChange={(v) => { setEnabled(v); void persist({ enabled: v, priceCents }); }}
+          disabled={saving}
+          trackColor={{ false: toggle.trackOff, true: toggle.green.trackOn }}
+          thumbColor={enabled ? toggle.green.thumbOn : toggle.thumbOff}
+          ios_backgroundColor={toggle.trackOff}
+        />
+      </View>
+
+      {/* Monthly price */}
+      <View style={[hf.row, { opacity: enabled ? 1 : 0.5 }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={sc.rowTitle}>Monthly Price</Text>
+          <Text style={sc.rowSub}>What drivers pay & see in the app</Text>
+        </View>
+        <View style={hf.stepper}>
+          <TouchableOpacity style={hf.stepBtn} onPress={() => bumpPrice(-100)} disabled={!enabled || saving}>
+            <Ionicons name="remove" size={16} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={hf.priceText}>${priceDollars}</Text>
+          <TouchableOpacity style={hf.stepBtn} onPress={() => bumpPrice(100)} disabled={!enabled || saving}>
+            <Ionicons name="add" size={16} color={colors.textPrimary} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {err && <Text style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.red }}>{err}</Text>}
+
+      <TouchableOpacity
+        style={[sc.saveBtn, { backgroundColor: saved ? colors.green : colors.amber }]}
+        onPress={() => void persist({ enabled, priceCents })}
+        disabled={saving}
+      >
+        {saving
+          ? <ActivityIndicator size="small" color={colors.bg} />
+          : <Text style={sc.saveBtnText}>{saved ? '✓ SAVED' : 'SAVE HMU FIRST'}</Text>}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const hf = StyleSheet.create({
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  stepBtn: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  priceText: {
+    fontFamily: fonts.monoBold, fontSize: 15, color: colors.textPrimary,
+    minWidth: 64, textAlign: 'center',
+  },
+});
 
 // ── SECTION: Messages ─────────────────────────────────────────────────────────
 

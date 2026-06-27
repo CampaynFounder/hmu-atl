@@ -22,6 +22,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+import { useHmuFirst, formatPrice } from '@/hooks/use-hmu-first';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -46,6 +47,7 @@ export default function PayoutSetup() {
   const [status, setStatus] = useState<PayoutStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState(false);
+  const hmuFirst = useHmuFirst();
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -185,18 +187,20 @@ export default function PayoutSetup() {
             </View>
           </View>
 
-          {/* HMU First upgrade */}
-          <View style={[s.card, shadow.card]}>
-            <Text style={s.sectionLabel}>UPGRADE</Text>
-            <Text style={s.cardTitle}>HMU First — $9.99/mo</Text>
-            <Text style={s.cardBody}>
-              Lower daily fee cap ($25) and instant payouts. Sign up on our website.
-            </Text>
-            <TouchableOpacity style={s.btnGold} onPress={openHmuFirstUpgrade}>
-              <Text style={s.btnGoldText}>UPGRADE ON WEB</Text>
-              <Ionicons name="arrow-forward" size={14} color={colors.amber} style={{ marginLeft: 6 }} />
-            </TouchableOpacity>
-          </View>
+          {/* HMU First upgrade — hidden entirely when a superadmin closes enrollment. */}
+          {hmuFirst.enabled && (
+            <View style={[s.card, shadow.card]}>
+              <Text style={s.sectionLabel}>UPGRADE</Text>
+              <Text style={s.cardTitle}>HMU First — {formatPrice(hmuFirst.priceCents)}/mo</Text>
+              <Text style={s.cardBody}>
+                Lower daily fee cap ($25) and instant payouts. Sign up on our website.
+              </Text>
+              <TouchableOpacity style={s.btnGold} onPress={openHmuFirstUpgrade}>
+                <Text style={s.btnGoldText}>UPGRADE ON WEB</Text>
+                <Ionicons name="arrow-forward" size={14} color={colors.amber} style={{ marginLeft: 6 }} />
+              </TouchableOpacity>
+            </View>
+          )}
         </ScrollView>
       )}
     </View>
