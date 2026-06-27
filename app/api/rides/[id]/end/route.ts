@@ -4,7 +4,7 @@ import { sql } from '@/lib/db/client';
 import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { captureRiderPayment } from '@/lib/payments/escrow';
 import { maybeCapturePartnerHold } from '@/lib/partner/booking-capture';
-import { publishRideUpdate, notifyUser, publishAdminEvent } from '@/lib/ably/server';
+import { publishRideUpdate, publishAdminEvent } from '@/lib/ably/server';
 import { notifyUserWithPush } from '@/lib/notify';
 import { isWithinProximity } from '@/lib/geo/distance';
 import { calculateAndStoreRideAnalytics } from '@/lib/rides/analytics';
