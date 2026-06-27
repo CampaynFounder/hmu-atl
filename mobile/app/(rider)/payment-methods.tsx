@@ -75,6 +75,22 @@ function cardIconType(method: PaymentMethod): (typeof BRAND_ICON_TYPE)[keyof typ
   return BRAND_ICON_TYPE[key as keyof typeof BRAND_ICON_TYPE] ?? null;
 }
 
+// Wallet marks render as a real brand glyph + label (e.g.  Pay), not a plain
+// text label — react-native-payment-icons has no wallet art, so we build the
+// mark from Ionicons brand glyphs, which always ship with the app.
+interface WalletMark {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  label: string;
+  color: string;
+  bg: string;
+}
+function walletMark(method: PaymentMethod): WalletMark | null {
+  if (method.isApplePay) return { icon: 'logo-apple', label: 'Pay', color: colors.textPrimary, bg: colors.cardAlt };
+  if (method.isGooglePay) return { icon: 'logo-google', label: 'Pay', color: colors.blue, bg: colors.blueDim };
+  if (method.isCashAppPay) return { icon: 'logo-usd', label: 'Cash App', color: '#00C853', bg: 'rgba(0,200,83,0.10)' };
+  return null;
+}
+
 export default function PaymentMethods() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -183,6 +199,7 @@ export default function PaymentMethods() {
                 const color = brandColor(m);
                 const exp = expDisplay(m);
                 const iconType = cardIconType(m);
+                const wallet = walletMark(m);
                 return (
                   <Animated.View
                     key={m.id}
@@ -196,8 +213,14 @@ export default function PaymentMethods() {
                       disabled={m.isDefault || selecting != null}
                       activeOpacity={0.7}
                     >
-                      {/* Brand mark — real network logo for cards, styled label for wallets */}
-                      {iconType ? (
+                      {/* Brand mark — wallet glyph for Apple/Google/Cash App,
+                          real network logo for cards, styled label otherwise. */}
+                      {wallet ? (
+                        <View style={[s.walletMark, { backgroundColor: wallet.bg, borderColor: `${wallet.color}40` }]}>
+                          <Ionicons name={wallet.icon} size={15} color={wallet.color} />
+                          <Text style={[s.walletText, { color: wallet.color }]}>{wallet.label}</Text>
+                        </View>
+                      ) : iconType ? (
                         <View style={s.brandMark}>
                           <PaymentIcon type={iconType} width={48} />
                         </View>
@@ -309,6 +332,12 @@ const s = StyleSheet.create({
   },
   brandMark: { width: 54, height: 34, alignItems: 'center', justifyContent: 'center' },
   brandText: { fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 0.5 },
+  walletMark: {
+    minWidth: 54, height: 34, borderRadius: radius.tag, borderWidth: 1,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3,
+    paddingHorizontal: 8,
+  },
+  walletText: { fontFamily: fonts.bodySemiBold, fontSize: 12, letterSpacing: 0.2 },
   cardInfo: { flex: 1, gap: 4 },
   cardNumber: { fontFamily: fonts.mono, fontSize: 14, color: colors.textPrimary, letterSpacing: 1 },
   cardMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

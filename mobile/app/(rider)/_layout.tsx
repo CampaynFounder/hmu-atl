@@ -26,6 +26,7 @@ export default function RiderLayout() {
   const { activeRide } = useNotifications();
   return (
     <Tabs
+      backBehavior="history"
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
