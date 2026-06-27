@@ -138,8 +138,8 @@ export default function DownBadScreen() {
             <Text style={s.safetyTitle}>STAY SAFE</Text>
           </View>
           <Text style={s.safetyBody}>
-            Down Bad requests are urgent and can come from riders you don't know.
-            Trust your gut — you're never obligated to accept. Meet in public, keep
+            Down Bad requests are urgent and can come from riders you don&apos;t know.
+            Trust your gut — you&apos;re never obligated to accept. Meet in public, keep
             the ride in the app, and never run a favor that feels unsafe or illegal.
             Report anything sketchy in Support.
           </Text>

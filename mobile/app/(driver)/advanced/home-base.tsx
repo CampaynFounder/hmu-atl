@@ -72,7 +72,7 @@ export default function HomeBaseScreen() {
           return;
         }
         // No saved base → default to the device's current location.
-        await useCurrentLocation(true);
+        await goToCurrentLocation(true);
       } catch {}
       finally { setLoading(false); }
     })();
@@ -89,7 +89,7 @@ export default function HomeBaseScreen() {
     setLat(String(r5(c[1])));
   }
 
-  async function useCurrentLocation(silent = false) {
+  async function goToCurrentLocation(silent = false) {
     if (!silent) {
       setLocating(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -200,7 +200,7 @@ export default function HomeBaseScreen() {
         >
           <Text style={s.hint}>
             Move the map to set your home base — riders see roughly where you start
-            from when you're offline. Use a neighborhood, not your exact address.
+            from when you&apos;re offline. Use a neighborhood, not your exact address.
           </Text>
 
           {/* Interactive map picker — center pin marks the chosen spot. */}
@@ -227,7 +227,7 @@ export default function HomeBaseScreen() {
                   <View style={s.pinDot} />
                 </View>
                 {/* Locate me */}
-                <TouchableOpacity style={s.locateBtn} onPress={() => useCurrentLocation()} activeOpacity={0.85} disabled={locating}>
+                <TouchableOpacity style={s.locateBtn} onPress={() => goToCurrentLocation()} activeOpacity={0.85} disabled={locating}>
                   {locating
                     ? <ActivityIndicator size="small" color={colors.green} />
                     : <Ionicons name="locate" size={18} color={colors.green} />}
@@ -247,7 +247,7 @@ export default function HomeBaseScreen() {
             </View>
           </View>
 
-          <TouchableOpacity style={s.currentBtn} onPress={() => useCurrentLocation()} activeOpacity={0.8} disabled={locating}>
+          <TouchableOpacity style={s.currentBtn} onPress={() => goToCurrentLocation()} activeOpacity={0.8} disabled={locating}>
             <Ionicons name="locate-outline" size={16} color={colors.green} />
             <Text style={s.currentBtnText}>{locating ? 'LOCATING…' : 'USE MY CURRENT LOCATION'}</Text>
           </TouchableOpacity>

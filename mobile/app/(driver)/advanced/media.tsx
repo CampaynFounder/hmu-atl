@@ -256,7 +256,7 @@ export default function MediaScreen() {
 
                 {/* Preview */}
                 {url && def.isPhoto && (
-                  <Image source={{ uri: url }} style={s.preview} resizeMode="cover" />
+                  <Image source={{ uri: url }} style={s.preview} resizeMode="cover" alt="" />
                 )}
                 {url && !def.isPhoto && (
                   <TouchableOpacity style={s.videoPreview} activeOpacity={0.85} onPress={() => Linking.openURL(url)}>
