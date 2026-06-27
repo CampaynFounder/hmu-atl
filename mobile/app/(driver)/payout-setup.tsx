@@ -160,10 +160,25 @@ export default function PayoutSetup() {
           {/* How it works */}
           <View style={[s.card, shadow.card]}>
             <Text style={s.sectionLabel}>HOW IT WORKS</Text>
-            <Text style={s.cardTitle}>Destination Charges</Text>
-            <Text style={s.cardBody}>
-              Rider pays HMU ATL via card. At Start Ride, funds transfer directly to your Stripe balance — minus the platform fee. You cash out any time.
-            </Text>
+            <Text style={s.cardTitle}>How Payments Work</Text>
+            <View style={s.stepsList}>
+              <PaymentStep
+                n={1}
+                text="We verify the rider has funds before they book you."
+              />
+              <PaymentStep
+                n={2}
+                text="Rider gets in your car and taps “I’m In” — the upfront funds transfer to your HMU Balance."
+              />
+              <PaymentStep
+                n={3}
+                text="The rider pays any remaining amount to you directly (Cash, Cash App, Apple Pay, etc.)."
+              />
+              <PaymentStep
+                n={4}
+                text="Once Stripe settles the funds, you can transfer your HMU Balance to your bank instantly."
+              />
+            </View>
             <View style={s.feeRow}>
               <Ionicons name="cash-outline" size={14} color={colors.textFaint} />
               <Text style={s.feeText}>Platform takes a small fee per ride. Admin-configurable.</Text>
@@ -184,6 +199,18 @@ export default function PayoutSetup() {
           </View>
         </ScrollView>
       )}
+    </View>
+  );
+}
+
+// Numbered step row for the "How Payments Work" explainer.
+function PaymentStep({ n, text }: { n: number; text: string }) {
+  return (
+    <View style={s.stepRow}>
+      <View style={s.stepNum}>
+        <Text style={s.stepNumText}>{n}</Text>
+      </View>
+      <Text style={s.stepText}>{text}</Text>
     </View>
   );
 }
@@ -235,9 +262,19 @@ const s = StyleSheet.create({
     letterSpacing: 0.5, marginTop: 4,
   },
 
+  stepsList: { gap: spacing.md, marginBottom: spacing.lg },
+  stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  stepNum: {
+    width: 24, height: 24, borderRadius: 12, flexShrink: 0,
+    backgroundColor: colors.greenDim, borderWidth: 1, borderColor: colors.greenBorder,
+    alignItems: 'center', justifyContent: 'center', marginTop: 1,
+  },
+  stepNumText: { fontFamily: fonts.monoBold, fontSize: 12, color: colors.green },
+  stepText: { flex: 1, fontFamily: fonts.body, fontSize: 14, color: colors.textTertiary, lineHeight: 21 },
+
   feeRow: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
-    marginTop: -spacing.sm,
+    marginTop: -spacing.xs,
   },
   feeText: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint, flex: 1 },
 

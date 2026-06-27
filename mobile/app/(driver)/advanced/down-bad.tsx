@@ -12,7 +12,7 @@ import { useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
+import { colors, fonts, radius, spacing, shadow, toggle } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 
 interface DownBadState {
@@ -122,12 +122,27 @@ export default function DownBadScreen() {
                   value={enabled}
                   onValueChange={handleToggle}
                   disabled={saving}
-                  trackColor={{ false: colors.cardAlt, true: 'rgba(255,82,82,0.3)' }}
-                  thumbColor={enabled ? colors.red : colors.textFaint}
-                  ios_backgroundColor={colors.cardAlt}
+                  trackColor={{ false: toggle.trackOff, true: toggle.red.trackOn }}
+                  thumbColor={enabled ? toggle.red.thumbOn : toggle.thumbOff}
+                  ios_backgroundColor={toggle.trackOff}
                 />
               )}
           </View>
+        </View>
+
+        {/* Safety disclaimer — always visible so drivers weigh the risk before
+            and after opting in, not only inside the one-time opt-in modal. */}
+        <View style={s.safetyCard}>
+          <View style={s.safetyHeader}>
+            <Ionicons name="shield-half" size={15} color={colors.amber} />
+            <Text style={s.safetyTitle}>STAY SAFE</Text>
+          </View>
+          <Text style={s.safetyBody}>
+            Down Bad requests are urgent and can come from riders you don't know.
+            Trust your gut — you're never obligated to accept. Meet in public, keep
+            the ride in the app, and never run a favor that feels unsafe or illegal.
+            Report anything sketchy in Support.
+          </Text>
         </View>
 
         {!data.hasPaymentMethod && (
@@ -159,7 +174,7 @@ export default function DownBadScreen() {
               </Text>
             </ScrollView>
             <TouchableOpacity style={s.confirmBtn} onPress={() => confirmToggle(true)} activeOpacity={0.8}>
-              <Text style={s.confirmText}>I\'M DOWN — OPT IN</Text>
+              <Text style={s.confirmText}>I&apos;M DOWN — OPT IN</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.cancelBtn} onPress={() => setShowDisclaimer(false)} activeOpacity={0.7}>
               <Text style={s.cancelText}>NEVER MIND</Text>
@@ -213,6 +228,14 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.amberBorder,
   },
   payoutCtaText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.amber, flex: 1 },
+  safetyCard: {
+    marginTop: spacing.md, padding: spacing.lg,
+    backgroundColor: colors.amberDim, borderRadius: radius.cardInner,
+    borderWidth: 1, borderColor: colors.amberBorder,
+  },
+  safetyHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+  safetyTitle: { fontFamily: fonts.mono, fontSize: 10, color: colors.amber, letterSpacing: 2 },
+  safetyBody: { fontFamily: fonts.body, fontSize: 13, color: colors.textSecondary, lineHeight: 20 },
   errorText: { fontFamily: fonts.body, fontSize: 13, color: colors.red, marginTop: spacing.md },
   infoCard: {
     marginTop: spacing.xl, padding: spacing.lg,

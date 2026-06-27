@@ -11,7 +11,7 @@ import { useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
+import { colors, fonts, radius, spacing, shadow, toggle } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 
 const NOTICE_OPTS = [0, 1, 2, 3, 4, 6, 8, 12, 24];
@@ -122,9 +122,9 @@ export default function RiderQualityScreen() {
             <Switch
               value={ogOnly}
               onValueChange={(v) => { setOgOnly(v); save({ require_og_status: v }); }}
-              trackColor={{ false: colors.cardAlt, true: colors.greenBorder }}
-              thumbColor={ogOnly ? colors.green : colors.textFaint}
-              ios_backgroundColor={colors.cardAlt}
+              trackColor={{ false: toggle.trackOff, true: toggle.green.trackOn }}
+              thumbColor={ogOnly ? toggle.green.thumbOn : toggle.thumbOff}
+              ios_backgroundColor={toggle.trackOff}
             />
           </View>
         </View>

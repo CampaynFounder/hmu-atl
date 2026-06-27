@@ -6,8 +6,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Image,
-  StyleSheet, RefreshControl, ActivityIndicator, Alert,
+  StyleSheet, RefreshControl, ActivityIndicator, Alert, Share,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
@@ -77,6 +78,7 @@ export default function DriverFeed() {
   const [cancelNotice, setCancelNotice] = useState(false);
   const [riderHmuIds, setRiderHmuIds] = useState<Set<string>>(new Set());
   const [marketSlug, setMarketSlug] = useState<string | null>(null);
+  const [driverHandle, setDriverHandle] = useState<string | null>(null);
 
   const driverId = user?.publicMetadata?.databaseId as string | undefined;
   const { registerFeedRefresh } = useNotifications();
@@ -232,6 +234,27 @@ export default function DriverFeed() {
     else void fetchDeliveries();
   }, [tab, fetchRequests, fetchDeliveries]);
 
+  // Load the driver handle once so the empty state can share their HMU link.
+  useEffect(() => {
+    getTokenRef.current()
+      .then((t) => apiClient<{ driverHandle: string | null }>('/users/me', t))
+      .then((d) => { if (d.driverHandle) setDriverHandle(d.driverHandle); })
+      .catch(() => {});
+  }, []);
+
+  async function shareHmuLink() {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    const url = driverHandle
+      ? `https://atl.hmucashride.com/d/${driverHandle}`
+      : 'https://atl.hmucashride.com';
+    try {
+      await Share.share({
+        message: `Need a ride? HMU 🚗💨 I hold your funds upfront — no gas money wasted. Book me here: ${url}`,
+        url,
+      });
+    } catch { /* user dismissed the share sheet */ }
+  }
+
   async function handleHmu(request: BlastRequest) {
     setActing(request.id);
     try {
@@ -329,13 +352,18 @@ export default function DriverFeed() {
 
       {tab === 'rides' ? (
         active.length === 0 ? (
-          <TouchableOpacity style={s.empty} activeOpacity={0.7} onPress={onRefresh}>
-            <Text style={s.emptyEmoji}>👀</Text>
-            <Text style={s.emptyTitle}>No requests right now</Text>
+          <View style={s.empty}>
+            <Text style={s.emptyEmoji}>🔗</Text>
+            <Text style={s.emptyTitle}>Share your HMU Link to get requests</Text>
             <Text style={s.emptyBody}>
-              Sit tight — we'll notify you the moment a rider blasts your area.
+              Grow your HMU network to earn even more. Post your HMU link on FB —
+              we hold their funds upfront, no gas money wasted.
             </Text>
-            <View style={s.emptyRefresh}>
+            <TouchableOpacity style={s.shareBtn} activeOpacity={0.85} onPress={shareHmuLink}>
+              <Ionicons name="share-social" size={15} color={colors.bg} />
+              <Text style={s.shareBtnText}>SHARE MY HMU LINK</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.emptyRefresh} activeOpacity={0.7} onPress={onRefresh}>
               {refreshing
                 ? <ActivityIndicator size="small" color={colors.green} />
                 : <>
@@ -343,8 +371,8 @@ export default function DriverFeed() {
                     <Text style={s.emptyRefreshText}>TAP TO REFRESH</Text>
                   </>
               }
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </View>
         ) : (
           <SwipeDeck
             items={active}
@@ -785,8 +813,14 @@ const s = StyleSheet.create({
   deckCtrlHmu: { borderColor: colors.greenBorder },
   deckCtrlLabel: { fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 1 },
 
+  shareBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
+    marginTop: spacing.xl, paddingHorizontal: spacing.xl, paddingVertical: 14,
+    borderRadius: radius.pill, backgroundColor: colors.green,
+  },
+  shareBtnText: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.bg, letterSpacing: 1 },
   emptyRefresh: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.xl,
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.lg,
     paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
     borderRadius: radius.pill, borderWidth: 1, borderColor: colors.greenBorder,
     backgroundColor: colors.greenDim,

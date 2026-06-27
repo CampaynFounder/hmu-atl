@@ -14,7 +14,7 @@ import { useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
+import { colors, fonts, radius, spacing, shadow, toggle } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 
 // ── Atlanta areas ──────────────────────────────────────────────────────────────
@@ -488,9 +488,9 @@ function ToggleRow({
       <Switch
         value={value}
         onValueChange={onChange}
-        trackColor={{ false: colors.cardAlt, true: colors.greenBorder }}
-        thumbColor={value ? colors.green : colors.textFaint}
-        ios_backgroundColor={colors.cardAlt}
+        trackColor={{ false: toggle.trackOff, true: toggle.green.trackOn }}
+        thumbColor={value ? toggle.green.thumbOn : toggle.thumbOff}
+        ios_backgroundColor={toggle.trackOff}
       />
     </View>
   );
