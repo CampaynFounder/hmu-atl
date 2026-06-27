@@ -246,10 +246,20 @@ export default function DirectBooking() {
     }
   }, [handleInput, getToken]);
 
-  // Load driver in background when arriving from Browse — step already starts at 1
+  // Honor the pre-selected driver from Browse ROBUSTLY. This must NOT depend on
+  // mount timing: expo-router's useLocalSearchParams can be empty on the first
+  // render(s), so `useState(minStep)` may capture step=0 and a mount-only effect
+  // ([] deps) would miss the param entirely — which is exactly how riders kept
+  // getting stranded on "SELECT YOUR DRIVER". Re-run whenever prefillHandle
+  // resolves: enforce the step floor (never sit on step 0), fill the handle, and
+  // load the driver. The guards make it idempotent across re-renders.
   useEffect(() => {
-    if (prefillHandle) void findDriver(prefillHandle);
-  }, []);
+    if (!prefillHandle) return;
+    setStepRaw((s) => Math.max(1, s));
+    setHandleInput((h) => h || prefillHandle);
+    if (!driver && !findingDriver) void findDriver(prefillHandle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillHandle]);
 
   // Step layout: 0=driver, 1=locations, 2=extras (skipped if driver has no services), 3=when+price
   const hasMenu = (driver?.services?.length ?? 0) > 0;
