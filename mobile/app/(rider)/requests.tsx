@@ -126,7 +126,14 @@ export default function MyRequests() {
           icon: 'car-outline',
           pickup: ride.pickupAddress ?? 'Pickup', dropoff: ride.dropoffAddress ?? 'Destination',
           price: ride.price ?? null, expiresAt: null, cta: 'VIEW RIDE',
-          onPress: () => router.push(`/(rider)/ride/active?rideId=${ride.rideId}` as never),
+          // Seed the active screen so it renders instantly (status + route)
+          // instead of a blank spinner while /rider-view loads.
+          onPress: () => router.push(
+            `/(rider)/ride/active?rideId=${ride.rideId}`
+            + `&seedStatus=${ride.status ?? ''}`
+            + `&seedPickup=${encodeURIComponent(ride.pickupAddress ?? '')}`
+            + `&seedDropoff=${encodeURIComponent(ride.dropoffAddress ?? '')}` as never,
+          ),
         });
       }
 
