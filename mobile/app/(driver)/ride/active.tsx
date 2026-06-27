@@ -160,6 +160,7 @@ export default function ActiveRideScreen() {
   // Rider's live GPS — seeded from the COO ping and updated whenever the rider
   // shares location, so the driver can see the rider's pin + ETA to the car.
   const [riderLocation, setRiderLocation] = useState<LatLng | null>(null);
+  const [riderEta, setRiderEta] = useState<{ mi: number; min: number } | null>(null);
   const [eta, setEta] = useState<{ mi: number; min: number } | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const chat = useRideMessages(rideId, getToken, ride?.riderId ?? null);
@@ -432,6 +433,28 @@ export default function ActiveRideScreen() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [driverLocation, tLat, tLng, etaPhase]);
+
+  // The rider's ETA to the pickup (walking) from their live shared location —
+  // so the driver knows how close the rider is to the car. Only while the rider
+  // is heading to the car (inbound/otw/here), not once the ride is active.
+  const riderEtaPhase = !!status && (inbound || status === 'otw' || status === 'here');
+  useEffect(() => {
+    const pLat = ride?.pickupLat ?? null;
+    const pLng = ride?.pickupLng ?? null;
+    if (!riderLocation || !riderEtaPhase || pLat == null || pLng == null || !MAPBOX_TOKEN) { setRiderEta(null); return; }
+    const coords = `${riderLocation.lng},${riderLocation.lat};${pLng},${pLat}`;
+    const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${coords}?access_token=${MAPBOX_TOKEN}&overview=false`;
+    let cancelled = false;
+    fetch(url)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        const route = d?.routes?.[0];
+        if (route) setRiderEta({ mi: route.distance / 1609.34, min: Math.max(1, Math.round(route.duration / 60)) });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [riderLocation, riderEtaPhase, ride?.pickupLat, ride?.pickupLng]);
 
   // Backstop: the always-on user notify channel re-pulls ride + add-on state on
   // any ride update, independent of the per-screen ride channel.
@@ -926,6 +949,16 @@ export default function ActiveRideScreen() {
                 : eta
                   ? `${eta.min} min to pickup (${eta.mi.toFixed(1)} mi)`
                   : 'Locating pickup…'}
+            </Text>
+          </View>
+        )}
+
+        {/* ── Rider's ETA to the car — shown while the rider is heading over ── */}
+        {riderEtaPhase && riderEta && (
+          <View style={s.riderEtaBanner}>
+            <Ionicons name="walk" size={16} color={colors.amber} />
+            <Text style={s.riderEtaText}>
+              Rider is {riderEta.min} min away ({riderEta.mi.toFixed(1)} mi)
             </Text>
           </View>
         )}
@@ -1489,6 +1522,14 @@ const s = StyleSheet.create({
     paddingHorizontal: spacing.lg, paddingVertical: spacing.md, marginBottom: spacing.lg,
   },
   etaText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.green, flex: 1 },
+  riderEtaBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.amberDim, borderRadius: radius.card,
+    borderWidth: 1, borderColor: colors.amberBorder,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
+    marginTop: -spacing.sm, marginBottom: spacing.lg,
+  },
+  riderEtaText: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.amber, flex: 1 },
   chatFab: {
     position: 'absolute', right: spacing.xl, width: 52, height: 52, borderRadius: 26,
     backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center',
