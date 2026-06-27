@@ -22,13 +22,11 @@ import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing } from '@/lib/theme';
 
-const AnimatedRect = RNAnimated.createAnimatedComponent(Rect);
-
 // Stream colors — aligned to the existing wallet tiles, NOT web's green-cash,
 // so the chart legend matches the CASH / DEPOSITS tiles the driver already sees.
 export const STREAMS = {
   cash: { key: 'cash' as const, label: 'Cash', color: colors.cash },
-  nonCash: { key: 'nonCash' as const, label: 'App Pay', color: colors.green },
+  nonCash: { key: 'nonCash' as const, label: 'HMU Pay', color: colors.green },
   delivery: { key: 'delivery' as const, label: 'Delivery', color: colors.blue },
 };
 
@@ -60,24 +58,33 @@ function money(v: number): string {
   return `$${Math.round(v)}`;
 }
 
-// ── Animated stacked segment ────────────────────────────────────────────────
+// ── Stacked segment ─────────────────────────────────────────────────────────
 // Grows from the chart baseline by `progress` (0→1). Independent per segment:
-// scaling the whole column from the baseline maps a final edge y to
-// B-(B-y)*p, so each segment only needs its own final top + height.
+// scaling the whole column from the baseline maps a final edge y to B-(B-y)*p,
+// so each segment only needs its own final top + height.
+//
+// CRITICAL — render a PLAIN <Rect>, never an Animated SVG component. On the New
+// Architecture (Fabric, Expo SDK 56 / RN 0.85+), animating react-native-svg
+// props via *either* reanimated's useAnimatedProps OR the legacy Animated API
+// silently no-ops: the rect is created at its initial value (height 0) and never
+// updates, so bars stay invisible while the static gridlines still draw. That is
+// THE recurring "chart shows nothing" bug. We instead take a plain numeric
+// `progress` (driven by JS state in <EarningsChart/>, the proven count-up
+// pattern) and recompute geometry each render — plain SVG rects always draw.
 
 function Segment({
   x, width, baseline, yTop, height, color, progress, roundTop,
 }: {
   x: number; width: number; baseline: number; yTop: number; height: number;
-  color: string; progress: RNAnimated.Value; roundTop: boolean;
+  color: string; progress: number; roundTop: boolean;
 }) {
-  // Grow from the baseline: y goes baseline→yTop, height goes 0→height as
-  // progress animates 0→1. Interpolation on RN Animated.Value drives the SVG
-  // rect props directly (useNativeDriver:false — SVG props aren't native-driven).
-  const y = progress.interpolate({ inputRange: [0, 1], outputRange: [baseline, yTop] });
-  const h = progress.interpolate({ inputRange: [0, 1], outputRange: [0, Math.max(height, 0)] });
+  // Grow from the baseline: bottom edge rises baseline→yTop, height grows
+  // 0→height, scaling the whole column proportionally as progress goes 0→1.
+  const h = Math.max(height, 0) * progress;
+  if (h <= 0.5) return null;
+  const y = baseline - (baseline - yTop) * progress;
   return (
-    <AnimatedRect
+    <Rect
       x={x}
       width={width}
       y={y}
@@ -94,6 +101,7 @@ const CHART_HEIGHT = 150;
 const AXIS_W = 34;      // left gutter for $ labels
 const LABEL_H = 16;     // bottom gutter for x labels
 const TOP_PAD = 8;      // headroom above the tallest bar
+const MIN_SEG_PX = 3;   // smallest visible height for a non-zero stream segment
 
 export function EarningsChart({
   data, onDrill,
@@ -102,19 +110,31 @@ export function EarningsChart({
   onDrill?: (p: StackPoint, index: number) => void;
 }) {
   const [width, setWidth] = useState(0);
-  const progress = useRef(new RNAnimated.Value(0)).current;
+  // Grow factor (0→1) held in React state, NOT bound to SVG via Animated — see
+  // the note on <Segment/>. An Animated.Value drives the timing; its listener
+  // pushes each frame into state so plain <Rect>s re-render. The completion
+  // callback pins it to exactly 1 so bars always finish fully drawn even if a
+  // frame tick is dropped.
+  const [progress, setProgress] = useState(0);
   // Re-run the grow animation whenever the bucket set changes (period switch).
   const sig = data.map((d) => d.label).join('|') + ':' + data.length;
 
   useEffect(() => {
-    progress.setValue(0);
-    RNAnimated.timing(progress, {
+    const driver = new RNAnimated.Value(0);
+    setProgress(0);
+    const id = driver.addListener(({ value }) => setProgress(value));
+    const anim = RNAnimated.timing(driver, {
       toValue: 1,
       duration: 750,
       easing: RNEasing.out(RNEasing.cubic),
       useNativeDriver: false,
-    }).start();
-  }, [sig, progress]);
+    });
+    anim.start(() => setProgress(1));
+    return () => {
+      anim.stop();
+      driver.removeListener(id);
+    };
+  }, [sig]);
 
   function onLayout(e: LayoutChangeEvent) {
     const w = e.nativeEvent.layout.width;
@@ -194,7 +214,12 @@ export function EarningsChart({
                   />
                 )}
                 {segs.map((sg, si) => {
-                  const h = sg.v * scale;
+                  // Floor each non-zero segment to a visible nub so a small
+                  // month/day (e.g. a single $3.50 ride) still reads as a bar
+                  // next to a tall one — otherwise it scales to a sub-pixel
+                  // sliver and looks like "no earnings". yTop is derived from
+                  // the floored height so the stack stays consistent.
+                  const h = Math.max(sg.v * scale, MIN_SEG_PX);
                   const yTop = runningBottom - h;
                   runningBottom = yTop;
                   return (
@@ -299,7 +324,7 @@ export function EarningsDrillSheet({
             {/* Per-stream split */}
             <View style={styles.splitRow}>
               <SplitCard label="Cash" value={point.cash} color={STREAMS.cash.color} />
-              <SplitCard label="App Pay" value={point.nonCash} color={STREAMS.nonCash.color} />
+              <SplitCard label="HMU Pay" value={point.nonCash} color={STREAMS.nonCash.color} />
               <SplitCard label="Delivery" value={point.delivery} color={STREAMS.delivery.color} />
             </View>
 
