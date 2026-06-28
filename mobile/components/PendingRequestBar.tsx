@@ -8,8 +8,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, AppState } from 'react-native';
-import { useRouter, usePathname } from 'expo-router';
-import { useUser } from '@clerk/clerk-expo';
+import { useRouter, useSegments } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
@@ -18,48 +17,50 @@ import { useStableToken } from '@/hooks/use-stable-token';
 import { apiClient } from '@/lib/api';
 import { useNotifications } from '@/contexts/notifications';
 
-// Driver tab routes where the bar floats above the tab bar. We hide it on the
+// Driver tab screens where the bar floats above the tab bar. We hide it on the
 // feed itself (the cards are right there) and on full-screen flows.
-const DRIVER_TAB_ROUTES = ['/home', '/rides', '/profile'];
+const DRIVER_TAB_SCREENS = ['home', 'rides', 'profile'];
 // Mirror of the driver tab bar band height (app/(driver)/_layout.tsx).
 const TAB_BASE_HEIGHT = 64;
 
 export function PendingRequestBar() {
   const router = useRouter();
-  const pathname = usePathname();
+  // Route group/screen — bulletproof driver detection that doesn't depend on
+  // Clerk metadata being hydrated (segments[0] is the (group), [1] the screen).
+  const segments = useSegments() as string[];
   const insets = useSafeAreaInsets();
   const getToken = useStableToken();
-  const { user } = useUser();
   const { unreadRequestCount, activeRide } = useNotifications();
   const [serverCount, setServerCount] = useState(0);
 
-  const isDriver = (user?.publicMetadata?.profileType as string) === 'driver';
+  const inDriver = segments[0] === '(driver)';
+  const screen = segments[1] ?? '';
 
   const refresh = useCallback(async () => {
-    if (!isDriver) { setServerCount(0); return; }
+    if (!inDriver) { setServerCount(0); return; }
     try {
       const t = await getToken();
       const data = await apiClient<{ requests?: unknown[] }>('/drivers/requests', t);
       setServerCount(Array.isArray(data.requests) ? data.requests.length : 0);
     } catch { /* best-effort — keep prior count on transient errors */ }
-  }, [isDriver, getToken]);
+  }, [inDriver, getToken]);
 
   // Refresh on mount + whenever the route changes (covers returning to a tab),
   // whenever a realtime request bumps the unread counter, and on app-foreground
   // (covers a request that landed while the app was suspended).
-  useEffect(() => { void refresh(); }, [refresh, pathname, unreadRequestCount]);
+  useEffect(() => { void refresh(); }, [refresh, screen, unreadRequestCount]);
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => { if (s === 'active') void refresh(); });
     return () => sub.remove();
   }, [refresh]);
 
   // Realtime unread can lead the server fetch by a beat — show the bar on either.
-  const count = Math.max(serverCount, isDriver ? unreadRequestCount : 0);
+  const count = Math.max(serverCount, inDriver ? unreadRequestCount : 0);
 
-  if (!isDriver || count <= 0) return null;
-  if (activeRide) return null;                 // busy on a ride — don't nag
-  if (pathname === '/feed') return null;       // already looking at the cards
-  if (!DRIVER_TAB_ROUTES.includes(pathname)) return null;
+  if (!inDriver || count <= 0) return null;
+  if (activeRide) return null;                   // busy on a ride — don't nag
+  if (screen === 'feed') return null;            // already looking at the cards
+  if (!DRIVER_TAB_SCREENS.includes(screen)) return null;
 
   return (
     <Animated.View
