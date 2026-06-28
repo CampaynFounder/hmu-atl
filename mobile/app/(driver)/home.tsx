@@ -203,10 +203,16 @@ export default function DriverHome() {
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const [activeRideStatus, setActiveRideStatus] = useState<string | null>(null);
   const tokenRegistered = useRef(false);
+  // Clerk's getToken changes identity across renders. Capturing it in a ref and
+  // keeping it OUT of effect/callback deps prevents an infinite re-fetch loop:
+  // fetch → setState → re-render → new getToken → effect re-fires → fetch…
+  // (Same fix the feed screen already uses.)
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
 
   const fetchAll = useCallback(async () => {
     try {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       setAuthToken(token);
       const [analyticsData, meData, balanceData, activeData] = await Promise.allSettled([
         apiClient<AnalyticsResponse>('/driver/analytics', token),
@@ -230,15 +236,15 @@ export default function DriverHome() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [getToken]);
+  }, []);
 
   useEffect(() => {
     void fetchAll();
     if (!tokenRegistered.current) {
       tokenRegistered.current = true;
-      getToken().then((t) => { if (t) void registerPushToken(t); }).catch(() => {});
+      getTokenRef.current().then((t) => { if (t) void registerPushToken(t); }).catch(() => {});
     }
-  }, [fetchAll, getToken]);
+  }, [fetchAll]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

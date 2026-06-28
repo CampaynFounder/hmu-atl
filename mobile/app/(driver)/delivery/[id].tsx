@@ -10,6 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -31,7 +32,7 @@ export default function ActiveDeliveryCourier() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
 
   const [delivery, setDelivery] = useState<DeliveryRequest | null>(null);
   const [loading, setLoading] = useState(true);

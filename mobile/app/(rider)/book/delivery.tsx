@@ -10,6 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInRight } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -37,7 +38,7 @@ function fmtMoney(n: number) {
 export default function BookDelivery() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
 
   const [step, setStep] = useState<Step>('merchant');
 

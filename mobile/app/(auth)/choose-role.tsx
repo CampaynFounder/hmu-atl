@@ -5,6 +5,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
@@ -13,7 +14,7 @@ import { apiClient } from '@/lib/api';
 export default function ChooseRole() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
   const [selecting, setSelecting] = useState<'rider' | 'driver' | null>(null);
   const [checking, setChecking] = useState(true);
 

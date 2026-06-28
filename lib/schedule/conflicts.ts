@@ -233,7 +233,7 @@ export async function confirmTentativeBooking(
   if (updated.length) {
     await sql`
       INSERT INTO schedule_events (driver_id, rider_id, event_type, market_id, details)
-      VALUES (${driverId}, ${riderId}, 'booking_confirmed', ${marketId}, ${JSON.stringify({ rideId, postId, startAt })}::jsonb)
+      VALUES (${driverId}, ${riderId}, 'booking_created', ${marketId}, ${JSON.stringify({ rideId, postId, startAt, confirmed: true })}::jsonb)
     `;
     return (updated[0] as { id: string }).id;
   }

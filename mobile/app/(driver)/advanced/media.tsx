@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -80,7 +81,7 @@ const MEDIA_TYPES: MediaTypeDef[] = [
 export default function MediaScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
 
   const [media, setMedia] = useState<DriverMedia>({ videoUrl: null, vibeVideoUrl: null, coverPhotoUrl: null });
   const [loading, setLoading] = useState(true);

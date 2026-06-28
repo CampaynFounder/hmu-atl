@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
@@ -145,7 +145,7 @@ async function tryGetGPS(): Promise<{ lat: number; lng: number } | null> {
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function ActiveRideScreen() {
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { rideId } = useLocalSearchParams<{ rideId: string }>();

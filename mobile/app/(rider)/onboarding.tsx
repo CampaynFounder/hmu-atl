@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,7 +29,7 @@ const GENDERS = [
 
 export default function RiderOnboarding() {
   const insets = useSafeAreaInsets();
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
   const router = useRouter();
 
   const [phase, setPhase] = useState<Phase>('handle');

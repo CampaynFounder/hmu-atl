@@ -5,6 +5,7 @@ import {
   RefreshControl, ActivityIndicator,
 } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { apiClient } from '@/lib/api';
 
 interface Earnings {
@@ -14,7 +15,7 @@ interface Earnings {
 }
 
 export default function Dashboard() {
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
   const [earnings, setEarnings] = useState<Earnings | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);

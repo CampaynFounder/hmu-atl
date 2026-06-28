@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInUp, ZoomIn } from 'react-native-reanimated';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
@@ -60,7 +61,7 @@ export default function PaymentSetup() {
 function PaymentSetupInner() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
 
   const { usePaymentSheet } = StripeModule!;
   const { initPaymentSheet, presentPaymentSheet, loading: sheetLoading } = usePaymentSheet();

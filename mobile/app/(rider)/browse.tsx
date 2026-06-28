@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
@@ -354,7 +354,7 @@ function GridCard({ driver, width, height, canDirect, onHmu }: {
 export default function BrowseDrivers() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
 
   // Use onLayout to measure the FlatList's actual available height.
   // Static subtraction misses the topBar and filter chrome, causing items to

@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -58,7 +59,7 @@ interface MenuResponse {
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function MenuScreen() {
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 

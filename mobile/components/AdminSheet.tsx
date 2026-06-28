@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow, toggle } from '@/lib/theme';
 import { apiClient, API_BASE } from '@/lib/api';
@@ -1825,7 +1826,7 @@ interface AdminSheetProps {
 
 export function AdminSheet({ visible, onClose }: AdminSheetProps) {
   const insets = useSafeAreaInsets();
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
   const translateY = useRef(new Animated.Value(SHEET_H)).current;
   const [token, setToken] = useState<string | null>(null);
   const [tab, setTab] = useState(0);

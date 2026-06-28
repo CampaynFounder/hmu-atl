@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { Platform } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { API_BASE } from '@/lib/api';
@@ -101,7 +102,8 @@ export function useNotifications() {
 }
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
-  const { isSignedIn, userId, getToken } = useAuth();
+  const { isSignedIn, userId } = useAuth();
+  const getToken = useStableToken();
   const router = useRouter();
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;

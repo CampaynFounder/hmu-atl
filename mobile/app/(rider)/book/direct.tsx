@@ -71,6 +71,11 @@ export default function DirectBooking() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { getToken } = useAuth();
+  // getToken changes identity each render — keep it in a ref and out of deps so
+  // the driver-index load + search callbacks don't infinite-loop (fetch →
+  // setState → re-render → new getToken → effect re-fires → fetch…).
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
   const { prefillHandle } = useLocalSearchParams<{ prefillHandle?: string }>();
 
   // INVARIANT: arriving from Browse with a pre-selected driver (prefillHandle)
@@ -98,7 +103,7 @@ export default function DirectBooking() {
   useEffect(() => {
     async function loadIndex() {
       try {
-        const t = await getToken();
+        const t = await getTokenRef.current();
         const data = await apiClient<{ drivers: BrowseResult[] }>(
           '/rider/browse/list?offset=0&limit=200', t,
         );
@@ -106,7 +111,7 @@ export default function DirectBooking() {
       } catch {}
     }
     void loadIndex();
-  }, [getToken]);
+  }, []);
 
   useEffect(() => {
     if (searchDebounce.current) clearTimeout(searchDebounce.current);
@@ -234,7 +239,7 @@ export default function DirectBooking() {
     setDriver(null);
     setSearchResults([]);
     try {
-      const t = await getToken();
+      const t = await getTokenRef.current();
       const d = await apiClient<DriverPreview>(`/driver/${h}`, t);
       setDriver(d);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -244,7 +249,7 @@ export default function DirectBooking() {
     } finally {
       setFindingDriver(false);
     }
-  }, [handleInput, getToken]);
+  }, [handleInput]);
 
   // Honor the pre-selected driver from Browse ROBUSTLY. This must NOT depend on
   // mount timing: expo-router's useLocalSearchParams can be empty on the first

@@ -9,6 +9,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { useAuth, useUser } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
@@ -31,7 +32,8 @@ interface RideSummary {
 
 export default function RiderProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { getToken, signOut } = useAuth();
+  const { signOut } = useAuth();
+  const getToken = useStableToken();
   const { user: clerkUser } = useUser();
   const router = useRouter();
   const { isSuperAdmin } = useUserContext();
