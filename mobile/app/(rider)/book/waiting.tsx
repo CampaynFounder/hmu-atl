@@ -51,7 +51,7 @@ export default function WaitingScreen() {
 
   const [cancelling, setCancelling] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const { activeRide } = useNotifications();
+  const { activeRide, declinedRequest } = useNotifications();
 
   const { secsLeft, display: countdown } = useCountdown(expiresAt ?? '');
   const expired = secsLeft === 0;
@@ -70,6 +70,16 @@ export default function WaitingScreen() {
       router.replace(`/(rider)/ride/active?rideId=${activeRide.rideId}${seed}` as never);
     }
   }, [activeRide, router]);
+
+  // Driver passed in real time — stop the countdown and surface the "driver
+  // passed" screen with their reason. Scoped by postId so a stale decline for a
+  // different request can't hijack this wait.
+  useEffect(() => {
+    if (declinedRequest && declinedRequest.postId === postId) {
+      if (pollRef.current) clearInterval(pollRef.current);
+      router.replace(`/(rider)/book/passed?postId=${postId}` as never);
+    }
+  }, [declinedRequest, postId, router]);
 
   const timerColor = secsLeft > 120 ? colors.green : secsLeft > 30 ? colors.amber : colors.red;
 

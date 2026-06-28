@@ -21,6 +21,7 @@ import { useAbly } from '@/hooks/use-ably';
 import { useNotifications } from '@/contexts/notifications';
 import { CommentsAccordion } from '@/components/CommentsAccordion';
 import { SwipeDeck } from '@/components/SwipeDeck';
+import { PassReasonSheet, type PassReason } from '@/components/PassReasonSheet';
 import type { DeliveryOpportunity } from '@/shared/delivery-types';
 
 // Matches the camelCase shape returned by GET /api/drivers/requests
@@ -82,7 +83,9 @@ export default function DriverFeed() {
   const [driverHandle, setDriverHandle] = useState<string | null>(null);
 
   const driverId = user?.publicMetadata?.databaseId as string | undefined;
-  const { registerFeedRefresh } = useNotifications();
+  const { registerFeedRefresh, clearRequestAlerts } = useNotifications();
+  // Direct booking the driver just swiped to pass — drives the reason sheet.
+  const [passTarget, setPassTarget] = useState<BlastRequest | null>(null);
 
   // Stable ref so callbacks don't recreate when Clerk refreshes the session token.
   // Without this, getToken reference changes → fetchDeliveries gets new reference →
@@ -261,6 +264,8 @@ export default function DriverFeed() {
     try {
       const t = await getToken();
       const res = await apiClient<{ status: string; rideId?: string }>(`/bookings/${request.id}/accept`, t, { method: 'POST' });
+      // Request resolved — drop any lingering new-request alerts for it.
+      clearRequestAlerts();
       // Direct booking match — go straight to the active ride screen
       if (res.rideId) {
         router.push({ pathname: '/(driver)/ride/active' as any, params: { rideId: res.rideId } });
@@ -275,11 +280,35 @@ export default function DriverFeed() {
     }
   }
 
+  // Pass commits on swipe (the card flies away). For a DIRECT booking we then
+  // open the reason sheet so the rider gets the driver's reason in real time —
+  // the decline POST is deferred until the sheet resolves so reason+message
+  // land in the single decline call. Other request types pass silently (the
+  // rider isn't notified per-pass on those rails).
   async function handlePass(request: BlastRequest) {
-    // Optimistically remove the card immediately
     setRequests((prev) => prev.filter((r) => r.id !== request.id));
+    if (request.type === 'direct') {
+      setPassTarget(request);
+      return;
+    }
     const t = await getToken();
     apiClient(`/bookings/${request.id}/decline`, t, { method: 'POST' }).catch(() => {});
+    clearRequestAlerts();
+  }
+
+  // Sheet resolution — one decline call carrying the optional reason/message.
+  async function submitPass(reason: PassReason | null, message: string) {
+    const target = passTarget;
+    setPassTarget(null);
+    if (!target) return;
+    try {
+      const t = await getToken();
+      await apiClient(`/bookings/${target.id}/decline`, t, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason ?? undefined, message: message || undefined }),
+      });
+    } catch { /* card already gone; a refetch re-surfaces it if the pass didn't land */ }
+    clearRequestAlerts();
   }
 
   if (loading) {
@@ -438,6 +467,17 @@ export default function DriverFeed() {
           )}
         />
       )}
+
+      {/* Reason sheet — shown after a direct booking is swiped to pass. The pass
+          is already committed; the reason is an optional add-on sent to the
+          rider. Dismissing still passes (without a reason). */}
+      <PassReasonSheet
+        open={!!passTarget}
+        riderHandle={passTarget?.riderHandle}
+        secondaryLabel="Skip"
+        onConfirm={submitPass}
+        onClose={() => submitPass(null, '')}
+      />
     </View>
   );
 }
