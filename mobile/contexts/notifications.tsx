@@ -385,14 +385,20 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
       case 'direct_booking_request': {
         setUnreadRequestCount((c) => c + 1);
+        const reqPrice = data?.price as number | undefined;
         enqueue({
           id: `direct-${Date.now()}`,
           type: 'new_request',
-          title: 'DIRECT BOOKING',
-          body: 'A rider booked you directly',
+          title: 'NEW RIDE REQUEST',
+          body: reqPrice
+            ? `A rider wants you — $${reqPrice}. Tap to respond before it expires.`
+            : 'A rider booked you directly — tap to respond.',
           route: '/(driver)/feed',
           timestamp: Date.now(),
         });
+        // Refresh the feed too so a driver already on it sees the card appear
+        // even if its own channel briefly drops the event.
+        triggerFeedRefresh();
         break;
       }
 

@@ -2,10 +2,15 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { AppNotification, useNotifications } from '@/contexts/notifications';
 import { colors, fonts, radius } from '@/lib/theme';
 
 const DURATION = 4200;
+// A new ride request is revenue-critical and time-boxed — give it a top-priority
+// treatment: it lingers longer (a 4.2s toast is too easy to miss) and fires a
+// haptic so the driver feels it regardless of which screen they're on.
+const PRIORITY_DURATION = 12000;
 
 function accentColor(type: AppNotification['type']): string {
   switch (type) {
@@ -35,6 +40,14 @@ export function NotificationBanner() {
     progressAnim.setValue(1);
     if (timerRef.current) clearTimeout(timerRef.current);
 
+    const isPriority = currentBanner.type === 'new_request';
+    const duration = isPriority ? PRIORITY_DURATION : DURATION;
+
+    // A can't-miss tap for a new ride request — fires app-wide, any screen.
+    if (isPriority) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    }
+
     Animated.spring(slideY, {
       toValue: 0,
       useNativeDriver: true,
@@ -45,11 +58,11 @@ export function NotificationBanner() {
 
     Animated.timing(progressAnim, {
       toValue: 0,
-      duration: DURATION,
+      duration,
       useNativeDriver: false,
     }).start();
 
-    timerRef.current = setTimeout(slideOut, DURATION);
+    timerRef.current = setTimeout(slideOut, duration);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
