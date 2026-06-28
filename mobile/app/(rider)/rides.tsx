@@ -7,7 +7,7 @@ import {
   TextInput, ScrollView, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
@@ -155,7 +155,7 @@ function RideRow({ ride, onPress, onRateNow }: { ride: Ride; onPress: () => void
 
 export default function RiderRides() {
   const insets = useSafeAreaInsets();
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
   const router = useRouter();
   const searchRef = useRef<TextInput>(null);
 

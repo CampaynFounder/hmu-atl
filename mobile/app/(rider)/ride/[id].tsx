@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
@@ -236,7 +237,7 @@ const rs = StyleSheet.create({
 
 export default function RiderRideDetail() {
   const insets = useSafeAreaInsets();
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
   const router = useRouter();
   const { id: rideId } = useLocalSearchParams<{ id: string }>();
 

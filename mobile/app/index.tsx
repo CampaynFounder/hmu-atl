@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import * as Location from 'expo-location';
 import { apiClient } from '@/lib/api';
 import { useUserContext } from '@/contexts/UserContext';
 
 export default function Index() {
-  const { getToken, isSignedIn } = useAuth();
+  const { isSignedIn } = useAuth();
+  const getToken = useStableToken();
   const router = useRouter();
   const { setUser } = useUserContext();
   const [resolving, setResolving] = useState(true);

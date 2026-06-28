@@ -162,9 +162,13 @@ export async function sendSms(
       lastError = `VoIP.ms: ${apiStatus}`;
       console.error(`[SMS] Attempt ${attempt + 1} failed:`, apiStatus, '| http:', lastHttpStatus, '| body:', rawText.slice(0, 200));
 
-      // Don't retry on auth/config errors
-      if (['invalid_credentials', 'invalid_method', 'missing_did'].includes(apiStatus)) {
-        console.error('[SMS] Fatal error, not retrying:', apiStatus);
+      // Don't retry on permanent errors — auth/config OR a bad destination.
+      // invalid_dst means the number can't receive an SMS from this DID (e.g. a
+      // VoIP.ms-owned DID, a landline, or a malformed number); retrying just
+      // burns the waitUntil isolate on a guaranteed failure.
+      if (['invalid_credentials', 'invalid_method', 'missing_did',
+           'invalid_dst', 'missing_dst'].includes(apiStatus)) {
+        console.error('[SMS] Permanent error, not retrying:', apiStatus);
         await logSms(dst, did, message, 'failed', apiStatus, lastError, attempt, options, data, lastHttpStatus);
         return { success: false, error: lastError };
       }

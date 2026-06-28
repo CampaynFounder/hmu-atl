@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
@@ -65,7 +66,8 @@ function toMobileRoute(webRoute: string): string {
 
 export default function DriverProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { getToken, signOut } = useAuth();
+  const { signOut } = useAuth();
+  const getToken = useStableToken();
   const router = useRouter();
   const { isSuperAdmin } = useUserContext();
   const [adminVisible, setAdminVisible] = useState(false);

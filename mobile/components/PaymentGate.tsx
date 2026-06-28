@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, ReactNode } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
@@ -19,7 +19,7 @@ interface Props {
 }
 
 export function PaymentGate({ children }: Props) {
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
   const router = useRouter();
   // null = not yet known (never had a successful check). We ONLY gate on a
   // confirmed-empty array — never on null — so a failed/slow check can't falsely

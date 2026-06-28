@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow, toggle } from '@/lib/theme';
@@ -31,7 +32,7 @@ interface PricingData {
 }
 
 export default function PricingScreen() {
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 

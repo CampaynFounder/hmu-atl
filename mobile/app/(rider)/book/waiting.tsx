@@ -33,6 +33,12 @@ export default function WaitingScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { getToken } = useAuth();
+  // getToken changes identity every render. The countdown re-renders every
+  // second, so a getToken-dependent checkAccepted callback would be recreated
+  // each second and RESET the 5s poll interval before it ever fires — meaning
+  // acceptance was never detected by the poll. Keep getToken in a ref.
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
 
   const { type, postId, expiresAt, expiryMinutes, handle, price } = useLocalSearchParams<{
     type: 'direct' | 'down-bad';
@@ -74,21 +80,25 @@ export default function WaitingScreen() {
   }, []);
   const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
 
-  // Poll /rides/active every 5s to catch acceptance
+  // Poll /rides/active every 4s to catch acceptance. ANY active ride for this
+  // rider means the driver accepted (one-active-ride-per-rider is enforced), so
+  // route on hasActiveRide — not only the exact 'matched' status, which we'd
+  // miss if the ride advanced quickly. Stable identity (getToken in a ref) so
+  // the interval is NOT reset on every countdown tick.
   const checkAccepted = useCallback(async () => {
     try {
-      const t = await getToken();
+      const t = await getTokenRef.current();
       const data = await apiClient<{ hasActiveRide: boolean; status?: string; rideId?: string }>('/rides/active', t);
-      if (data.hasActiveRide && data.status === 'matched') {
+      if (data.hasActiveRide && data.rideId) {
         if (pollRef.current) clearInterval(pollRef.current);
-        // Straight into the unified ride screen (Pull Up → I'm In → live ride).
-        router.replace(data.rideId ? `/(rider)/ride/active?rideId=${data.rideId}` as never : '/(rider)/home');
+        router.replace(`/(rider)/ride/active?rideId=${data.rideId}` as never);
       }
     } catch {}
-  }, [getToken, router]);
+  }, [router]);
 
   useEffect(() => {
-    pollRef.current = setInterval(checkAccepted, 5000);
+    void checkAccepted(); // immediate check on mount — don't wait a full interval
+    pollRef.current = setInterval(checkAccepted, 4000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [checkAccepted]);
 

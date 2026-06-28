@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useAuth } from '@clerk/clerk-expo';
+import { useStableToken } from '@/hooks/use-stable-token';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
@@ -97,7 +97,7 @@ function shortAddr(addr: string | null): string {
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export default function DriverRides() {
-  const { getToken } = useAuth();
+  const getToken = useStableToken();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 

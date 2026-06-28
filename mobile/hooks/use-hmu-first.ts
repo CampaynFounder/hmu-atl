@@ -5,7 +5,7 @@
 // Defaults to enabled + $9.99 while loading / on failure, so a transient error
 // never hides a feature that is actually open.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@clerk/clerk-expo';
 import { apiClient } from '@/lib/api';
 
@@ -25,18 +25,22 @@ export function formatPrice(cents: number): string {
 export function useHmuFirst(): HmuFirstConfig {
   const { getToken } = useAuth();
   const [config, setConfig] = useState<HmuFirstConfig>(DEFAULT);
+  // getToken changes identity each render; keep it out of deps so this fetches
+  // once (not on an infinite render loop).
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const t = await getToken();
+        const t = await getTokenRef.current();
         const d = await apiClient<HmuFirstConfig>('/driver/hmu-first', t);
         if (active && typeof d.enabled === 'boolean') setConfig(d);
       } catch { /* keep defaults */ }
     })();
     return () => { active = false; };
-  }, [getToken]);
+  }, []);
 
   return config;
 }
