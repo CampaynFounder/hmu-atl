@@ -78,6 +78,29 @@ required: the transient `NotificationBanner` (realtime, foreground) AND the
 persistent `PendingRequestBar` (server-authoritative `GET /drivers/requests`,
 refreshed on mount/route-change/foreground). Never rely on the toast alone.
 
+## Market is assigned at sign-up via Clerk unsafeMetadata, BEFORE signUp.create
+`app/(auth)/sign-up.tsx` resolves the device's market (`lib/market.ts` →
+`GET /api/public/market-check`, a PUBLIC endpoint, called with a `null` token
+because there is no session yet) and passes `unsafeMetadata: { market: slug }`
+into `signUp.create()`. This is the ONLY reliable way to set `users.market_id`:
+the Clerk webhook creates the Neon row at phone-verification and reads
+`unsafe_metadata.market`; once it writes a non-null `market_id`, the later
+`COALESCE(market_id, …)` heal paths can NEVER overwrite it. So:
+
+- The market MUST be resolved before `signUp.create`, not after. Resolving it
+  post-session (header/PATCH) is too late — the row is already born as the
+  default market (`atl`). This bug is INVISIBLE in Atlanta; it only shows up as
+  NOLA/other-market users stuck in the ATL market.
+- Sign-up is gated to live markets here: if `market.isActive === false`, route to
+  `/not-in-market` and do NOT create the account (until national rollout).
+- Fails OPEN when location is denied/unavailable (and is skipped in `__DEV__`) —
+  the authed launch-time gate in `app/index.tsx` still applies on next open.
+- `not-in-market.tsx` is reached both pre-session (sign-up gate) and post-session
+  (launch gate); its actions branch on `isSignedIn`. Don't assume a session.
+- Geo→market centers live server-side in `lib/markets/geo.ts` (shared by the
+  authed `active-check` and the public `market-check`); `middleware.ts` keeps its
+  own edge copy. Adding a market means updating both.
+
 ## Ride status uses TWO Ably event shapes — handle both on the client
 `ride:{id}` carries `status_change` for most transitions, BUT the rider's
 Start-Ride step arrives as its OWN event name `confirm_start` (with

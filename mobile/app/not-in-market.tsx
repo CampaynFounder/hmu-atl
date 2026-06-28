@@ -1,6 +1,8 @@
-// Shown when the user's location maps to a market that is not yet live.
-// Their phone is already saved (Clerk auth). They can join the waitlist
-// passively (captured server-side on the active-check call) and sign out.
+// Shown when the user's location maps to a market that is not yet live. Reached
+// two ways: (1) at sign-up, BEFORE a Clerk session exists (gated by
+// /public/market-check); (2) at launch, when an existing session's geo check
+// fails (app/index.tsx). Their number is waitlisted server-side either way.
+// The actions adapt to whether a session exists.
 
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,7 +14,7 @@ import { colors, fonts, radius, spacing } from '@/lib/theme';
 export default function NotInMarketScreen() {
   const insets = useSafeAreaInsets();
   const { area, slug } = useLocalSearchParams<{ area: string; slug: string }>();
-  const { signOut } = useAuth();
+  const { isSignedIn, signOut } = useAuth();
   const router = useRouter();
 
   const displayArea = area && area !== 'Your area' ? area : 'Your city';
@@ -47,19 +49,29 @@ export default function NotInMarketScreen() {
       <View style={s.actions}>
         <TouchableOpacity
           style={s.retryBtn}
-          onPress={() => router.replace('/')}
+          onPress={() => router.replace(isSignedIn ? '/' : '/(auth)/sign-up')}
           activeOpacity={0.8}
         >
           <Ionicons name="refresh-outline" size={14} color={colors.textSecondary} />
           <Text style={s.retryText}>CHECK AGAIN</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={s.signOutBtn}
-          onPress={() => signOut()}
-          activeOpacity={0.8}
-        >
-          <Text style={s.signOutText}>SIGN OUT</Text>
-        </TouchableOpacity>
+        {isSignedIn ? (
+          <TouchableOpacity
+            style={s.signOutBtn}
+            onPress={() => signOut()}
+            activeOpacity={0.8}
+          >
+            <Text style={s.signOutText}>SIGN OUT</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={s.retryBtn}
+            onPress={() => router.replace('/(auth)/sign-in')}
+            activeOpacity={0.8}
+          >
+            <Text style={s.retryText}>ALREADY HAVE AN ACCOUNT? SIGN IN</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );

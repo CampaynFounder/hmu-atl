@@ -47,6 +47,43 @@ export default function DriverPassedScreen() {
   const pickup = pendingLoc?.pickup?.address ?? null;
   const dropoff = pendingLoc?.dropoff?.address ?? null;
 
+  // State-aware: this screen is a transient interstitial reached only when a
+  // driver passes on a direct booking. If there's no passed request in context
+  // or params (stale nav, back-stack, deep link), there's nothing to act on —
+  // show a neutral empty state that routes the rider back into booking instead
+  // of a broken "$0 / The driver passed" stub with dead buttons.
+  if (!postId) {
+    return (
+      <View style={[s.root, { paddingTop: insets.top + spacing.xl }]}>
+        <View style={s.emptyWrap}>
+          <View style={s.emptyIcon}>
+            <Ionicons name="checkmark-done" size={30} color={colors.green} />
+          </View>
+          <Text style={[s.title, { textAlign: 'center' }]}>You&apos;re all caught up</Text>
+          <Text style={s.emptyBody}>
+            No driver has passed on a request. Ready to ride?
+          </Text>
+        </View>
+        <View style={[s.actions, { paddingBottom: insets.bottom + spacing.lg }]}>
+          <TouchableOpacity
+            style={s.hmuBtn}
+            onPress={() => router.replace('/(rider)/home' as never)}
+            activeOpacity={0.85}
+          >
+            <Text style={s.hmuBtnText}>BOOK A RIDE</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.cancelBtn}
+            onPress={() => router.replace('/(rider)/rides' as never)}
+            activeOpacity={0.8}
+          >
+            <Text style={s.cancelBtnText}>Your Rides</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   async function act(kind: 'cancel' | 'broadcast') {
     if (!postId || busy) return;
     setBusy(kind);
@@ -141,6 +178,17 @@ const s = StyleSheet.create({
   content: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
   emoji: { fontSize: 44, marginBottom: spacing.sm },
   title: { fontFamily: fonts.display, fontSize: 34, color: colors.textPrimary, lineHeight: 36 },
+
+  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xxl },
+  emptyIcon: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: colors.greenDim, borderWidth: 1, borderColor: colors.greenBorder,
+    alignItems: 'center', justifyContent: 'center', marginBottom: spacing.xl,
+  },
+  emptyBody: {
+    fontFamily: fonts.body, fontSize: 15, color: colors.textTertiary,
+    textAlign: 'center', lineHeight: 22, marginTop: spacing.sm,
+  },
   subtitle: { fontFamily: fonts.body, fontSize: 14, color: colors.textTertiary, marginTop: 6, marginBottom: spacing.xl },
 
   card: {

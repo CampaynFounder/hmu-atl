@@ -7,23 +7,14 @@ import {
 } from 'react-native';
 import { colors, fonts, radius, spacing } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+import { isDemoPhone } from '@/lib/demo';
 
 // App-store reviewer login. When this build's EXPO_PUBLIC_DEMO_PHONE is set and
-// the user enters that exact number, we skip Clerk's SMS OTP entirely: the
-// reviewer's typed code is sent to /mobile/demo-signin, which returns a Clerk
-// sign-in ticket we redeem here. Real users' phone-OTP flow is untouched, and
-// the whole path is inert in builds where the env var is unset.
-// Comma-separated list of demo phones (e.g. a rider demo + a driver demo),
-// matched against the entered number. Inert when the env var is unset.
-const DEMO_PHONES = (process.env.EXPO_PUBLIC_DEMO_PHONE ?? '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
-const norm10 = (v: string) => {
-  const d = (v || '').replace(/\D/g, '');
-  return d.length >= 10 ? d.slice(-10) : d;
-};
-const isDemoPhone = (v: string) => DEMO_PHONES.some((p) => norm10(p) === norm10(v));
+// the user enters that exact number (see isDemoPhone in lib/demo.ts), we skip
+// Clerk's SMS OTP entirely: the reviewer's typed code is sent to
+// /mobile/demo-signin, which returns a Clerk sign-in ticket we redeem here. Real
+// users' phone-OTP flow is untouched, and the whole path is inert in builds
+// where the env var is unset.
 
 export default function SignIn() {
   const { signIn, setActive, isLoaded } = useSignIn();
