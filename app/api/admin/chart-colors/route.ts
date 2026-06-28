@@ -45,9 +45,14 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
-  // Merge onto the current palette so a partial PATCH only changes named channels.
+  // Merge onto the current palette so a partial PATCH only changes named fields.
+  // Labels are deep-merged so sending one label can't wipe its siblings.
   const current = await getChartPalette();
-  const next = sanitizePalette({ ...current, ...body });
+  const next = sanitizePalette({
+    ...current,
+    ...body,
+    labels: { ...current.labels, ...(body.labels ?? {}) },
+  });
 
   await sql`
     INSERT INTO platform_config (config_key, config_value, updated_by, updated_at)

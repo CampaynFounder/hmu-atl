@@ -56,8 +56,14 @@ interface BalanceResponse {
   digitalEarnings: { rides: number; total: number };
   noShowEarnings: { rides: number; total: number };
   deliveryEarnings?: { jobs: number; total: number };
-  /** Superadmin-tunable earnings-chart stream colors (live, no app rebuild). */
-  chartPalette?: { cash: string; hmuPay: string; delivery: string };
+  /** Superadmin-tunable earnings-chart colors, labels + blend toggle (live, no rebuild). */
+  chartPalette?: {
+    cash: string;
+    hmuPay: string;
+    delivery: string;
+    labels?: { cash: string; hmuPay: string; delivery: string };
+    gradientBlend?: boolean;
+  };
   flags: { depositsDetailSheet: boolean };
 }
 
