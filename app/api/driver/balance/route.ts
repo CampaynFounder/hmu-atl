@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { isFeatureEnabled } from '@/lib/feature-flags';
 import { resolvePricingStrategy } from '@/lib/payments/strategies';
+import { getChartPalette } from '@/lib/earnings/chart-palette';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
@@ -138,11 +139,16 @@ export async function GET() {
       { userId: driverUserId },
     );
 
+    // Superadmin-tunable chart palette (cached). Sent on the balance response so
+    // the mobile chart recolors live on next refresh — no app rebuild.
+    const chartPalette = await getChartPalette();
+
     const earnings = {
       cashEarnings: { rides: cashRides, total: cashTotal },
       digitalEarnings: { rides: digitalRides, total: digitalTotal },
       noShowEarnings: { rides: noShowRides, total: noShowTotal },
       deliveryEarnings: { jobs: deliveryJobs, total: deliveryTotal },
+      chartPalette,
       flags: { depositsDetailSheet },
     };
 
