@@ -46,6 +46,8 @@ export async function GET(req: NextRequest) {
   const maxPrice = rawMaxPrice ? Math.max(0, Number(rawMaxPrice)) : null;
   const rawMinAcc = req.nextUrl.searchParams.get('minAcceptanceRate');
   const minAcceptanceRate = rawMinAcc ? Math.min(100, Math.max(0, Number(rawMinAcc))) : null;
+  const sortBy: 'recommended' | 'distance' =
+    req.nextUrl.searchParams.get('sort') === 'distance' ? 'distance' : 'recommended';
 
   try {
     let driverPreference: string | null = null;
@@ -61,7 +63,7 @@ export async function GET(req: NextRequest) {
     }
 
     const drivers = await queryBrowseDrivers(
-      { driverPreference, genderFilter, hasMediaOnly, fwuOnly, areaFilter, maxPrice, minAcceptanceRate, riderLat, riderLng },
+      { driverPreference, genderFilter, hasMediaOnly, fwuOnly, areaFilter, maxPrice, minAcceptanceRate, riderLat, riderLng, sortBy },
       offset,
       limit,
     );

@@ -378,6 +378,8 @@ export default function BrowseDrivers() {
   const [areaFilter, setAreaFilter] = useState<string | null>(null);
   const [genderFilter, setGenderFilter] = useState<'any' | 'woman' | 'man'>('any');
   const [accFilter, setAccFilter] = useState<AccFilter>(0);
+  // 'recommended' = curated ranking; 'closest' = nearest-first by distance.
+  const [sortBy, setSortBy] = useState<'recommended' | 'closest'>('recommended');
 
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   // Per-market booking-type availability — defaults on so there's no flicker
@@ -420,8 +422,11 @@ export default function BrowseDrivers() {
     if (coords) url += `&lat=${coords.lat}&lng=${coords.lng}`;
     if (genderFilter !== 'any') url += `&gender=${genderFilter === 'woman' ? 'female' : 'male'}`;
     if (accFilter > 0) url += `&minAcceptanceRate=${accFilter}`;
+    // Closest-first only resolves server-side when we have rider coords; the
+    // backend falls back to recommended otherwise, so it's safe to always send.
+    if (sortBy === 'closest' && coords) url += `&sort=distance`;
     return url;
-  }, [coords, genderFilter, accFilter]);
+  }, [coords, genderFilter, accFilter, sortBy]);
 
   const load = useCallback(async (reset = false) => {
     if (reset) {
@@ -475,10 +480,10 @@ export default function BrowseDrivers() {
     }).catch(() => {});
   }, []);
 
-  // Refetch when coords, gender filter, or acceptance rate filter changes
+  // Refetch when coords, gender filter, acceptance rate, or sort order changes
   useEffect(() => {
     if (hasLoaded.current) void load(true);
-  }, [coords, genderFilter, accFilter]);
+  }, [coords, genderFilter, accFilter, sortBy]);
 
   // Load on first focus only
   useFocusEffect(useCallback(() => {
@@ -571,6 +576,28 @@ export default function BrowseDrivers() {
       {searchOpen && (
         <Animated.View entering={FadeIn.duration(200)} style={s.filtersWrap}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filters}>
+            {/* Sort order — BEST (curated) vs CLOSEST (nearest first). CLOSEST
+                needs GPS, so it's disabled until we have the rider's coords. */}
+            <TouchableOpacity
+              style={[s.filterChip, sortBy === 'recommended' && s.filterChipActive]}
+              onPress={() => { setSortBy('recommended'); void Haptics.selectionAsync(); }}
+            >
+              <Text style={[s.filterChipText, sortBy === 'recommended' && s.filterChipTextActive]}>BEST</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.filterChip, sortBy === 'closest' && s.filterChipActive, !coords && { opacity: 0.4 }]}
+              disabled={!coords}
+              onPress={() => { setSortBy('closest'); void Haptics.selectionAsync(); }}
+            >
+              <Ionicons
+                name="navigate-outline"
+                size={10}
+                color={sortBy === 'closest' ? colors.green : colors.textFaint}
+                style={{ marginRight: 2 }}
+              />
+              <Text style={[s.filterChipText, sortBy === 'closest' && s.filterChipTextActive]}>CLOSEST</Text>
+            </TouchableOpacity>
+            <View style={s.filterSep} />
             {/* Acceptance rate filter */}
             {ACC_FILTER_OPTIONS.map(o => (
               <TouchableOpacity
