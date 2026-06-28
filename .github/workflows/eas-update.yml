@@ -1,0 +1,73 @@
+name: EAS Update (OTA)
+
+# Ships JS-only changes over-the-air to installed PREVIEW builds — no new build,
+# no TestFlight. Triggered on push to main when mobile/** changes, EXCEPT the
+# native-affecting files (deps / native config), which require a rebuild and are
+# handled by eas-build.yml instead. The two workflows are mutually exclusive by
+# path, so a given push either OTA-updates OR builds, never both.
+#
+# How it reaches a device: the preview build profile is on channel "preview"
+# (eas.json), which maps to the "preview" EAS Update branch. An installed build
+# downloads a matching update (same runtimeVersion = app version) on next launch.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - '!mobile/package.json'
+      - '!mobile/package-lock.json'
+      - '!mobile/app.json'
+      - '!mobile/app.config.js'
+      - '!mobile/eas.json'
+      - '.github/workflows/eas-update.yml'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'EAS Update branch (maps to channel)'
+        required: false
+        default: 'preview'
+        type: string
+
+concurrency:
+  group: eas-update-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Publish OTA update
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish update
+        working-directory: mobile
+        run: |
+          BRANCH="${{ github.event.inputs.branch || 'preview' }}"
+          MSG=$(git log -1 --pretty=%s)
+          echo "Publishing OTA update to branch: $BRANCH"
+          eas update --branch "$BRANCH" --message "$MSG" --non-interactive
+          {
+            echo "### Mobile OTA Update published"
+            echo "**Branch/channel:** $BRANCH"
+            echo "**Message:** $MSG"
+            echo ""
+            echo "Installed preview builds (matching runtimeVersion) pick this up on next launch."
+          } >> "$GITHUB_STEP_SUMMARY"

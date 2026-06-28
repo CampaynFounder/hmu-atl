@@ -26,6 +26,7 @@
       "developmentClient": false,
       "distribution": "internal",
       "environment": "preview",
+      "channel": "preview",
       "ios": {
         "image": "macos-sequoia-15.6-xcode-26.2",
         "credentialsSource": "remote"
@@ -37,6 +38,7 @@
     "production": {
       "autoIncrement": true,
       "environment": "production",
+      "channel": "production",
       "ios": {
         "image": "macos-sequoia-15.6-xcode-26.2",
         "credentialsSource": "remote"

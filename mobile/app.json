@@ -3,6 +3,13 @@
     "name": "HMU ATL",
     "slug": "hmu-atl",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/d7abd3c4-5870-469f-b719-6ac77527ec03",
+      "fallbackToCacheTimeout": 0
+    },
     "scheme": "hmuatl",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
