@@ -56,7 +56,12 @@ export default function WaitingScreen() {
   useEffect(() => {
     if (activeRide?.rideId && !activeRide.isDriver) {
       if (pollRef.current) clearInterval(pollRef.current);
-      router.replace(`/(rider)/ride/active?rideId=${activeRide.rideId}` as never);
+      // Seed status so the active screen paints its shell ("DRIVER ACCEPTED" +
+      // route) instantly instead of a blank loader while /rider-view resolves.
+      const seed = `&seedStatus=${activeRide.status || 'matched'}`
+        + (activeRide.pickupAddress ? `&seedPickup=${encodeURIComponent(activeRide.pickupAddress)}` : '')
+        + (activeRide.dropoffAddress ? `&seedDropoff=${encodeURIComponent(activeRide.dropoffAddress)}` : '');
+      router.replace(`/(rider)/ride/active?rideId=${activeRide.rideId}${seed}` as never);
     }
   }, [activeRide, router]);
 

@@ -26,6 +26,13 @@ const TAB_BAR_H = 64;
 const SEARCH_H = 52;
 const PAGE_SIZE = 20;
 
+// Grid (thumbnail) view metrics — 2 columns so riders can scan every driver in
+// their market at a glance.
+const GRID_PAD = spacing.lg;
+const GRID_GAP = spacing.md;
+const GRID_CARD_W = (SCREEN_W - GRID_PAD * 2 - GRID_GAP) / 2;
+const GRID_CARD_H = GRID_CARD_W * 1.2;
+
 interface DriverCard {
   handle: string;
   displayName: string;
@@ -259,6 +266,89 @@ function DriverCardView({ driver, cardH, canDirect, canDownBad, onHmu, onDownBad
   );
 }
 
+// ── Grid (thumbnail) card ──────────────────────────────────────────────────────
+// Compact card for the at-a-glance market view. Tapping it starts the same HMU
+// flow as the feed's HMU button (Direct booking, prefilled handle) when Direct
+// is enabled; otherwise it stays a view-only thumbnail.
+
+function GridCard({ driver, width, height, canDirect, onHmu }: {
+  driver: DriverCard;
+  width: number;
+  height: number;
+  canDirect: boolean;
+  onHmu: (handle: string) => void;
+}) {
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const initials = (driver.displayName || driver.handle).slice(0, 2).toUpperCase();
+  const displayPrice = driver.livePrice ?? driver.minPrice;
+
+  return (
+    <Animated.View style={[animStyle, { width }]}>
+      <Pressable
+        onPressIn={() => { scale.value = withSpring(0.97, { damping: 20 }); }}
+        onPressOut={() => { scale.value = withSpring(1, { damping: 20 }); }}
+        onPress={() => {
+          if (!canDirect) return;
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onHmu(driver.handle);
+        }}
+        style={[g.card, { width, height }]}
+      >
+        <HmuImage
+          uri={driver.photoUrl ?? undefined}
+          style={StyleSheet.absoluteFill}
+          fallbackInitials={initials}
+          fallbackBg={colors.cardAlt}
+        />
+
+        {/* Badges */}
+        {!!driver.videoUrl && (
+          <View style={g.playBadge}>
+            <Ionicons name="play" size={10} color={colors.textPrimary} />
+          </View>
+        )}
+        {/* Live takes the top-left corner; HMU 1ST only shows when not live so
+            the two never overlap. */}
+        {driver.liveMessage ? (
+          <View style={g.liveDot} />
+        ) : driver.isHmuFirst ? (
+          <View style={g.firstBadge}>
+            <Text style={g.firstBadgeText}>HMU 1ST</Text>
+          </View>
+        ) : null}
+
+        {/* Bottom scrim + info */}
+        <View style={g.scrim} />
+        <View style={g.info}>
+          <Text style={g.name} numberOfLines={1}>
+            {driver.displayName || `@${driver.handle}`}
+          </Text>
+          <View style={g.metaRow}>
+            <Text style={g.price}>${displayPrice}</Text>
+            {driver.chillScore > 0 && (
+              <View style={g.stat}>
+                <Ionicons name="star" size={9} color={colors.green} />
+                <Text style={g.statText}>{driver.chillScore}%</Text>
+              </View>
+            )}
+            {driver.distanceMi != null && (
+              <View style={g.stat}>
+                <Ionicons
+                  name={driver.locationSource === 'live' ? 'navigate' : 'location-outline'}
+                  size={9}
+                  color={driver.locationSource === 'live' ? colors.green : colors.textFaint}
+                />
+                <Text style={g.statText}>{driver.distanceMi.toFixed(1)}mi</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export default function BrowseDrivers() {
@@ -280,6 +370,9 @@ export default function BrowseDrivers() {
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Feed = TikTok-style snap; Grid = thumbnail overview of every driver in the
+  // market. Default Feed so the signature experience is unchanged.
+  const [view, setView] = useState<'feed' | 'grid'>('feed');
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [areaFilter, setAreaFilter] = useState<string | null>(null);
@@ -453,6 +546,16 @@ export default function BrowseDrivers() {
           <View style={s.topRow}>
             <Text style={s.topTitle}>BROWSE DRIVERS</Text>
             <View style={s.topActions}>
+              <TouchableOpacity
+                style={s.iconBtn}
+                onPress={() => { setView(v => (v === 'feed' ? 'grid' : 'feed')); void Haptics.selectionAsync(); }}
+              >
+                <Ionicons
+                  name={view === 'feed' ? 'grid-outline' : 'square-outline'}
+                  size={18}
+                  color={view === 'grid' ? colors.green : colors.textSecondary}
+                />
+              </TouchableOpacity>
               <TouchableOpacity style={s.iconBtn} onPress={() => setSearchOpen(true)}>
                 <Ionicons name="search-outline" size={18} color={colors.textSecondary} />
               </TouchableOpacity>
@@ -531,12 +634,37 @@ export default function BrowseDrivers() {
             {query ? 'No match for that search.' : 'No drivers available right now.'}
           </Text>
         </View>
+      ) : view === 'grid' ? (
+        <FlatList
+          key="grid"
+          data={filtered}
+          keyExtractor={item => item.handle}
+          numColumns={2}
+          columnWrapperStyle={{ gap: GRID_GAP }}
+          contentContainerStyle={{ padding: GRID_PAD, gap: GRID_GAP, paddingBottom: GRID_PAD + 48 }}
+          showsVerticalScrollIndicator={false}
+          renderItem={({ item }) => (
+            <GridCard
+              driver={item}
+              width={GRID_CARD_W}
+              height={GRID_CARD_H}
+              canDirect={canDirect}
+              onHmu={handleHmu}
+            />
+          )}
+          onEndReached={onEndReached}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loadingMore ? (
+            <ActivityIndicator color={colors.green} style={{ marginTop: spacing.lg }} />
+          ) : null}
+        />
       ) : (
         <View
           style={{ flex: 1 }}
           onLayout={e => setListHeight(e.nativeEvent.layout.height)}
         >
           <FlatList
+            key="feed"
             data={filtered}
             keyExtractor={item => item.handle}
             renderItem={renderItem}
@@ -679,4 +807,41 @@ const s = StyleSheet.create({
 
   downBadLink: { alignItems: 'center', paddingVertical: spacing.xs },
   downBadText: { fontFamily: fonts.body, fontSize: 12, color: colors.amber },
+});
+
+// ── Grid card styles ────────────────────────────────────────────────────────
+const g = StyleSheet.create({
+  card: {
+    borderRadius: radius.card, overflow: 'hidden',
+    backgroundColor: colors.cardAlt,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  playBadge: {
+    position: 'absolute', top: spacing.sm, right: spacing.sm,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+  },
+  liveDot: {
+    position: 'absolute', top: spacing.sm, left: spacing.sm,
+    width: 9, height: 9, borderRadius: 5, backgroundColor: colors.green,
+    borderWidth: 1.5, borderColor: colors.bg,
+  },
+  firstBadge: {
+    position: 'absolute', top: spacing.sm, left: spacing.sm,
+    backgroundColor: colors.cashDim, borderColor: colors.cashBorder, borderWidth: 1,
+    borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 2,
+  },
+  firstBadgeText: { fontFamily: fonts.mono, fontSize: 8, color: colors.cash, letterSpacing: 0.6 },
+  scrim: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, height: 84,
+    backgroundColor: 'rgba(8,8,8,0.78)',
+  },
+  info: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: spacing.sm, gap: 3 },
+  name: { fontFamily: fonts.monoBold, fontSize: 12, color: colors.textPrimary },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  price: { fontFamily: fonts.display, fontSize: 18, color: colors.green, lineHeight: 20 },
+  stat: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  statText: { fontFamily: fonts.mono, fontSize: 9, color: colors.textTertiary },
 });
