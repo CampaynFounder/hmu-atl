@@ -1,10 +1,18 @@
 name: EAS Mobile Build
 
 on:
+  # Auto-build ONLY when native-affecting files change (deps, native config,
+  # runtimeVersion). JS-only changes ship over-the-air via eas-update.yml and do
+  # NOT need a build. Any change can still be built on demand via the
+  # workflow_dispatch below.
   push:
     branches: [main]
     paths:
-      - 'mobile/**'
+      - 'mobile/package.json'
+      - 'mobile/package-lock.json'
+      - 'mobile/app.json'
+      - 'mobile/app.config.js'
+      - 'mobile/eas.json'
       - '.github/workflows/eas-build.yml'
   workflow_dispatch:
     inputs:
