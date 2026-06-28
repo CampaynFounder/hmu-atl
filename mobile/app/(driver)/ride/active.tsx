@@ -57,7 +57,6 @@ interface RideView {
   stops: Stop[];
   riderId: string | null;
   riderHandle: string | null;
-  riderFirstName: string | null;
   riderAvatarUrl: string | null;
   riderChillScore: number;
   riderCompletedRides: number;
@@ -853,9 +852,9 @@ export default function ActiveRideScreen() {
     .filter(a => a.status === 'confirmed')
     .reduce((sum, a) => sum + addOnLineTotal(a), 0);
 
-  const riderDisplayName = ride.riderHandle
-    ? `@${ride.riderHandle}`
-    : ride.riderFirstName ?? 'Rider';
+  // Drivers only ever see the rider by public handle / display name — never a
+  // real name. riderHandle resolves to handle|display_name server-side.
+  const riderDisplayName = ride.riderHandle ? `@${ride.riderHandle}` : 'Rider';
 
   const pickupLL = toLatLng(ride.pickupLat, ride.pickupLng);
   const dropoffLL = toLatLng(ride.dropoffLat, ride.dropoffLng);
