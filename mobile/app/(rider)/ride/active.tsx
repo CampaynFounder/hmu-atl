@@ -55,7 +55,6 @@ interface RideView {
   addOnTotal: number;
   driverId: string | null;
   driverHandle: string | null;
-  driverFirstName: string | null;
   driverAvatarUrl: string | null;
   driverChillScore: number;
   driverCompletedRides: number;
@@ -591,7 +590,8 @@ export default function RiderActiveScreen() {
   }
 
   const meta = statusMeta(ride.status);
-  const driverName = ride.driverHandle ? `@${ride.driverHandle}` : ride.driverFirstName ?? 'Driver';
+  // Riders only ever see the driver by public handle — never a real name.
+  const driverName = ride.driverHandle ? `@${ride.driverHandle}` : 'Driver';
   const isPreRide = ['matched', 'otw', 'here'].includes(ride.status);
   const confirmedExtras = addOns.filter(a => a.status === 'confirmed');
   const pendingExtras = addOns.filter(a => a.status === 'pending_driver');
@@ -629,7 +629,6 @@ export default function RiderActiveScreen() {
           into the Pull Up flow. */}
       <RideAcceptedCelebration
         visible={showAccepted}
-        driverName={ride.driverFirstName}
         driverHandle={ride.driverHandle}
         avatarUrl={ride.driverAvatarUrl}
         chillScore={ride.driverChillScore}

@@ -184,6 +184,36 @@ export function GlobalRideAlert() {
       }
     }
 
+    // A rider sent THIS driver a direct ride request. Top priority: pop a
+    // full-screen alert wherever the driver is in the app so they never miss
+    // it — no need to be sitting on /driver/requests. Mirrors the mobile
+    // NotificationProvider banner so web has parity.
+    if (msg.name === 'direct_booking_request') {
+      const postId = data.postId as string | undefined;
+      const expiresAt = data.expiresAt as string | undefined;
+      // Skip an already-expired request (e.g. a stale Ably rewind replay) — the
+      // 15-min window may have lapsed before the driver reconnected.
+      if (expiresAt && Date.parse(expiresAt) < Date.now()) return;
+      // The requests feed renders its own surfacing; don't double up there.
+      if (pathRef.current?.startsWith('/driver/requests')) return;
+      if (postId) {
+        const key = `direct_booking_request:${postId}`;
+        const last = lastAlertKeyRef.current;
+        if (last && last.key === key && Date.now() - last.at < DEDUP_WINDOW_MS) return;
+        lastAlertKeyRef.current = { key, at: Date.now() };
+        setAlert({
+          type: 'direct_booking_request',
+          rideId: '',
+          postId,
+          price: data.price ? Number(data.price) : undefined,
+        });
+        if (dismissTimer.current) clearTimeout(dismissTimer.current);
+        // Long auto-dismiss — the request stays actionable for ~15 min, so give
+        // the driver a full minute of the pop before it collapses to nothing.
+        dismissTimer.current = setTimeout(() => setAlert(null), 60000);
+      }
+    }
+
     // Booking cancelled by rider (driver side)
     if (msg.name === 'booking_cancelled') {
       setAlert({
@@ -206,6 +236,7 @@ export function GlobalRideAlert() {
   const isAccepted = alert.type === 'booking_accepted';
   const isCancelled = alert.type === 'ride_cancelled' || alert.type === 'booking_cancelled';
   const isDeclined = alert.type === 'booking_declined';
+  const isRequest = alert.type === 'direct_booking_request';
   const reasonLabel = alert.reason ? REASON_LABEL[alert.reason] : null;
 
   const accentColor = isDeclined
@@ -239,6 +270,7 @@ export function GlobalRideAlert() {
         <span style={{ fontSize: 40 }}>
           {isCancelled ? '\u274C'
             : isDeclined ? '\u{1F914}'
+            : isRequest ? '\u{1F64B}'
             : isAccepted ? '\u{1F91D}'
             : alert.message?.includes('here') ? '\u{1F4CD}'
             : '\u{1F697}'}
@@ -253,6 +285,7 @@ export function GlobalRideAlert() {
       }}>
         {isCancelled ? 'RIDE CANCELLED'
           : isDeclined ? `${(alert.driverName || 'DRIVER').toUpperCase()} PASSED`
+          : isRequest ? 'NEW RIDE REQUEST'
           : isAccepted ? 'RIDE ACCEPTED!'
           : alert.message?.toUpperCase() || 'RIDE UPDATE'}
       </h1>
@@ -294,6 +327,8 @@ export function GlobalRideAlert() {
           ? alert.message || 'This ride has been cancelled. No charge was made.'
           : isDeclined
           ? `Cancel your ${alert.price ? `$${alert.price} ` : ''}ride or blast it to all active drivers?`
+          : isRequest
+          ? `A rider wants you${alert.price ? ` — $${alert.price}` : ''}. Tap to respond before it expires.`
           : isAccepted
           ? `${alert.driverName || 'Your driver'} accepted your ride${alert.price ? ` — $${alert.price}` : ''}. Tap below to confirm your pickup.`
           : alert.message || 'Check your ride for updates.'}
@@ -332,6 +367,23 @@ export function GlobalRideAlert() {
           }}
         >
           Decide What&apos;s Next
+        </button>
+      ) : isRequest ? (
+        <button
+          onClick={() => {
+            setAlert(null);
+            if (dismissTimer.current) clearTimeout(dismissTimer.current);
+            router.push('/driver/requests');
+          }}
+          style={{
+            width: '100%', maxWidth: 320, padding: 18, borderRadius: 100,
+            border: 'none', background: accentColor, color: '#080808',
+            fontSize: 17, fontWeight: 800, cursor: 'pointer',
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            marginTop: 16, animation: 'alertBounce 2s ease-in-out infinite',
+          }}
+        >
+          View Request
         </button>
       ) : (
         <button

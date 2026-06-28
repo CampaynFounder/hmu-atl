@@ -84,15 +84,24 @@ export default function BookingDrawer({ driver, onClose, isAuthenticated = true 
       }
 
       // Authed path — existing direct-booking endpoint, digital only.
-      const res = await fetch(`/api/drivers/${handle}/book`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          price: parsedAmount,
-          is_cash: false,
-          timeWindow,
-        }),
-      });
+      // Bound the request so a hung origin can't spin the button forever.
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+      let res: Response;
+      try {
+        res = await fetch(`/api/drivers/${handle}/book`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            price: parsedAmount,
+            is_cash: false,
+            timeWindow,
+          }),
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
       const data = await res.json();
       if (res.ok) {
         posthog.capture('direct_booking_sent', {
@@ -114,8 +123,10 @@ export default function BookingDrawer({ driver, onClose, isAuthenticated = true 
       } else {
         setError(data.error || 'Failed to send');
       }
-    } catch {
-      setError('Network error');
+    } catch (e) {
+      setError(e instanceof DOMException && e.name === 'AbortError'
+        ? 'That took too long — check your connection and try again.'
+        : 'Network error');
     }
     setSubmitting(false);
   }

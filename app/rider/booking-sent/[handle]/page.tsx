@@ -23,12 +23,10 @@ export default async function BookingSentPage({ params, searchParams }: Props) {
   if (!userRows.length) redirect('/onboarding?type=rider');
   const userId = (userRows[0] as { id: string }).id;
 
-  // Pull the driver display name from driver_profiles. Fall back to handle if
-  // the driver row vanished between book + render (rare).
-  const driverRows = await sql`
-    SELECT first_name, vehicle_info FROM driver_profiles WHERE handle = ${handle} LIMIT 1
-  `;
-  const driverDisplayName = (driverRows[0]?.first_name as string | null) || handle;
+  // Riders only ever see a driver's public handle — never the legal first_name.
+  // The confirmation screen identifies the driver by handle so we don't leak
+  // real names (see privacy invariant: drivers are public by handle only).
+  const driverDisplayName = handle;
 
   // Look up the booking post if a postId was passed. The page is still useful
   // without it (e.g. user refreshed and we lost the query), so this is best-
