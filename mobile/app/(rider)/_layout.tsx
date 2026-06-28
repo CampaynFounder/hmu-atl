@@ -146,6 +146,10 @@ export default function RiderLayout() {
         options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
+        name="book/passed"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
         name="book/[type]"
         options={{ href: null, headerShown: false }}
       />

@@ -6,6 +6,8 @@ import {
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { colors, fonts, radius, spacing } from '@/lib/theme';
+import { resolveSignupMarket } from '@/lib/market';
+import { isDemoPhone } from '@/lib/demo';
 
 export default function SignUp() {
   const { signUp, setActive, isLoaded } = useSignUp();
@@ -22,7 +24,33 @@ export default function SignUp() {
     setLoading(true);
     setError(null);
     try {
-      await signUp!.create({ phoneNumber: phone });
+      // Resolve the device's market BEFORE creating the account so we can (1)
+      // gate sign-up to live markets until national rollout and (2) ride the
+      // correct market slug in unsafeMetadata — the Clerk webhook reads it to set
+      // users.market_id at row creation (COALESCE can't overwrite it later).
+      // Skipped in dev (simulator location is unreliable); fails OPEN when
+      // location is unavailable — the authed launch-time gate still applies.
+      // App-store reviewers: never resolve location or run the market gate (they
+      // run from outside any live market). They sign IN with the demo account,
+      // so a demo phone on sign-up just falls through to Clerk's
+      // "already has an account" → nudged to Sign in. Mirrors sign-in.tsx.
+      let marketSlug: string | null = null;
+      if (!__DEV__ && !isDemoPhone(phone)) {
+        const market = await resolveSignupMarket(phone);
+        if (market && market.isActive === false) {
+          router.replace({
+            pathname: '/not-in-market',
+            params: { area: market.displayName ?? 'Your area', slug: market.marketSlug ?? '' },
+          } as never);
+          return;
+        }
+        marketSlug = market?.marketSlug ?? null;
+      }
+
+      await signUp!.create({
+        phoneNumber: phone,
+        ...(marketSlug ? { unsafeMetadata: { market: marketSlug } } : {}),
+      });
       await signUp!.preparePhoneNumberVerification();
       setStep('code');
     } catch (e: any) {
