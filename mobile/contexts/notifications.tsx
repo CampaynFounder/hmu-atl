@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { Platform } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
+import { useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { API_BASE } from '@/lib/api';
 
@@ -101,6 +102,7 @@ export function useNotifications() {
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const { isSignedIn, userId, getToken } = useAuth();
+  const router = useRouter();
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
 
@@ -147,6 +149,66 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     })();
     return () => { cancelled = true; };
   }, [isSignedIn]);
+
+  // Route the user to the right screen when they TAP a push (background or
+  // cold-start launch). Without this, tapping "Ride accepted" just opened the
+  // app on home and the rider waited for Ably to reconnect (5–10s) before the
+  // ride surfaced. The push payload carries { type, rideId } — we route off it
+  // immediately and optimistically seed the active ride so the destination
+  // renders its shell instantly.
+  const routeFromPush = useCallback((data: Record<string, unknown> | undefined) => {
+    if (!data) return;
+    const type = data.type as string | undefined;
+    const rideId = (data.rideId ?? data.ride_id) as string | undefined;
+    switch (type) {
+      case 'booking_accepted':
+        if (rideId) {
+          setActiveRide({ rideId, status: 'matched', isDriver: false });
+          router.push(`/(rider)/ride/active?rideId=${rideId}&seedStatus=matched` as never);
+        }
+        break;
+      case 'blast_match_won':
+        if (rideId) {
+          setActiveRide({ rideId, status: 'matched', isDriver: true });
+          router.push(`/(driver)/ride/active?rideId=${rideId}` as never);
+        }
+        break;
+      case 'ride_update':
+        if (rideId) router.push(`/(rider)/ride/active?rideId=${rideId}` as never);
+        break;
+      case 'blast_invite':
+      case 'direct_booking_request':
+      case 'blast_rider_hmu':
+        router.push('/(driver)/feed' as never);
+        break;
+      default:
+        break;
+    }
+  }, [router]);
+
+  // Tap handler (warm: app running/backgrounded) + cold-start (app launched by
+  // tapping a push). Gated on sign-in so we never route an unauthenticated shell.
+  useEffect(() => {
+    if (!isSignedIn) return;
+    let cancelled = false;
+
+    Notifications.getLastNotificationResponseAsync()
+      .then((resp) => {
+        if (cancelled || !resp) return;
+        // Defer a tick so the navigator is mounted on a cold launch.
+        setTimeout(() => {
+          if (!cancelled) routeFromPush(resp.notification.request.content.data as Record<string, unknown>);
+        }, 450);
+      })
+      .catch(() => {});
+
+    const sub = Notifications.addNotificationResponseReceivedListener((resp) => {
+      routeFromPush(resp.notification.request.content.data as Record<string, unknown>);
+      refreshActiveRide();
+    });
+    return () => { cancelled = true; sub.remove(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn, routeFromPush]);
 
   const enqueue = useCallback((n: AppNotification) => {
     setBannerQueue((q) => [...q, n]);
