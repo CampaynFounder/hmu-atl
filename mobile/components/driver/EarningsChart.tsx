@@ -17,7 +17,7 @@ import {
   View, Text, StyleSheet, Modal, Pressable, LayoutChangeEvent,
   Animated as RNAnimated, Easing as RNEasing,
 } from 'react-native';
-import Svg, { Rect, Line, Text as SvgText, G } from 'react-native-svg';
+import Svg, { Rect, Line, Text as SvgText, G, Defs, LinearGradient, Stop } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing } from '@/lib/theme';
@@ -46,6 +46,44 @@ function resolveStreams(palette?: ChartPalette | null) {
     nonCash: { ...STREAMS.nonCash, color: palette?.hmuPay || STREAMS.nonCash.color },
     delivery: { ...STREAMS.delivery, color: palette?.delivery || STREAMS.delivery.color },
   };
+}
+
+// ── Color math for bar gradients ─────────────────────────────────────────────
+// Each bar segment is filled with a vertical gradient derived from its stream
+// color — a brighter sheen at the top fading to a deeper shade at the base —
+// which reads far more premium than a flat fill. Works on ANY palette hex; falls
+// back to the raw color if a value can't be parsed (never an undefined stop).
+
+function clamp255(n: number): number {
+  return Math.max(0, Math.min(255, Math.round(n)));
+}
+
+function parseHex(hex: string): { r: number; g: number; b: number } | null {
+  const h = hex.replace('#', '').trim();
+  if (h.length !== 6) return null;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  if ([r, g, b].some((v) => Number.isNaN(v))) return null;
+  return { r, g, b };
+}
+
+function toHex({ r, g, b }: { r: number; g: number; b: number }): string {
+  return '#' + [r, g, b].map((v) => clamp255(v).toString(16).padStart(2, '0')).join('');
+}
+
+/** Mix toward white by `amt` (0–1) — a highlight/sheen. */
+function lighten(hex: string, amt: number): string {
+  const c = parseHex(hex);
+  if (!c) return hex;
+  return toHex({ r: c.r + (255 - c.r) * amt, g: c.g + (255 - c.g) * amt, b: c.b + (255 - c.b) * amt });
+}
+
+/** Mix toward black by `amt` (0–1) — depth at the base. */
+function darken(hex: string, amt: number): string {
+  const c = parseHex(hex);
+  if (!c) return hex;
+  return toHex({ r: c.r * (1 - amt), g: c.g * (1 - amt), b: c.b * (1 - amt) });
 }
 
 export interface StackPoint {
@@ -91,10 +129,10 @@ function money(v: number): string {
 // pattern) and recompute geometry each render — plain SVG rects always draw.
 
 function Segment({
-  x, width, baseline, yTop, height, color, progress, roundTop,
+  x, width, baseline, yTop, height, fill, progress, roundTop,
 }: {
   x: number; width: number; baseline: number; yTop: number; height: number;
-  color: string; progress: number; roundTop: boolean;
+  fill: string; progress: number; roundTop: boolean;
 }) {
   // Grow from the baseline: bottom edge rises baseline→yTop, height grows
   // 0→height, scaling the whole column proportionally as progress goes 0→1.
@@ -108,7 +146,7 @@ function Segment({
       y={y}
       height={h}
       rx={roundTop ? 2 : 0}
-      fill={color}
+      fill={fill}
     />
   );
 }
@@ -192,6 +230,18 @@ export function EarningsChart({
 
       {width > 0 && (
         <Svg width={width} height={CHART_HEIGHT}>
+          {/* Per-stream vertical gradients (sheen at top → depth at base).
+              Static defs referenced by fill="url(#…)" — Fabric-safe. */}
+          <Defs>
+            {Object.values(streams).map((sM) => (
+              <LinearGradient key={sM.key} id={`grad-${sM.key}`} x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={lighten(sM.color, 0.4)} />
+                <Stop offset="0.55" stopColor={sM.color} />
+                <Stop offset="1" stopColor={darken(sM.color, 0.28)} />
+              </LinearGradient>
+            ))}
+          </Defs>
+
           {/* Gridlines + $ axis labels at 0, ½, full */}
           {[0, 0.5, 1].map((f) => {
             const y = TOP_PAD + (usableH) * (1 - f);
@@ -217,9 +267,9 @@ export function EarningsChart({
             const x = AXIS_W + i * slot + gap;
             const total = d.cash + d.nonCash + d.delivery;
             const segs = [
-              { v: d.cash, color: streams.cash.color },
-              { v: d.nonCash, color: streams.nonCash.color },
-              { v: d.delivery, color: streams.delivery.color },
+              { v: d.cash, key: streams.cash.key },
+              { v: d.nonCash, key: streams.nonCash.key },
+              { v: d.delivery, key: streams.delivery.key },
             ].filter((sg) => sg.v > 0);
 
             let runningBottom = baseline;
@@ -246,7 +296,7 @@ export function EarningsChart({
                     <Segment
                       key={si}
                       x={x} width={barW} baseline={baseline}
-                      yTop={yTop} height={h} color={sg.color}
+                      yTop={yTop} height={h} fill={`url(#grad-${sg.key})`}
                       progress={progress} roundTop={si === topIdx}
                     />
                   );

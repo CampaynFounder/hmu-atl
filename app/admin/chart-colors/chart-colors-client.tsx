@@ -21,6 +21,11 @@ const PRESETS: { name: string; palette: Palette }[] = [
 const DEFAULTS: Palette = PRESETS[0].palette;
 const HEX_RE = /^#([0-9a-fA-F]{6})$/;
 
+// Mirror the mobile bar fill: vertical gradient, sheen at top → depth at base.
+function barGradient(c: string): string {
+  return `linear-gradient(to bottom, color-mix(in srgb, ${c}, #fff 40%), ${c} 55%, color-mix(in srgb, ${c}, #000 28%))`;
+}
+
 // Sample stack heights for the live preview (px), per bucket, per channel.
 const SAMPLE = [
   { cash: 70, hmuPay: 34, delivery: 0 },
@@ -195,7 +200,7 @@ export default function ChartColorsClient() {
                   <div key={i} className="flex flex-col-reverse" style={{ width: 22 }}>
                     {(['cash', 'hmuPay', 'delivery'] as const).map((k) =>
                       b[k] > 0 ? (
-                        <div key={k} style={{ height: b[k], background: palette[k] }} />
+                        <div key={k} style={{ height: b[k], background: barGradient(palette[k]) }} />
                       ) : null,
                     )}
                   </div>
