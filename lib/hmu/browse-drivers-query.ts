@@ -35,6 +35,11 @@ export interface BrowseRiderContext {
    * computed scalar). Stale rule: driver location older than 5min → null. */
   riderLat?: number | null;
   riderLng?: number | null;
+  /** Result ordering. 'recommended' (default) = curated ranking (media → live →
+   * tier/chill). 'distance' = closest first (ascending), drivers with no
+   * resolvable location last. Distance mode only takes effect when rider coords
+   * are present; otherwise it falls back to 'recommended'. */
+  sortBy?: 'recommended' | 'distance';
 }
 
 export interface BrowseDriverRow {
@@ -101,6 +106,40 @@ export async function queryBrowseDrivers(
   const riderLng = Number.isFinite(rider.riderLng) ? Number(rider.riderLng) : null;
   const haveRiderCoords = riderLat !== null && riderLng !== null
     && riderLat >= -90 && riderLat <= 90 && riderLng >= -180 && riderLng <= 180;
+
+  // "Closest" sort only makes sense when we can actually compute distance.
+  // Without rider coords every distance_mi is null, so fall back to the
+  // curated ranking instead of returning an arbitrary (all-null) order.
+  const sortByDistance = rider.sortBy === 'distance' && haveRiderCoords;
+
+  // Curated "recommended" ranking — also the tiebreaker within equal distance
+  // and the ordering for location-less drivers in distance mode. Postgres lets
+  // `distance_mi` (a SELECT alias) be a standalone ORDER BY key, so closest-first
+  // works without wrapping the query in a subselect.
+  const orderByClause = sortByDistance
+    ? sql`
+      ORDER BY
+        distance_mi ASC NULLS LAST,
+        CASE
+          WHEN (dp.video_url IS NOT NULL AND dp.video_url <> '' AND dp.show_video_on_link IS NOT FALSE)
+            OR (dp.vehicle_info ? 'photo_url'
+                AND dp.vehicle_info->>'photo_url' IS NOT NULL
+                AND dp.vehicle_info->>'photo_url' <> '')
+          THEN 0 ELSE 1
+        END,
+        dp.handle ASC`
+    : sql`
+      ORDER BY
+        CASE
+          WHEN (dp.video_url IS NOT NULL AND dp.video_url <> '' AND dp.show_video_on_link IS NOT FALSE)
+            OR (dp.vehicle_info ? 'photo_url'
+                AND dp.vehicle_info->>'photo_url' IS NOT NULL
+                AND dp.vehicle_info->>'photo_url' <> '')
+          THEN 0 ELSE 1
+        END,
+        CASE WHEN hp.id IS NOT NULL THEN 0 ELSE 1 END,
+        u.tier DESC, u.chill_score DESC,
+        dp.handle ASC`;
 
   const rows = await sql`
     SELECT dp.handle, dp.display_name, dp.areas, dp.pricing, dp.video_url,
@@ -206,25 +245,7 @@ export async function queryBrowseDrivers(
             AND dp.vehicle_info->>'photo_url' IS NOT NULL
             AND dp.vehicle_info->>'photo_url' <> '')
       )
-    ORDER BY
-      -- 1. Drivers with a photo OR video on top — bare profiles read as
-      --    low-effort/spam and tank rider trust. Pushed to the bottom so
-      --    they still appear but don't poison the first impression.
-      CASE
-        WHEN (dp.video_url IS NOT NULL AND dp.video_url <> '' AND dp.show_video_on_link IS NOT FALSE)
-          OR (dp.vehicle_info ? 'photo_url'
-              AND dp.vehicle_info->>'photo_url' IS NOT NULL
-              AND dp.vehicle_info->>'photo_url' <> '')
-        THEN 0 ELSE 1
-      END,
-      -- 2. Drivers actively broadcasting (live HMU post) within each media
-      --    bucket — they're online right now.
-      CASE WHEN hp.id IS NOT NULL THEN 0 ELSE 1 END,
-      -- 3. Paid tier + reputation signals. HMU First drivers get the
-      --    placement boost they're paying for; high chill_score breaks ties.
-      u.tier DESC, u.chill_score DESC,
-      -- 4. Alphabetical fallback so ordering is stable.
-      dp.handle ASC
+    ${orderByClause}
     OFFSET ${offset}
     LIMIT  ${limit}
   `;
