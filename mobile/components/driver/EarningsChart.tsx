@@ -22,29 +22,35 @@ import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing } from '@/lib/theme';
 
-// Stream colors — aligned to the existing wallet tiles, NOT web's green-cash,
-// so the chart legend matches the CASH / DEPOSITS tiles the driver already sees.
+// Stream colors + default legend labels — aligned to the existing wallet tiles,
+// NOT web's green-cash, so the chart legend matches the tiles the driver sees.
+// Labels are the fallback when the admin palette omits them.
 export const STREAMS = {
-  cash: { key: 'cash' as const, label: 'Cash', color: colors.cash },
+  cash: { key: 'cash' as const, label: 'Fee Free Cash', color: colors.cash },
   nonCash: { key: 'nonCash' as const, label: 'HMU Pay', color: colors.green },
-  delivery: { key: 'delivery' as const, label: 'Delivery', color: colors.blue },
+  delivery: { key: 'delivery' as const, label: 'HMU Deliveries', color: colors.blue },
 };
 
 // Superadmin-tunable palette delivered on the /driver/balance response. Channel
 // keys match the admin console (cash / hmuPay / delivery); nonCash === hmuPay.
+// `labels` overrides the legend text; `gradientBlend` blends colors across the
+// whole stacked bar instead of per-segment solid fills.
 export interface ChartPalette {
   cash: string;
   hmuPay: string;
   delivery: string;
+  labels?: { cash: string; hmuPay: string; delivery: string };
+  gradientBlend?: boolean;
 }
 
 // Merge the live palette over the theme defaults so a missing/old response just
-// falls back to the built-in colors (never an undefined SVG fill).
+// falls back to the built-in colors/labels (never an undefined SVG fill).
 function resolveStreams(palette?: ChartPalette | null) {
+  const L = palette?.labels;
   return {
-    cash: { ...STREAMS.cash, color: palette?.cash || STREAMS.cash.color },
-    nonCash: { ...STREAMS.nonCash, color: palette?.hmuPay || STREAMS.nonCash.color },
-    delivery: { ...STREAMS.delivery, color: palette?.delivery || STREAMS.delivery.color },
+    cash: { ...STREAMS.cash, color: palette?.cash || STREAMS.cash.color, label: L?.cash || STREAMS.cash.label },
+    nonCash: { ...STREAMS.nonCash, color: palette?.hmuPay || STREAMS.nonCash.color, label: L?.hmuPay || STREAMS.nonCash.label },
+    delivery: { ...STREAMS.delivery, color: palette?.delivery || STREAMS.delivery.color, label: L?.delivery || STREAMS.delivery.label },
   };
 }
 
@@ -167,6 +173,9 @@ export function EarningsChart({
   palette?: ChartPalette | null;
 }) {
   const streams = resolveStreams(palette);
+  // Blend mode (default on): the stacked bar is one continuous gradient through
+  // the stream colors rather than per-segment solid fills. Toggled by superadmin.
+  const blend = palette?.gradientBlend ?? true;
   const [width, setWidth] = useState(0);
   // Grow factor (0→1) held in React state, NOT bound to SVG via Animated — see
   // the note on <Segment/>. An Animated.Value drives the timing; its listener
@@ -267,15 +276,52 @@ export function EarningsChart({
             const x = AXIS_W + i * slot + gap;
             const total = d.cash + d.nonCash + d.delivery;
             const segs = [
-              { v: d.cash, key: streams.cash.key },
-              { v: d.nonCash, key: streams.nonCash.key },
-              { v: d.delivery, key: streams.delivery.key },
+              { v: d.cash, key: streams.cash.key, color: streams.cash.color },
+              { v: d.nonCash, key: streams.nonCash.key, color: streams.nonCash.color },
+              { v: d.delivery, key: streams.delivery.key, color: streams.delivery.color },
             ].filter((sg) => sg.v > 0);
 
-            let runningBottom = baseline;
+            // Floor each non-zero segment to a visible nub so a small month/day
+            // (e.g. a single $3.50 ride) still reads as a bar next to a tall one —
+            // otherwise it scales to a sub-pixel sliver and looks like "no
+            // earnings". Computed up front so blend mode can place gradient stops
+            // and both modes share the exact stack geometry.
+            const segHeights = segs.map((sg) => Math.max(sg.v * scale, MIN_SEG_PX));
+            const stackH = segHeights.reduce((a, h) => a + h, 0);
             const topIdx = segs.length - 1;
+
+            // Blend mode: one gradient spanning the whole bar (userSpaceOnUse,
+            // baseline→final top), each stream color centered on its band so
+            // adjacent colors blend into one another instead of hard edges.
+            const blendStops: { off: number; color: string }[] = [];
+            if (blend && segs.length) {
+              blendStops.push({ off: 0, color: segs[0].color });
+              let acc = 0;
+              segs.forEach((sg, idx) => {
+                blendStops.push({ off: stackH > 0 ? (acc + segHeights[idx] / 2) / stackH : 0, color: sg.color });
+                acc += segHeights[idx];
+              });
+              blendStops.push({ off: 1, color: segs[segs.length - 1].color });
+            }
+
+            let runningBottom = baseline;
             return (
               <G key={d.label + i}>
+                {/* Per-bar blend gradient (userSpaceOnUse → spans this column).
+                    Static coords (final top); segments animate up over it. */}
+                {blend && segs.length > 0 && (
+                  <Defs>
+                    <LinearGradient
+                      id={`blend-${i}`}
+                      x1={x} y1={baseline} x2={x} y2={baseline - stackH}
+                      gradientUnits="userSpaceOnUse"
+                    >
+                      {blendStops.map((st, k) => (
+                        <Stop key={k} offset={st.off} stopColor={st.color} />
+                      ))}
+                    </LinearGradient>
+                  </Defs>
+                )}
                 {/* Empty-day placeholder so zero days read as "no earnings". */}
                 {total === 0 && (
                   <Rect
@@ -284,19 +330,15 @@ export function EarningsChart({
                   />
                 )}
                 {segs.map((sg, si) => {
-                  // Floor each non-zero segment to a visible nub so a small
-                  // month/day (e.g. a single $3.50 ride) still reads as a bar
-                  // next to a tall one — otherwise it scales to a sub-pixel
-                  // sliver and looks like "no earnings". yTop is derived from
-                  // the floored height so the stack stays consistent.
-                  const h = Math.max(sg.v * scale, MIN_SEG_PX);
+                  const h = segHeights[si];
                   const yTop = runningBottom - h;
                   runningBottom = yTop;
                   return (
                     <Segment
                       key={si}
                       x={x} width={barW} baseline={baseline}
-                      yTop={yTop} height={h} fill={`url(#grad-${sg.key})`}
+                      yTop={yTop} height={h}
+                      fill={blend ? `url(#blend-${i})` : `url(#grad-${sg.key})`}
                       progress={progress} roundTop={si === topIdx}
                     />
                   );
@@ -395,9 +437,9 @@ export function EarningsDrillSheet({
 
             {/* Per-stream split */}
             <View style={styles.splitRow}>
-              <SplitCard label="Cash" value={point.cash} color={streams.cash.color} />
-              <SplitCard label="HMU Pay" value={point.nonCash} color={streams.nonCash.color} />
-              <SplitCard label="Delivery" value={point.delivery} color={streams.delivery.color} />
+              <SplitCard label={streams.cash.label} value={point.cash} color={streams.cash.color} />
+              <SplitCard label={streams.nonCash.label} value={point.nonCash} color={streams.nonCash.color} />
+              <SplitCard label={streams.delivery.label} value={point.delivery} color={streams.delivery.color} />
             </View>
 
             {/* Counts */}
@@ -435,7 +477,7 @@ function SplitCard({ label, value, color }: { label: string; value: number; colo
 
 const styles = StyleSheet.create({
   wrap: { marginBottom: spacing.sm },
-  legend: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.xs, justifyContent: 'flex-end' },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, rowGap: spacing.xs, marginBottom: spacing.xs, justifyContent: 'center' },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   legendDot: { width: 7, height: 7, borderRadius: 2 },
   legendText: { fontFamily: fonts.mono, fontSize: 8, color: colors.textTertiary, letterSpacing: 0.5 },
