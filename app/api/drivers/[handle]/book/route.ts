@@ -332,13 +332,17 @@ export async function POST(
     console.error('Tentative booking failed:', e);
   }
 
-  // Fire Ably notification to driver
+  // Fire Ably notification to driver. Include the rider's public handle so the
+  // in-app banner can read "@handle just HMU for a ride" (handle only — riders
+  // are never shown by legal name).
   try {
+    const riderHandleRows = await sql`SELECT handle FROM rider_profiles WHERE user_id = ${rider.id} LIMIT 1`;
+    const riderHandle = (riderHandleRows[0] as { handle?: string } | undefined)?.handle || null;
     await notifyUserWithPush(driverUserId, 'direct_booking_request', {
-      postId: post.id, price, areas, expiresAt: post.booking_expires_at,
+      postId: post.id, price, areas, expiresAt: post.booking_expires_at, riderHandle,
     }, {
-      title: 'New ride request 🚗',
-      body: `A rider wants you${price ? ` — $${price}` : ''}. Tap to respond.`,
+      title: riderHandle ? `@${riderHandle} just HMU for a ride 🚗` : 'New ride request 🚗',
+      body: `${riderHandle ? `@${riderHandle}` : 'A rider'} wants you${price ? ` — $${price}` : ''}. Tap to respond.`,
       data: { type: 'direct_booking_request', postId: post.id },
     });
   } catch (e) {

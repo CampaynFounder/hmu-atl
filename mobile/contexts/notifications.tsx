@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import { Platform } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
 import { useStableToken } from '@/hooks/use-stable-token';
-import { useRouter } from 'expo-router';
+import { useRouter, usePathname } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { API_BASE } from '@/lib/api';
 
@@ -102,16 +102,27 @@ export function useNotifications() {
 }
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
-  const { isSignedIn, userId } = useAuth();
+  const { isSignedIn } = useAuth();
   const getToken = useStableToken();
   const router = useRouter();
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
+  // Track the current route so a new-request banner can be suppressed when the
+  // driver is already on the feed (the request card surfaces inline there).
+  const pathname = usePathname();
+  const onFeedRef = useRef(false);
+  onFeedRef.current = (pathname ?? '').endsWith('/feed');
 
   const [unreadRequestCount, setUnreadRequestCount] = useState(0);
   const [bannerQueue, setBannerQueue] = useState<AppNotification[]>([]);
   const [currentBanner, setCurrentBanner] = useState<AppNotification | null>(null);
   const [activeRide, setActiveRide] = useState<ActiveRideState | null>(null);
+  // The DB users.id — NOT the Clerk id. The server publishes every ride/booking
+  // event to `user:{dbUserId}:notify` (web resolves this id via /api/users/me).
+  // Subscribing with the Clerk id silently receives nothing, which kills every
+  // app-wide notification (request banners, backstop ride refresh, wallet, etc).
+  // So we resolve the DB id first and key the notify subscription on it.
+  const [dbUserId, setDbUserId] = useState<string | null>(null);
 
   const feedRefreshCallbacks = useRef<Set<() => void>>(new Set());
   const rideRefreshCallbacks = useRef<Set<() => void>>(new Set());
@@ -286,8 +297,26 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     refreshActiveRide();
   }, [isSignedIn, refreshActiveRide]);
 
+  // Resolve the DB users.id (the channel the server actually publishes to).
+  // Mirrors web's global-ride-alert, which fetches /api/users/me → data.id.
   useEffect(() => {
-    if (!isSignedIn || !userId) return;
+    if (!isSignedIn) { setDbUserId(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const t = await getTokenRef.current();
+        if (!t || cancelled) return;
+        const res = await fetch(`${API_BASE}/users/me`, { headers: { Authorization: `Bearer ${t}` } });
+        if (!res.ok || cancelled) return;
+        const data = await res.json() as { id?: string };
+        if (data?.id && !cancelled) setDbUserId(data.id);
+      } catch { /* best-effort — without this, app-wide notify stays silent */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    if (!isSignedIn || !dbUserId) return;
 
     let cancelled = false;
 
@@ -324,7 +353,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
         if (cancelled) { client.close(); return; }
 
-        const channel = client.channels.get(`user:${userId}:notify`, {
+        const channel = client.channels.get(`user:${dbUserId}:notify`, {
           params: { rewind: '2m' },
         });
 
@@ -351,7 +380,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       cleanup.then((fn) => fn?.()).catch(() => {});
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSignedIn, userId]);
+  }, [isSignedIn, dbUserId]);
 
   function handleEvent(name: string, data: Record<string, unknown>) {
     const rideId = data?.ride_id as string | undefined;
@@ -387,20 +416,26 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
       case 'direct_booking_request': {
         setUnreadRequestCount((c) => c + 1);
+        // Always refresh the feed so a driver already on it sees the card appear
+        // even if its own channel briefly drops the event.
+        triggerFeedRefresh();
+        // Already on the feed? The request card surfaces inline — don't stack a
+        // redundant banner. The deep-link nudge is only for other screens.
+        if (onFeedRef.current) break;
         const reqPrice = data?.price as number | undefined;
+        const reqHandle = (data?.riderHandle as string | undefined) || undefined;
         enqueue({
           id: `direct-${Date.now()}`,
           type: 'new_request',
-          title: 'NEW RIDE REQUEST',
-          body: reqPrice
-            ? `A rider wants you — $${reqPrice}. Tap to respond before it expires.`
-            : 'A rider booked you directly — tap to respond.',
+          title: reqHandle ? `@${reqHandle} JUST HMU` : 'NEW RIDE REQUEST',
+          body: reqHandle
+            ? `@${reqHandle} wants a ride${reqPrice ? ` — $${reqPrice}` : ''}. Tap to respond before it expires.`
+            : reqPrice
+              ? `A rider wants you — $${reqPrice}. Tap to respond before it expires.`
+              : 'A rider booked you directly — tap to respond.',
           route: '/(driver)/feed',
           timestamp: Date.now(),
         });
-        // Refresh the feed too so a driver already on it sees the card appear
-        // even if its own channel briefly drops the event.
-        triggerFeedRefresh();
         break;
       }
 

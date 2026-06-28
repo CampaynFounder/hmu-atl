@@ -147,6 +147,10 @@ export default function SignIn() {
               value={code}
               onChangeText={setCode}
               autoComplete="one-time-code"
+              textContentType="oneTimeCode"
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={verifyCode}
             />
             <TouchableOpacity
               style={[s.btn, (code.length < (demo ? 1 : 6) || loading) && s.btnDisabled]}

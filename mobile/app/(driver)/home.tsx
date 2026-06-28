@@ -5,13 +5,14 @@ import {
   Animated, Easing, Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import * as Notifications from 'expo-notifications';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+import { useNotifications } from '@/contexts/notifications';
 import { EarningsChart, EarningsDrillSheet, StackPoint } from '@/components/driver/EarningsChart';
 import { useHmuFirst, formatPrice } from '@/hooks/use-hmu-first';
 
@@ -195,6 +196,7 @@ export default function DriverHome() {
   const insets = useSafeAreaInsets();
 
   const [timeseries, setTimeseries] = useState<TimeseriesPoint[]>([]);
+  const { registerRideRefresh } = useNotifications();
   const [balance, setBalance] = useState<BalanceResponse | null>(null);
   const [driverHandle, setDriverHandle] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -238,13 +240,23 @@ export default function DriverHome() {
     }
   }, []);
 
+  // Register for OS push once on mount.
   useEffect(() => {
-    void fetchAll();
     if (!tokenRegistered.current) {
       tokenRegistered.current = true;
       getTokenRef.current().then((t) => { if (t) void registerPushToken(t); }).catch(() => {});
     }
-  }, [fetchAll]);
+  }, []);
+
+  // Refetch the wallet + active-ride state every time home regains focus — e.g.
+  // the driver returns here after finishing a ride. Without this the balance is
+  // stale (tabs stay mounted, so the mount effect never re-runs). Fires once on
+  // first focus too, replacing the old mount-time fetch.
+  useFocusEffect(useCallback(() => { void fetchAll(); }, [fetchAll]));
+
+  // Live refresh while sitting on home: any ride update on the always-on notify
+  // channel re-pulls the balance so completed-ride earnings land with no reload.
+  useEffect(() => registerRideRefresh(() => { void fetchAll(); }), [registerRideRefresh, fetchAll]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -654,17 +666,59 @@ function AnimatedHeroAmount({ value }: { value: number }) {
   );
 }
 
+// Compact "23h 45m 12s" / "2d 5h 10m" settlement countdown — mirrors the web
+// cashout card's formatCountdown. Drops the smallest unit once larger ones lead.
+function formatClearsIn(msLeft: number): string {
+  if (msLeft <= 0) return 'any moment';
+  const total = Math.floor(msLeft / 1000);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
 function PendingLine({ pending, fundsAvailableOn }: { pending: number; fundsAvailableOn: string | null }) {
   const display = useAnimatedAmount(pending);
-  const dateLabel = fundsAvailableOn
-    ? new Date(fundsAvailableOn).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    : 'soon';
+  const [expanded, setExpanded] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const targetMs = fundsAvailableOn ? new Date(fundsAvailableOn).getTime() : null;
+
+  // Tick once a second while there's a known settlement time, so "clears in"
+  // counts down live (parity with web's trust countdown).
+  useEffect(() => {
+    if (!targetMs || Number.isNaN(targetMs)) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [targetMs]);
+
+  const clearsIn = targetMs && !Number.isNaN(targetMs) ? formatClearsIn(targetMs - now) : null;
+  const longLabel = fundsAvailableOn && !Number.isNaN(new Date(fundsAvailableOn).getTime())
+    ? (() => {
+        const d = new Date(fundsAvailableOn);
+        const date = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+        const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        return `${date} at ${time}`;
+      })()
+    : null;
+
   return (
-    <View style={wc.pendingRow}>
-      <Ionicons name="time-outline" size={11} color={colors.amber} />
-      <Text style={wc.pendingAmt}>${display}</Text>
-      <Text style={wc.pendingLabel}>arriving {dateLabel}</Text>
-    </View>
+    <TouchableOpacity activeOpacity={0.7} onPress={() => setExpanded((e) => !e)} disabled={!longLabel}>
+      <View style={wc.pendingRow}>
+        <Ionicons name="time-outline" size={11} color={colors.amber} />
+        <Text style={wc.pendingAmt}>${display}</Text>
+        <Text style={wc.pendingLabel}>{clearsIn ? `clears in ${clearsIn}` : 'settling'}</Text>
+        {longLabel && (
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={11} color={colors.textFaint} />
+        )}
+      </View>
+      {expanded && longLabel && (
+        <Text style={wc.pendingDetail}>Arrives {longLabel}</Text>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -807,6 +861,7 @@ const wc = StyleSheet.create({
   pendingRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: spacing.lg, marginTop: spacing.xs },
   pendingAmt: { fontFamily: fonts.mono, fontSize: 12, color: colors.amber },
   pendingLabel: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint },
+  pendingDetail: { fontFamily: fonts.body, fontSize: 11, color: colors.textFaint, marginTop: 2, marginLeft: 16, marginBottom: spacing.sm },
 
   tilesRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md, marginTop: spacing.sm },
   tile: { borderRadius: radius.cardInner, padding: spacing.md, borderWidth: 1 },
