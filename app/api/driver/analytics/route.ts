@@ -143,7 +143,11 @@ export async function GET() {
     // delivery (no rides) still gets a bar.
     const byDay = new Map<string, { day: string; cash: number; nonCash: number; delivery: number; rides: number }>();
     for (const d of dailyRows) {
-      const key = String(d.day).slice(0, 10);
+      // Neon returns `day` (a DATE) as a JS Date object, not a string.
+      // String(Date) → "Thu Mar 27 2026 …", whose first 10 chars are "Thu Mar 27"
+      // — which never matches fillDailyGaps' ISO "YYYY-MM-DD" keys, so every day
+      // silently zero-filled and the whole chart read empty. Normalize to ISO.
+      const key = new Date(d.day as string).toISOString().slice(0, 10);
       byDay.set(key, {
         day: key,
         cash: Math.round(Number(d.cash || 0) * 100) / 100,
@@ -153,7 +157,8 @@ export async function GET() {
       });
     }
     for (const d of deliveryRows) {
-      const key = String(d.day).slice(0, 10);
+      // Same ISO normalization as the rides loop above (Neon returns a Date).
+      const key = new Date(d.day as string).toISOString().slice(0, 10);
       const existing = byDay.get(key) ?? { day: key, cash: 0, nonCash: 0, delivery: 0, rides: 0 };
       existing.delivery = Math.round(Number(d.delivery || 0) * 100) / 100;
       byDay.set(key, existing);
