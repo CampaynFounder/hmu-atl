@@ -30,6 +30,24 @@ export const STREAMS = {
   delivery: { key: 'delivery' as const, label: 'Delivery', color: colors.blue },
 };
 
+// Superadmin-tunable palette delivered on the /driver/balance response. Channel
+// keys match the admin console (cash / hmuPay / delivery); nonCash === hmuPay.
+export interface ChartPalette {
+  cash: string;
+  hmuPay: string;
+  delivery: string;
+}
+
+// Merge the live palette over the theme defaults so a missing/old response just
+// falls back to the built-in colors (never an undefined SVG fill).
+function resolveStreams(palette?: ChartPalette | null) {
+  return {
+    cash: { ...STREAMS.cash, color: palette?.cash || STREAMS.cash.color },
+    nonCash: { ...STREAMS.nonCash, color: palette?.hmuPay || STREAMS.nonCash.color },
+    delivery: { ...STREAMS.delivery, color: palette?.delivery || STREAMS.delivery.color },
+  };
+}
+
 export interface StackPoint {
   /** Bucket label drawn under the bar (e.g. "Mon", "Apr 6", "May"). */
   label: string;
@@ -104,11 +122,13 @@ const TOP_PAD = 8;      // headroom above the tallest bar
 const MIN_SEG_PX = 3;   // smallest visible height for a non-zero stream segment
 
 export function EarningsChart({
-  data, onDrill,
+  data, onDrill, palette,
 }: {
   data: StackPoint[];
   onDrill?: (p: StackPoint, index: number) => void;
+  palette?: ChartPalette | null;
 }) {
+  const streams = resolveStreams(palette);
   const [width, setWidth] = useState(0);
   // Grow factor (0→1) held in React state, NOT bound to SVG via Animated — see
   // the note on <Segment/>. An Animated.Value drives the timing; its listener
@@ -162,7 +182,7 @@ export function EarningsChart({
     <View style={styles.wrap} onLayout={onLayout}>
       {/* Legend */}
       <View style={styles.legend}>
-        {Object.values(STREAMS).map((sM) => (
+        {Object.values(streams).map((sM) => (
           <View key={sM.key} style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: sM.color }]} />
             <Text style={styles.legendText}>{sM.label}</Text>
@@ -197,9 +217,9 @@ export function EarningsChart({
             const x = AXIS_W + i * slot + gap;
             const total = d.cash + d.nonCash + d.delivery;
             const segs = [
-              { v: d.cash, color: STREAMS.cash.color },
-              { v: d.nonCash, color: STREAMS.nonCash.color },
-              { v: d.delivery, color: STREAMS.delivery.color },
+              { v: d.cash, color: streams.cash.color },
+              { v: d.nonCash, color: streams.nonCash.color },
+              { v: d.delivery, color: streams.delivery.color },
             ].filter((sg) => sg.v > 0);
 
             let runningBottom = baseline;
@@ -281,11 +301,13 @@ function useCountUp(target: number, duration = 700): string {
 }
 
 export function EarningsDrillSheet({
-  point, onClose,
+  point, onClose, palette,
 }: {
   point: StackPoint | null;
   onClose: () => void;
+  palette?: ChartPalette | null;
 }) {
+  const streams = resolveStreams(palette);
   const slide = useRef(new RNAnimated.Value(0)).current;
   useEffect(() => {
     if (point) {
@@ -323,9 +345,9 @@ export function EarningsDrillSheet({
 
             {/* Per-stream split */}
             <View style={styles.splitRow}>
-              <SplitCard label="Cash" value={point.cash} color={STREAMS.cash.color} />
-              <SplitCard label="HMU Pay" value={point.nonCash} color={STREAMS.nonCash.color} />
-              <SplitCard label="Delivery" value={point.delivery} color={STREAMS.delivery.color} />
+              <SplitCard label="Cash" value={point.cash} color={streams.cash.color} />
+              <SplitCard label="HMU Pay" value={point.nonCash} color={streams.nonCash.color} />
+              <SplitCard label="Delivery" value={point.delivery} color={streams.delivery.color} />
             </View>
 
             {/* Counts */}

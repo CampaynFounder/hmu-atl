@@ -55,6 +55,8 @@ interface BalanceResponse {
   digitalEarnings: { rides: number; total: number };
   noShowEarnings: { rides: number; total: number };
   deliveryEarnings?: { jobs: number; total: number };
+  /** Superadmin-tunable earnings-chart stream colors (live, no app rebuild). */
+  chartPalette?: { cash: string; hmuPay: string; delivery: string };
   flags: { depositsDetailSheet: boolean };
 }
 
@@ -522,7 +524,7 @@ function DriverWalletCard({
           DAY/WEEK/MONTH filter stay alive even before the first earnings; a
           subtle hint overlays an empty range instead of a dead box. */}
       <View style={wc.chartWrap}>
-        <EarningsChart data={stacks} onDrill={(p) => { setDrill(p); }} />
+        <EarningsChart data={stacks} palette={balance.chartPalette} onDrill={(p) => { setDrill(p); }} />
         {stacksTotal === 0 && (
           <View style={wc.chartEmptyOverlay} pointerEvents="none">
             <Text style={wc.chartEmptyText}>
@@ -531,7 +533,7 @@ function DriverWalletCard({
           </View>
         )}
       </View>
-      <EarningsDrillSheet point={drill} onClose={() => setDrill(null)} />
+      <EarningsDrillSheet point={drill} onClose={() => setDrill(null)} palette={balance.chartPalette} />
 
       {/* ── Divider ── */}
       <View style={wc.divider} />
