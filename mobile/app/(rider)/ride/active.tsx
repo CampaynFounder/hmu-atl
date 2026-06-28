@@ -125,6 +125,13 @@ export default function RiderActiveScreen() {
   const [token, setToken] = useState<string | null>(null);
   const [driverLocation, setDriverLocation] = useState<LatLng | null>(null);
   const [confirmingRide, setConfirmingRide] = useState(false);
+  // Driver-arrived wait countdown (10 min) + rider confirm window (2 min),
+  // mirroring the web ride client. waitMinutes arrives on the 'here'
+  // status_change; confirmDeadline arrives on the 'confirm_start' event.
+  const [waitMinutes, setWaitMinutes] = useState<number | null>(null);
+  const [confirmDeadline, setConfirmDeadline] = useState<string | null>(null);
+  const [waitSecs, setWaitSecs] = useState<number | null>(null);
+  const [confirmSecs, setConfirmSecs] = useState<number | null>(null);
   // Trip the rider entered at booking — used to render the map before COO and
   // to fire the inline Pull Up without re-entering addresses.
   const [pendingLoc, setPendingLoc] = useState<PendingRideLocations | null>(null);
@@ -233,7 +240,13 @@ export default function RiderActiveScreen() {
         const newStatus = d.status as string;
         setRide((prev) => prev ? { ...prev, status: newStatus } : prev);
         if (newStatus === 'otw') setRide((prev) => prev ? { ...prev, otwAt: new Date().toISOString() } : prev);
-        if (newStatus === 'here') setRide((prev) => prev ? { ...prev, hereAt: new Date().toISOString() } : prev);
+        if (newStatus === 'here') {
+          // Driver arrived — capture the wait window (server sends waitMinutes,
+          // default 10) so the rider sees a live "get to the car" countdown.
+          const wm = Number(d.waitMinutes);
+          setRide((prev) => prev ? { ...prev, hereAt: new Date().toISOString() } : prev);
+          setWaitMinutes(Number.isFinite(wm) && wm > 0 ? wm : 10);
+        }
         if (newStatus === 'active') setRide((prev) => prev ? { ...prev, startedAt: new Date().toISOString() } : prev);
         if (newStatus === 'ended' || newStatus === 'completed') {
           router.replace(`/(rider)/ride/${rideId}` as any);
@@ -242,6 +255,16 @@ export default function RiderActiveScreen() {
           Alert.alert('Ride cancelled', 'This ride was cancelled.');
           router.replace('/(rider)/home' as any);
         }
+      }
+      if (msg.name === 'confirm_start') {
+        // Driver tapped Start Ride. The server carries this as its OWN event
+        // (not status_change), so without handling it here the rider never
+        // enters 'confirming', never sees the I'M IN CTA, and the ride strands
+        // at confirming. Mirrors web active-ride-client's confirm_start case.
+        const d = msg.data as Record<string, unknown>;
+        setRide((prev) => prev ? { ...prev, status: 'confirming' } : prev);
+        setConfirmDeadline((d.confirmDeadline as string) ?? null);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       }
       if (msg.name === 'cancel_request_cleared') {
         // Driver declined or it timed out — the ride continues (or a separate
@@ -365,6 +388,28 @@ export default function RiderActiveScreen() {
     const id = setInterval(() => setCancelSecs((s) => Math.max(0, s - 1)), 1000);
     return () => clearInterval(id);
   }, [cancelRequested, cancelSecs]);
+
+  // Driver-arrived wait countdown (10 min) — anchored to hereAt. Mirrors web:
+  // the rider should hustle to the car before the driver can pull off.
+  useEffect(() => {
+    if (status !== 'here' || !ride?.hereAt) { setWaitSecs(null); return; }
+    const deadlineMs = new Date(ride.hereAt).getTime() + (waitMinutes ?? 10) * 60_000;
+    const tick = () => setWaitSecs(Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [status, ride?.hereAt, waitMinutes]);
+
+  // Rider confirm window (2 min) — anchored to confirmDeadline from confirm_start.
+  // Display only; the rider must still tap I'm In (no silent auto-confirm).
+  useEffect(() => {
+    if (status !== 'confirming' || !confirmDeadline) { setConfirmSecs(null); return; }
+    const deadlineMs = new Date(confirmDeadline).getTime();
+    const tick = () => setConfirmSecs(Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [status, confirmDeadline]);
 
   function requestCancel() {
     if (!ride || cancelling) return;
@@ -711,10 +756,45 @@ export default function RiderActiveScreen() {
           />
         )}
 
+        {/* Driver arrived — prominent confirmation + 10-min wait countdown so
+            it's unmistakable the driver is waiting (mirrors web 'here' surface). */}
+        {ride.status === 'here' && (
+          <View style={[s.arrivedCard, waitSecs !== null && waitSecs < 60 && s.arrivedCardUrgent]}>
+            <Text style={[s.arrivedTitle, waitSecs !== null && waitSecs < 60 && { color: colors.red }]}>
+              YOUR DRIVER IS HERE
+            </Text>
+            {waitSecs !== null && waitSecs > 0 && (
+              <>
+                <Text style={[s.arrivedTimer, waitSecs < 60 && { color: colors.red }]}>
+                  {Math.floor(waitSecs / 60)}:{String(waitSecs % 60).padStart(2, '0')}
+                </Text>
+                <Text style={[s.arrivedSub, waitSecs < 60 && { color: colors.red }]}>
+                  {waitSecs < 60 ? 'Hurry — your driver can leave soon' : 'Get to the car before your driver can leave'}
+                </Text>
+              </>
+            )}
+            <Text style={s.arrivedHint}>Hop in — your driver will start the ride</Text>
+          </View>
+        )}
+
+        {/* Confirming — Confirm & Pay header + confirm-window countdown. The
+            I'M IN CTA lives in the bottom bar. */}
+        {ride.status === 'confirming' && (
+          <View style={s.confirmCard}>
+            <Text style={s.confirmTitle}>CONFIRM &amp; PAY</Text>
+            <Text style={s.confirmSub}>Tap I&apos;m In below to start — your card is charged when you confirm.</Text>
+            {confirmSecs !== null && confirmSecs > 0 && (
+              <Text style={s.confirmTimer}>
+                Confirm within {Math.floor(confirmSecs / 60)}:{String(confirmSecs % 60).padStart(2, '0')}
+              </Text>
+            )}
+          </View>
+        )}
+
         {/* Live ETA — to pickup from the moment the rider pulls up (inbound)
             and while the driver is en route, to the destination once the ride
             is active (mirrors the web app). */}
-        {(inbound || ['otw', 'here', 'active', 'in_progress'].includes(ride.status)) && (
+        {(inbound || ['otw', 'active', 'in_progress'].includes(ride.status)) && (
           <View style={s.etaBanner}>
             <Ionicons name="car-sport" size={18} color={colors.green} />
             <Text style={s.etaText}>
@@ -1083,6 +1163,26 @@ const s = StyleSheet.create({
     marginTop: -spacing.sm, marginBottom: spacing.lg,
   },
   selfEtaText: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.amber, flex: 1 },
+
+  arrivedCard: {
+    alignItems: 'center', backgroundColor: colors.greenDim, borderRadius: radius.card,
+    borderWidth: 1, borderColor: colors.greenBorder,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, marginBottom: spacing.lg,
+  },
+  arrivedCardUrgent: { backgroundColor: colors.redDim, borderColor: colors.redBorder },
+  arrivedTitle: { fontFamily: fonts.mono, fontSize: 12, color: colors.green, letterSpacing: 2 },
+  arrivedTimer: { fontFamily: fonts.display, fontSize: 40, color: colors.green, lineHeight: 44, marginTop: spacing.sm },
+  arrivedSub: { fontFamily: fonts.body, fontSize: 12, color: colors.textTertiary, marginTop: 2, textAlign: 'center' },
+  arrivedHint: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.textPrimary, marginTop: spacing.md, textAlign: 'center' },
+
+  confirmCard: {
+    alignItems: 'center', backgroundColor: colors.amberDim, borderRadius: radius.card,
+    borderWidth: 1, borderColor: colors.amberBorder,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, marginBottom: spacing.lg,
+  },
+  confirmTitle: { fontFamily: fonts.mono, fontSize: 13, color: colors.amber, letterSpacing: 2 },
+  confirmSub: { fontFamily: fonts.body, fontSize: 13, color: colors.textSecondary, marginTop: spacing.xs, textAlign: 'center', lineHeight: 19 },
+  confirmTimer: { fontFamily: fonts.mono, fontSize: 11, color: colors.textFaint, marginTop: spacing.sm },
   authRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
   authText: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint },
   cancelPending: {

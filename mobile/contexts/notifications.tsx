@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import { Platform } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
 import { useStableToken } from '@/hooks/use-stable-token';
-import { useRouter } from 'expo-router';
+import { useRouter, usePathname } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { API_BASE } from '@/lib/api';
 
@@ -45,6 +45,17 @@ export interface NextAction {
   route: string;
 }
 
+/** A driver just passed on the rider's direct booking. Carried on the
+ *  booking_declined notify event so the waiting screen can stop its countdown
+ *  and surface the "driver passed" screen in real time. */
+export interface DeclinedRequest {
+  postId: string;
+  driverName: string;
+  price: number;
+  reason: string | null;   // 'price' | 'distance' | 'booked' | 'other' | null
+  message: string | null;
+}
+
 // Live statuses where a ride is still in-flight (anything past this is history).
 const LIVE_RIDE_STATUSES = ['matched', 'otw', 'here', 'confirming', 'active', 'in_progress'];
 
@@ -83,6 +94,14 @@ interface NotificationContextValue {
   nextAction: NextAction | null;
   /** Force a re-pull of /rides/active (e.g. on tab focus). */
   refreshActiveRide: () => void;
+  /** Set when a driver passes on the rider's direct booking (null when none). */
+  declinedRequest: DeclinedRequest | null;
+  /** Clear the pending decline (after the rider lands on the passed screen). */
+  clearDeclinedRequest: () => void;
+  /** Clear all "new ride request" alerts for the driver — the transient banner,
+   *  the unread badge, and (via feed refetch) the persistent request bar. Call
+   *  when the driver resolves a request (passes or accepts). */
+  clearRequestAlerts: () => void;
 }
 
 const NotificationContext = createContext<NotificationContextValue>({
@@ -95,6 +114,9 @@ const NotificationContext = createContext<NotificationContextValue>({
   activeRide: null,
   nextAction: null,
   refreshActiveRide: () => {},
+  declinedRequest: null,
+  clearDeclinedRequest: () => {},
+  clearRequestAlerts: () => {},
 });
 
 export function useNotifications() {
@@ -102,16 +124,28 @@ export function useNotifications() {
 }
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
-  const { isSignedIn, userId } = useAuth();
+  const { isSignedIn } = useAuth();
   const getToken = useStableToken();
   const router = useRouter();
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
+  // Track the current route so a new-request banner can be suppressed when the
+  // driver is already on the feed (the request card surfaces inline there).
+  const pathname = usePathname();
+  const onFeedRef = useRef(false);
+  onFeedRef.current = (pathname ?? '').endsWith('/feed');
 
   const [unreadRequestCount, setUnreadRequestCount] = useState(0);
   const [bannerQueue, setBannerQueue] = useState<AppNotification[]>([]);
   const [currentBanner, setCurrentBanner] = useState<AppNotification | null>(null);
   const [activeRide, setActiveRide] = useState<ActiveRideState | null>(null);
+  const [declinedRequest, setDeclinedRequest] = useState<DeclinedRequest | null>(null);
+  // The DB users.id — NOT the Clerk id. The server publishes every ride/booking
+  // event to `user:{dbUserId}:notify` (web resolves this id via /api/users/me).
+  // Subscribing with the Clerk id silently receives nothing, which kills every
+  // app-wide notification (request banners, backstop ride refresh, wallet, etc).
+  // So we resolve the DB id first and key the notify subscription on it.
+  const [dbUserId, setDbUserId] = useState<string | null>(null);
 
   const feedRefreshCallbacks = useRef<Set<() => void>>(new Set());
   const rideRefreshCallbacks = useRef<Set<() => void>>(new Set());
@@ -241,6 +275,19 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     feedRefreshCallbacks.current.forEach((fn) => fn());
   }, []);
 
+  // Clear "new ride request" alerts once the driver resolves a request (passes
+  // or accepts): drop the unread badge, dismiss a still-showing new-request
+  // banner + dequeue any pending ones, and refetch the feed so the persistent
+  // PendingRequestBar drops the now-resolved request.
+  const clearRequestAlerts = useCallback(() => {
+    setUnreadRequestCount(0);
+    setCurrentBanner((b) => (b && b.type === 'new_request' ? null : b));
+    setBannerQueue((q) => q.filter((n) => n.type !== 'new_request'));
+    triggerFeedRefresh();
+  }, [triggerFeedRefresh]);
+
+  const clearDeclinedRequest = useCallback(() => setDeclinedRequest(null), []);
+
   const registerRideRefresh = useCallback((fn: () => void) => {
     rideRefreshCallbacks.current.add(fn);
     return () => { rideRefreshCallbacks.current.delete(fn); };
@@ -286,8 +333,26 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     refreshActiveRide();
   }, [isSignedIn, refreshActiveRide]);
 
+  // Resolve the DB users.id (the channel the server actually publishes to).
+  // Mirrors web's global-ride-alert, which fetches /api/users/me → data.id.
   useEffect(() => {
-    if (!isSignedIn || !userId) return;
+    if (!isSignedIn) { setDbUserId(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const t = await getTokenRef.current();
+        if (!t || cancelled) return;
+        const res = await fetch(`${API_BASE}/users/me`, { headers: { Authorization: `Bearer ${t}` } });
+        if (!res.ok || cancelled) return;
+        const data = await res.json() as { id?: string };
+        if (data?.id && !cancelled) setDbUserId(data.id);
+      } catch { /* best-effort — without this, app-wide notify stays silent */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    if (!isSignedIn || !dbUserId) return;
 
     let cancelled = false;
 
@@ -324,7 +389,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
         if (cancelled) { client.close(); return; }
 
-        const channel = client.channels.get(`user:${userId}:notify`, {
+        const channel = client.channels.get(`user:${dbUserId}:notify`, {
           params: { rewind: '2m' },
         });
 
@@ -351,7 +416,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       cleanup.then((fn) => fn?.()).catch(() => {});
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSignedIn, userId]);
+  }, [isSignedIn, dbUserId]);
 
   function handleEvent(name: string, data: Record<string, unknown>) {
     const rideId = data?.ride_id as string | undefined;
@@ -387,20 +452,26 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
       case 'direct_booking_request': {
         setUnreadRequestCount((c) => c + 1);
+        // Always refresh the feed so a driver already on it sees the card appear
+        // even if its own channel briefly drops the event.
+        triggerFeedRefresh();
+        // Already on the feed? The request card surfaces inline — don't stack a
+        // redundant banner. The deep-link nudge is only for other screens.
+        if (onFeedRef.current) break;
         const reqPrice = data?.price as number | undefined;
+        const reqHandle = (data?.riderHandle as string | undefined) || undefined;
         enqueue({
           id: `direct-${Date.now()}`,
           type: 'new_request',
-          title: 'NEW RIDE REQUEST',
-          body: reqPrice
-            ? `A rider wants you — $${reqPrice}. Tap to respond before it expires.`
-            : 'A rider booked you directly — tap to respond.',
+          title: reqHandle ? `@${reqHandle} JUST HMU` : 'NEW RIDE REQUEST',
+          body: reqHandle
+            ? `@${reqHandle} wants a ride${reqPrice ? ` — $${reqPrice}` : ''}. Tap to respond before it expires.`
+            : reqPrice
+              ? `A rider wants you — $${reqPrice}. Tap to respond before it expires.`
+              : 'A rider booked you directly — tap to respond.',
           route: '/(driver)/feed',
           timestamp: Date.now(),
         });
-        // Refresh the feed too so a driver already on it sees the card appear
-        // even if its own channel briefly drops the event.
-        triggerFeedRefresh();
         break;
       }
 
@@ -446,6 +517,40 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         // countdown and routes straight in — no 5s poll lag. Reconcile after.
         if (acceptedRideId) setActiveRide({ rideId: acceptedRideId, status: 'matched', isDriver: false });
         refreshActiveRide();
+        break;
+      }
+
+      case 'booking_declined': {
+        // The targeted driver passed on the rider's DIRECT booking. Surface it
+        // in real time: set declinedRequest so the waiting screen stops its
+        // countdown and shows the "driver passed" screen, plus an app-wide
+        // banner in case the rider is elsewhere. Rides the existing rail —
+        // server already flipped the post to declined_awaiting_rider.
+        const declinedPostId = data?.postId as string | undefined;
+        if (!declinedPostId) break;
+        const driverName = (data?.driverName as string) || 'The driver';
+        setDeclinedRequest({
+          postId: declinedPostId,
+          driverName,
+          price: Number(data?.price ?? 0),
+          reason: (data?.reason as string) ?? null,
+          message: (data?.message as string) ?? null,
+        });
+        enqueue({
+          id: `declined-${Date.now()}`,
+          type: 'cancelled',
+          title: `${driverName.toUpperCase()} PASSED`,
+          body: 'Tap to HMU other drivers or cancel your request.',
+          route: `/(rider)/book/passed?postId=${declinedPostId}`,
+          timestamp: Date.now(),
+        });
+        break;
+      }
+
+      case 'pass_committed': {
+        // The driver resolved (passed on) a request — possibly from another
+        // surface. Drop any lingering new-request alerts for it.
+        clearRequestAlerts();
         break;
       }
 
@@ -564,6 +669,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         unreadRequestCount, markRequestsSeen, currentBanner, dismissBanner,
         registerFeedRefresh, registerRideRefresh,
         activeRide, nextAction, refreshActiveRide,
+        declinedRequest, clearDeclinedRequest, clearRequestAlerts,
       }}
     >
       {children}

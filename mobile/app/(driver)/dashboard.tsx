@@ -1,10 +1,11 @@
 // Earnings dashboard — reuses the same /driver/earnings endpoint with a full breakdown view.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet,
   RefreshControl, ActivityIndicator,
 } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
+import { useFocusEffect } from 'expo-router';
 import { useStableToken } from '@/hooks/use-stable-token';
 import { apiClient } from '@/lib/api';
 
@@ -29,7 +30,9 @@ export default function Dashboard() {
     finally { setLoading(false); setRefreshing(false); }
   }, [getToken]);
 
-  useEffect(() => { void fetch(); }, [fetch]);
+  // Refetch on every focus so earnings reflect the latest completed ride
+  // (not just the first mount).
+  useFocusEffect(useCallback(() => { void fetch(); }, [fetch]));
 
   if (loading) return (
     <View style={styles.loader}><ActivityIndicator size="large" color="#00E676" /></View>

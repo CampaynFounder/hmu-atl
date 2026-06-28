@@ -55,3 +55,33 @@ always right** — the failure mode is the realtime layer, not storage.
 - DB backstop: `uq_one_active_ride_per_rider` (migration
   `2026-06-22-one-active-ride-per-rider.sql`) makes two simultaneous live rides
   per rider impossible, so the `active` lookup can never be ambiguous.
+
+## The notify channel is keyed on the DB user id, NEVER the Clerk id
+The server publishes every ride/booking event to `user:{users.id}:notify` (the
+Neon `users.id` UUID), via `notifyUser(dbUserId, …)`. The mobile app only holds
+the Clerk id client-side, so it MUST resolve its DB id first (`GET /users/me` →
+`data.id`) and subscribe to `user:{dbUserId}:notify` (`contexts/notifications.tsx`).
+
+- Subscribing with the Clerk id is silently dead: the Ably token grants the
+  capability for both id channels, but capability ≠ delivery — nothing is ever
+  published to the Clerk-id channel. The symptom is total: NO app-wide request
+  banners, NO backstop ride refresh, NO wallet refresh, status updates that only
+  land via the per-screen `ride:{id}` channel. Web has always done this right
+  (`internalUserId` from `/api/users/me`).
+- A foreground OS push is NOT proof the in-app channel works — the push half and
+  the Ably half of `notifyUserWithPush` are independent. Verify the in-app banner.
+
+## A driver must learn of a new request from ANY screen, not just the feed
+Background-received requests never reach the in-app Ably handler (JS suspended),
+and a 12s toast is missable. So new-request surfacing has TWO layers, both
+required: the transient `NotificationBanner` (realtime, foreground) AND the
+persistent `PendingRequestBar` (server-authoritative `GET /drivers/requests`,
+refreshed on mount/route-change/foreground). Never rely on the toast alone.
+
+## Ride status uses TWO Ably event shapes — handle both on the client
+`ride:{id}` carries `status_change` for most transitions, BUT the rider's
+Start-Ride step arrives as its OWN event name `confirm_start` (with
+`confirmDeadline`), not a `status_change`. The rider screen MUST handle
+`confirm_start` → enter `confirming` → show the I'M IN CTA; without it the rider
+can never confirm and the ride strands at `confirming` (driver hangs on
+"RIDER CONFIRMING…"). Mirrors web `active-ride-client.tsx`.

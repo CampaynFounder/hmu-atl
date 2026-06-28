@@ -88,10 +88,15 @@ export function RideChat({
 
   return (
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={s.overlay}>
+      {/* The KeyboardAvoidingView IS the full-height overlay so 'padding'
+          behavior can lift the sheet above the keyboard — a content-sized KAV
+          can't, which left the input (and last messages) hidden while typing. */}
+      <KeyboardAvoidingView
+        style={s.overlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <TouchableOpacity style={s.backdrop} activeOpacity={1} onPress={onClose} />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View style={[s.sheet, { paddingBottom: insets.bottom + spacing.sm }]}>
+        <View style={[s.sheet, { paddingBottom: insets.bottom + spacing.sm }]}>
             <View style={s.header}>
               <View style={s.handle} />
               <View style={s.headerRow}>
@@ -151,9 +156,8 @@ export function RideChat({
                 {sending ? <ActivityIndicator size="small" color={colors.bg} /> : <Ionicons name="arrow-up" size={18} color={colors.bg} />}
               </TouchableOpacity>
             </View>
-          </View>
-        </KeyboardAvoidingView>
-      </View>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
