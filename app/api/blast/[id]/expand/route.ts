@@ -38,7 +38,8 @@ export async function POST(
       hp.pickup_lat, hp.pickup_lng, hp.pickup_address,
       hp.dropoff_lat, hp.dropoff_lng, hp.dropoff_address,
       hp.driver_preference, hp.scheduled_for, hp.market_id,
-      COALESCE(rp.display_name, rp.first_name, 'Rider') AS rider_display_name
+      -- Public identity only — never the rider's legal first_name.
+      COALESCE(rp.display_name, rp.handle, 'Rider') AS rider_display_name
     FROM hmu_posts hp
     LEFT JOIN rider_profiles rp ON rp.user_id = hp.user_id
     WHERE hp.id = ${blastId} AND hp.post_type = 'blast' AND hp.user_id = ${riderId}

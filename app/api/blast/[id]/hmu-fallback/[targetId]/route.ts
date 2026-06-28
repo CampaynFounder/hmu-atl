@@ -84,7 +84,8 @@ async function handlePost(
   }
 
   const userCtxRows = await sql`
-    SELECT COALESCE(display_name, handle, first_name, 'A rider') AS display_name
+    -- Public identity only — never the rider's legal first_name.
+    SELECT COALESCE(display_name, handle, 'A rider') AS display_name
     FROM rider_profiles WHERE user_id = ${riderId} LIMIT 1
   `;
   const displayName = (userCtxRows[0] as { display_name: string } | undefined)?.display_name ?? 'A rider';

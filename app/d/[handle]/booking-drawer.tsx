@@ -178,10 +178,15 @@ export default function BookingDrawer({ driver, open, onClose, prefill, isSigned
     }
     setSubmitting(true);
     setError('');
+    // Bound the request so a hung origin can't spin the button forever — surface
+    // a clear, actionable error instead. Matches the mobile apiClient ceiling.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
     try {
       const res = await fetch(`/api/drivers/${driver.handle}/book`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           price: Number(price),
           areas,
@@ -214,9 +219,12 @@ export default function BookingDrawer({ driver, open, onClose, prefill, isSigned
         localStorage.removeItem('hmu_chat_booking');
         fetch(`/api/rider/draft-booking?driverHandle=${driver.handle}`, { method: 'DELETE' }).catch(() => {});
       } catch { /* ignore */ }
-    } catch {
-      setError('Network error — try again.');
+    } catch (e) {
+      setError(e instanceof DOMException && e.name === 'AbortError'
+        ? 'That took too long — check your connection and try again.'
+        : 'Network error — try again.');
     } finally {
+      clearTimeout(timeout);
       setSubmitting(false);
     }
   };

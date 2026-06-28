@@ -22,7 +22,8 @@ import { DriverPayoutGate } from '@/components/blast/driver/driver-payout-gate';
 interface Blast {
   id: string;
   shortcode: string;
-  riderFirstName?: string;
+  // Drivers only ever see the rider by public handle — never a real name.
+  riderHandle?: string;
   riderPhotoUrl?: string;
   riderChillScore?: number;
   pickupAddress: string;
@@ -213,7 +214,7 @@ function RiderHeader({ blast }: { blast: Blast }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={blast.riderPhotoUrl}
-          alt={blast.riderFirstName ?? 'Rider'}
+          alt={blast.riderHandle ?? 'Rider'}
           style={{ width: 64, height: 64, borderRadius: 16, objectFit: 'cover' }}
         />
       ) : (
@@ -223,11 +224,11 @@ function RiderHeader({ blast }: { blast: Blast }) {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 24, fontWeight: 700,
         }}>
-          {(blast.riderFirstName ?? '?').slice(0, 1).toUpperCase()}
+          {(blast.riderHandle ?? '?').slice(0, 1).toUpperCase()}
         </div>
       )}
       <div>
-        <div style={{ fontSize: 18, fontWeight: 700 }}>{blast.riderFirstName ?? 'Rider'}</div>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>{blast.riderHandle ? `@${blast.riderHandle}` : 'Rider'}</div>
         {typeof blast.riderChillScore === 'number' && (
           <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
             Chill {blast.riderChillScore.toFixed(0)}

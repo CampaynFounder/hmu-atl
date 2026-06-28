@@ -70,10 +70,15 @@ export async function POST(
     return NextResponse.json({ error: 'price is required' }, { status: 400 });
   }
 
-  // Resolve IDs
-  const [riderRows, driverRows] = await Promise.all([
+  // Resolve IDs + booking config concurrently.
+  const [riderRows, driverRows, bookingCfg] = await Promise.all([
     sql`SELECT id, account_status FROM users WHERE clerk_id = ${clerkId} LIMIT 1`,
     sql`SELECT user_id, areas, enforce_minimum, accepts_cash, cash_only, (pricing->>'minimum')::numeric as min_ride_price FROM driver_profiles WHERE handle = ${handle} LIMIT 1`,
+    getPlatformConfig('direct_booking.config', {
+      expiry_minutes: 15,
+      rate_limit_per_rider_hour: 5,
+      rate_limit_per_rider_day: 15,
+    }),
   ]);
 
   if (!riderRows.length) return NextResponse.json({ error: 'Rider not found' }, { status: 404 });
@@ -83,13 +88,63 @@ export async function POST(
   const driverProfile = driverRows[0] as { user_id: string; areas: string[]; enforce_minimum: boolean; accepts_cash: boolean | null; cash_only: boolean | null; min_ride_price: number | null };
   const driverUserId = driverProfile.user_id;
 
-  const bookingCfg = await getPlatformConfig('direct_booking.config', {
-    expiry_minutes: 15,
-    rate_limit_per_rider_hour: 5,
-    rate_limit_per_rider_day: 15,
-  });
   const bookingRateLimitHour = Math.max(1, Number(bookingCfg.rate_limit_per_rider_hour) || 5);
   const bookingRateLimitDay = Math.max(1, Number(bookingCfg.rate_limit_per_rider_day) || 15);
+
+  // Structural self-booking guard — rider and driver cannot be the same user.
+  // Sync check, evaluated before firing any further queries so a self-book (or
+  // abusive direct API call) short-circuits without extra DB work. Backs up the
+  // UI blocker on /d/[handle].
+  if (rider.id === driverUserId) {
+    await logSuspectEvent(rider.id, 'self_booking_attempt', { driverHandle: handle });
+    return NextResponse.json(
+      { error: 'You can\'t book yourself. Try another driver.', code: 'self_booking' },
+      { status: 403 }
+    );
+  }
+
+  // Resolve the requested time window up front (sync) — the availability and
+  // rider-conflict checks below all key off it.
+  //
+  // Duration resolution order:
+  //  1) explicit estimated_minutes from the chat flow (round-trip aware,
+  //     Mapbox-backed)
+  //  2) round_trip flag with a 90-min fallback
+  //  3) resolveBookingWindow's 45-min default for one-way
+  const tw = (timeWindow || {}) as Record<string, unknown>;
+  const rawMinutes = Number(tw.estimated_minutes);
+  const isRoundTrip = !!tw.round_trip;
+  const estimatedMinutes = Number.isFinite(rawMinutes) && rawMinutes > 0
+    ? Math.round(rawMinutes)
+    : isRoundTrip
+    ? 90
+    : undefined;
+  const window = resolveBookingWindow(tw, estimatedMinutes);
+
+  // ── Phase A ── Fire the independent gate reads concurrently instead of one
+  // serial round-trip at a time (this chain was the cause of the endlessly
+  // spinning book button: ~15 sequential Neon hops would blow the client's 30s
+  // timeout under any latency). The guards below are still evaluated in the
+  // SAME precedence order, so the rider sees the identical first error — only
+  // the I/O overlaps.
+  const [cashAllowed, bookRate, activeRides, existing, market, driverMarket, riderConflict] = await Promise.all([
+    driverAllowsCashOnly(driverUserId),
+    checkRateLimit({ key: `book:rider:${rider.id}`, limit: bookingRateLimitHour, windowSeconds: 3600 }),
+    sql`SELECT id FROM rides WHERE rider_id = ${rider.id} AND status IN ('otw','here','active') LIMIT 1`,
+    // Auto-expire stale bookings first so they don't count as active, THEN look
+    // up an existing live booking to this driver.
+    sql`
+      UPDATE hmu_posts SET status = 'expired'
+      WHERE user_id = ${rider.id} AND post_type = 'direct_booking'
+        AND status = 'active' AND booking_expires_at < NOW()
+    `.then(() => getActiveDirectBooking(rider.id, driverUserId)),
+    resolveMarketForUser(rider.id),
+    // Driver's market is the wall-clock anchor for the typed time.
+    resolveMarketForUser(driverUserId),
+    // A rider cannot have an active blast or another direct booking overlapping
+    // this window.
+    checkRiderRequestConflict(rider.id, window.startAt, window.endAt),
+  ]);
 
   // Clamp is_cash to the driver's payment config — never trust the client.
   // Keeps the driver SMS, payment gate, and scheduling policy in sync with
@@ -99,7 +154,6 @@ export async function POST(
   //   accepts_cash + !cash_only → honor rider's choice
   // Then: active pricing strategy gets the final say. Deposit-only requires a
   // digital deposit on every ride, so cash_only is forced off when active.
-  const cashAllowed = await driverAllowsCashOnly(driverUserId);
   const resolvedIsCash = !cashAllowed
     ? false
     : driverProfile.cash_only === true
@@ -108,26 +162,8 @@ export async function POST(
     ? false
     : is_cash === true;
 
-  // Structural self-booking guard — rider and driver cannot be the same user.
-  // Backs up the UI blocker on /d/[handle] in case someone calls the API directly
-  // or uses a dual-profile account in a future release.
-  if (rider.id === driverUserId) {
-    await logSuspectEvent(rider.id, 'self_booking_attempt', { driverHandle: handle });
-    return NextResponse.json(
-      { error: 'You can\'t book yourself. Try another driver.', code: 'self_booking' },
-      { status: 403 }
-    );
-  }
-
   // Hourly booking rate limit — fires on ACTUAL booking submissions, not
-  // chat summaries. Dismissing a chat doesn't increment this. The structural
-  // "one active booking per rider-driver pair" check below handles the
-  // "spam one driver" case, so we only cap aggregate spam.
-  const bookRate = await checkRateLimit({
-    key: `book:rider:${rider.id}`,
-    limit: bookingRateLimitHour,
-    windowSeconds: 3600,
-  });
+  // chat summaries. Dismissing a chat doesn't increment this.
   if (!bookRate.ok) {
     await logSuspectEvent(rider.id, 'booking_rate', {
       count: bookRate.count,
@@ -152,9 +188,6 @@ export async function POST(
     );
   }
 
-  // Fall back to driver's areas if not provided
-  const areas = body.areas?.length ? body.areas : (Array.isArray(driverProfile.areas) ? driverProfile.areas : ['ATL']);
-
   if (rider.account_status !== 'active') {
     return NextResponse.json({ error: 'Account not active' }, { status: 403 });
   }
@@ -162,20 +195,10 @@ export async function POST(
   // Block only if rider is in a ride RIGHT NOW (OTW/here/active). A
   // future 'matched' booking doesn't stop them from scheduling another
   // ride — the driver-availability check handles time-overlap.
-  const activeRides = await sql`SELECT id FROM rides WHERE rider_id = ${rider.id} AND status IN ('otw','here','active') LIMIT 1`;
   if (activeRides.length) {
     return NextResponse.json({ error: 'You already have an active ride', code: 'active_ride' }, { status: 409 });
   }
 
-  // Auto-expire stale bookings before checking
-  await sql`
-    UPDATE hmu_posts SET status = 'expired'
-    WHERE user_id = ${rider.id} AND post_type = 'direct_booking'
-      AND status = 'active' AND booking_expires_at < NOW()
-  `;
-
-  // Check for an existing active booking to this driver
-  const existing = await getActiveDirectBooking(rider.id, driverUserId);
   if (existing) {
     return NextResponse.json(
       { error: 'You already have an active booking request with this driver', postId: existing.id, expiresAt: existing.booking_expires_at },
@@ -183,40 +206,26 @@ export async function POST(
     );
   }
 
-  // Re-run eligibility server-side (never trust client)
-  const eligibility = await checkRiderEligibility(rider.id, driverUserId, resolvedIsCash, {
-    hourly: bookingRateLimitHour,
-    daily: bookingRateLimitDay,
-  });
+  // ── Phase B ── Heavier checks, gated behind the cheap guards above so a
+  // rate-limited / already-booked rider never pays for them. Run concurrently.
+  const [eligibility, avail, bookingTypeEnabled] = await Promise.all([
+    // Re-run eligibility server-side (never trust client).
+    checkRiderEligibility(rider.id, driverUserId, resolvedIsCash, {
+      hourly: bookingRateLimitHour,
+      daily: bookingRateLimitDay,
+    }),
+    // Same window for "now" and future so two riders can't race on the same
+    // slot before the ride record exists. Strict for non-cash (held card →
+    // chargebacks if we double-book), loose for cash.
+    checkDriverAvailability(driverUserId, window.startAt, window.endAt, { strict: !resolvedIsCash }),
+    // Per-market rollout gate for Direct booking.
+    isBookingTypeEnabled(market.market_id, 'direct'),
+  ]);
+
   if (!eligibility.eligible) {
     return NextResponse.json({ error: eligibility.reason, code: eligibility.code }, { status: 403 });
   }
 
-  // Check driver availability for the requested time — same window for
-  // "now" and future so two riders can't race on the same slot before the
-  // ride record exists. Strict for non-cash (held card → chargebacks if we
-  // double-book), loose for cash (only an actively running ride blocks).
-  //
-  // Duration resolution order:
-  //  1) explicit estimated_minutes from the chat flow (round-trip aware,
-  //     Mapbox-backed)
-  //  2) round_trip flag with a 90-min fallback
-  //  3) resolveBookingWindow's 45-min default for one-way
-  const tw = (timeWindow || {}) as Record<string, unknown>;
-  const rawMinutes = Number(tw.estimated_minutes);
-  const isRoundTrip = !!tw.round_trip;
-  const estimatedMinutes = Number.isFinite(rawMinutes) && rawMinutes > 0
-    ? Math.round(rawMinutes)
-    : isRoundTrip
-    ? 90
-    : undefined;
-  const window = resolveBookingWindow(tw, estimatedMinutes);
-  const avail = await checkDriverAvailability(
-    driverUserId,
-    window.startAt,
-    window.endAt,
-    { strict: !resolvedIsCash }
-  );
   if (!avail.available && avail.conflict) {
     return NextResponse.json(
       { error: 'This driver already has a booking at that time. Try a different time.', code: 'schedule_conflict' },
@@ -224,9 +233,6 @@ export async function POST(
     );
   }
 
-  // Prevent duplicate pending requests: a rider cannot have an active blast
-  // or any other direct booking that overlaps this time window.
-  const riderConflict = await checkRiderRequestConflict(rider.id, window.startAt, window.endAt);
   if (riderConflict) {
     if (riderConflict.code === 'ACTIVE_BLAST_EXISTS') {
       return NextResponse.json(
@@ -249,20 +255,15 @@ export async function POST(
     );
   }
 
-  const market = await resolveMarketForUser(rider.id);
-
-  // Per-market rollout gate for Direct booking.
-  if (!(await isBookingTypeEnabled(market.market_id, 'direct'))) {
+  if (!bookingTypeEnabled) {
     return NextResponse.json(
       { error: 'Direct booking not available in your market yet', code: 'feature_disabled' },
       { status: 403 },
     );
   }
 
-  // Driver's market is the wall-clock anchor for the typed time. For most
-  // bookings this matches the rider's market; cross-market bookings still
-  // resolve "5pm" against where the ride actually happens.
-  const driverMarket = await resolveMarketForUser(driverUserId);
+  // Fall back to driver's areas if not provided
+  const areas = body.areas?.length ? body.areas : (Array.isArray(driverProfile.areas) ? driverProfile.areas : ['ATL']);
 
   // Prefer UI-picked slugs; fall back to parsing pickup/dropoff/destination
   // strings from the chat booking flow.

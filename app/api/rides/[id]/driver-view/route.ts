@@ -46,8 +46,8 @@ export async function GET(
         r.here_at,
         r.driver_id,
         r.rider_id,
-        COALESCE(rp.handle, rp.display_name, rp.first_name) AS rider_handle,
-        rp.first_name   AS rider_first_name,
+        -- Drivers only ever see the rider's public handle / display name — never first_name.
+        COALESCE(rp.handle, rp.display_name) AS rider_handle,
         COALESCE(rp.thumbnail_url, rp.avatar_url) AS rider_avatar_url,
         u2.chill_score  AS rider_chill_score,
         u2.completed_rides AS rider_completed_rides
@@ -88,7 +88,6 @@ export async function GET(
       stops: (r.stops as Array<{ lat: number; lng: number; address?: string }>) ?? [],
       riderId: r.rider_id ?? null,
       riderHandle: r.rider_handle ?? null,
-      riderFirstName: r.rider_first_name ?? null,
       riderAvatarUrl: r.rider_avatar_url ?? null,
       riderChillScore: Number(r.rider_chill_score ?? 0),
       riderCompletedRides: Number(r.rider_completed_rides ?? 0),

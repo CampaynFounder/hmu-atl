@@ -21,7 +21,6 @@ const AUTO_DISMISS_MS = 3000;
 
 export function RideAcceptedCelebration({
   visible,
-  driverName,
   driverHandle,
   avatarUrl,
   chillScore,
@@ -30,7 +29,6 @@ export function RideAcceptedCelebration({
   onDismiss,
 }: {
   visible: boolean;
-  driverName: string | null;
   driverHandle: string | null;
   avatarUrl: string | null;
   chillScore: number;
@@ -107,7 +105,8 @@ export function RideAcceptedCelebration({
 
   if (!visible) return null;
 
-  const name = driverName || (driverHandle ? `@${driverHandle}` : 'Your driver');
+  // Riders only ever see the driver's public handle — never a real name.
+  const name = driverHandle ? `@${driverHandle}` : 'Your driver';
   const ringScale = ring.interpolate({ inputRange: [0, 1], outputRange: [0.7, 2.4] });
   const ringOpacity = ring.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.45, 0.15, 0] });
   const checkScale = check.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });

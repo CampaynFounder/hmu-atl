@@ -36,7 +36,8 @@ export async function GET() {
         r.dispute_window_expires_at,
         dp.display_name as driver_name,
         dp.handle as driver_handle,
-        rp.first_name as rider_name,
+        -- Public display name only — never the rider's legal first_name.
+        rp.display_name as rider_name,
         rp.handle as rider_handle,
         hp.time_window,
         hp.post_type

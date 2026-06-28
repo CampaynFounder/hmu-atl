@@ -10,7 +10,7 @@ export async function GET(
   const rows = await sql`
     SELECT
       dp.handle,
-      dp.first_name,
+      dp.display_name,
       dp.areas,
       dp.pricing,
       dp.schedule,
@@ -37,7 +37,8 @@ export async function GET(
   return NextResponse.json({
     driver: {
       handle: row.handle,
-      displayName: row.first_name,
+      // Riders only ever see the public handle / display name — never first_name.
+      displayName: (row.display_name as string | null) || row.handle,
       areas: row.areas,
       pricing: row.pricing,
       schedule: row.schedule,
