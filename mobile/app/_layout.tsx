@@ -14,6 +14,7 @@ import { SpaceMono_400Regular, SpaceMono_700Bold } from '@expo-google-fonts/spac
 import { NotificationProvider } from '@/contexts/notifications';
 import { NotificationBanner } from '@/components/NotificationBanner';
 import { ActiveRideBar } from '@/components/ActiveRideBar';
+import { PendingRequestBar } from '@/components/PendingRequestBar';
 import { UserProvider } from '@/contexts/UserContext';
 
 // ─── Biometric lock ───────────────────────────────────────────────────────────
@@ -180,6 +181,7 @@ function AuthGate() {
         <View style={{ flex: 1 }}>
           <Slot />
           <ActiveRideBar />
+          <PendingRequestBar />
           <NotificationBanner />
         </View>
       </NotificationProvider>
