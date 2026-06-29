@@ -169,9 +169,15 @@ function AuthGate() {
   useEffect(() => {
     if (!isLoaded) return;
     const inAuth = segments[0] === '(auth)';
+    // choose-role + pending live in (auth) but are POST-sign-in screens — a
+    // signed-in user belongs there. Without this exemption, the moment sign-up
+    // verifies the OTP (isSignedIn flips true) the user is bounced off
+    // choose-role to '/', and index defaults them into rider onboarding — i.e.
+    // the role picker never gets to render.
+    const signedInAuthOk = segments[1] === 'choose-role' || segments[1] === 'pending';
     if (!isSignedIn && !inAuth) {
       router.replace('/(auth)/sign-in');
-    } else if (isSignedIn && inAuth) {
+    } else if (isSignedIn && inAuth && !signedInAuthOk) {
       router.replace('/');
     }
   }, [isLoaded, isSignedIn, segments]);

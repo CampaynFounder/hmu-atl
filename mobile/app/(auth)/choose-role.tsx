@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
 } from 'react-native';
@@ -16,23 +16,12 @@ export default function ChooseRole() {
   const router = useRouter();
   const getToken = useStableToken();
   const [selecting, setSelecting] = useState<'rider' | 'driver' | null>(null);
-  const [checking, setChecking] = useState(true);
+  const [checking] = useState(false);
 
-  // Safety net: existing drivers who accidentally hit sign-up bypass this screen
-  useEffect(() => {
-    async function init() {
-      try {
-        const t = await getToken();
-        const me = await apiClient<{ profileType: string }>('/users/me', t);
-        if (me.profileType === 'driver') {
-          router.replace('/');
-          return;
-        }
-      } catch {}
-      setChecking(false);
-    }
-    void init();
-  }, []);
+  // No bypass here: this screen is only reached when the account has no profile
+  // of either type yet (sign-up, or index's brand-new gate). The old
+  // "profileType === 'driver' → '/'" redirect would loop against that gate
+  // (index → choose-role → '/' → index → …), so the picker always renders.
 
   const selectRider = useCallback(async () => {
     setSelecting('rider');

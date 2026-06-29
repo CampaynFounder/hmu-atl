@@ -71,9 +71,19 @@ export default function Index() {
         // Gate: check if profile was created. Catches users who chose a role
         // but killed the app before finishing onboarding.
         try {
-          const onb = await apiClient<{ needsRiderProfile: boolean; needsDriverProfile: boolean }>(
-            '/users/onboarding', token,
-          );
+          const onb = await apiClient<{
+            needsRiderProfile: boolean; needsDriverProfile: boolean;
+            hasRiderProfile: boolean; hasDriverProfile: boolean;
+          }>('/users/onboarding', token);
+          // Brand-new account — no profile of EITHER type yet means the user has
+          // not picked a role. Send them to the picker. profile_type defaults to
+          // 'rider' server-side, so without this they'd skip straight into rider
+          // onboarding and could never choose "I drive". (After they pick + finish
+          // onboarding a profile exists, so this never re-fires for set-up users.)
+          if (!onb.hasRiderProfile && !onb.hasDriverProfile) {
+            router.replace('/(auth)/choose-role' as any);
+            return;
+          }
           if (me.profileType === 'driver' && onb.needsDriverProfile) {
             router.replace('/(driver)/onboarding' as any);
             return;
