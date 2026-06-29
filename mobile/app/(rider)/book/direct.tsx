@@ -21,6 +21,7 @@ import { savePendingRideLocations } from '@/lib/pending-ride-locations';
 import { useBookingDraft } from '@/hooks/use-booking-draft';
 import { ResumeDraftSheet } from '@/components/resume-draft-sheet';
 import { HmuImage } from '@/components/HmuImage';
+import { RequirePayment } from '@/components/RequirePayment';
 
 interface DriverPreview {
   handle: string;
@@ -67,7 +68,15 @@ function resolveScheduledTime(preset: string, customText: string): { resolvedTim
   return { resolvedTime: null, timeDisplay: customText || 'Now', isNow: !customText };
 }
 
-export default function DirectBooking() {
+export default function DirectBookingScreen() {
+  return (
+    <RequirePayment>
+      <DirectBooking />
+    </RequirePayment>
+  );
+}
+
+function DirectBooking() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { getToken } = useAuth();
