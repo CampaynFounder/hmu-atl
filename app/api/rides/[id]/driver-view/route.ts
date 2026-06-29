@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { computeRideBreakdown } from '@/lib/payments/breakdown';
 
 // GET /api/rides/[id]/driver-view
 // Mobile-specific endpoint: returns all fields the driver needs for the active ride screen.
@@ -30,6 +31,9 @@ export async function GET(
         r.driver_payout_amount,
         r.platform_fee_amount,
         r.is_cash,
+        r.visible_deposit,
+        r.pricing_mode_key,
+        r.payment_captured,
         r.coo_at,
         r.pickup_address,
         r.pickup_lat,
@@ -67,16 +71,39 @@ export async function GET(
       return NextResponse.json({ error: 'Only the driver can access this view' }, { status: 403 });
     }
 
+    const agreedPrice = Number(r.final_agreed_price ?? r.amount ?? 0);
+    const visibleDeposit = Number(r.visible_deposit ?? 0);
+    const pricingModeKey = (r.pricing_mode_key as string) ?? null;
+    // Deposit mode = rider authorized only a deposit; driver collects the cash
+    // remainder at pickup. The cash to collect is fare − deposit (regardless of
+    // is_cash — HMU-NT8V was is_cash=false yet had a $7.50 deposit + $7.50 cash).
+    const isDepositMode = pricingModeKey === 'deposit_only' && visibleDeposit > 0 && visibleDeposit < agreedPrice;
+    const cashToCollect = isDepositMode ? Math.round((agreedPrice - visibleDeposit) * 100) / 100 : 0;
+
+    // Canonical money breakdown (same rows the web ride-end page uses), only
+    // meaningful once captured. Built from stored amounts → honors the
+    // Stripe-fee bearer automatically. Best-effort: never fail the view on it.
+    let breakdown: Awaited<ReturnType<typeof computeRideBreakdown>> | null = null;
+    if (r.payment_captured) {
+      breakdown = await computeRideBreakdown(rideId).catch(() => null);
+    }
+
     return NextResponse.json({
       id: r.id,
       refCode: r.ref_code ?? null,
       status: r.status,
-      agreedPrice: Number(r.final_agreed_price ?? r.amount ?? 0),
+      agreedPrice,
       proposedPrice: r.proposed_price != null ? Number(r.proposed_price) : null,
       proposedPriceReason: (r.proposed_price_reason as string) ?? null,
       driverPayout: Number(r.driver_payout_amount ?? 0),
       platformFee: Number(r.platform_fee_amount ?? 0),
       isCash: Boolean(r.is_cash),
+      visibleDeposit,
+      pricingModeKey,
+      isDepositMode,
+      cashToCollect,
+      paymentCaptured: Boolean(r.payment_captured),
+      breakdown,
       cooAt: r.coo_at ?? null,
       pickupAddress: r.pickup_address ?? null,
       pickupLat: r.pickup_lat ? Number(r.pickup_lat) : null,

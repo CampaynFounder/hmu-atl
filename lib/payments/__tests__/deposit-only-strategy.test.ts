@@ -186,6 +186,24 @@ describe('DepositOnlyStrategy.calculateCapture', () => {
     expect(decision.platformReceives).toBe(2);
   });
 
+  it('loads Stripe onto the driver when stripeFeeBearer = driver ($10 deposit)', async () => {
+    mockGetPaymentsConfig.mockResolvedValue({
+      depositOnly: { ...DEFAULT_DEPOSIT_ONLY_CONFIG, stripeFeeBearer: 'driver' },
+    });
+    const decision = await strategy.calculateCapture({
+      driverId: 'd1', rideId: 'r1',
+      agreedPrice: 30, addOnTotal: 0, visibleDeposit: 10,
+      driverTier: 'free', driverPayoutMethod: 'bank',
+      cumulativeDailyEarnings: 0, dailyFeePaid: 0, weeklyFeePaid: 0,
+      inFreeWindow: false,
+    });
+    // application_fee = HMU fee ($2.00) + Stripe (2.9%×$10 + $0.30 = $0.59) = $2.59
+    expect(decision.applicationFeeCents).toBe(259);
+    expect(decision.driverReceives).toBe(7.41);   // deposit − fee − Stripe
+    expect(decision.stripeFee).toBe(0.59);
+    expect(decision.platformReceives).toBe(2.59);
+  });
+
   it('waives the platform fee when driver is in the free window', async () => {
     const decision = await strategy.calculateCapture({
       driverId: 'd1', rideId: 'r1',
