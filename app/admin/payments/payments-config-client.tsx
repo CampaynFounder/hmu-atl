@@ -24,6 +24,7 @@ interface DepositOnlyPayConfig {
   depositIncrement: number;
   depositMaxPctOfFare: number;
   extrasFeePercent: number;
+  stripeFeeBearer: 'platform' | 'driver';
 }
 
 interface PaymentsConfig {
@@ -35,7 +36,7 @@ interface PaymentsConfig {
 const DEFAULTS: PaymentsConfig = {
   addOnReserve: { mode: 'menu_total_capped', percentFloor: 0.25, absoluteFloorDollars: 50 },
   legacyFullFare: { visibleDepositMode: 'deposit_percent', visibleDepositPercent: 0.25, visibleDepositFixed: 5, visibleDepositMinimum: 5 },
-  depositOnly: { feeFloorCents: 150, feePercent: 0.20, depositMin: 5, depositIncrement: 1, depositMaxPctOfFare: 0.50, extrasFeePercent: 0.20 },
+  depositOnly: { feeFloorCents: 150, feePercent: 0.20, depositMin: 5, depositIncrement: 1, depositMaxPctOfFare: 0.50, extrasFeePercent: 0.20, stripeFeeBearer: 'platform' },
 };
 
 interface ConfigRow {
@@ -128,10 +129,15 @@ function previewDepositOnly(ridePrice: number, cfg: PaymentsConfig): PreviewResu
   const depositCents = Math.round(visibleDeposit * 100);
 
   const feeCents = Math.max(cfg.depositOnly.feeFloorCents, Math.round(depositCents * cfg.depositOnly.feePercent));
-  const stripeFee = Math.round((depositCents * 0.029 + 30) / 100 * 100) / 100;
-  const platformFee = feeCents / 100;
-  const platformNet = Math.max(0, Math.round((platformFee - stripeFee) * 100) / 100);
-  const driverPayout = Math.round((depositCents - feeCents) / 100 * 100) / 100;
+  const stripeFeeCents = Math.round(depositCents * 0.029) + 30;
+  const stripeFee = Math.round(stripeFeeCents) / 100;
+  // Bearer-aware: when the driver bears Stripe, application_fee = fee + stripe,
+  // so the driver nets less and HMU keeps the full fee as margin.
+  const driverBearsStripe = cfg.depositOnly.stripeFeeBearer === 'driver';
+  const applicationFeeCents = feeCents + (driverBearsStripe ? stripeFeeCents : 0);
+  const platformFee = applicationFeeCents / 100;
+  const platformNet = Math.max(0, Math.round((applicationFeeCents - stripeFeeCents) / 100 * 100) / 100);
+  const driverPayout = Math.round((depositCents - applicationFeeCents) / 100 * 100) / 100;
   const cashRemainder = Math.max(0, Math.round((ridePrice - visibleDeposit) * 100) / 100);
 
   return {
@@ -445,6 +451,33 @@ function GlobalConfigEditor({
               max={50}
               onChange={(v) => setDraft((d) => ({ ...d, depositOnly: { ...d.depositOnly, extrasFeePercent: v / 100 } }))}
             />
+            {/* Stripe-fee bearer — flips the profit margin live. */}
+            <div className="space-y-1.5">
+              <div className="flex items-baseline justify-between">
+                <span className="text-sm text-neutral-200">Stripe fee paid by</span>
+                <span className="text-[11px] text-neutral-500">2.9% + $0.30 / charge</span>
+              </div>
+              <div className="flex gap-2">
+                {(['platform', 'driver'] as const).map((who) => {
+                  const active = draft.depositOnly.stripeFeeBearer === who;
+                  return (
+                    <button
+                      key={who}
+                      type="button"
+                      onClick={() => setDraft((d) => ({ ...d, depositOnly: { ...d.depositOnly, stripeFeeBearer: who } }))}
+                      className={`flex-1 rounded border px-3 py-2 text-xs ${active ? 'border-emerald-600 bg-emerald-700/20 text-emerald-300' : 'border-neutral-800 bg-neutral-950 text-neutral-400 hover:border-neutral-600'}`}
+                    >
+                      {who === 'platform' ? 'HMU absorbs it' : 'Driver pays it'}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="text-[11px] text-neutral-500">
+                {draft.depositOnly.stripeFeeBearer === 'platform'
+                  ? 'Driver receives deposit − HMU fee; Stripe’s slice comes out of HMU’s margin.'
+                  : 'Driver receives deposit − HMU fee − Stripe fee; HMU keeps the full fee as margin.'}
+              </div>
+            </div>
             <NumberRow
               label="Deposit minimum"
               unit="$"

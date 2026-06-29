@@ -44,6 +44,15 @@ export interface DepositOnlyConfig {
    * with application_fee_amount = round(subtotalCents × extrasFeePercent).
    */
   extrasFeePercent: number;
+  /**
+   * Who bears Stripe's processing fee (2.9% + $0.30 on the deposit).
+   *  - 'platform' (default): HMU absorbs it; driver receives deposit − platform
+   *    fee, Stripe's slice comes out of HMU's margin.
+   *  - 'driver': application_fee = platform fee + Stripe fee, so the driver
+   *    receives deposit − platform fee − Stripe fee and HMU keeps the full
+   *    platform fee. Superadmin-tunable to adjust the profit margin in real time.
+   */
+  stripeFeeBearer: 'platform' | 'driver';
   /** Future modes: 'rider_select' (current), 'distance_band', 'percent_of_fare'. */
   depositRule?: 'rider_select' | 'distance_band' | 'percent_of_fare';
 }
@@ -56,8 +65,15 @@ export const DEFAULT_DEPOSIT_ONLY_CONFIG: DepositOnlyConfig = {
   depositMaxPctOfFare: 0.5,
   noShowDriverPct: 1.0,
   extrasFeePercent: 0.20,
+  stripeFeeBearer: 'platform',
   depositRule: 'rider_select',
 };
+
+/** Standard US card processing fee on an amount in cents: 2.9% + $0.30. */
+export function estimateStripeFeeCents(amountCents: number): number {
+  if (amountCents <= 0) return 0;
+  return Math.round(amountCents * 0.029) + 30;
+}
 
 /** Platform fee in cents on a single add-on subtotal. Floor not applied here. */
 export function calculateExtrasFeeCents(subtotalCents: number, config: DepositOnlyConfig): number {
@@ -143,20 +159,37 @@ export class DepositOnlyStrategy implements PricingStrategy {
     // rides.visible_deposit.
     const depositCents = Math.round(input.visibleDeposit * 100);
 
-    const feeCents = input.inFreeWindow ? 0 : calculateDepositFeeCents(depositCents, config);
-    const platformFee = Math.round(feeCents) / 100;
+    // HMU's platform fee (the configurable margin) = max(floor, % × deposit).
+    const baseFeeCents = input.inFreeWindow ? 0 : calculateDepositFeeCents(depositCents, config);
+    // Stripe's processing slice on the deposit (2.9% + $0.30).
+    const stripeFeeCents = estimateStripeFeeCents(depositCents);
+
+    // Who bears the Stripe fee is superadmin-configurable. On a destination
+    // charge Stripe always deducts its fee from the platform's application_fee.
+    //  - 'platform': application_fee = baseFee → driver gets deposit − baseFee;
+    //    HMU nets baseFee − stripeFee (HMU absorbs Stripe). Default = today's behavior.
+    //  - 'driver': application_fee = baseFee + stripeFee → driver gets
+    //    deposit − baseFee − stripeFee; HMU keeps the full baseFee as margin.
+    // In the free window baseFee = 0 and we never load Stripe onto the driver.
+    const driverBearsStripe = config.stripeFeeBearer === 'driver' && !input.inFreeWindow;
+    const applicationFeeCents = baseFeeCents + (driverBearsStripe ? stripeFeeCents : 0);
+
+    // platformFee mirrors what we store as rides.platform_fee_amount (the gross
+    // application fee the platform collects). The driver-facing breakdown derives
+    // HMU's net vs Stripe's slice from platform_fee_amount − stripe_fee_amount,
+    // so both bearer modes reconcile without any breakdown change.
+    const platformFee = Math.round(applicationFeeCents) / 100;
     const waivedFee = input.inFreeWindow ? calculateDepositFeeCents(depositCents, config) / 100 : 0;
-    const driverReceives = Math.round((depositCents - feeCents)) / 100;
-    const platformReceives = Math.round(feeCents) / 100;
-    // Estimate Stripe processing fee on the deposit so the ride-end breakdown
-    // can show it as a real number. Standard US card rate: 2.9% + $0.30.
-    // Stripe deducts this from the platform's net (application_fee) on
-    // destination charges; the driver Connect amount is untouched.
-    const stripeFee = (Math.round(depositCents * 0.029) + 30) / 100;
+    const driverReceives = Math.round((depositCents - applicationFeeCents)) / 100;
+    // Gross application fee the platform collects (Stripe then deducts its slice
+    // from this on the destination charge). HMU's *net* margin is shown in the
+    // driver breakdown as platform_fee_amount − stripe_fee_amount.
+    const platformReceives = Math.round(applicationFeeCents) / 100;
+    const stripeFee = stripeFeeCents / 100;
 
     return {
       captureAmountCents: depositCents,
-      applicationFeeCents: feeCents,
+      applicationFeeCents,
       driverReceives,
       platformReceives,
       stripeFee,
@@ -173,14 +206,17 @@ export class DepositOnlyStrategy implements PricingStrategy {
     // separate add-ons in this mode — only the deposit was ever authorized.
     const config = await getDepositOnlyConfig();
     const depositCents = Math.round(input.visibleDeposit * 100);
-    const feeCents = calculateDepositFeeCents(depositCents, config);
-    const driverCents = Math.max(0, depositCents - feeCents);
+    const baseFeeCents = calculateDepositFeeCents(depositCents, config);
+    // Honor the same Stripe-fee bearer setting as a normal capture.
+    const applicationFeeCents = baseFeeCents
+      + (config.stripeFeeBearer === 'driver' ? estimateStripeFeeCents(depositCents) : 0);
+    const driverCents = Math.max(0, depositCents - applicationFeeCents);
 
     return {
       captureAmountCents: depositCents,
-      applicationFeeCents: feeCents,
+      applicationFeeCents,
       driverAmount: Math.round(driverCents) / 100,
-      platformAmount: Math.round(feeCents) / 100,
+      platformAmount: Math.round(applicationFeeCents) / 100,
       riderRefunded: 0,
       addOnRefunded: 0,
     };

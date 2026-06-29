@@ -256,11 +256,32 @@ export default function RideDetail() {
           {card(2,
             <>
               <Text style={s.cardLabel}>EARNINGS</Text>
-              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
-                <AmountPill label="GROSS" value={`$${gross.toFixed(2)}`} color={colors.textPrimary} />
-                <AmountPill label="FEES" value={fee > 0 ? `-$${fee.toFixed(2)}` : '$0.00'} color={fee > 0 ? colors.red : colors.textFaint} />
-                <AmountPill label="KEPT" value={`$${kept.toFixed(2)}`} color={colors.green} highlight />
-              </View>
+              {ride.breakdown ? (
+                // Canonical reconciliation — same rows as the active screen + the
+                // ride end page. Deposit / Cash / Extras / fees → Total earned.
+                <View style={{ marginBottom: spacing.md }}>
+                  <Text style={s.earnedAmount}>${ride.breakdown.youEarned.toFixed(2)}</Text>
+                  <Text style={s.earnedLabel}>TOTAL EARNED</Text>
+                  <View style={s.bdRows}>
+                    {ride.breakdown.driverRows.filter((row) => row.role !== 'total').map((row, i) => (
+                      <View key={i} style={s.bdRow}>
+                        <Text style={[s.bdLabel, (row.role === 'fee' || row.role === 'muted') && { color: colors.textFaint }]}>
+                          {row.label}
+                        </Text>
+                        <Text style={[s.bdValue, (row.role === 'fee' || row.role === 'muted') && { color: colors.textFaint }]}>
+                          {row.role === 'fee' ? '− ' : ''}${Math.abs(row.value).toFixed(2)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
+                  <AmountPill label="GROSS" value={`$${gross.toFixed(2)}`} color={colors.textPrimary} />
+                  <AmountPill label="FEES" value={fee > 0 ? `-$${fee.toFixed(2)}` : '$0.00'} color={fee > 0 ? colors.red : colors.textFaint} />
+                  <AmountPill label="KEPT" value={`$${kept.toFixed(2)}`} color={colors.green} highlight />
+                </View>
+              )}
               <View style={[s.typePill, ride.is_cash
                 ? { backgroundColor: colors.cashDim, borderColor: colors.cashBorder }
                 : { backgroundColor: colors.greenDim, borderColor: colors.greenBorder }
@@ -271,7 +292,7 @@ export default function RideDetail() {
                   color={ride.is_cash ? colors.cash : colors.green}
                 />
                 <Text style={[s.typeText, { color: ride.is_cash ? colors.cash : colors.green }]}>
-                  {ride.is_cash ? 'CASH RIDE' : 'DIGITAL RIDE'}
+                  {ride.is_deposit_mode ? 'DEPOSIT + CASH' : ride.is_cash ? 'CASH RIDE' : 'DIGITAL RIDE'}
                 </Text>
               </View>
               <View style={[s.typePill, { backgroundColor: colors.blueDim, borderColor: colors.blueBorder, marginTop: spacing.sm }]}>
@@ -484,6 +505,13 @@ const s = StyleSheet.create({
   amountPill: { flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.cardInner, padding: spacing.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
   amountPillLabel: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 1, marginBottom: 4 },
   amountPillValue: { fontFamily: fonts.display, fontSize: 20 },
+
+  earnedAmount: { fontFamily: fonts.display, fontSize: 40, color: colors.green, lineHeight: 44 },
+  earnedLabel: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, letterSpacing: 2, marginTop: 2, marginBottom: spacing.sm },
+  bdRows: { marginTop: spacing.xs },
+  bdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border },
+  bdLabel: { fontFamily: fonts.body, fontSize: 13, color: colors.textSecondary, flex: 1 },
+  bdValue: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.textPrimary },
 
   typePill: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 1 },
   typeText: { fontFamily: fonts.mono, fontSize: 10, letterSpacing: 1 },
