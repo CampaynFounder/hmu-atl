@@ -39,11 +39,28 @@ export interface RideRecord {
   dropoff_address: string | null;
   destination: string | null;
   is_cash: boolean;
+  // Deposit-mode reconciliation (from /api/rides/history).
+  visible_deposit?: number;
+  pricing_mode_key?: string | null;
+  is_deposit_mode?: boolean;
+  cash_to_collect?: number;
+  breakdown?: RideBreakdown | null;
   booking_method?: string | null;
   created_at: string;
   started_at: string | null;
   ended_at: string | null;
   dispute_window_expires_at: string | null;
+}
+
+export interface RideBreakdownRow {
+  label: string;
+  value: number;
+  role: 'muted' | 'amount' | 'fee' | 'total';
+}
+export interface RideBreakdown {
+  youEarned: number;
+  total: number;
+  driverRows: RideBreakdownRow[];
 }
 
 interface ActiveRide {
@@ -340,7 +357,13 @@ function AnimatedRideRow({
   const pressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 3 }).start();
 
   const meta = statusMeta(ride.status);
-  const kept = Number(ride.driver_payout_amount ?? ride.final_agreed_price ?? ride.amount ?? 0);
+  // Total the driver actually earned. In deposit mode driver_payout is only the
+  // Stripe portion — the canonical breakdown.youEarned adds the cash collected
+  // (e.g. $13.50 = $6 Stripe + $7.50 cash), so the list matches every other
+  // surface. Falls back to driver_payout for legacy/non-captured rows.
+  const kept = ride.breakdown
+    ? ride.breakdown.youEarned
+    : Number(ride.driver_payout_amount ?? ride.final_agreed_price ?? ride.amount ?? 0);
 
   return (
     <Animated.View style={{ opacity, transform: [{ translateY }, { scale }] }}>
