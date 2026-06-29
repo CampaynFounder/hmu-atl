@@ -108,3 +108,23 @@ Start-Ride step arrives as its OWN event name `confirm_start` (with
 `confirm_start` → enter `confirming` → show the I'M IN CTA; without it the rider
 can never confirm and the ride strands at `confirming` (driver hangs on
 "RIDER CONFIRMING…"). Mirrors web `active-ride-client.tsx`.
+
+## A finished ride must CLEAR — never re-prompt rating, never hang the live bar
+Two separate states have to wind down when a ride ends, or the driver gets stuck
+(both regressed once → the rating sheet looped and the "YOUR RIDE IS LIVE" bar
+hung until an app reload):
+
+- **Rating prompt is for `ended`, NOT `completed`.** Submitting a rating moves a
+  ride `ended → completed`, so opening the rating sheet on `completed` re-prompts
+  every time the driver re-enters `(driver)/ride/active` (e.g. via the live bar)
+  — an infinite "rate" loop. Auto-open the sheet ONLY on a fresh `ended` status
+  (`fetchRide` + the `status_change` handler). `completed` is finalized: never
+  re-prompt. (`stopRideTracking` still runs for both.)
+- **The app-wide `activeRide` must be reconciled on any terminal status.** The
+  ride screen mutates its LOCAL `ride`, not the context `activeRide` that drives
+  `ActiveRideBar` ("YOUR RIDE IS LIVE"), and the party who ends the ride does not
+  reliably receive a notify for their OWN end. So the screen MUST call
+  `refreshActiveRide()` whenever its ride reaches `ended`/`completed`/`cancelled`
+  — that re-pulls `/rides/active` (which excludes those statuses via
+  `LIVE_RIDE_STATUSES`) and clears the bar. Without it the bar hangs until a
+  reload. Keep this on both driver and rider active screens.

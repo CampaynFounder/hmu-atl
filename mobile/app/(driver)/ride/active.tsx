@@ -181,7 +181,7 @@ export default function ActiveRideScreen() {
   const [chatOpen, setChatOpen] = useState(false);
   const chat = useRideMessages(rideId, getToken, ride?.riderId ?? null);
   const safety = useRideSafety(rideId, getToken, 'driver');
-  const { registerRideRefresh } = useNotifications();
+  const { registerRideRefresh, refreshActiveRide } = useNotifications();
 
   // Rating state
   const [showRating, setShowRating] = useState(false);
@@ -259,7 +259,12 @@ export default function ActiveRideScreen() {
         stops: Array.isArray(raw.stops) ? raw.stops : [],
       };
       setRide(data);
-      if (data.status === 'ended' || data.status === 'completed') openRatingSheet();
+      // Only prompt the rating sheet for a freshly-ENDED ride (rating pending).
+      // 'completed' means the ride is finalized (the driver already rated, which
+      // transitions ended→completed, or it auto-completed) — re-opening the sheet
+      // for it is what looped the driver back into "rate" after they'd rated,
+      // every time they re-entered this screen (e.g. via the live-ride bar).
+      if (data.status === 'ended') openRatingSheet();
     } catch (e: any) {
       setError(e.message ?? 'Failed to load ride');
     } finally {
@@ -353,7 +358,13 @@ export default function ActiveRideScreen() {
           if (typeof d.driverReceives === 'number') patch.driverPayout = d.driverReceives;
           return { ...prev, ...patch };
         });
-        if (newStatus === 'ended' || newStatus === 'completed') { void stopRideTracking(); openRatingSheet(); }
+        // Stop tracking on any terminal status, but only prompt rating on the
+        // fresh 'ended' transition — never 'completed' (already finalized/rated),
+        // which would re-loop the driver into the rating sheet.
+        if (newStatus === 'ended' || newStatus === 'completed') {
+          void stopRideTracking();
+          if (newStatus === 'ended') openRatingSheet();
+        }
         if (newStatus === 'cancelled') { void stopRideTracking(); openCancelOverlay(); }
       }
       if (msg.name === 'confirm_start') {
@@ -480,6 +491,19 @@ export default function ActiveRideScreen() {
       void fetchAddOns();
     });
   }, [registerRideRefresh, fetchRide, fetchAddOns]);
+
+  // When the ride reaches a terminal state, reconcile the app-wide active ride so
+  // the global "YOUR RIDE IS LIVE" bar clears immediately. The ending driver
+  // updates only this screen's local `ride`, never the context, and doesn't
+  // reliably receive a notify event for their OWN end — so without this the bar
+  // (and, via its tap target, the rating sheet) hung on the driver's home until a
+  // full app reload. refreshActiveRide re-pulls /rides/active, which excludes
+  // ended/completed/cancelled, clearing it.
+  useEffect(() => {
+    if (ride?.status === 'ended' || ride?.status === 'completed' || ride?.status === 'cancelled') {
+      refreshActiveRide();
+    }
+  }, [ride?.status, refreshActiveRide]);
 
   // ── Rating sheet ──────────────────────────────────────────────────────────
 
