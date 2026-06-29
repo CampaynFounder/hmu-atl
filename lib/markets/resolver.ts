@@ -85,6 +85,24 @@ export async function resolveMarketBySlug(slug: string): Promise<MarketContext |
 }
 
 /**
+ * Resolve a market from an authenticated Clerk user's stored market_id. Returns
+ * null when the user has no market_id yet (caller should fall back to host /
+ * default). Use this on endpoints the MOBILE app hits: mobile always connects to
+ * the `atl` host, so host-based resolution would wrongly hand ATL's areas to a
+ * driver/rider in another market. The user's assigned market is authoritative.
+ */
+export async function resolveMarketForClerkUser(clerkId: string): Promise<MarketContext | null> {
+  const rows = await sql`SELECT market_id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+  const marketId = (rows[0] as { market_id: string | null })?.market_id;
+  if (!marketId) return null;
+  const cached = cache.get(marketId);
+  if (cached && Date.now() - cached.loadedAt < TTL_MS) return cached.ctx;
+  const ctx = await fetchById(marketId);
+  if (ctx) cache.set(marketId, { loadedAt: Date.now(), ctx });
+  return ctx;
+}
+
+/**
  * Parse a Host header, extract the subdomain, and resolve to a market.
  * Returns null when the host doesn't match a known market subdomain — callers
  * should fall back to DEFAULT_MARKET_SLUG.
