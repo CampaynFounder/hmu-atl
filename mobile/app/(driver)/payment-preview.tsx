@@ -41,9 +41,21 @@ const DEFAULT_DEPOSIT: DepositConfig = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function calcDeposit(fare: number, cfg: DepositConfig): number {
-  const pctBased = Math.round(fare * cfg.depositMaxPctOfFare / cfg.depositIncrement) * cfg.depositIncrement;
-  return Math.min(Math.max(cfg.depositMin, pctBased), fare);
+// Canonical payout breakdown, computed server-side from the live config so this
+// calculator can never drift from what's actually captured (see
+// /api/driver/payout-preview). Replaces the old local deposit math, which
+// rounded the deposit past the 50% cap and wrongly charged the driver the Stripe
+// fee in 'platform' bearer mode.
+interface PayoutPreview {
+  fare: number;
+  deposit: number;
+  cashAtPickup: number;
+  driverViaStripe: number;
+  hmuFee: number;
+  stripeFee: number;
+  stripeBearer: 'platform' | 'driver';
+  extras: { amount: number; hmuFee: number; stripeFee: number; driverViaStripe: number };
+  totalEarned: number;
 }
 
 /** Returns "Available by Mon, Jun 4" based on today + clearing window */
@@ -289,6 +301,7 @@ export default function PaymentPreview() {
   const [profile,    setProfile]    = useState<DriverPayProfile | null>(null);
   const [depositCfg, setDepositCfg] = useState<DepositConfig>(DEFAULT_DEPOSIT);
   const [isDepositMode, setIsDepositMode] = useState(true);
+  const [preview, setPreview] = useState<PayoutPreview | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -333,24 +346,34 @@ export default function PaymentPreview() {
 
   const availDate = availableDate(clearingDays);
 
-  // ── Deposit mode calculations ───────────────────────────────────────────────
-  const deposit          = calcDeposit(fare, depositCfg);
-  const depositStripeFee = Math.round((deposit * 0.029 + 0.30) * 100) / 100;
-  const depositPlatform  = Math.round(deposit * depositCfg.feePercent * 100) / 100;
-  const netDeposit       = Math.round((deposit - depositStripeFee - depositPlatform) * 100) / 100;
+  // ── Deposit mode calculations (server-computed, canonical) ──────────────────
+  // Debounced fetch so the breakdown always matches capture math + the live
+  // config + the configurable Stripe-fee bearer. Falls back to last value while
+  // typing; never recomputes deposit/fees locally.
+  useEffect(() => {
+    if (!isDepositMode || fare <= 0) { setPreview(null); return; }
+    let cancelled = false;
+    const id = setTimeout(async () => {
+      try {
+        const t = await getToken();
+        const q = `fare=${fare}&extras=${extras}`;
+        const p = await apiClient<PayoutPreview>(`/driver/payout-preview?${q}`, t);
+        if (!cancelled) setPreview(p);
+      } catch { /* keep last preview on transient error */ }
+    }, 250);
+    return () => { cancelled = true; clearTimeout(id); };
+  }, [fare, extras, isDepositMode, getToken]);
 
-  // Extras go through Stripe — each has its own 2.9%+$0.30 + platform fee
-  const extrasStripeFee  = extras > 0 ? Math.round((extras * 0.029 + 0.30) * 100) / 100 : 0;
-  const extrasPlatform   = extras > 0 ? Math.round(extras * depositCfg.feePercent * 100) / 100 : 0;
-  const netExtras        = extras > 0 ? Math.round((extras - extrasStripeFee - extrasPlatform) * 100) / 100 : 0;
-
-  // Cash at pickup = base fare minus the deposit only — extras already paid via Stripe
-  const cashAtPickup = Math.round((fare - deposit) * 100) / 100;
-
-  // Total via Stripe (clears on clearing schedule)
-  const totalStripe = Math.round((netDeposit + netExtras) * 100) / 100;
-  // Grand total this ride
-  const grandTotal = Math.round((totalStripe + cashAtPickup) * 100) / 100;
+  const deposit          = preview?.deposit ?? 0;
+  const depositStripeFee = preview?.stripeFee ?? 0;
+  const depositPlatform  = preview?.hmuFee ?? 0;          // HMU's net cut
+  const netDeposit       = preview?.driverViaStripe ?? 0; // deposit − HMU fee − (driver-borne Stripe)
+  const extrasStripeFee  = preview?.extras.stripeFee ?? 0;
+  const extrasPlatform   = preview?.extras.hmuFee ?? 0;
+  const netExtras        = preview?.extras.driverViaStripe ?? 0;
+  const cashAtPickup     = preview?.cashAtPickup ?? 0;
+  const totalStripe      = Math.round((netDeposit + netExtras) * 100) / 100;
+  const grandTotal       = preview?.totalEarned ?? 0;
 
   // ── Full fare calculations ───────────────────────────────────────────────────
   const fullPayout = calculateDriverPayout(fare + extras, tier, 0, 0, 0);
@@ -459,8 +482,8 @@ export default function PaymentPreview() {
             <Animated.View entering={FadeInUp.delay(200).duration(400)} style={[s.card, shadow.card]}>
               <Text style={s.cardLabel}>DEPOSIT — RIDER PAYS AT BOOKING</Text>
               <Row label="Deposit collected"      value={fmt(deposit)} />
-              <Row label="Stripe processing fee"  value={`- ${fmt(depositStripeFee)}`} sub="2.9% + $0.30 — Stripe charges this" dim />
-              <Row label="HMU platform fee"       value={`- ${fmt(depositPlatform)}`}  sub={`${(depositCfg.feePercent * 100).toFixed(0)}% of deposit`} dim />
+              <Row label="HMU platform fee"       value={`- ${fmt(depositPlatform)}`}  sub={preview?.stripeBearer === 'driver' ? "HMU's cut" : "HMU's cut (after Stripe)"} dim />
+              <Row label="Stripe processing fee"  value={`- ${fmt(depositStripeFee)}`} sub={preview?.stripeBearer === 'driver' ? '2.9% + $0.30 — you pay this' : '2.9% + $0.30 — paid by HMU'} dim />
               <Row label="You receive via Stripe" value={fmt(netDeposit)} accent />
               <View style={s.availPill}>
                 <Ionicons name="time-outline" size={12} color={colors.amber} />
@@ -473,8 +496,8 @@ export default function PaymentPreview() {
               <Animated.View entering={FadeInUp.delay(240).duration(400)} style={[s.card, shadow.card]}>
                 <Text style={s.cardLabel}>EXTRAS — ALSO CHARGED VIA STRIPE</Text>
                 <Row label="Extras collected"       value={fmt(extras)} />
-                <Row label="Stripe processing fee"  value={`- ${fmt(extrasStripeFee)}`} sub="2.9% + $0.30 per charge" dim />
-                <Row label="HMU platform fee"       value={`- ${fmt(extrasPlatform)}`}  sub={`${(depositCfg.feePercent * 100).toFixed(0)}% of extras`} dim />
+                <Row label="HMU platform fee"       value={`- ${fmt(extrasPlatform)}`}  sub={preview?.stripeBearer === 'driver' ? "HMU's cut" : "HMU's cut (after Stripe)"} dim />
+                <Row label="Stripe processing fee"  value={`- ${fmt(extrasStripeFee)}`} sub={preview?.stripeBearer === 'driver' ? '2.9% + $0.30 — you pay this' : '2.9% + $0.30 — paid by HMU'} dim />
                 <Row label="You receive via Stripe" value={fmt(netExtras)} accent />
                 <View style={s.availPill}>
                   <Ionicons name="time-outline" size={12} color={colors.amber} />
