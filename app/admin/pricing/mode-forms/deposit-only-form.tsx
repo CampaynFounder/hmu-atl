@@ -10,6 +10,7 @@ export interface DepositOnlyConfig {
   depositMaxPctOfFare: number;
   noShowDriverPct: number;
   extrasFeePercent: number;
+  stripeFeeBearer: 'platform' | 'driver';
   depositRule: 'rider_select' | 'distance_band' | 'percent_of_fare';
 }
 
@@ -46,6 +47,7 @@ function validate(form: {
   depositMaxPctDisplay: string;
   noShowDriverPctDisplay: string;
   extrasFeePercentDisplay: string;
+  stripeFeeBearer: string;
   depositRule: string;
 }): { errors: FieldErrors; parsed?: DepositOnlyConfig } {
   const errors: FieldErrors = {};
@@ -88,6 +90,9 @@ function validate(form: {
   if (!DEPOSIT_RULES.includes(form.depositRule as DepositOnlyConfig['depositRule']))
     errors.depositRule = 'Invalid rule';
 
+  const stripeFeeBearer: DepositOnlyConfig['stripeFeeBearer'] =
+    form.stripeFeeBearer === 'driver' ? 'driver' : 'platform';
+
   if (Object.keys(errors).length > 0) return { errors };
 
   return {
@@ -100,6 +105,7 @@ function validate(form: {
       depositMaxPctOfFare,
       noShowDriverPct,
       extrasFeePercent,
+      stripeFeeBearer,
       depositRule: form.depositRule as DepositOnlyConfig['depositRule'],
     },
   };
@@ -113,6 +119,7 @@ export default function DepositOnlyForm({ initial, saving, onSave }: Props) {
   const [depositMaxPctDisplay, setDepositMaxPctDisplay] = useState('');
   const [noShowDriverPctDisplay, setNoShowDriverPctDisplay] = useState('');
   const [extrasFeePercentDisplay, setExtrasFeePercentDisplay] = useState('');
+  const [stripeFeeBearer, setStripeFeeBearer] = useState<DepositOnlyConfig['stripeFeeBearer']>('platform');
   const [depositRule, setDepositRule] = useState<DepositOnlyConfig['depositRule']>('rider_select');
   const [errors, setErrors] = useState<FieldErrors>({});
 
@@ -125,6 +132,7 @@ export default function DepositOnlyForm({ initial, saving, onSave }: Props) {
     setDepositMaxPctDisplay((coerceNumber(initial.depositMaxPctOfFare, 0.5) * 100).toString());
     setNoShowDriverPctDisplay((coerceNumber(initial.noShowDriverPct, 1.0) * 100).toString());
     setExtrasFeePercentDisplay((coerceNumber(initial.extrasFeePercent, 0.2) * 100).toString());
+    setStripeFeeBearer(initial.stripeFeeBearer === 'driver' ? 'driver' : 'platform');
     setDepositRule(coerceRule(initial.depositRule));
   }, [initial]);
 
@@ -137,6 +145,7 @@ export default function DepositOnlyForm({ initial, saving, onSave }: Props) {
       depositMaxPctDisplay,
       noShowDriverPctDisplay,
       extrasFeePercentDisplay,
+      stripeFeeBearer,
       depositRule,
     });
     setErrors(result.errors);
@@ -216,6 +225,31 @@ export default function DepositOnlyForm({ initial, saving, onSave }: Props) {
           help="HMU's cut of each confirmed add-on. Charged at driver-confirm time via Stripe destination charge."
           error={errors.extrasFeePercent}
         />
+        <div className="space-y-1 sm:col-span-2">
+          <label className="block text-xs text-neutral-300">Stripe processing fee paid by</label>
+          <div className="flex gap-2">
+            {(['platform', 'driver'] as const).map((who) => (
+              <button
+                key={who}
+                type="button"
+                onClick={() => setStripeFeeBearer(who)}
+                className={`flex-1 rounded border px-3 py-2 text-xs ${
+                  stripeFeeBearer === who
+                    ? 'border-emerald-600 bg-emerald-700/20 text-emerald-300'
+                    : 'border-neutral-800 bg-neutral-950 text-neutral-400 hover:border-neutral-600'
+                }`}
+              >
+                {who === 'platform' ? 'HMU absorbs it' : 'Driver pays it'}
+              </button>
+            ))}
+          </div>
+          <div className="text-[11px] text-neutral-500">
+            {stripeFeeBearer === 'platform'
+              ? "Driver receives deposit − HMU fee; Stripe's 2.9%+$0.30 comes out of HMU's margin."
+              : "Driver receives deposit − HMU fee − Stripe fee; HMU keeps the full fee as margin."}
+          </div>
+        </div>
+
         <div className="space-y-1 sm:col-span-2">
           <label className="block text-xs text-neutral-300">Deposit rule</label>
           <select

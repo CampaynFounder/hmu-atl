@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { bookingMethod } from '@/lib/rides/booking-method';
+import { computeBreakdownsForRides } from '@/lib/payments/breakdown';
 
 export async function GET() {
   try {
@@ -23,6 +24,10 @@ export async function GET() {
         r.final_agreed_price,
         r.driver_payout_amount,
         r.platform_fee_amount,
+        r.stripe_fee_amount,
+        r.visible_deposit,
+        r.pricing_mode_key,
+        r.add_on_total,
         r.driver_rating,
         r.rider_rating,
         r.pickup,
@@ -50,8 +55,21 @@ export async function GET() {
       LIMIT 50
     `;
 
+    // Canonical per-ride breakdown (batched, one extra add-ons query) so the
+    // driver's list + detail show the SAME reconciled numbers as the active
+    // screen — total earned, deposit, cash, fees — honoring the Stripe-fee
+    // bearer. Driver-facing only; riders are unaffected.
+    const breakdowns = isDriver
+      ? await computeBreakdownsForRides(rides as Array<Record<string, unknown>>).catch(() => null)
+      : null;
+
     const mapped = rides.map((r: Record<string, unknown>) => {
       const tw = r.time_window as Record<string, unknown> | null;
+      const agreed = r.final_agreed_price ? Number(r.final_agreed_price) : Number(r.amount || 0);
+      const visibleDeposit = Number(r.visible_deposit ?? 0);
+      const isDepositMode = (r.pricing_mode_key as string) === 'deposit_only'
+        && visibleDeposit > 0 && visibleDeposit < agreed;
+      const bd = breakdowns?.get(String(r.id)) ?? null;
       const pickup = r.pickup as Record<string, unknown> | null;
       const dropoff = r.dropoff as Record<string, unknown> | null;
       const pickupAddr = (pickup?.address as string) || (pickup?.name as string) || null;
@@ -74,6 +92,12 @@ export async function GET() {
         dropoff_address: (r.dropoff_address as string) || dropoffAddr,
         destination: (tw?.destination as string) || (r.dropoff_address as string) || dropoffAddr,
         is_cash: r.is_cash ?? false,
+        visible_deposit: visibleDeposit,
+        pricing_mode_key: (r.pricing_mode_key as string) ?? null,
+        is_deposit_mode: isDepositMode,
+        cash_to_collect: isDepositMode ? Math.round((agreed - visibleDeposit) * 100) / 100 : 0,
+        // Canonical reconciliation rows (driver). Present once captured.
+        breakdown: bd ? { youEarned: bd.youEarned, total: bd.total, driverRows: bd.driverRows } : null,
         booking_method: bookingMethod((r.post_type as string) ?? null),
         created_at: r.created_at,
         started_at: r.started_at,

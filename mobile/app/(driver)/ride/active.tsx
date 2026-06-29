@@ -65,6 +65,23 @@ interface RideView {
   endedAt: string | null;
   otwAt: string | null;
   hereAt: string | null;
+  // Deposit-mode reconciliation (from /driver-view).
+  visibleDeposit?: number;
+  isDepositMode?: boolean;
+  cashToCollect?: number;
+  paymentCaptured?: boolean;
+  breakdown?: RideBreakdown | null;
+}
+
+interface RideBreakdownRow {
+  label: string;
+  value: number;
+  role: 'muted' | 'amount' | 'fee' | 'total';
+}
+interface RideBreakdown {
+  youEarned: number;
+  total: number;
+  driverRows: RideBreakdownRow[];
 }
 
 type RatingType = 'chill' | 'cool_af' | 'kinda_creepy' | 'weirdo';
@@ -164,7 +181,7 @@ export default function ActiveRideScreen() {
   const [chatOpen, setChatOpen] = useState(false);
   const chat = useRideMessages(rideId, getToken, ride?.riderId ?? null);
   const safety = useRideSafety(rideId, getToken, 'driver');
-  const { registerRideRefresh } = useNotifications();
+  const { registerRideRefresh, refreshActiveRide } = useNotifications();
 
   // Rating state
   const [showRating, setShowRating] = useState(false);
@@ -242,7 +259,12 @@ export default function ActiveRideScreen() {
         stops: Array.isArray(raw.stops) ? raw.stops : [],
       };
       setRide(data);
-      if (data.status === 'ended' || data.status === 'completed') openRatingSheet();
+      // Only prompt the rating sheet for a freshly-ENDED ride (rating pending).
+      // 'completed' means the ride is finalized (the driver already rated, which
+      // transitions ended→completed, or it auto-completed) — re-opening the sheet
+      // for it is what looped the driver back into "rate" after they'd rated,
+      // every time they re-entered this screen (e.g. via the live-ride bar).
+      if (data.status === 'ended') openRatingSheet();
     } catch (e: any) {
       setError(e.message ?? 'Failed to load ride');
     } finally {
@@ -336,7 +358,13 @@ export default function ActiveRideScreen() {
           if (typeof d.driverReceives === 'number') patch.driverPayout = d.driverReceives;
           return { ...prev, ...patch };
         });
-        if (newStatus === 'ended' || newStatus === 'completed') { void stopRideTracking(); openRatingSheet(); }
+        // Stop tracking on any terminal status, but only prompt rating on the
+        // fresh 'ended' transition — never 'completed' (already finalized/rated),
+        // which would re-loop the driver into the rating sheet.
+        if (newStatus === 'ended' || newStatus === 'completed') {
+          void stopRideTracking();
+          if (newStatus === 'ended') openRatingSheet();
+        }
         if (newStatus === 'cancelled') { void stopRideTracking(); openCancelOverlay(); }
       }
       if (msg.name === 'confirm_start') {
@@ -463,6 +491,19 @@ export default function ActiveRideScreen() {
       void fetchAddOns();
     });
   }, [registerRideRefresh, fetchRide, fetchAddOns]);
+
+  // When the ride reaches a terminal state, reconcile the app-wide active ride so
+  // the global "YOUR RIDE IS LIVE" bar clears immediately. The ending driver
+  // updates only this screen's local `ride`, never the context, and doesn't
+  // reliably receive a notify event for their OWN end — so without this the bar
+  // (and, via its tap target, the rating sheet) hung on the driver's home until a
+  // full app reload. refreshActiveRide re-pulls /rides/active, which excludes
+  // ended/completed/cancelled, clearing it.
+  useEffect(() => {
+    if (ride?.status === 'ended' || ride?.status === 'completed' || ride?.status === 'cancelled') {
+      refreshActiveRide();
+    }
+  }, [ride?.status, refreshActiveRide]);
 
   // ── Rating sheet ──────────────────────────────────────────────────────────
 
@@ -671,7 +712,28 @@ export default function ActiveRideScreen() {
     }
   }
 
-  async function startRide() {
+  function startRide() {
+    if (!rideId || acting) return;
+    // Deposit mode: the driver collects the cash remainder at pickup, and Start
+    // Ride captures the rider's deposit. Hard-gate on an explicit confirmation
+    // that shows the exact cash amount, so a ride never starts (and the deposit
+    // never captures) without the driver confirming the cash is in hand.
+    const cash = ride?.cashToCollect ?? 0;
+    if (ride?.isDepositMode && cash > 0) {
+      Alert.alert(
+        `Collect $${cash.toFixed(2)} cash`,
+        `Confirm you've collected $${cash.toFixed(2)} in cash from the rider. Starting the ride captures their deposit now.`,
+        [
+          { text: 'Not yet', style: 'cancel' },
+          { text: `I collected $${cash.toFixed(2)} — START`, style: 'default', onPress: () => { void doStartRide(); } },
+        ],
+      );
+      return;
+    }
+    void doStartRide();
+  }
+
+  async function doStartRide() {
     if (!rideId || acting) return;
     setActing(true);
     setError(null);
@@ -784,7 +846,14 @@ export default function ActiveRideScreen() {
       case 'otw':
         return { label: "I'M HERE", enabled: true, bg: colors.blue, fn: goHere };
       case 'here':
-        return { label: 'START RIDE', enabled: true, bg: colors.green, fn: startRide };
+        // In deposit mode, the cash reminder lives on the button itself (not just
+        // the banner + confirm), so the driver collects before they ever tap.
+        return {
+          label: ride.isDepositMode && (ride.cashToCollect ?? 0) > 0
+            ? `COLLECT $${(ride.cashToCollect ?? 0).toFixed(2)} · START RIDE`
+            : 'START RIDE',
+          enabled: true, bg: colors.green, fn: startRide,
+        };
       case 'confirming':
         return { label: 'RIDER CONFIRMING...', enabled: false, bg: colors.cardAlt, fn: null };
       case 'active':
@@ -962,42 +1031,82 @@ export default function ActiveRideScreen() {
           </View>
         )}
 
+        {/* ── Collect cash (deposit mode, before the ride ends) ── */}
+        {ride.isDepositMode && !isEnded && (ride.cashToCollect ?? 0) > 0 && (
+          <View style={s.cashCollectBanner}>
+            <Ionicons name="cash" size={20} color={colors.cash} />
+            <View style={{ flex: 1, marginLeft: spacing.md }}>
+              <Text style={s.cashCollectLabel}>COLLECT FROM RIDER AT PICKUP</Text>
+              <Text style={s.cashCollectAmount}>${(ride.cashToCollect ?? 0).toFixed(2)} cash</Text>
+            </View>
+            <Text style={s.cashCollectSub}>
+              ${(ride.visibleDeposit ?? 0).toFixed(2)}{'\n'}deposit in app
+            </Text>
+          </View>
+        )}
+
         {/* ── Payout card ── */}
         {card(0,
-          <View>
-            <Text style={s.cardLabel}>
-              {isEnded ? 'YOU EARNED' : ride.isCash ? 'CASH FARE' : 'AGREED PRICE'}
-            </Text>
-            {confirmedExtrasTotal > 0 ? (
-              <>
-                <Text style={s.payoutAmount}>${(displayPayout + confirmedExtrasTotal).toFixed(2)}</Text>
-                <View style={s.extrasBreakdown}>
-                  <Text style={s.extrasBreakdownLine}>BASE ${displayPayout.toFixed(2)}</Text>
-                  <Text style={[s.extrasBreakdownLine, { color: colors.amber }]}>+ EXTRAS ${confirmedExtrasTotal.toFixed(2)}</Text>
-                </View>
-              </>
-            ) : (
-              <Text style={s.payoutAmount}>${displayPayout.toFixed(2)}</Text>
-            )}
-            {!ride.isCash && !isEnded && ride.platformFee > 0 && (
-              <Text style={s.payoutSub}>
-                {`After ${(ride.platformFee / ride.agreedPrice * 100).toFixed(0)}% platform fee`}
-              </Text>
-            )}
-            <View style={[s.typePill, ride.isCash
-              ? { backgroundColor: colors.cashDim, borderColor: colors.cashBorder }
-              : { backgroundColor: colors.greenDim, borderColor: colors.greenBorder }
-            ]}>
-              <Ionicons
-                name={ride.isCash ? 'cash-outline' : 'card-outline'}
-                size={11}
-                color={ride.isCash ? colors.cash : colors.green}
-              />
-              <Text style={[s.typeText, { color: ride.isCash ? colors.cash : colors.green }]}>
-                {ride.isCash ? 'CASH RIDE' : 'DIGITAL RIDE'}
-              </Text>
+          ride.breakdown && isEnded ? (
+            // Canonical post-ride reconciliation — same rows the web ride-end page
+            // shows. Single source of truth, so cash / deposit / fees / total all
+            // match capture and the wallet.
+            <View>
+              <Text style={s.cardLabel}>WHAT YOU EARNED</Text>
+              <Text style={s.payoutAmount}>${ride.breakdown.youEarned.toFixed(2)}</Text>
+              <View style={s.bdRows}>
+                {ride.breakdown.driverRows.filter((row) => row.role !== 'total').map((row, i) => (
+                  <View key={i} style={s.bdRow}>
+                    <Text style={[s.bdLabel, (row.role === 'fee' || row.role === 'muted') && { color: colors.textFaint }]}>
+                      {row.label}
+                    </Text>
+                    <Text style={[
+                      s.bdValue,
+                      row.role === 'fee' && { color: colors.textFaint },
+                      row.role === 'muted' && { color: colors.textFaint },
+                    ]}>
+                      {row.role === 'fee' ? '− ' : ''}${Math.abs(row.value).toFixed(2)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
             </View>
-          </View>
+          ) : (
+            <View>
+              <Text style={s.cardLabel}>
+                {ride.isDepositMode ? 'RIDE TOTAL' : ride.isCash ? 'CASH FARE' : 'AGREED PRICE'}
+              </Text>
+              {confirmedExtrasTotal > 0 ? (
+                <>
+                  <Text style={s.payoutAmount}>${(displayPayout + confirmedExtrasTotal).toFixed(2)}</Text>
+                  <View style={s.extrasBreakdown}>
+                    <Text style={s.extrasBreakdownLine}>BASE ${displayPayout.toFixed(2)}</Text>
+                    <Text style={[s.extrasBreakdownLine, { color: colors.amber }]}>+ EXTRAS ${confirmedExtrasTotal.toFixed(2)}</Text>
+                  </View>
+                </>
+              ) : (
+                <Text style={s.payoutAmount}>${displayPayout.toFixed(2)}</Text>
+              )}
+              {ride.isDepositMode && (ride.cashToCollect ?? 0) > 0 && (
+                <Text style={s.payoutSub}>
+                  {`$${(ride.visibleDeposit ?? 0).toFixed(2)} deposit + $${(ride.cashToCollect ?? 0).toFixed(2)} cash`}
+                </Text>
+              )}
+              <View style={[s.typePill, ride.isCash
+                ? { backgroundColor: colors.cashDim, borderColor: colors.cashBorder }
+                : { backgroundColor: colors.greenDim, borderColor: colors.greenBorder }
+              ]}>
+                <Ionicons
+                  name={ride.isCash ? 'cash-outline' : 'card-outline'}
+                  size={11}
+                  color={ride.isCash ? colors.cash : colors.green}
+                />
+                <Text style={[s.typeText, { color: ride.isCash ? colors.cash : colors.green }]}>
+                  {ride.isDepositMode ? 'DEPOSIT + CASH' : ride.isCash ? 'CASH RIDE' : 'DIGITAL RIDE'}
+                </Text>
+              </View>
+            </View>
+          )
         )}
 
         {/* ── Route card ── */}
@@ -1597,6 +1706,21 @@ const s = StyleSheet.create({
 
   payoutAmount: { fontFamily: fonts.display, fontSize: 56, color: colors.green, lineHeight: 58, marginBottom: 2 },
   payoutSub: { fontFamily: fonts.body, fontSize: 12, color: colors.textFaint, marginBottom: spacing.md },
+
+  cashCollectBanner: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.cashDim, borderRadius: radius.card,
+    borderWidth: 1, borderColor: colors.cashBorder,
+    padding: spacing.lg, marginBottom: spacing.md,
+  },
+  cashCollectLabel: { fontFamily: fonts.mono, fontSize: 10, color: colors.cash, letterSpacing: 1.5 },
+  cashCollectAmount: { fontFamily: fonts.display, fontSize: 26, color: colors.textPrimary, lineHeight: 30, marginTop: 2 },
+  cashCollectSub: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint, textAlign: 'right', letterSpacing: 0.5 },
+
+  bdRows: { marginTop: spacing.md, marginBottom: spacing.sm },
+  bdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border },
+  bdLabel: { fontFamily: fonts.body, fontSize: 13, color: colors.textSecondary, flex: 1 },
+  bdValue: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.textPrimary },
   typePill: {
     flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start',
     borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1,

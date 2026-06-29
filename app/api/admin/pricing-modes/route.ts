@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 import { sql } from '@/lib/db/client';
+import { getPlatformConfig, invalidatePlatformConfig } from '@/lib/platform-config/get';
+import { PAYMENTS_DEFAULTS, type PaymentsConfig } from '@/lib/payments/config';
 
 interface PricingModeRow {
   id: string;
@@ -96,6 +98,15 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'mode not found' }, { status: 404 });
   }
 
+  // Source-of-truth sync: the capture strategy reads deposit-only economics from
+  // payments:global.depositOnly (via getPaymentsConfig), NOT pricing_modes.config.
+  // So when an admin edits the deposit-only fee fields here, mirror the
+  // money-affecting fields into payments:global so the two stores can never drift
+  // (and the fee/floor/stripe-bearer changes actually take effect at capture).
+  if (body.modeKey === 'deposit_only' && body.config) {
+    await syncDepositOnlyToPaymentsGlobal(body.config, admin.id);
+  }
+
   const row = updated[0] as PricingModeRow;
   return NextResponse.json({
     mode: {
@@ -150,5 +161,42 @@ function validateDepositOnly(c: Record<string, unknown>): string | null {
     return 'deposit_only.noShowDriverPct must be 0–1';
   if (!['rider_select', 'distance_band', 'percent_of_fare'].includes(c.depositRule as string))
     return 'deposit_only.depositRule must be one of rider_select | distance_band | percent_of_fare';
+  if (c.stripeFeeBearer !== undefined && !['platform', 'driver'].includes(c.stripeFeeBearer as string))
+    return 'deposit_only.stripeFeeBearer must be platform | driver';
   return null;
+}
+
+// Mirror the money-affecting deposit-only fields into payments:global.depositOnly
+// (the store the capture strategy actually reads). Best-effort: a sync failure
+// never blocks the pricing_modes write — it just logs.
+async function syncDepositOnlyToPaymentsGlobal(config: Record<string, unknown>, adminId: string): Promise<void> {
+  try {
+    const current = await getPlatformConfig<PaymentsConfig & Record<string, unknown>>(
+      'payments:global',
+      PAYMENTS_DEFAULTS as PaymentsConfig & Record<string, unknown>,
+    );
+    const num = (k: string, fb: number) => (typeof config[k] === 'number' ? (config[k] as number) : fb);
+    const next: PaymentsConfig = {
+      ...current,
+      depositOnly: {
+        ...current.depositOnly,
+        feeFloorCents: num('feeFloorCents', current.depositOnly.feeFloorCents),
+        feePercent: num('feePercent', current.depositOnly.feePercent),
+        depositMin: num('depositMin', current.depositOnly.depositMin),
+        depositIncrement: num('depositIncrement', current.depositOnly.depositIncrement),
+        depositMaxPctOfFare: num('depositMaxPctOfFare', current.depositOnly.depositMaxPctOfFare),
+        extrasFeePercent: num('extrasFeePercent', current.depositOnly.extrasFeePercent),
+        stripeFeeBearer: config.stripeFeeBearer === 'driver' ? 'driver' : 'platform',
+      },
+    };
+    await sql`
+      INSERT INTO platform_config (config_key, config_value, updated_by, updated_at)
+      VALUES ('payments:global', ${JSON.stringify(next)}::jsonb, ${adminId}, NOW())
+      ON CONFLICT (config_key) DO UPDATE SET
+        config_value = EXCLUDED.config_value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+    `;
+    invalidatePlatformConfig('payments:global');
+  } catch (e) {
+    console.error('[pricing-modes] payments:global deposit-only sync failed:', e);
+  }
 }

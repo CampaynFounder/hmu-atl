@@ -37,6 +37,16 @@ export interface DepositOnlyPayConfig {
   depositMaxPctOfFare: number;
   /** Platform fee on each confirmed add-on. */
   extrasFeePercent: number;
+  /**
+   * Who bears Stripe's processing fee (2.9% + $0.30).
+   *  - 'platform' (default): HMU absorbs it out of its platform fee. Driver
+   *    receives deposit − platform fee; HMU nets platform fee − Stripe fee.
+   *  - 'driver': the driver bears it. application_fee = platform fee + Stripe
+   *    fee, so the driver receives deposit − platform fee − Stripe fee and HMU
+   *    keeps the full platform fee as margin.
+   * Superadmin-tunable in real time to dial the profit margin.
+   */
+  stripeFeeBearer: 'platform' | 'driver';
 }
 
 export interface PaymentsConfig {
@@ -64,6 +74,7 @@ export const PAYMENTS_DEFAULTS: PaymentsConfig = {
     depositIncrement: 1,
     depositMaxPctOfFare: 0.50,
     extrasFeePercent: 0.20,
+    stripeFeeBearer: 'platform',
   },
 };
 
