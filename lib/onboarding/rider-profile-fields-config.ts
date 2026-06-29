@@ -34,6 +34,9 @@ export interface RideTypeOption {
 export interface RiderProfileFields {
   rideTypes: FieldVisibility;
   homeArea: FieldVisibility;
+  // Profile photo OR video, captured at onboarding and used as the rider's
+  // avatar (thumbnail_url). 'required' blocks finishing onboarding without it.
+  photo: FieldVisibility;
 }
 
 export interface RiderProfileFieldsConfig {
@@ -50,6 +53,7 @@ export const RIDER_PROFILE_FIELDS_DEFAULTS: RiderProfileFieldsConfig = {
     // flips the switch and tests in /admin/flows.
     rideTypes: 'hidden',
     homeArea: 'hidden',
+    photo: 'hidden',
   },
   rideTypeOptions: [
     { slug: 'work',      label: 'Work',      emoji: '💼', enabled: true },

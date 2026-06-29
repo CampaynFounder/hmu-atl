@@ -17,6 +17,7 @@ import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 import * as WebBrowser from 'expo-web-browser';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+import { AvatarMediaPicker, type CapturedMedia } from '@/components/AvatarMediaPicker';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -131,6 +132,7 @@ export default function DriverOnboarding() {
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [media, setMedia] = useState<CapturedMedia | null>(null);
 
   const [payoutStatus, setPayoutStatus] = useState<PayoutStatus | null>(null);
   const [openingPayout, setOpeningPayout] = useState(false);
@@ -204,6 +206,25 @@ export default function DriverOnboarding() {
     isValid: () => form.displayName.trim().length >= 2 && form.gender !== '',
     optional: false,
   });
+
+  // Profile photo OR video → driver avatar (thumbnail_url). Shown when admin
+  // has adPhoto or videoIntro in-flow; enforced when either is required.
+  const mediaInFlow = inFlow(config.fields.adPhoto) || inFlow(config.fields.videoIntro);
+  const mediaRequired = config.fields.adPhoto === 'required' || config.fields.videoIntro === 'required';
+  if (mediaInFlow) {
+    steps.push({
+      id: 'media',
+      title: 'ADD YOUR PHOTO OR VIDEO',
+      subtitle: "This is your profile picture — what riders see when you pull up.",
+      content: () => (
+        <View style={s.stepContent}>
+          <AvatarMediaPicker profileType="driver" value={media} onChange={setMedia} />
+        </View>
+      ),
+      isValid: () => !mediaRequired || !!media,
+      optional: !mediaRequired,
+    });
+  }
 
   if (config.fields.vehicleMakeModel !== 'hidden') {
     steps.push({
@@ -371,6 +392,11 @@ export default function DriverOnboarding() {
             accepts_long_distance: false,
             license_plate: form.licensePlate.trim() || undefined,
             plate_state: form.licensePlate.trim() ? form.plateState : undefined,
+            // Captured photo/video → driver avatar (thumbnail_url) + ad photo / intro video.
+            ...(media ? {
+              thumbnail_url: media.url,
+              ...(media.isVideo ? { video_url: media.url } : { ad_photo_url: media.url }),
+            } : {}),
           }),
         });
         setPhase('payout');

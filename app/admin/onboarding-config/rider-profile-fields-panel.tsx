@@ -18,6 +18,7 @@ interface FieldRow {
 const FIELD_ROWS: FieldRow[] = [
   { key: 'rideTypes', label: 'Ride types',  hint: 'Multi-select pills (work, errands, kids, turn up, recurring). Helps drivers + future matching.' },
   { key: 'homeArea',  label: 'Home area',   hint: 'Single-select neighborhood (West End, Buckhead, …) from market_areas. Reuses the driver-area chips.' },
+  { key: 'photo',     label: 'Profile photo / video', hint: 'Captured at sign-up and used as the rider avatar (photo OR video). Set Required to block finishing onboarding without one.' },
 ];
 
 const VISIBILITY_OPTS: { value: FieldVisibility; label: string; tone: string }[] = [
