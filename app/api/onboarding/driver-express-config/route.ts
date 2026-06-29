@@ -8,10 +8,12 @@
 // response so the Areas onboarding step renders without a second round-trip.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { getDriverExpressConfig } from '@/lib/onboarding/config';
 import {
   DEFAULT_MARKET_SLUG,
   resolveMarketBySlug,
+  resolveMarketForClerkUser,
   resolveMarketFromHeaders,
   resolveMarketFromHost,
   type MarketContext,
@@ -23,8 +25,14 @@ export const runtime = 'nodejs';
 export async function GET(req: NextRequest) {
   const config = await getDriverExpressConfig();
 
-  // Resolve market: prefer middleware header, then Host parsing, then default.
-  let market: MarketContext | null = await resolveMarketFromHeaders(req.headers);
+  // Resolve market, market-aware: the AUTHENTICATED driver's assigned market
+  // wins (mobile always hits the atl host, so host parsing would hand ATL's
+  // areas to a driver in another market). Fall back to middleware header / Host
+  // / default for pre-auth web landing pages.
+  let market: MarketContext | null = null;
+  const { userId: clerkId } = await auth();
+  if (clerkId) market = await resolveMarketForClerkUser(clerkId);
+  if (!market) market = await resolveMarketFromHeaders(req.headers);
   if (!market) market = await resolveMarketFromHost(req.headers.get('host'));
   if (!market) market = await resolveMarketBySlug(DEFAULT_MARKET_SLUG);
 
