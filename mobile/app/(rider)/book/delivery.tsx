@@ -20,6 +20,7 @@ import { AddressInput, type ValidatedAddress } from '@/components/AddressInput';
 import type { DeliveryItem, DeliveryEstimate } from '@/shared/delivery-types';
 import { useBookingDraft } from '@/hooks/use-booking-draft';
 import { ResumeDraftSheet } from '@/components/resume-draft-sheet';
+import { RequirePayment } from '@/components/RequirePayment';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -35,7 +36,15 @@ function fmtMoney(n: number) {
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
-export default function BookDelivery() {
+export default function BookDeliveryScreen() {
+  return (
+    <RequirePayment>
+      <BookDelivery />
+    </RequirePayment>
+  );
+}
+
+function BookDelivery() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const getToken = useStableToken();

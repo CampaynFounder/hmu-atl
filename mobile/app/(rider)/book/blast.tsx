@@ -22,6 +22,7 @@ import { apiClient } from '@/lib/api';
 import { AddressInput, ValidatedAddress } from '@/components/AddressInput';
 import { useBookingDraft } from '@/hooks/use-booking-draft';
 import { ResumeDraftSheet } from '@/components/resume-draft-sheet';
+import { RequirePayment } from '@/components/RequirePayment';
 
 interface BlastEstimate {
   distance_mi: number;
@@ -58,7 +59,15 @@ function scheduledFor(time: TimeOption): string | null {
   return d.toISOString();
 }
 
-export default function BlastBooking() {
+export default function BlastBookingScreen() {
+  return (
+    <RequirePayment>
+      <BlastBooking />
+    </RequirePayment>
+  );
+}
+
+function BlastBooking() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const getToken = useStableToken();

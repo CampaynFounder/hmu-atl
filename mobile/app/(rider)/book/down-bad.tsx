@@ -30,6 +30,7 @@ import { apiClient, API_BASE } from '@/lib/api';
 import { AddressInput, ValidatedAddress } from '@/components/AddressInput';
 import { useBookingDraft } from '@/hooks/use-booking-draft';
 import { ResumeDraftSheet } from '@/components/resume-draft-sheet';
+import { RequirePayment } from '@/components/RequirePayment';
 
 interface DownBadConfig {
   cashFloor: number;
@@ -49,7 +50,15 @@ const DEFAULT_CONFIG: DownBadConfig = {
 
 type Luggage = 'none' | 'bag' | 'trunk';
 
-export default function DownBadBooking() {
+export default function DownBadBookingScreen() {
+  return (
+    <RequirePayment>
+      <DownBadBooking />
+    </RequirePayment>
+  );
+}
+
+function DownBadBooking() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const getToken = useStableToken();
