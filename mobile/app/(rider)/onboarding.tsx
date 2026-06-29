@@ -5,9 +5,9 @@
 // booking screen is wrapped in <RequirePayment> — so a card is required before
 // any ride request, through any route.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView,
   ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,6 +16,9 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+import { AvatarMediaPicker, type CapturedMedia } from '@/components/AvatarMediaPicker';
+
+type Vis = 'required' | 'optional' | 'hidden' | 'deferred';
 
 const GENDERS = [
   { value: 'male', label: 'Male' },
@@ -33,8 +36,23 @@ export default function RiderOnboarding() {
   const [gender, setGender] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Admin-tunable: /admin/onboarding-config → rider profile-fields → photo.
+  const [photoField, setPhotoField] = useState<Vis>('hidden');
+  const [media, setMedia] = useState<CapturedMedia | null>(null);
 
-  const canSave = displayName.trim().length >= 2 && gender !== '';
+  useEffect(() => {
+    (async () => {
+      try {
+        const t = await getToken();
+        const cfg = await apiClient<{ fields?: { photo?: Vis } }>('/onboarding/rider-profile-fields-config', t);
+        if (cfg?.fields?.photo) setPhotoField(cfg.fields.photo);
+      } catch { /* default hidden — onboarding unchanged */ }
+    })();
+  }, [getToken]);
+
+  const photoInFlow = photoField === 'required' || photoField === 'optional';
+  const photoRequired = photoField === 'required';
+  const canSave = displayName.trim().length >= 2 && gender !== '' && (!photoRequired || !!media);
 
   async function saveProfile() {
     if (!canSave || saving) return;
@@ -48,6 +66,8 @@ export default function RiderOnboarding() {
           profile_type: 'rider',
           display_name: displayName.trim(),
           gender,
+          // Captured photo/video becomes the rider avatar (thumbnail_url).
+          ...(media ? { thumbnail_url: media.url, ...(media.isVideo ? { video_url: media.url } : {}) } : {}),
         }),
       });
       // Straight to home — the rider adds a payment method there via the shared
@@ -68,7 +88,7 @@ export default function RiderOnboarding() {
           <Text style={s.subtitle}>Pick a handle — this is what drivers see when you book.</Text>
         </View>
 
-        <View style={s.form}>
+        <ScrollView style={s.form} contentContainerStyle={{ gap: spacing.md, paddingBottom: spacing.lg }} keyboardShouldPersistTaps="handled">
           <TextInput
             style={s.input}
             value={displayName}
@@ -95,13 +115,20 @@ export default function RiderOnboarding() {
             ))}
           </View>
 
+          {photoInFlow && (
+            <>
+              <Text style={s.fieldLabel}>PROFILE PHOTO OR VIDEO{photoRequired ? '' : ' (optional)'}</Text>
+              <AvatarMediaPicker profileType="rider" value={media} onChange={setMedia} />
+            </>
+          )}
+
           {error && (
             <View style={s.errorBox}>
               <Ionicons name="alert-circle-outline" size={14} color={colors.red} />
               <Text style={s.errorText}>{error}</Text>
             </View>
           )}
-        </View>
+        </ScrollView>
 
         <View style={[s.footer, { paddingBottom: insets.bottom + spacing.md }]}>
           <TouchableOpacity

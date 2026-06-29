@@ -17,7 +17,7 @@ export const runtime = 'nodejs';
 
 const KEY = 'onboarding.rider_profile_fields';
 const VISIBILITY: FieldVisibility[] = ['required', 'optional', 'hidden', 'deferred'];
-const FIELD_KEYS: (keyof RiderProfileFieldsConfig['fields'])[] = ['rideTypes', 'homeArea'];
+const FIELD_KEYS: (keyof RiderProfileFieldsConfig['fields'])[] = ['rideTypes', 'homeArea', 'photo'];
 const SLUG_RE = /^[a-z0-9_]{1,32}$/;
 const MAX_OPTIONS = 24;
 const MAX_LABEL = 32;
