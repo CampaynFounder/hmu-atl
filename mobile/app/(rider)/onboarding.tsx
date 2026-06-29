@@ -44,8 +44,9 @@ export default function RiderOnboarding() {
     (async () => {
       try {
         const t = await getToken();
-        const cfg = await apiClient<{ fields?: { photo?: Vis } }>('/onboarding/rider-profile-fields-config', t);
-        if (cfg?.fields?.photo) setPhotoField(cfg.fields.photo);
+        // The public endpoint nests under `config` (mirrors driver-express-config).
+        const cfg = await apiClient<{ config?: { fields?: { photo?: Vis } } }>('/onboarding/rider-profile-fields-config', t);
+        if (cfg?.config?.fields?.photo) setPhotoField(cfg.config.fields.photo);
       } catch { /* default hidden — onboarding unchanged */ }
     })();
   }, [getToken]);
