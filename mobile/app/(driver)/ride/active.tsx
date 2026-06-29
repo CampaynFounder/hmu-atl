@@ -822,7 +822,14 @@ export default function ActiveRideScreen() {
       case 'otw':
         return { label: "I'M HERE", enabled: true, bg: colors.blue, fn: goHere };
       case 'here':
-        return { label: 'START RIDE', enabled: true, bg: colors.green, fn: startRide };
+        // In deposit mode, the cash reminder lives on the button itself (not just
+        // the banner + confirm), so the driver collects before they ever tap.
+        return {
+          label: ride.isDepositMode && (ride.cashToCollect ?? 0) > 0
+            ? `COLLECT $${(ride.cashToCollect ?? 0).toFixed(2)} · START RIDE`
+            : 'START RIDE',
+          enabled: true, bg: colors.green, fn: startRide,
+        };
       case 'confirming':
         return { label: 'RIDER CONFIRMING...', enabled: false, bg: colors.cardAlt, fn: null };
       case 'active':
