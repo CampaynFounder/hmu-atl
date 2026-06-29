@@ -66,11 +66,12 @@ export default function ChooseRole() {
         <Text style={s.logoSub}>ATL</Text>
       </Animated.View>
 
-      <Animated.Text entering={FadeInDown.delay(300).duration(500)} style={s.heading}>
-        HOW ARE YOU{'\n'}USING HMU?
-      </Animated.Text>
+      <View style={s.center}>
+        <Animated.Text entering={FadeInDown.delay(300).duration(500)} style={s.heading}>
+          HOW ARE YOU{'\n'}USING HMU?
+        </Animated.Text>
 
-      <View style={s.cards}>
+        <View style={s.cards}>
         <Animated.View entering={FadeInUp.delay(450).duration(450)}>
           <TouchableOpacity
             style={[s.card, s.riderCard, shadow.glow]}
@@ -111,6 +112,7 @@ export default function ChooseRole() {
             {selecting !== 'driver' && <Ionicons name="chevron-forward" size={20} color={colors.amber} />}
           </TouchableOpacity>
         </Animated.View>
+        </View>
       </View>
 
       <Animated.View entering={FadeIn.delay(700).duration(400)} style={s.footer}>
@@ -127,9 +129,12 @@ const s = StyleSheet.create({
   root: {
     flex: 1, backgroundColor: colors.bg,
     paddingHorizontal: spacing.xl,
-    justifyContent: 'space-between',
   },
   loader: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
+
+  // Vertically center the heading + the two cards in the space between the
+  // header (top) and the footer (bottom), so the selection sits on the viewport.
+  center: { flex: 1, justifyContent: 'center', gap: spacing.xxl },
 
   header: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
   logo: { fontFamily: fonts.display, fontSize: 48, color: colors.green, letterSpacing: 3 },
