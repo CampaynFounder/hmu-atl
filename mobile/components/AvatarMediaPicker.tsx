@@ -118,7 +118,7 @@ export function AvatarMediaPicker({
           {busy ? (
             <ActivityIndicator color={colors.green} />
           ) : value && !value.isVideo ? (
-            <Image source={{ uri: value.url }} style={s.avatarImg} resizeMode="cover" />
+            <Image source={{ uri: value.url }} style={s.avatarImg} resizeMode="cover" alt="" />
           ) : value && value.isVideo ? (
             <Ionicons name="videocam" size={28} color={colors.green} />
           ) : (
