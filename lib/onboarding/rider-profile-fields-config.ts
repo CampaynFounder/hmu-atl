@@ -49,11 +49,15 @@ export interface RiderProfileFieldsConfig {
 
 export const RIDER_PROFILE_FIELDS_DEFAULTS: RiderProfileFieldsConfig = {
   fields: {
-    // Default off everywhere so existing flows are unchanged until admin
-    // flips the switch and tests in /admin/flows.
+    // rideTypes/homeArea default off everywhere so existing flows are unchanged
+    // until admin flips the switch and tests in /admin/flows.
     rideTypes: 'hidden',
     homeArea: 'hidden',
-    photo: 'hidden',
+    // photo defaults to 'required': every rider gets a profile photo/video at
+    // mobile onboarding (it becomes the avatar drivers see). Still per-market
+    // overridable from /admin/onboarding-config. Only the mobile rider
+    // onboarding enforces this; web rider flows ignore the photo field.
+    photo: 'required',
   },
   rideTypeOptions: [
     { slug: 'work',      label: 'Work',      emoji: '💼', enabled: true },
