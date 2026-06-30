@@ -1,10 +1,16 @@
 // Rider profile hub — identity card, stats, account nav.
 // Loads from GET /api/rider/profile (handle/gender/avatarUrl) + GET /api/rides/history (stats).
+//
+// The avatar is tappable so a rider can change their profile photo/video any time
+// (parity with driver media). Upload reuses the proven XHR + FormData path to
+// POST /upload/video (RN fetch+FormData corrupts multipart on Hermes) with
+// profile_type=rider + save_to_profile=true, which persists to
+// rider_profiles.avatar_url + thumbnail_url server-side.
 
 import { useCallback, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, Image,
+  ActivityIndicator, RefreshControl, Image, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
@@ -12,10 +18,15 @@ import { useAuth, useUser } from '@clerk/clerk-expo';
 import { useStableToken } from '@/hooks/use-stable-token';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
-import { apiClient } from '@/lib/api';
+import { apiClient, API_BASE } from '@/lib/api';
 import { useUserContext } from '@/contexts/UserContext';
 import { AdminSheet } from '@/components/AdminSheet';
+
+// expo-image-picker needs the native module linked (dev/preview build).
+let ImagePicker: typeof import('expo-image-picker') | null = null;
+try { ImagePicker = require('expo-image-picker') as typeof import('expo-image-picker'); } catch { ImagePicker = null; }
 
 interface RiderProfile {
   handle: string | null;
@@ -42,6 +53,7 @@ export default function RiderProfileScreen() {
   const [rides, setRides] = useState<RideSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const hasLoaded = useRef(false);
 
   const fetchData = useCallback(async () => {
@@ -67,6 +79,84 @@ export default function RiderProfileScreen() {
   }, [fetchData]));
 
   const onRefresh = useCallback(() => { setRefreshing(true); void fetchData(); }, [fetchData]);
+
+  // Pick a photo or video from the library and upload it as the rider avatar.
+  const pickAndUpload = useCallback(async (kind: 'images' | 'videos') => {
+    if (!ImagePicker) {
+      Alert.alert('Update needed', 'Changing your photo needs the latest app build. Try updating from the App Store.');
+      return;
+    }
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (perm.status !== 'granted') {
+        Alert.alert('Permission required', 'Library access is needed to update your photo.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: kind === 'images' ? ['images'] : ['videos'],
+        allowsEditing: true,
+        quality: 0.8,
+        ...(kind === 'videos' ? { videoMaxDuration: 30 } : {}),
+      });
+      if (result.canceled || !result.assets[0]) return;
+      const asset = result.assets[0];
+      const mimeType = asset.mimeType ?? (kind === 'images' ? 'image/jpeg' : 'video/mp4');
+      const isVideo = mimeType.startsWith('video/');
+      const safeType = (mimeType.startsWith('image/') || isVideo) ? mimeType : 'image/jpeg';
+      const fileName = isVideo ? 'media.mp4' : 'photo.jpg';
+
+      setUploadingPhoto(true);
+      const t = await getToken();
+      if (!t) throw new Error('You need to be signed in. Restart the app.');
+
+      const data = await new Promise<{ url?: string; videoUrl?: string }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_BASE}/upload/video`);
+        xhr.setRequestHeader('Authorization', `Bearer ${t}`);
+        xhr.timeout = 60000;
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try { resolve(JSON.parse(xhr.responseText)); } catch { reject(new Error('Upload response was invalid. Try again.')); }
+            return;
+          }
+          let msg = "Couldn't upload that. Try again.";
+          if (xhr.status === 401 || xhr.status === 403) msg = "You're not signed in properly. Restart the app.";
+          else if (xhr.status === 400 || xhr.status === 413) msg = 'That file is too large (50MB max) or unsupported.';
+          else if (xhr.status >= 500) msg = 'Something went wrong on our end. Try again in a sec.';
+          reject(new Error(msg));
+        };
+        xhr.onerror = () => reject(new Error('Network error — check your connection.'));
+        xhr.ontimeout = () => reject(new Error('Upload timed out. Try a smaller/shorter file.'));
+
+        const formData = new FormData();
+        // save_to_profile=true persists to rider_profiles.avatar_url + thumbnail_url.
+        formData.append('video', { uri: asset.uri, type: safeType, name: fileName } as unknown as Blob);
+        formData.append('profile_type', 'rider');
+        formData.append('media_type', 'auto');
+        formData.append('save_to_profile', 'true');
+        xhr.send(formData);
+      });
+
+      const url = data.url ?? data.videoUrl ?? null;
+      if (!url) throw new Error("Couldn't upload that. Try again.");
+      // Optimistic: reflect the new avatar immediately.
+      setProfile(p => (p ? { ...p, avatarUrl: url } : { handle: null, gender: null, displayName: null, avatarUrl: url }));
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      Alert.alert('Upload failed', e?.message ?? "Couldn't update your photo. Try again.");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }, [getToken]);
+
+  const changePhoto = useCallback(() => {
+    if (uploadingPhoto) return;
+    Alert.alert('Update profile photo', 'This is what drivers see when you book.', [
+      { text: 'Choose Photo', onPress: () => void pickAndUpload('images') },
+      { text: 'Choose Video', onPress: () => void pickAndUpload('videos') },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [uploadingPhoto, pickAndUpload]);
 
   if (loading) {
     return (
@@ -101,7 +191,13 @@ export default function RiderProfileScreen() {
           delayLongPress={600}
         >
         <View style={[s.card, shadow.card]}>
-          <View style={s.avatarWrap}>
+          <TouchableOpacity
+            style={s.avatarWrap}
+            onPress={changePhoto}
+            disabled={uploadingPhoto}
+            activeOpacity={0.85}
+            accessibilityLabel="Change profile photo"
+          >
             {avatarUri ? (
               <Image
                 source={{ uri: avatarUri }}
@@ -113,7 +209,16 @@ export default function RiderProfileScreen() {
                 <Text style={s.avatarLetter}>{avatarLetter}</Text>
               </View>
             )}
-          </View>
+            {uploadingPhoto ? (
+              <View style={[s.avatar, s.avatarUploading]}>
+                <ActivityIndicator color={colors.green} />
+              </View>
+            ) : (
+              <View style={s.cameraBadge}>
+                <Ionicons name="camera" size={14} color={colors.bg} />
+              </View>
+            )}
+          </TouchableOpacity>
           {displayName && (
             <Text style={s.displayName}>{displayName}</Text>
           )}
@@ -234,6 +339,16 @@ const s = StyleSheet.create({
   avatarFallback: {
     backgroundColor: colors.cardAlt, alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: colors.borderStrong,
+  },
+  avatarUploading: {
+    position: 'absolute', top: 0, left: 0,
+    backgroundColor: 'rgba(20,20,20,0.6)', alignItems: 'center', justifyContent: 'center',
+  },
+  cameraBadge: {
+    position: 'absolute', bottom: -2, right: -2,
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: colors.card,
   },
   avatarLetter: { fontFamily: fonts.display, fontSize: 38, color: colors.green },
   displayName: { fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.textPrimary, marginBottom: 2 },
