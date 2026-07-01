@@ -8,6 +8,7 @@ import {
 import { colors, fonts, radius, spacing } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { isDemoPhone } from '@/lib/demo';
+import { normalizePhoneE164 } from '@/lib/phone';
 
 // App-store reviewer login. When this build's EXPO_PUBLIC_DEMO_PHONE is set and
 // the user enters that exact number (see isDemoPhone in lib/demo.ts), we skip
@@ -37,10 +38,14 @@ export default function SignIn() {
       setStep('code');
       return;
     }
+    // Default to +1 when the user omits a country code so Clerk accepts the
+    // identifier (it requires E.164).
+    const e164 = normalizePhoneE164(phone);
+    if (!e164) { setError('Enter your phone number'); return; }
     setLoading(true);
     setError(null);
     try {
-      await signIn!.create({ strategy: 'phone_code', identifier: phone });
+      await signIn!.create({ strategy: 'phone_code', identifier: e164 });
       const phoneFactor = signIn!.supportedFirstFactors?.find((f: { strategy: string }) => f.strategy === 'phone_code') as { strategy: 'phone_code'; phoneNumberId: string } | undefined;
       if (!phoneFactor || !('phoneNumberId' in phoneFactor)) throw new Error('Phone sign-in not available');
       await signIn!.prepareFirstFactor({ strategy: 'phone_code', phoneNumberId: phoneFactor.phoneNumberId });
@@ -74,7 +79,7 @@ export default function SignIn() {
         // then complete the session with it (no OTP was ever sent).
         const { ticket } = await apiClient<{ ticket: string }>('/mobile/demo-signin', null, {
           method: 'POST',
-          body: JSON.stringify({ phone, code }),
+          body: JSON.stringify({ phone: normalizePhoneE164(phone), code }),
         });
         const result = await signIn!.create({ strategy: 'ticket', ticket });
         if (result.status === 'complete') {

@@ -8,6 +8,7 @@ import {
 import { colors, fonts, radius, spacing } from '@/lib/theme';
 import { resolveSignupMarket } from '@/lib/market';
 import { isDemoPhone } from '@/lib/demo';
+import { normalizePhoneE164 } from '@/lib/phone';
 
 export default function SignUp() {
   const { signUp, setActive, isLoaded } = useSignUp();
@@ -21,6 +22,10 @@ export default function SignUp() {
 
   async function startSignUp() {
     if (!isLoaded) return;
+    // Default to +1 when the user omits a country code so Clerk accepts the
+    // phone number (it requires E.164).
+    const e164 = normalizePhoneE164(phone);
+    if (!e164) { setError('Enter your phone number'); return; }
     setLoading(true);
     setError(null);
     try {
@@ -36,7 +41,7 @@ export default function SignUp() {
       // "already has an account" → nudged to Sign in. Mirrors sign-in.tsx.
       let marketSlug: string | null = null;
       if (!__DEV__ && !isDemoPhone(phone)) {
-        const market = await resolveSignupMarket(phone);
+        const market = await resolveSignupMarket(e164);
         if (market && market.isActive === false) {
           router.replace({
             pathname: '/not-in-market',
@@ -48,7 +53,7 @@ export default function SignUp() {
       }
 
       await signUp!.create({
-        phoneNumber: phone,
+        phoneNumber: e164,
         ...(marketSlug ? { unsafeMetadata: { market: marketSlug } } : {}),
       });
       await signUp!.preparePhoneNumberVerification();
