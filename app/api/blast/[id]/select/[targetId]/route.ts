@@ -23,6 +23,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { stripe } from '@/lib/stripe/connect';
 import { publishToChannel, notifyUser } from '@/lib/ably/server';
+import { publishRideMatched } from '@/lib/blast/match-notify';
 import { generateRefCode } from '@/lib/rides/ref-code';
 import { getMatchingConfig } from '@/lib/blast/config';
 import { insertScheduleBlock } from '@/lib/blast/lifecycle';
@@ -287,6 +288,13 @@ export async function POST(
     priceDollars: finalPrice,
     marketSlug: 'atl',
   }).catch(() => {});
+
+  // Cross onto the canonical ride rails so the ride behaves like a direct
+  // booking for realtime: the rider's app-wide notify rail is told the match
+  // happened (ActiveRideBar lights + /rides/active reconciles even if they left
+  // the offer board) and ride:{id} gets a status_change. Awaited — Workers kill
+  // unawaited promises once the response returns (see the SMS above).
+  await publishRideMatched(rideId, riderId);
 
   return NextResponse.json({ rideId, refCode, driverId, finalPrice });
 }

@@ -19,6 +19,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { stripe } from '@/lib/stripe/connect';
 import { notifyUser, publishToChannel } from '@/lib/ably/server';
+import { publishRideMatched } from '@/lib/blast/match-notify';
 import { writeBlastEvent, insertScheduleBlock } from '@/lib/blast/lifecycle';
 import { generateRefCode } from '@/lib/rides/ref-code';
 import { getMatchingConfig } from '@/lib/blast/config';
@@ -335,6 +336,12 @@ async function handlePost(
   publishToChannel(`blast:${blastId}`, 'match_locked', {
     blastId, targetId, rideId, driverId, driverName, finalPrice,
   }).catch(() => {});
+
+  // Cross onto the canonical ride rails (see lib/blast/match-notify): the rider's
+  // app-wide notify rail is told the ride is live so their ActiveRideBar lights
+  // and /rides/active reconciles even if they navigated away, and ride:{id} gets
+  // a status_change. Awaited for the same Workers-kill reason as the SMS above.
+  await publishRideMatched(rideId, riderId);
 
   return NextResponse.json({ rideId, driverId, finalPrice });
 }
