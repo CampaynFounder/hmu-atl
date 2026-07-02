@@ -63,8 +63,9 @@ function PaymentSetupInner() {
   const router = useRouter();
   const getToken = useStableToken();
 
-  const { usePaymentSheet } = StripeModule!;
+  const { usePaymentSheet, usePlatformPay, PlatformPayButton, PlatformPay } = StripeModule!;
   const { initPaymentSheet, presentPaymentSheet, loading: sheetLoading } = usePaymentSheet();
+  const { isPlatformPaySupported, confirmPlatformPaySetupIntent } = usePlatformPay();
   // sheetLoading is true while initPaymentSheet/presentPaymentSheet are in-flight
 
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -72,6 +73,11 @@ function PaymentSetupInner() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Dedicated native Apple Pay button — server feature flag (rider_apple_pay_button)
+  // × device support. Off by default; Apple Pay is also inside the sheet below.
+  const [applePayEnabled, setApplePayEnabled] = useState(false);
+  const [platformPaySupported, setPlatformPaySupported] = useState(false);
+  const [applePayLoading, setApplePayLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,11 +85,13 @@ function PaymentSetupInner() {
       try {
         const t = await getToken();
         let cs: string;
+        let applePayFlag = false;
         try {
-          const resp = await apiClient<{ clientSecret: string }>(
+          const resp = await apiClient<{ clientSecret: string; applePayButton?: boolean }>(
             '/rider/payment-methods/setup-intent', t, { method: 'POST' },
           );
           cs = resp.clientSecret;
+          applePayFlag = !!resp.applePayButton;
         } catch (apiErr: any) {
           console.error('[payment-setup] setup-intent API failed:', apiErr?.message);
           if (!cancelled) setError(apiErr?.message ?? 'Failed to create payment session');
@@ -133,6 +141,15 @@ function PaymentSetupInner() {
         if (!cancelled) {
           setClientSecret(cs);
           setReady(true);
+          setApplePayEnabled(applePayFlag);
+          // Only probe device support when the flag is on (avoids a needless
+          // native call on every payment setup).
+          if (applePayFlag) {
+            try {
+              const supported = await isPlatformPaySupported();
+              if (!cancelled) setPlatformPaySupported(supported);
+            } catch { /* leave unsupported → button hidden, sheet still offers Apple Pay */ }
+          }
         }
       } catch (e: any) {
         console.error('[payment-setup] unexpected error:', e?.message);
@@ -142,6 +159,42 @@ function PaymentSetupInner() {
     setup();
     return () => { cancelled = true; };
   }, []);
+
+  async function handleApplePay() {
+    if (!clientSecret || applePayLoading || loading || sheetLoading) return;
+    setApplePayLoading(true);
+    setError(null);
+    try {
+      // Launches the native Apple Pay sheet to confirm the SetupIntent (saves an
+      // Apple Pay-backed method for future off-session deposit holds).
+      const { error: apErr } = await confirmPlatformPaySetupIntent(clientSecret, {
+        applePay: {
+          cartItems: [
+            { label: 'HMU ATL', amount: '0.00', paymentType: PlatformPay.PaymentType.Immediate },
+          ],
+          merchantCountryCode: 'US',
+          currencyCode: 'USD',
+        },
+      });
+      if (apErr) {
+        // User dismissed the Apple Pay sheet — not an error worth surfacing.
+        if (apErr.code !== 'Canceled') setError(apErr.message ?? 'Apple Pay setup failed');
+        setApplePayLoading(false);
+        return;
+      }
+      // Persist the payment method — same path as the sheet flow.
+      const t = await getToken();
+      await apiClient('/rider/payment-methods/complete-setup', t, {
+        method: 'POST',
+        body: JSON.stringify({ setupIntentClientSecret: clientSecret }),
+      });
+      setSuccess(true);
+      setTimeout(() => router.back(), 1200);
+    } catch (e: any) {
+      setError(e?.message ?? 'Something went wrong. Try again.');
+      setApplePayLoading(false);
+    }
+  }
 
   async function handlePresent() {
     if (!ready || loading || sheetLoading) return;
@@ -224,6 +277,29 @@ function PaymentSetupInner() {
               </Animated.View>
             )}
 
+            {applePayEnabled && platformPaySupported && ready && (
+              <Animated.View entering={FadeInUp.delay(200).duration(400)} style={s.applePayWrap}>
+                {applePayLoading ? (
+                  <View style={[s.applePayButton, s.applePayLoading]}>
+                    <ActivityIndicator color={colors.textPrimary} />
+                  </View>
+                ) : (
+                  <PlatformPayButton
+                    type={PlatformPay.ButtonType.SetUp}
+                    appearance={PlatformPay.ButtonStyle.White}
+                    onPress={handleApplePay}
+                    disabled={loading || sheetLoading}
+                    style={s.applePayButton}
+                  />
+                )}
+                <View style={s.divider}>
+                  <View style={s.dividerLine} />
+                  <Text style={s.dividerText}>OR</Text>
+                  <View style={s.dividerLine} />
+                </View>
+              </Animated.View>
+            )}
+
             <Animated.View entering={FadeInUp.delay(250).duration(400)}>
               <TouchableOpacity
                 style={[s.saveBtn, (!ready || loading || sheetLoading) && s.saveBtnDisabled]}
@@ -287,6 +363,15 @@ const s = StyleSheet.create({
     padding: spacing.md, borderWidth: 1, borderColor: colors.redBorder,
   },
   errorText: { flex: 1, fontFamily: fonts.body, fontSize: 13, color: colors.red },
+  applePayWrap: { gap: spacing.lg },
+  applePayButton: { height: 50, width: '100%', borderRadius: radius.pill },
+  applePayLoading: {
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.borderStrong,
+  },
+  divider: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
+  dividerText: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 1 },
   saveBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: spacing.sm, backgroundColor: colors.green,
