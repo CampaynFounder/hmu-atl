@@ -9,7 +9,7 @@
 // In production the Worker injects the secret; locally an admin can curl it.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { expireStaleTargets } from '@/lib/blast/lifecycle';
+import { expireStaleTargets, expireStaleBlasts } from '@/lib/blast/lifecycle';
 import { broadcastBlastEvent } from '@/lib/blast/notify';
 
 export const runtime = 'nodejs';
@@ -39,9 +39,16 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
   }
 
+  // Sweep whole blasts that timed out with no match — flip them to 'expired'
+  // and notify the rider app-wide (blast_no_match) so they learn it died even
+  // if they left the offer board. The offer board/deck already show the expired
+  // state off their own client clock, so no blast:{id} broadcast is needed.
+  const expiredBlasts = await expireStaleBlasts({ limit: 200 });
+
   return NextResponse.json({
     expiredCount: expired.length,
     blastsTouched: blastIdsTouched.size,
+    expiredBlasts: expiredBlasts.length,
   });
 }
 
