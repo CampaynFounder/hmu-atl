@@ -148,7 +148,7 @@ export default function RiderActiveScreen() {
   const [chatOpen, setChatOpen] = useState(false);
   const chat = useRideMessages(rideId, getToken, ride?.driverId ?? null);
   const safety = useRideSafety(rideId, getToken, 'rider');
-  const { registerRideRefresh } = useNotifications();
+  const { registerRideRefresh, refreshActiveRide } = useNotifications();
 
   const [showMenu, setShowMenu] = useState(false);
   const menuSlide = useRef(new Animated.Value(400)).current;
@@ -228,6 +228,19 @@ export default function RiderActiveScreen() {
       void fetchAddOns();
     });
   }, [registerRideRefresh, fetchRide, fetchAddOns]);
+
+  // Terminal-status clear (mirrors the driver active screen). This screen mutates
+  // only its LOCAL `ride`, not the context `activeRide` that drives the app-wide
+  // "YOUR RIDE IS LIVE" bar — and the party who ends/cancels doesn't reliably get
+  // a notify for their OWN terminal event. So on any terminal status, re-pull
+  // /rides/active (which excludes ended/completed/cancelled) to clear the bar,
+  // instead of letting it hang until the next reconciliation. Matters most for a
+  // rider-initiated cancel, which routes home off the local ride channel.
+  useEffect(() => {
+    if (ride?.status === 'ended' || ride?.status === 'completed' || ride?.status === 'cancelled') {
+      refreshActiveRide();
+    }
+  }, [ride?.status, refreshActiveRide]);
 
   // Live updates
   useAbly({
