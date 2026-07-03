@@ -46,7 +46,7 @@ interface MarketArea { slug: string; name: string; cardinal: string }
 interface PayoutStatus {
   setupComplete: boolean; stripeComplete: boolean; nextStep: string;
   stripeAccount: { last4: string | null; bank: string | null } | null;
-  payoutMode?: 'embedded' | 'native';
+  payoutMode?: 'browser' | 'embedded' | 'native';
 }
 
 const DEFAULTS: DriverExpressConfig = {
@@ -421,13 +421,12 @@ export default function DriverOnboarding() {
   }
 
   async function openPayout() {
-    const mode = payoutStatus?.payoutMode ?? 'embedded';
-    // Option B: fully native KYC forms. Option A (default): embedded WebView.
-    // Both celebrate on completion and return here; the payout-phase focus
-    // effect reloads status so this step flips to done.
+    const mode = payoutStatus?.payoutMode ?? 'browser';
+    // native forms / embedded WebView both celebrate on completion and return
+    // here; the payout-phase focus effect reloads status so this step flips to done.
     if (mode === 'native') { router.push('/(driver)/payout-native' as never); return; }
     if (mode === 'embedded') { router.push('/(driver)/payout-embedded' as never); return; }
-    // Safety fallback only (unknown mode) — hosted browser link.
+    // 'browser' (default): in-app Safari sheet over Stripe hosted onboarding.
     setOpeningPayout(true);
     try {
       const t = await getToken();
