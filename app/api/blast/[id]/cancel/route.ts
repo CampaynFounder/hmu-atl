@@ -22,7 +22,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { stripe } from '@/lib/stripe/connect';
-import { notifyUser } from '@/lib/ably/server';
+import { notifyUser, publishRideUpdate } from '@/lib/ably/server';
 import {
   writeBlastEvent,
   releaseScheduleBlocks,
@@ -172,6 +172,27 @@ export async function POST(
   // selected-but-not-yet-pulled-up window.)
   if (ride) {
     await sql`UPDATE rides SET status = 'cancelled', cancel_resolution = 'rider_pre_otw' WHERE id = ${ride.id}`.catch(() => {});
+    // A ride row exists (the rider had /select-ed a driver, who then routed to
+    // /ride/[id]) but never pulled up. Publish the canonical ride-cancel signals
+    // so that driver's active screen tears down in realtime, mirroring
+    // cascadeRideCancel — without this it hangs until a manual refresh (the
+    // blast_cancelled notify they also receive is feed-only; the ride screen
+    // consumes ride:{id} status_change / the ride_update rail, not blast events).
+    const cancelMessage = 'The rider cancelled this ride.';
+    await Promise.allSettled([
+      publishRideUpdate(ride.id, 'status_change', {
+        status: 'cancelled',
+        message: cancelMessage,
+        cancelledBy: 'rider',
+        resolution: 'rider_pre_otw',
+      }),
+      ride.driver_id
+        ? notifyUser(ride.driver_id, 'ride_update', { rideId: ride.id, status: 'cancelled', message: cancelMessage })
+        : Promise.resolve(),
+      ride.rider_id
+        ? notifyUser(ride.rider_id, 'ride_update', { rideId: ride.id, status: 'cancelled', message: cancelMessage })
+        : Promise.resolve(),
+    ]);
   }
 
   // Release the deposit hold. Manual-capture PI → cancel = release.
