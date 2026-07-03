@@ -64,66 +64,58 @@ export default function BlastBoard() {
     getToken().then(t => setToken(t ?? null));
   }, [getToken]);
 
-  // Hydrate offers on mount/re-entry. The board otherwise only catches live
-  // Ably HMUs (with a 2-min rewind), so returning to an active blast from the
-  // My Requests surface would show an empty board. Seed from drivers who've
-  // already HMU'd (hmuAt set); live events still append/update by targetId.
+  // Fetch drivers who've HMU'd this blast (full display info included). Used to
+  // hydrate on mount/re-entry AND to refresh when a live target_hmu/target_counter
+  // event arrives — those events carry only ids (targetId/driverId/counterPrice),
+  // NOT the driver's name/handle, so we re-pull the authoritative list.
+  const refetchOffers = useCallback(async () => {
+    if (!blastId || !token) return;
+    try {
+      const { targets } = await apiClient<{ targets: Array<Record<string, any>> }>(`/blast/${blastId}/targets`, token);
+      const hmud = (targets ?? [])
+        .filter((t) => t.hmuAt)
+        .map<DriverOffer>((t) => ({
+          targetId: String(t.targetId ?? ''),
+          driverId: String(t.driverId ?? ''),
+          handle: String(t.handle ?? ''),
+          displayName: (t.displayName ?? null) as string | null,
+          counterPrice: t.counterPrice != null ? Number(t.counterPrice) : null,
+          etaMinutes: null,
+          receivedAt: t.hmuAt ? new Date(t.hmuAt).getTime() : Date.now(),
+        }));
+      setOffers((prev) => {
+        const byId = new Map(prev.map((o) => [o.targetId, o]));
+        for (const o of hmud) byId.set(o.targetId, o); // authoritative upsert
+        return Array.from(byId.values()).sort((a, b) => b.receivedAt - a.receivedAt);
+      });
+    } catch { /* keep prior offers; the next event/mount re-pulls */ }
+  }, [blastId, token]);
+
+  // Hydrate once on mount/re-entry (the board otherwise starts empty when a
+  // rider returns to an active blast from My Requests).
   const hydratedRef = useRef(false);
   useEffect(() => {
     if (!blastId || !token || hydratedRef.current) return;
     hydratedRef.current = true;
-    apiClient<{ targets: Array<Record<string, any>> }>(`/blast/${blastId}/targets`, token)
-      .then(({ targets }) => {
-        const hmud = (targets ?? [])
-          .filter((t) => t.hmuAt)
-          .map<DriverOffer>((t) => ({
-            targetId: String(t.targetId ?? ''),
-            driverId: String(t.driverId ?? ''),
-            handle: String(t.handle ?? ''),
-            displayName: (t.displayName ?? null) as string | null,
-            counterPrice: t.counterPrice != null ? Number(t.counterPrice) : null,
-            etaMinutes: null,
-            receivedAt: t.hmuAt ? new Date(t.hmuAt).getTime() : Date.now(),
-          }));
-        if (!hmud.length) return;
-        setOffers((prev) => {
-          const byId = new Map(prev.map((o) => [o.targetId, o]));
-          for (const o of hmud) if (!byId.has(o.targetId)) byId.set(o.targetId, o);
-          return Array.from(byId.values()).sort((a, b) => b.receivedAt - a.receivedAt);
-        });
-      })
-      .catch(() => { /* board still works via live events */ });
-  }, [blastId, token]);
+    void refetchOffers();
+  }, [blastId, token, refetchOffers]);
 
   const handleMessage = useCallback((msg: AblyMessage) => {
-    const data = msg.data as Record<string, unknown>;
-
-    // Driver HMU / counter offer
-    if (msg.name === 'driver_hmu' || msg.name === 'hmu' || msg.name === 'counter_offer') {
-      const offer: DriverOffer = {
-        targetId: String(data.targetId ?? data.target_id ?? ''),
-        driverId: String(data.driverId ?? data.driver_id ?? ''),
-        handle: String(data.handle ?? ''),
-        displayName: (data.displayName ?? data.display_name ?? null) as string | null,
-        counterPrice: data.counterPrice != null ? Number(data.counterPrice) : data.counter_price != null ? Number(data.counter_price) : null,
-        etaMinutes: data.etaMinutes != null ? Number(data.etaMinutes) : data.eta_minutes != null ? Number(data.eta_minutes) : null,
-        receivedAt: Date.now(),
-      };
-      if (offer.targetId || offer.handle) {
-        setOffers(prev => {
-          const exists = prev.find(o => o.targetId === offer.targetId);
-          if (exists) return prev.map(o => o.targetId === offer.targetId ? offer : o);
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          return [offer, ...prev];
-        });
-      }
+    // A driver HMU'd or countered. The server emits target_hmu / target_counter
+    // on blast:{id} with ids only, so re-pull the offers list to get the driver's
+    // name/handle/price. (Previously this listened for driver_hmu/hmu/counter_offer
+    // — names the server never emits — so offers never appeared live.)
+    if (msg.name === 'target_hmu' || msg.name === 'target_counter') {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void refetchOffers();
     }
-
-    // Blast matched (someone already selected)
-    if (msg.name === 'blast_matched' || msg.name === 'matched') {
+    // A driver was locked in (this rider's pick or a race). The server emits
+    // match_locked (NOT blast_matched/matched) — without this rename the board
+    // never auto-transitioned into the ride after a match.
+    if (msg.name === 'match_locked') {
       setMatched(true);
     }
-  }, []);
+  }, [refetchOffers]);
 
   useAbly({
     channelName: blastId ? `blast:${blastId}` : null,
@@ -140,7 +132,7 @@ export default function BlastBoard() {
       try {
         const t = await getToken();
         const d = await apiClient<{ rideId?: string }>('/rides/active', t);
-        router.replace(d.rideId ? `/(rider)/ride/active?rideId=${d.rideId}` as never : '/(rider)/home');
+        router.replace(d.rideId ? `/(rider)/ride/active?rideId=${d.rideId}&seedStatus=matched` as never : '/(rider)/home');
       } catch { router.replace('/(rider)/home'); }
     }, 1400);
     return () => clearTimeout(id);

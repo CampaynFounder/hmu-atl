@@ -259,7 +259,7 @@ export default function BlastDeck() {
       try {
         const t = await getToken();
         const d = await apiClient<{ rideId?: string }>('/rides/active', t);
-        router.replace(d.rideId ? `/(rider)/ride/active?rideId=${d.rideId}` as never : '/(rider)/home');
+        router.replace(d.rideId ? `/(rider)/ride/active?rideId=${d.rideId}&seedStatus=matched` as never : '/(rider)/home');
       } catch { router.replace('/(rider)/home'); }
     }, 1600);
     return () => clearTimeout(id);

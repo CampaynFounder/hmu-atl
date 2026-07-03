@@ -439,6 +439,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
       case 'blast_invite': {
         setUnreadRequestCount((c) => c + 1);
+        // Refresh the feed so a driver already on it sees the blast card appear
+        // even if its own channel briefly drops the event (parity with
+        // direct_booking_request).
+        triggerFeedRefresh();
         enqueue({
           id: `blast-${Date.now()}`,
           type: 'new_request',
