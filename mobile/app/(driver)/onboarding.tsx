@@ -3,7 +3,7 @@
 // Saves via POST /api/users/onboarding.
 // Payout step: POST /api/driver/stripe/onboarding-link → WebBrowser (Stripe Express).
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Switch,
@@ -11,7 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
 import { useStableToken } from '@/hooks/use-stable-token';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 import * as WebBrowser from 'expo-web-browser';
@@ -46,6 +46,7 @@ interface MarketArea { slug: string; name: string; cardinal: string }
 interface PayoutStatus {
   setupComplete: boolean; stripeComplete: boolean; nextStep: string;
   stripeAccount: { last4: string | null; bank: string | null } | null;
+  payoutMode?: 'embedded' | 'native';
 }
 
 const DEFAULTS: DriverExpressConfig = {
@@ -420,6 +421,15 @@ export default function DriverOnboarding() {
   }
 
   async function openPayout() {
+    // Default: in-app embedded onboarding (no external browser). The screen
+    // celebrates on completion and returns here; the payout-phase focus effect
+    // reloads status so this step flips to done.
+    if ((payoutStatus?.payoutMode ?? 'embedded') === 'embedded') {
+      router.push('/(driver)/payout-embedded' as never);
+      return;
+    }
+    // payoutMode === 'native' (Option B) — native flow not in this build yet;
+    // fall back to the hosted browser link.
     setOpeningPayout(true);
     try {
       const t = await getToken();
@@ -432,6 +442,15 @@ export default function DriverOnboarding() {
       setOpeningPayout(false);
     }
   }
+
+  // Reload payout status when the payout phase regains focus (e.g. returning
+  // from the in-app embedded onboarding screen) so this step flips to done.
+  useFocusEffect(
+    useCallback(() => {
+      if (phase === 'payout') void loadPayoutStatus();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [phase]),
+  );
 
   // ── Loading ───────────────────────────────────────────────────────────────
   if (!configLoaded) {

@@ -177,6 +177,7 @@ jobs:
           node scripts/apply-migration.mjs lib/db/migrations/2026-06-02-payment-method-last4-nullable.sql
           node scripts/apply-migration.mjs lib/db/migrations/2026-06-15-booking-type-toggles.sql
           node scripts/apply-migration.mjs lib/db/migrations/rider-apple-pay-button.sql
+          node scripts/apply-migration.mjs lib/db/migrations/driver-payout-native-forms.sql
 
       - name: Post-deploy health check
         run: |

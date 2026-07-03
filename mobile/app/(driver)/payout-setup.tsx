@@ -11,14 +11,14 @@
 // Rider payment → platform (destination charge) → driver Connect account.
 // application_fee_amount captured at Start Ride per captureRiderPayment() in lib/payments/escrow.ts.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
 import { useStableToken } from '@/hooks/use-stable-token';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
@@ -38,6 +38,10 @@ interface PayoutStatus {
   } | null;
   setupComplete: boolean;
   nextStep: 'stripe_onboarding' | 'add_payout_method' | 'complete';
+  // 'embedded' (default) → in-app WebView onboarding (no browser bounce).
+  // 'native' → Option B native forms (feature flag ON); until that flow ships
+  // in the app it falls back to the hosted browser link so setup still works.
+  payoutMode?: 'embedded' | 'native';
 }
 
 export default function PayoutSetup() {
@@ -59,9 +63,19 @@ export default function PayoutSetup() {
     finally { setLoading(false); }
   }, [getToken]);
 
-  useEffect(() => { void fetchStatus(); }, [fetchStatus]);
+  // Refetch on focus so returning from the in-app embedded flow (or the browser)
+  // reflects the new payout status.
+  useFocusEffect(useCallback(() => { void fetchStatus(); }, [fetchStatus]));
 
   async function openOnboarding() {
+    // Default path: in-app embedded Stripe onboarding — no external browser.
+    if ((status?.payoutMode ?? 'embedded') === 'embedded') {
+      router.push('/(driver)/payout-embedded' as never);
+      return;
+    }
+
+    // payoutMode === 'native' (Option B) — the native forms flow isn't in this
+    // build yet, so fall back to the hosted browser link. (Replaced in Phase 2.)
     setOpening(true);
     try {
       const t = await getToken();

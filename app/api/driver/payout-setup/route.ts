@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { checkOnboardingStatus } from '@/lib/stripe/connect';
+import { isFeatureEnabled } from '@/lib/feature-flags';
 
 export async function GET() {
   const { userId: clerkId } = await auth();
@@ -59,6 +60,14 @@ export async function GET() {
     nextStep = 'complete';
   }
 
+  // Which onboarding UX the mobile app should render:
+  //   'embedded' (default) — Stripe embedded Connect onboarding in an in-app
+  //                          WebView (no external browser). Works on Express.
+  //   'native'             — Option B: fully native KYC forms (Custom accounts).
+  // Flip via /admin/feature-flags → driver_payout_native_forms. OFF = embedded.
+  const nativeForms = await isFeatureEnabled('driver_payout_native_forms', { userId });
+  const payoutMode: 'embedded' | 'native' = nativeForms ? 'native' : 'embedded';
+
   return NextResponse.json({
     stripeAccountId: profile.stripe_account_id || null,
     stripeComplete: !!(profile.stripe_onboarding_complete || stripeStatus?.complete),
@@ -71,5 +80,6 @@ export async function GET() {
     payoutMethod: profile.payout_method,
     setupComplete: !!(profile.payout_setup_complete || (stripeStatus?.complete && stripeStatus?.hasExternalAccount)),
     nextStep,
+    payoutMode,
   });
 }
