@@ -179,6 +179,16 @@ export default function DriverFeed() {
           setRequests((prev) => prev.filter((r) => r.id !== blastId));
         }
       }
+      // Rider matched with a DIFFERENT driver on this blast — drop the stale
+      // card immediately (server stamped rejected_at; without this it lingers
+      // until the ~20s poll). Mirrors blast_expired.
+      if (msg.name === 'blast_taken') {
+        const d = msg.data as Record<string, unknown>;
+        const blastId = d?.blastId as string | undefined;
+        if (blastId) {
+          setRequests((prev) => prev.filter((r) => r.id !== blastId));
+        }
+      }
       // Rider cancelled a matched ride — show banner then refresh
       if (msg.name === 'ride_update') {
         const d = msg.data as Record<string, unknown>;

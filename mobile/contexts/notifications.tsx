@@ -481,6 +481,26 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         break;
       }
 
+      case 'blast_taken': {
+        // A rider matched with a DIFFERENT driver on this blast. Clear its
+        // unread badge + refresh the feed so the stale card drops app-wide, not
+        // just when the driver happens to be on the feed. Give closure with a
+        // banner unless they're already watching the feed (where the card just
+        // vanishes) — same suppression as direct_booking_request.
+        setUnreadRequestCount((c) => Math.max(0, c - 1));
+        triggerFeedRefresh();
+        if (onFeedRef.current) break;
+        enqueue({
+          id: `blast-taken-${Date.now()}`,
+          type: 'ride_status',
+          title: 'BLAST FILLED',
+          body: 'A rider matched with another driver on that one.',
+          route: '/(driver)/feed',
+          timestamp: Date.now(),
+        });
+        break;
+      }
+
       case 'blast_match_won': {
         const matchedRideId = data?.rideId as string | undefined;
         enqueue({
