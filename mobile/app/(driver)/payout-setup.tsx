@@ -68,14 +68,19 @@ export default function PayoutSetup() {
   useFocusEffect(useCallback(() => { void fetchStatus(); }, [fetchStatus]));
 
   async function openOnboarding() {
-    // Default path: in-app embedded Stripe onboarding — no external browser.
-    if ((status?.payoutMode ?? 'embedded') === 'embedded') {
+    const mode = status?.payoutMode ?? 'embedded';
+    // Option B: fully native KYC forms (Custom accounts).
+    if (mode === 'native') {
+      router.push('/(driver)/payout-native' as never);
+      return;
+    }
+    // Option A (default): in-app embedded Stripe onboarding — no external browser.
+    if (mode === 'embedded') {
       router.push('/(driver)/payout-embedded' as never);
       return;
     }
 
-    // payoutMode === 'native' (Option B) — the native forms flow isn't in this
-    // build yet, so fall back to the hosted browser link. (Replaced in Phase 2.)
+    // Safety fallback only (unknown mode) — hosted browser link.
     setOpening(true);
     try {
       const t = await getToken();

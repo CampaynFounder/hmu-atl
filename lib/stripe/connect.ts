@@ -50,6 +50,128 @@ export async function createStripeConnectAccount(driver: {
   return account.id;
 }
 
+// ─── Option B: Custom accounts (fully native KYC, no Stripe-hosted UI) ────────
+// Gated behind the driver_payout_native_forms feature flag. Custom accounts let
+// the platform collect KYC + attach the payout method via the API — but the
+// platform then owns ALL verification/compliance (ToS acceptance, requirements).
+// Requires Stripe approval for Custom accounts before enabling in production.
+
+export async function createCustomConnectAccount(driver: {
+  email: string;
+  firstName: string;
+  lastName: string;
+  ip: string;        // required for tos_acceptance on Custom accounts
+  phone?: string;
+}): Promise<string> {
+  if (isMock()) return 'acct_customock_' + Date.now();
+
+  const account = await getStripe().accounts.create({
+    type: 'custom',
+    country: 'US',
+    email: driver.email,
+    business_type: 'individual',
+    business_profile: {
+      mcc: '4121', // Taxicabs and Limousines
+      product_description: 'Peer-to-peer ride payouts on HMU ATL',
+    },
+    individual: {
+      first_name: driver.firstName,
+      last_name: driver.lastName,
+      email: driver.email,
+      ...(driver.phone ? { phone: driver.phone } : {}),
+    },
+    capabilities: {
+      card_payments: { requested: true },
+      transfers: { requested: true },
+    },
+    // The driver accepts Stripe's Connected Account Agreement in-app; we record
+    // the acceptance timestamp + their IP as Stripe requires for Custom accounts.
+    tos_acceptance: {
+      date: Math.floor(Date.now() / 1000),
+      ip: driver.ip,
+    },
+    settings: {
+      payouts: { schedule: { interval: 'manual' } },
+    },
+  });
+  return account.id;
+}
+
+export interface AccountRequirements {
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  currentlyDue: string[];
+  eventuallyDue: string[];
+  pastDue: string[];
+  disabledReason: string | null;
+  hasExternalAccount: boolean;
+}
+
+export async function getAccountRequirements(stripeAccountId: string): Promise<AccountRequirements> {
+  if (isMock()) {
+    return {
+      chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true,
+      currentlyDue: [], eventuallyDue: [], pastDue: [], disabledReason: null, hasExternalAccount: true,
+    };
+  }
+  const a = await getStripe().accounts.retrieve(stripeAccountId, { expand: ['external_accounts'] });
+  const req = a.requirements;
+  return {
+    chargesEnabled: !!a.charges_enabled,
+    payoutsEnabled: !!a.payouts_enabled,
+    detailsSubmitted: !!a.details_submitted,
+    currentlyDue: req?.currently_due ?? [],
+    eventuallyDue: req?.eventually_due ?? [],
+    pastDue: req?.past_due ?? [],
+    disabledReason: req?.disabled_reason ?? null,
+    hasExternalAccount: ((a.external_accounts?.data as unknown[])?.length ?? 0) > 0,
+  };
+}
+
+export async function updateCustomAccountIndividual(
+  stripeAccountId: string,
+  individual: {
+    dob?: { day: number; month: number; year: number };
+    ssnLast4?: string;
+    idNumber?: string;   // full SSN — only when Stripe escalates requirements
+    phone?: string;
+    email?: string;
+    firstName?: string;
+    lastName?: string;
+    address?: { line1: string; line2?: string; city: string; state: string; postal_code: string };
+  },
+): Promise<void> {
+  if (isMock()) return;
+  const payload: Stripe.AccountUpdateParams.Individual = {};
+  if (individual.firstName) payload.first_name = individual.firstName;
+  if (individual.lastName) payload.last_name = individual.lastName;
+  if (individual.dob) payload.dob = individual.dob;
+  if (individual.ssnLast4) payload.ssn_last_4 = individual.ssnLast4;
+  if (individual.idNumber) payload.id_number = individual.idNumber;
+  if (individual.phone) payload.phone = individual.phone;
+  if (individual.email) payload.email = individual.email;
+  if (individual.address) payload.address = { country: 'US', ...individual.address };
+  await getStripe().accounts.update(stripeAccountId, { individual: payload });
+}
+
+export async function attachExternalAccount(
+  stripeAccountId: string,
+  token: string,   // a Stripe token: btok_… (bank) or tok_… (debit card), created client-side
+): Promise<{ last4: string | null; type: string; bankName: string | null; instantEligible: boolean }> {
+  if (isMock()) return { last4: '4242', type: 'bank_account', bankName: 'Test Bank', instantEligible: false };
+  const ext = await getStripe().accounts.createExternalAccount(stripeAccountId, {
+    external_account: token,
+    default_for_currency: true,
+  }) as unknown as Record<string, unknown>;
+  return {
+    last4: (ext.last4 as string) ?? null,
+    type: (ext.object as string) ?? 'bank_account',
+    bankName: (ext.bank_name as string) ?? (ext.brand as string) ?? null,
+    instantEligible: (ext.available_payout_methods as string[] | undefined)?.includes('instant') ?? false,
+  };
+}
+
 /**
  * @deprecated VIOLATES IN-APP-ONLY POLICY (CLAUDE.md § STRIPE INTEGRATION).
  * Returns a Stripe-hosted onboarding URL (connect.stripe.com). Per CLAUDE.md:

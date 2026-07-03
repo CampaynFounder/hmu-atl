@@ -65,8 +65,12 @@ export async function GET() {
   //                          WebView (no external browser). Works on Express.
   //   'native'             — Option B: fully native KYC forms (Custom accounts).
   // Flip via /admin/feature-flags → driver_payout_native_forms. OFF = embedded.
+  // Native forms require a Custom account; an existing Express account can't
+  // convert, so native mode is offered ONLY to drivers with no account yet.
+  // Everyone with an existing account stays on embedded even when the flag is ON.
   const nativeForms = await isFeatureEnabled('driver_payout_native_forms', { userId });
-  const payoutMode: 'embedded' | 'native' = nativeForms ? 'native' : 'embedded';
+  const payoutMode: 'embedded' | 'native' =
+    nativeForms && !profile.stripe_account_id ? 'native' : 'embedded';
 
   return NextResponse.json({
     stripeAccountId: profile.stripe_account_id || null,
