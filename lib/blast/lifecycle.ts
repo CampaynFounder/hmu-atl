@@ -405,3 +405,45 @@ export async function expireStaleTargets(opts: {
   await Promise.all(smsJobs);
   return result;
 }
+
+/**
+ * Sweep whole blasts that ran out the clock with no match. `expireStaleTargets`
+ * only dismisses individual per-driver windows; this flips the BLAST itself to
+ * 'expired' and tells the RIDER app-wide (distinct `blast_no_match` event) so a
+ * rider who left the offer board learns their blast died instead of it silently
+ * lingering as 'active'. Atomic UPDATE … RETURNING so each blast notifies once.
+ */
+export async function expireStaleBlasts(opts: {
+  limit?: number;
+} = {}): Promise<Array<{ blastId: string; riderId: string }>> {
+  const limit = opts.limit ?? 200;
+
+  const rows = await sql`
+    UPDATE hmu_posts
+       SET status = 'expired'
+     WHERE id IN (
+       SELECT id FROM hmu_posts
+        WHERE post_type = 'blast'
+          AND status = 'active'
+          AND expires_at IS NOT NULL
+          AND expires_at < NOW()
+        ORDER BY expires_at ASC
+        LIMIT ${limit}
+     )
+     RETURNING id, user_id
+  `;
+
+  const result: Array<{ blastId: string; riderId: string }> = [];
+  // Awaited (not fire-and-forget) — on Cloudflare Workers an unawaited publish
+  // is killed when the cron response returns, so the rider notify would be lost.
+  const notifyJobs: Promise<unknown>[] = [];
+  for (const r of rows) {
+    const row = r as { id: string; user_id: string };
+    result.push({ blastId: row.id, riderId: row.user_id });
+    notifyJobs.push(
+      notifyUser(row.user_id, 'blast_no_match', { blastId: row.id }).catch(() => {}),
+    );
+  }
+  await Promise.all(notifyJobs);
+  return result;
+}

@@ -501,6 +501,21 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         break;
       }
 
+      case 'blast_no_match': {
+        // The RIDER's own blast timed out with no driver. Surface it app-wide so
+        // they can re-blast even if they left the offer board. Only the rider
+        // receives this event (drivers get the driver-facing blast_expired).
+        enqueue({
+          id: `blast-no-match-${Date.now()}`,
+          type: 'cancelled',
+          title: 'NO DRIVER FOUND',
+          body: 'No one grabbed your blast in time. Tap to blast again.',
+          route: '/(rider)/book/blast',
+          timestamp: Date.now(),
+        });
+        break;
+      }
+
       case 'blast_match_won': {
         const matchedRideId = data?.rideId as string | undefined;
         enqueue({

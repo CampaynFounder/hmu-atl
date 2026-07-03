@@ -185,6 +185,20 @@ function DriverCard({
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 
+// Client-clock countdown so the deck can show an expired state (mirrors
+// blast-board). The rider also gets an app-wide blast_no_match banner from the
+// backend sweep if they've left this screen.
+function useCountdown(expiresAt: string) {
+  const [secsLeft, setSecsLeft] = useState(() =>
+    Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)),
+  );
+  useEffect(() => {
+    const id = setInterval(() => setSecsLeft(s => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return { secsLeft };
+}
+
 export default function BlastDeck() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -199,6 +213,8 @@ export default function BlastDeck() {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [hmuSent, setHmuSent] = useState<Set<string>>(new Set()); // targetIds we HMU'd
   const [matched, setMatched] = useState(false);
+  const { secsLeft } = useCountdown(expiresAt ?? '');
+  const expired = secsLeft === 0 && !!expiresAt;
   const [token, setToken] = useState<string | null>(null);
   const selectingRef = useRef(false);
 
@@ -289,6 +305,32 @@ export default function BlastDeck() {
           <Text style={s.matchedTitle}>DRIVER MATCHED</Text>
           <Text style={s.matchedBody}>Taking you to your ride...</Text>
         </Animated.View>
+      </View>
+    );
+  }
+
+  if (expired) {
+    return (
+      <View style={[s.root, { paddingTop: insets.top }]}>
+        <View style={s.header}>
+          <TouchableOpacity onPress={() => router.back()} style={s.backBtn} hitSlop={12}>
+            <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <View style={s.headerCenter}>
+            <Text style={s.headerTitle}>BLAST #{shortcode}</Text>
+          </View>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={s.deckArea}>
+          <View style={s.doneWrap}>
+            <Ionicons name="time-outline" size={48} color={colors.textFaint} />
+            <Text style={s.doneTitle}>BLAST EXPIRED</Text>
+            <Text style={s.doneBody}>No driver grabbed this one in time. Try blasting again.</Text>
+            <TouchableOpacity style={s.homeBtn} onPress={() => router.replace('/(rider)/book/blast' as never)} activeOpacity={0.85}>
+              <Text style={s.homeBtnText}>BLAST AGAIN</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     );
   }
