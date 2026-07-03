@@ -208,6 +208,7 @@ const isPublicRoute = createRouteMatcher([
   '/driver',
   '/driver/express(.*)',
   '/driver/payout-complete(.*)',  // Stripe Connect mobile return bounce — must be public (no Clerk session in the in-app browser)
+  '/driver/payout-setup/embedded-mobile(.*)',  // embedded Connect onboarding in the in-app WebView — auth via injected bearer token, not cookies
   '/r/(.*)',  // rider ad-funnel landing (paid Meta/TikTok ads link target)
   '/rider',
   '/rider/home',

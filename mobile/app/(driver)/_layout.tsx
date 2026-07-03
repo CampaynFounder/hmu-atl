@@ -112,6 +112,10 @@ export default function DriverLayout() {
         options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
+        name="payout-embedded"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
         name="find-riders"
         options={{ href: null, headerShown: false }}
       />
