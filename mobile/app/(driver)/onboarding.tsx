@@ -421,15 +421,13 @@ export default function DriverOnboarding() {
   }
 
   async function openPayout() {
-    // Default: in-app embedded onboarding (no external browser). The screen
-    // celebrates on completion and returns here; the payout-phase focus effect
-    // reloads status so this step flips to done.
-    if ((payoutStatus?.payoutMode ?? 'embedded') === 'embedded') {
-      router.push('/(driver)/payout-embedded' as never);
-      return;
-    }
-    // payoutMode === 'native' (Option B) — native flow not in this build yet;
-    // fall back to the hosted browser link.
+    const mode = payoutStatus?.payoutMode ?? 'embedded';
+    // Option B: fully native KYC forms. Option A (default): embedded WebView.
+    // Both celebrate on completion and return here; the payout-phase focus
+    // effect reloads status so this step flips to done.
+    if (mode === 'native') { router.push('/(driver)/payout-native' as never); return; }
+    if (mode === 'embedded') { router.push('/(driver)/payout-embedded' as never); return; }
+    // Safety fallback only (unknown mode) — hosted browser link.
     setOpeningPayout(true);
     try {
       const t = await getToken();
