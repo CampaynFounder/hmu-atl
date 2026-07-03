@@ -38,10 +38,11 @@ interface PayoutStatus {
   } | null;
   setupComplete: boolean;
   nextStep: 'stripe_onboarding' | 'add_payout_method' | 'complete';
-  // 'embedded' (default) → in-app WebView onboarding (no browser bounce).
-  // 'native' → Option B native forms (feature flag ON); until that flow ships
-  // in the app it falls back to the hosted browser link so setup still works.
-  payoutMode?: 'embedded' | 'native';
+  // Superadmin-selected onboarding UX (/admin/payout-mode):
+  //   'browser'  → in-app Safari sheet (default, reliable)
+  //   'embedded' → in-app WebView embedded ConnectJS
+  //   'native'   → fully native KYC forms
+  payoutMode?: 'browser' | 'embedded' | 'native';
 }
 
 export default function PayoutSetup() {
@@ -68,19 +69,21 @@ export default function PayoutSetup() {
   useFocusEffect(useCallback(() => { void fetchStatus(); }, [fetchStatus]));
 
   async function openOnboarding() {
-    const mode = status?.payoutMode ?? 'embedded';
-    // Option B: fully native KYC forms (Custom accounts).
+    const mode = status?.payoutMode ?? 'browser';
+    // Fully native KYC forms (Custom accounts).
     if (mode === 'native') {
       router.push('/(driver)/payout-native' as never);
       return;
     }
-    // Option A (default): in-app embedded Stripe onboarding — no external browser.
+    // Embedded ConnectJS in an in-app WebView.
     if (mode === 'embedded') {
       router.push('/(driver)/payout-embedded' as never);
       return;
     }
 
-    // Safety fallback only (unknown mode) — hosted browser link.
+    // 'browser' (default): in-app Safari sheet over Stripe hosted onboarding —
+    // reliable everywhere (shares Safari cookies), a system sheet not a full
+    // browser switch.
     setOpening(true);
     try {
       const t = await getToken();

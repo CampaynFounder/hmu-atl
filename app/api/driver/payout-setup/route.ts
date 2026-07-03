@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { checkOnboardingStatus } from '@/lib/stripe/connect';
-import { isFeatureEnabled } from '@/lib/feature-flags';
+import { getPayoutMode } from '@/lib/payments/payout-mode';
 
 export async function GET() {
   const { userId: clerkId } = await auth();
@@ -60,17 +60,18 @@ export async function GET() {
     nextStep = 'complete';
   }
 
-  // Which onboarding UX the mobile app should render:
-  //   'embedded' (default) — Stripe embedded Connect onboarding in an in-app
-  //                          WebView (no external browser). Works on Express.
-  //   'native'             — Option B: fully native KYC forms (Custom accounts).
-  // Flip via /admin/feature-flags → driver_payout_native_forms. OFF = embedded.
-  // Native forms require a Custom account; an existing Express account can't
-  // convert, so native mode is offered ONLY to drivers with no account yet.
-  // Everyone with an existing account stays on embedded even when the flag is ON.
-  const nativeForms = await isFeatureEnabled('driver_payout_native_forms', { userId });
-  const payoutMode: 'embedded' | 'native' =
-    nativeForms && !profile.stripe_account_id ? 'native' : 'embedded';
+  // Which onboarding UX the mobile app should render — superadmin-selected at
+  // /admin/payout-mode ('browser' | 'embedded' | 'native'), resolved at runtime
+  // so each can be tested on-device without a rebuild:
+  //   'browser'  — in-app Safari sheet over Stripe hosted onboarding (default).
+  //   'embedded' — Stripe embedded ConnectJS in an in-app WebView.
+  //   'native'   — fully native KYC forms (Custom accounts).
+  // Native requires a Custom account; an existing Express account can't convert,
+  // so a driver who already has an account falls back to 'browser' even when the
+  // selected mode is 'native'.
+  const selectedMode = await getPayoutMode();
+  const payoutMode: 'browser' | 'embedded' | 'native' =
+    selectedMode === 'native' && profile.stripe_account_id ? 'browser' : selectedMode;
 
   return NextResponse.json({
     stripeAccountId: profile.stripe_account_id || null,

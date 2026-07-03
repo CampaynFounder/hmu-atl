@@ -6,7 +6,7 @@
 
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
-import { isFeatureEnabled } from '@/lib/feature-flags';
+import { getPayoutMode } from '@/lib/payments/payout-mode';
 
 export type NativePayoutDriver = {
   ok: true;
@@ -37,8 +37,10 @@ export async function requireNativePayoutDriver(): Promise<NativePayoutDriver | 
     first_name: string; last_name: string; email: string;
   };
 
-  const enabled = await isFeatureEnabled('driver_payout_native_forms', { userId: r.user_id });
-  if (!enabled) return { ok: false, status: 403, error: 'NATIVE_PAYOUT_DISABLED' };
+  // Native (Custom-account) endpoints are inert unless the superadmin has
+  // selected the 'native' payout mode — prevents accidental Custom account creation.
+  const mode = await getPayoutMode();
+  if (mode !== 'native') return { ok: false, status: 403, error: 'NATIVE_PAYOUT_DISABLED' };
 
   return {
     ok: true,
