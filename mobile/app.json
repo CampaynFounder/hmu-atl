@@ -2,7 +2,7 @@
   "expo": {
     "name": "HMU ATL",
     "slug": "hmu-atl",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "runtimeVersion": {
       "policy": "appVersion"
     },
