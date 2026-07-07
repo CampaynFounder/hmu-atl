@@ -120,6 +120,10 @@ export default function DriverLayout() {
         options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
+        name="delete-account"
+        options={{ href: null, headerShown: false, tabBarStyle: { display: 'none' } }}
+      />
+      <Tabs.Screen
         name="find-riders"
         options={{ href: null, headerShown: false }}
       />

@@ -58,6 +58,12 @@ export async function requireAccountStatus(allowedStatuses: AccountStatus[]) {
       redirect('/pending');
     }
 
+    // A deleted account is gone — send them back to sign-in (they'll create a
+    // fresh account if they sign up again).
+    if (user.account_status === 'deleted') {
+      redirect('/sign-in');
+    }
+
     // Redirect suspended/banned users to status page
     if (user.account_status === 'suspended' || user.account_status === 'banned') {
       redirect('/account-status');

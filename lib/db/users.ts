@@ -167,11 +167,24 @@ export async function updateUser(
   return result[0] as User || null;
 }
 
-// Delete user (called from Clerk webhook on user.deleted)
-export async function deleteUser(clerkId: string): Promise<boolean> {
+// Soft-delete a user by Clerk id (called from the Clerk user.deleted webhook and
+// as a backstop from the self-service delete endpoint). NEVER hard-deletes: the
+// row + all FK children are retained for safety/legal reasons. Idempotent — a
+// row already 'deleted' is left untouched (keeps the original deleted_at/source).
+// Returns true when this call transitioned a live row to 'deleted'.
+export async function softDeleteUser(
+  clerkId: string,
+  source: 'self' | 'admin' | 'clerk' = 'clerk',
+): Promise<boolean> {
   const result = await sql`
-    DELETE FROM users
+    UPDATE users
+    SET account_status  = 'deleted',
+        deleted_at      = COALESCE(deleted_at, NOW()),
+        deletion_source = COALESCE(deletion_source, ${source}),
+        push_token      = NULL,
+        updated_at      = NOW()
     WHERE clerk_id = ${clerkId}
+      AND account_status <> 'deleted'
     RETURNING id
   `;
 

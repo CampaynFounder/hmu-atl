@@ -51,6 +51,7 @@ export async function GET() {
     WHERE p.post_type = 'down_bad'
       AND p.status = 'active'
       AND p.expires_at > NOW()
+      AND u.account_status <> 'deleted'
       AND (
         -- Broadcast posts visible to all opted-in drivers in market
         (p.target_driver_id IS NULL AND p.market_id = ${market.market_id})

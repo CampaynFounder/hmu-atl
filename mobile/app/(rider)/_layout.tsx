@@ -122,6 +122,10 @@ export default function RiderLayout() {
         options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
+        name="delete-account"
+        options={{ href: null, headerShown: false, tabBarStyle: { display: 'none' } }}
+      />
+      <Tabs.Screen
         name="book/direct"
         options={{ href: null, headerShown: false }}
       />

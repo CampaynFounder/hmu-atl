@@ -5,7 +5,7 @@
 import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import { WebhookEvent, clerkClient } from '@clerk/nextjs/server';
-import { createUser, updateUser, deleteUser, getUserByClerkId, resolveDriverHandleToUserId } from '@/lib/db/users';
+import { createUser, updateUser, softDeleteUser, getUserByClerkId, resolveDriverHandleToUserId } from '@/lib/db/users';
 import { sql } from '@/lib/db/client';
 import { notifyAdminSms } from '@/lib/admin/notify';
 import { createActionItem } from '@/lib/admin/action-items';
@@ -334,15 +334,18 @@ export async function POST(req: Request) {
         return new Response('Missing user ID', { status: 400 });
       }
 
-      // Delete user from Neon (cascade handled by DB constraints)
-      const deleted = await deleteUser(id);
+      // SOFT-delete only — retain the row + all FK children (rides, payments,
+      // ratings) for safety/legal reasons. A hard DELETE here would CASCADE and
+      // destroy that history. Idempotent: no-op if already 'deleted' (e.g. the
+      // self-service endpoint already soft-deleted before deleting the Clerk user).
+      const deleted = await softDeleteUser(id, 'clerk');
 
       if (!deleted) {
-        console.warn('[WEBHOOK] user.deleted - User not found in Neon:', id);
+        console.warn('[WEBHOOK] user.deleted - no live Neon row to soft-delete (already deleted or never existed):', id);
       }
 
-      console.log('[WEBHOOK] user.deleted - User removed from Neon:', id);
-      return new Response('User deleted', { status: 200 });
+      console.log('[WEBHOOK] user.deleted - Neon row marked deleted:', id);
+      return new Response('User soft-deleted', { status: 200 });
     } catch (error) {
       console.error('[WEBHOOK] user.deleted error:', error);
       return new Response('Internal server error', { status: 500 });

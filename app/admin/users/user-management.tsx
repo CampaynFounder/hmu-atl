@@ -215,6 +215,7 @@ export function UserManagement() {
               <option value="pending_activation">Pending</option>
               <option value="suspended">Suspended</option>
               <option value="banned">Banned</option>
+              <option value="deleted">Deleted</option>
             </select>
             {typeFilter === 'driver' && (
               <select
@@ -349,6 +350,7 @@ export function UserManagement() {
                             user.accountStatus === 'active' ? 'bg-green-500/20 text-green-400' :
                             user.accountStatus === 'suspended' ? 'bg-red-500/20 text-red-400' :
                             user.accountStatus === 'banned' ? 'bg-red-600/20 text-red-500' :
+                            user.accountStatus === 'deleted' ? 'bg-neutral-700/40 text-neutral-400' :
                             'bg-yellow-500/20 text-yellow-400'
                           }`}>
                             {user.accountStatus}

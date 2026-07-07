@@ -47,7 +47,16 @@ interface UserData {
     paymentExpYear: number | null;
     lifetimeSpend: number;
     lifetimeEarned: number;
+    deletedAt: string | null;
   };
+  relatedAccounts?: {
+    id: string;
+    name: string;
+    profileType: string;
+    accountStatus: string;
+    createdAt: string;
+    deletedAt: string | null;
+  }[];
   rides: {
     id: string;
     status: string;
@@ -252,7 +261,7 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
     );
   }
 
-  const { user, rides, ratings, disputes, activity = [] } = data;
+  const { user, rides, ratings, disputes, activity = [], relatedAccounts = [] } = data;
 
   const shareLinkDisplay = user.handle ? `atl.hmucashride.com/d/${user.handle}` : '';
   const shareLinkFull = user.handle ? `https://atl.hmucashride.com/d/${user.handle}` : '';
@@ -356,9 +365,12 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${
               user.accountStatus === 'active' ? 'bg-green-500/20 text-green-400' :
               user.accountStatus === 'suspended' ? 'bg-red-500/20 text-red-400' :
+              user.accountStatus === 'deleted' ? 'bg-neutral-700/40 text-neutral-400' :
               'bg-yellow-500/20 text-yellow-400'
             }`}>
               {user.accountStatus}
+              {user.accountStatus === 'deleted' && user.deletedAt
+                ? ` · ${new Date(user.deletedAt).toLocaleDateString()}` : ''}
             </span>
             <span
               title={
@@ -393,6 +405,36 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             </div>
           )}
           <p className="text-xs text-neutral-500 capitalize mt-0.5">{user.profileType}</p>
+          {relatedAccounts.length > 0 && (
+            <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2">
+              <p className="text-[10px] font-semibold text-amber-400 mb-1">
+                LINKED ACCOUNTS · same phone ({relatedAccounts.length})
+              </p>
+              <div className="flex flex-col gap-1">
+                {relatedAccounts.map((r) => (
+                  <button
+                    key={r.id}
+                    onClick={() => window.location.assign(`/admin/users/${r.id}`)}
+                    className="flex items-center gap-2 text-left text-[11px] text-neutral-300 hover:text-white"
+                    title="Open this account"
+                  >
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
+                      r.accountStatus === 'active' ? 'bg-green-500/20 text-green-400' :
+                      r.accountStatus === 'deleted' ? 'bg-neutral-700/40 text-neutral-400' :
+                      'bg-yellow-500/20 text-yellow-400'
+                    }`}>
+                      {r.accountStatus}
+                    </span>
+                    <span className="truncate">{r.name}</span>
+                    <span className="text-neutral-600 capitalize">{r.profileType}</span>
+                    <span className="text-neutral-600 ml-auto">
+                      {new Date(r.createdAt).toLocaleDateString()}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {user.paymentBrand && user.paymentLast4 && (
             <p className="text-[11px] text-neutral-400 mt-0.5 font-mono">
               <span className="capitalize">{user.paymentBrand}</span> •••• {user.paymentLast4}
