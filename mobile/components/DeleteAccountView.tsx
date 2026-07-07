@@ -136,28 +136,30 @@ export function DeleteAccountView() {
             returnKeyType="done"
           />
 
+          {/* Primary action is the safe one — keep the account. Delete is a
+              de-emphasized destructive text action, gated by type-to-confirm. */}
           <TouchableOpacity
-            style={[s.deleteBtn, !canDelete && s.deleteBtnDisabled]}
+            style={s.keepBtn}
+            onPress={() => router.back()}
+            disabled={submitting}
+            activeOpacity={0.85}
+          >
+            <Text style={s.keepText}>KEEP MY ACCOUNT</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={s.deleteBtn}
             onPress={confirmAndDelete}
             disabled={!canDelete}
-            activeOpacity={0.85}
+            activeOpacity={0.7}
           >
             {submitting ? (
               <ActivityIndicator color={colors.red} />
             ) : (
               <Text style={[s.deleteText, !canDelete && s.deleteTextDisabled]}>
-                DELETE MY ACCOUNT
+                Delete my account
               </Text>
             )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={s.cancelBtn}
-            onPress={() => router.back()}
-            disabled={submitting}
-            activeOpacity={0.7}
-          >
-            <Text style={s.cancelText}>KEEP MY ACCOUNT</Text>
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -215,15 +217,19 @@ const s = StyleSheet.create({
     letterSpacing: 2, marginBottom: spacing.xl,
   },
 
-  deleteBtn: {
+  // Primary, prominent, safe action.
+  keepBtn: {
     paddingVertical: 16, alignItems: 'center',
-    backgroundColor: colors.redDim, borderRadius: radius.cardInner,
-    borderWidth: 1, borderColor: colors.redBorder, marginBottom: spacing.md,
+    backgroundColor: colors.cardAlt, borderRadius: radius.cardInner,
+    borderWidth: 1, borderColor: colors.borderStrong, marginBottom: spacing.md,
   },
-  deleteBtnDisabled: { opacity: 0.4 },
-  deleteText: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.red, letterSpacing: 1 },
-  deleteTextDisabled: { color: colors.textTertiary },
+  keepText: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.textPrimary, letterSpacing: 1 },
 
-  cancelBtn: { paddingVertical: 14, alignItems: 'center' },
-  cancelText: { fontFamily: fonts.mono, fontSize: 12, color: colors.textTertiary, letterSpacing: 1 },
+  // De-emphasized destructive action — a plain text button, no fill.
+  deleteBtn: { paddingVertical: 12, alignItems: 'center' },
+  deleteText: {
+    fontFamily: fonts.body, fontSize: 14, color: colors.red,
+    textDecorationLine: 'underline',
+  },
+  deleteTextDisabled: { color: colors.textFaint, textDecorationLine: 'none' },
 });
