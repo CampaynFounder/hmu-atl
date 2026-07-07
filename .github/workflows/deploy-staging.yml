@@ -164,6 +164,7 @@ jobs:
           node scripts/apply-migration.mjs lib/db/migrations/2026-06-22-one-active-ride-per-rider.sql
           node scripts/apply-migration.mjs lib/db/migrations/rider-apple-pay-button.sql
           node scripts/apply-migration.mjs lib/db/migrations/driver-payout-native-forms.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-07-07-account-soft-delete.sql
 
       - name: Post-deploy health check
         run: |

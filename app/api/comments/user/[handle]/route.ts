@@ -20,6 +20,7 @@ export async function GET(
     SELECT u.id, u.profile_type
     FROM users u
     JOIN driver_profiles dp ON dp.user_id = u.id AND dp.handle = ${handle}
+    WHERE u.account_status <> 'deleted'
     LIMIT 1
   `;
 
@@ -34,6 +35,7 @@ export async function GET(
       SELECT u.id, u.profile_type
       FROM users u
       JOIN rider_profiles rp ON rp.user_id = u.id AND rp.handle = ${handle}
+      WHERE u.account_status <> 'deleted'
       LIMIT 1
     `;
     if (riderRows.length) {

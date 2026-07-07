@@ -10,7 +10,7 @@ import { apiClient } from '@/lib/api';
 import { useUserContext } from '@/contexts/UserContext';
 
 export default function Index() {
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, signOut } = useAuth();
   const getToken = useStableToken();
   const router = useRouter();
   const { setUser } = useUserContext();
@@ -31,6 +31,15 @@ export default function Index() {
 
         if (me.accountStatus === 'pending') {
           router.replace('/(auth)/pending');
+          return;
+        }
+
+        // Account was deleted (e.g. from another device, or the Clerk delete
+        // raced ahead of this session). Sign out and bounce to sign-in — a fresh
+        // sign-up creates a brand-new account.
+        if (me.accountStatus === 'deleted') {
+          await signOut();
+          router.replace('/(auth)/sign-in');
           return;
         }
 

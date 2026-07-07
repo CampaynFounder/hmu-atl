@@ -20,6 +20,7 @@ export async function GET(
     sql`
       SELECT
         u.id, u.clerk_id, u.profile_type, u.account_status, u.tier,
+        u.phone as user_phone, u.deleted_at,
         u.og_status, u.chill_score, u.is_admin, COALESCE(u.completed_rides, 0) as completed_rides,
         (SELECT COUNT(*) FROM disputes WHERE filed_by = u.id) as dispute_count,
         u.created_at, u.updated_at,
@@ -107,6 +108,25 @@ export async function GET(
 
   const u = userRows[0];
 
+  // Correlate old <-> new accounts: other users sharing this phone number.
+  // Account deletion is a soft-delete + fresh re-signup, so a returning person
+  // has multiple rows with the same phone. This is the ONLY link between them
+  // (deliberately no user-facing cross-pollination). NULL phone matches nothing.
+  const corrPhone = (u.user_phone || u.driver_phone || u.rider_phone) as string | null;
+  const relatedRows = corrPhone
+    ? await sql`
+        SELECT u2.id, u2.profile_type, u2.account_status, u2.created_at, u2.deleted_at,
+               COALESCE(dp2.display_name, dp2.first_name, rp2.display_name, rp2.first_name, rp2.handle) AS name
+        FROM users u2
+        LEFT JOIN driver_profiles dp2 ON dp2.user_id = u2.id
+        LEFT JOIN rider_profiles  rp2 ON rp2.user_id = u2.id
+        WHERE u2.id <> ${id}
+          AND u2.phone = ${corrPhone}
+        ORDER BY u2.created_at DESC
+        LIMIT 25
+      `
+    : [];
+
   const isDriver = u.profile_type === 'driver' || u.profile_type === 'both';
   const isRider = u.profile_type === 'rider' || u.profile_type === 'both';
   const defaultPm = (paymentRows[0] as Record<string, unknown> | undefined) ?? null;
@@ -164,7 +184,17 @@ export async function GET(
       paymentExpYear: defaultPm ? (defaultPm.exp_year as number | null) : null,
       lifetimeSpend: Number(totals.lifetime_spend ?? 0),
       lifetimeEarned: Number(totals.lifetime_earned ?? 0),
+      deletedAt: u.deleted_at ?? null,
     },
+    // Old <-> new account correlation (same phone). Empty for most users.
+    relatedAccounts: relatedRows.map((r: Record<string, unknown>) => ({
+      id: r.id,
+      name: (r.name as string) || 'No name',
+      profileType: r.profile_type,
+      accountStatus: r.account_status,
+      createdAt: r.created_at,
+      deletedAt: r.deleted_at ?? null,
+    })),
     activity: activityRows.map((a: Record<string, unknown>) => ({
       event: a.event_name,
       properties: a.properties,

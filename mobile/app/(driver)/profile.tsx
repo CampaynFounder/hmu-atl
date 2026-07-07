@@ -220,6 +220,14 @@ export default function DriverProfileScreen() {
       <TouchableOpacity style={s.signOutBtn} onPress={() => signOut()}>
         <Text style={s.signOutText}>SIGN OUT</Text>
       </TouchableOpacity>
+
+      <TouchableOpacity
+        style={s.deleteRow}
+        onPress={() => router.push('/(driver)/delete-account' as never)}
+        activeOpacity={0.7}
+      >
+        <Text style={s.deleteRowText}>Delete account</Text>
+      </TouchableOpacity>
     </ScrollView>
     </View>
   );
@@ -363,4 +371,7 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.redBorder,
   },
   signOutText: { fontFamily: fonts.mono, fontSize: 12, color: colors.red, letterSpacing: 1 },
+
+  deleteRow: { paddingVertical: 14, alignItems: 'center', marginTop: spacing.xs },
+  deleteRowText: { fontFamily: fonts.body, fontSize: 13, color: colors.textFaint, textDecorationLine: 'underline' },
 });

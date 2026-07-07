@@ -3,7 +3,9 @@
 
 // Enums
 export type ProfileType = 'rider' | 'driver' | 'admin';
-export type AccountStatus = 'pending_activation' | 'active' | 'suspended' | 'banned';
+// 'deleted' is the terminal soft-delete state: no access, invisible to others,
+// row retained for safety. See migrations/2026-07-07-account-soft-delete.sql.
+export type AccountStatus = 'pending_activation' | 'active' | 'suspended' | 'banned' | 'deleted';
 export type Tier = 'free' | 'hmu_first';
 export type PostType = 'rider_seeking_driver' | 'driver_offering_ride' | 'direct_booking';
 export type HmuPostStatus = 'active' | 'matched' | 'expired' | 'cancelled' | 'completed' | 'declined_awaiting_rider';
