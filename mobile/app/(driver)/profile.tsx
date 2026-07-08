@@ -69,7 +69,7 @@ export default function DriverProfileScreen() {
   const { signOut } = useAuth();
   const getToken = useStableToken();
   const router = useRouter();
-  const { isSuperAdmin } = useUserContext();
+  const { isSuperAdmin, accountDeletionEnabled } = useUserContext();
   const [adminVisible, setAdminVisible] = useState(false);
   const [profile, setProfile] = useState<DriverProfile | null>(null);
   const [activation, setActivation] = useState<ActivationProgress | null>(null);
@@ -221,13 +221,15 @@ export default function DriverProfileScreen() {
         <Text style={s.signOutText}>SIGN OUT</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity
-        style={s.deleteRow}
-        onPress={() => router.push('/(driver)/delete-account' as never)}
-        activeOpacity={0.7}
-      >
-        <Text style={s.deleteRowText}>Delete account</Text>
-      </TouchableOpacity>
+      {accountDeletionEnabled && (
+        <TouchableOpacity
+          style={s.deleteRow}
+          onPress={() => router.push('/(driver)/delete-account' as never)}
+          activeOpacity={0.7}
+        >
+          <Text style={s.deleteRowText}>Delete account</Text>
+        </TouchableOpacity>
+      )}
     </ScrollView>
     </View>
   );

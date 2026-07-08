@@ -47,7 +47,7 @@ export default function RiderProfileScreen() {
   const getToken = useStableToken();
   const { user: clerkUser } = useUser();
   const router = useRouter();
-  const { isSuperAdmin } = useUserContext();
+  const { isSuperAdmin, accountDeletionEnabled } = useUserContext();
   const [adminVisible, setAdminVisible] = useState(false);
   const [profile, setProfile] = useState<RiderProfile | null>(null);
   const [rides, setRides] = useState<RideSummary[]>([]);
@@ -285,13 +285,15 @@ export default function RiderProfileScreen() {
           <Text style={s.signOutText}>SIGN OUT</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={s.deleteRow}
-          onPress={() => router.push('/(rider)/delete-account' as never)}
-          activeOpacity={0.7}
-        >
-          <Text style={s.deleteRowText}>Delete account</Text>
-        </TouchableOpacity>
+        {accountDeletionEnabled && (
+          <TouchableOpacity
+            style={s.deleteRow}
+            onPress={() => router.push('/(rider)/delete-account' as never)}
+            activeOpacity={0.7}
+          >
+            <Text style={s.deleteRowText}>Delete account</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </View>
   );

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { resolveMarketBySlug, MARKET_SLUG_HEADER, DEFAULT_MARKET_SLUG } from '@/lib/markets/resolver';
+import { isAccountDeletionEnabled } from '@/lib/features/account-deletion';
 
 // App-store reviewer demo accounts (same list as the demo-signin bypass). When a
 // user's phone matches, /users/me returns isDemo:true so the app can skip the
@@ -42,6 +43,10 @@ export async function PATCH(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const { userId: clerkId } = await auth();
   if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  // Superadmin kill-switch for the account-deletion UI (defaults ON). The mobile
+  // app hides the "Delete account" entry when this is false.
+  const accountDeletionEnabled = await isAccountDeletionEnabled();
 
   // One query joins the user with their driver handle so /d/[handle] can cheaply
   // check "is this page about me?" without a second fetch.
@@ -93,6 +98,7 @@ export async function GET(request: NextRequest) {
       profileType: newUser.profile_type,
       accountStatus: newUser.account_status,
       driverHandle: null,
+      accountDeletionEnabled,
     });
   }
 
@@ -112,5 +118,6 @@ export async function GET(request: NextRequest) {
     driverHandle: user.driver_handle || null,
     isSuperAdmin: !!(user.is_admin && user.is_super),
     isDemo: isDemoPhone(user.phone),
+    accountDeletionEnabled,
   });
 }

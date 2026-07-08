@@ -13,6 +13,7 @@ import { sql } from '@/lib/db/client';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 import { stripe } from '@/lib/stripe/connect';
 import { softDeleteUser } from '@/lib/db/users';
+import { isAccountDeletionEnabled } from '@/lib/features/account-deletion';
 
 export const runtime = 'nodejs';
 
@@ -34,6 +35,12 @@ export async function POST(_request: NextRequest) {
   const limit = await checkRateLimit({ key: `account-delete:${clerkId}`, limit: 5, windowSeconds: 300 });
   if (!limit.ok) {
     return NextResponse.json({ error: 'Too many attempts. Try again in a few minutes.' }, { status: 429 });
+  }
+
+  // Superadmin kill-switch (defaults ON). Defense in depth — the mobile UI is
+  // already hidden when disabled, but block the endpoint too.
+  if (!(await isAccountDeletionEnabled())) {
+    return NextResponse.json({ error: 'Account deletion is currently unavailable.' }, { status: 403 });
   }
 
   const rows = await sql`
