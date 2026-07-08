@@ -85,6 +85,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/partner-keys', label: 'Partner API Keys', icon: '🔌' },
       { href: '/admin/down-bad', label: 'Down Bad Config', icon: '😮‍💨' },
       { href: '/admin/booking-types', label: 'Booking Types', icon: '🎚️' },
+      { href: '/admin/account-deletion', label: 'Account Deletion', icon: '🗑️' },
       { href: '/admin/chart-colors', label: 'Chart Colors', icon: '🎨' },
       { href: '/admin/onboarding-config', label: 'Onboarding Config', icon: '🛂' },
       { href: '/admin/realtime-notifications', label: 'Realtime Banners', icon: '⚡' },

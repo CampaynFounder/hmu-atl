@@ -27,6 +27,7 @@ export default function Index() {
           accountStatus: string;
           isSuperAdmin?: boolean;
           isDemo?: boolean;
+          accountDeletionEnabled?: boolean;
         }>('/users/me', token);
 
         if (me.accountStatus === 'pending') {
@@ -44,7 +45,12 @@ export default function Index() {
         }
 
         // Populate global user context so profile screens can access isSuperAdmin
-        setUser({ profileType: me.profileType, isSuperAdmin: !!me.isSuperAdmin });
+        // + the account-deletion kill-switch (fail open: only an explicit false hides it).
+        setUser({
+          profileType: me.profileType,
+          isSuperAdmin: !!me.isSuperAdmin,
+          accountDeletionEnabled: me.accountDeletionEnabled !== false,
+        });
 
         // Geo-based market check — skipped in dev builds to avoid simulator location issues.
         // Also skipped for app-store reviewer demo accounts, which run from
