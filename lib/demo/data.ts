@@ -22,6 +22,7 @@ export interface DemoMonth {
   cash: number;
   hmuPay: number;
   delivery: number;
+  deliveryJobs: number;
   rides: number;
 }
 
@@ -127,9 +128,10 @@ function monthTotals(cfg: DemoDriverFinancials) {
       cash: acc.cash + (Number(m.cash) || 0),
       hmuPay: acc.hmuPay + (Number(m.hmuPay) || 0),
       delivery: acc.delivery + (Number(m.delivery) || 0),
+      deliveryJobs: acc.deliveryJobs + (Math.round(Number(m.deliveryJobs)) || 0),
       rides: acc.rides + (Math.round(Number(m.rides)) || 0),
     }),
-    { cash: 0, hmuPay: 0, delivery: 0, rides: 0 },
+    { cash: 0, hmuPay: 0, delivery: 0, deliveryJobs: 0, rides: 0 },
   );
 }
 
@@ -160,7 +162,7 @@ export function buildDemoBalance(
     cashEarnings: { rides: t.rides, total: r2(t.cash) },
     digitalEarnings: { rides: t.rides, total: r2(t.hmuPay) },
     noShowEarnings: { rides: 0, total: 0 },
-    deliveryEarnings: { jobs: 0, total: r2(t.delivery) },
+    deliveryEarnings: { jobs: t.deliveryJobs, total: r2(t.delivery) },
     chartPalette: ctx.chartPalette,
     flags: { depositsDetailSheet: ctx.depositsDetailSheet },
   };
