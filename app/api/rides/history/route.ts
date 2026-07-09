@@ -3,17 +3,26 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { bookingMethod } from '@/lib/rides/booking-method';
 import { computeBreakdownsForRides } from '@/lib/payments/breakdown';
+import { isDemoPhone } from '@/lib/demo/phones';
+import { getDemoRiderHistory, buildDemoRiderRides } from '@/lib/demo/data';
 
 export async function GET() {
   try {
     const { userId: clerkId } = await auth();
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const userRows = await sql`SELECT id, profile_type FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    const userRows = await sql`SELECT id, profile_type, phone FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    const user = userRows[0] as { id: string; profile_type: string };
+    const user = userRows[0] as { id: string; profile_type: string; phone: string | null };
 
     const isDriver = user.profile_type === 'driver';
+
+    // Demo reviewer rider: return the admin-entered demo ride history so the
+    // rider's Rides tab isn't empty for a reviewer.
+    if (!isDriver && isDemoPhone(user.phone)) {
+      const demo = await getDemoRiderHistory();
+      if (demo.enabled) return NextResponse.json({ rides: buildDemoRiderRides(demo) });
+    }
 
     const rides = await sql`
       SELECT

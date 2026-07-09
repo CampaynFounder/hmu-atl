@@ -4,6 +4,8 @@ import { sql } from '@/lib/db/client';
 import { isFeatureEnabled } from '@/lib/feature-flags';
 import { resolvePricingStrategy } from '@/lib/payments/strategies';
 import { getChartPalette } from '@/lib/earnings/chart-palette';
+import { isDemoPhone } from '@/lib/demo/phones';
+import { getDemoDriverFinancials, buildDemoBalance } from '@/lib/demo/data';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
@@ -17,7 +19,7 @@ export async function GET() {
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const rows = await sql`
-      SELECT u.id as user_id, dp.stripe_account_id, dp.stripe_instant_eligible, u.tier
+      SELECT u.id as user_id, u.phone, dp.stripe_account_id, dp.stripe_instant_eligible, u.tier
       FROM users u
       JOIN driver_profiles dp ON dp.user_id = u.id
       WHERE u.clerk_id = ${clerkId} LIMIT 1
@@ -26,6 +28,7 @@ export async function GET() {
 
     const driver = rows[0] as {
       user_id: string;
+      phone: string | null;
       stripe_account_id: string | null;
       stripe_instant_eligible: boolean;
       tier: string;
@@ -37,6 +40,20 @@ export async function GET() {
     // still collects the cash remainder per ride; in full-fare modes the whole
     // fare is already collected. Resolver is 60s-cached and never throws.
     const activeMode = (await resolvePricingStrategy(driver.user_id)).modeKey;
+
+    // Demo reviewer account: return admin-entered numbers instead of real
+    // Stripe/DB data (the reviewer account has neither). Keeps the real,
+    // admin-tunable palette + flag so the chart still behaves normally.
+    if (isDemoPhone(driver.phone)) {
+      const demo = await getDemoDriverFinancials();
+      if (demo.enabled) {
+        const [chartPalette, depositsDetailSheet] = await Promise.all([
+          getChartPalette(),
+          isFeatureEnabled('driver_deposits_detail_sheet', { userId: driverUserId }),
+        ]);
+        return NextResponse.json(buildDemoBalance(demo, { chartPalette, activeMode, depositsDetailSheet }));
+      }
+    }
 
     // ── DB earnings (Stripe-INDEPENDENT) ──────────────────────────────────────
     // Computed BEFORE any Stripe call, and returned in EVERY path, so the wallet

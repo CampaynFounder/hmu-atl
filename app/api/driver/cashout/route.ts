@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { isDemoPhone } from '@/lib/demo/phones';
+import { getDemoDriverFinancials } from '@/lib/demo/data';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
@@ -17,7 +19,7 @@ export async function POST(req: NextRequest) {
     const { method, amount: requestedAmount } = body as { method: 'standard' | 'instant'; amount?: number };
 
     const rows = await sql`
-      SELECT dp.stripe_account_id, dp.stripe_instant_eligible, u.tier, u.id as user_id
+      SELECT dp.stripe_account_id, dp.stripe_instant_eligible, u.tier, u.id as user_id, u.phone
       FROM users u
       JOIN driver_profiles dp ON dp.user_id = u.id
       WHERE u.clerk_id = ${clerkId} LIMIT 1
@@ -29,7 +31,28 @@ export async function POST(req: NextRequest) {
       stripe_instant_eligible: boolean;
       tier: string;
       user_id: string;
+      phone: string | null;
     };
+
+    // Demo reviewer account: return a believable success without moving any real
+    // money (there is no Stripe balance behind the admin-entered numbers).
+    if (isDemoPhone(driver.phone)) {
+      const demo = await getDemoDriverFinancials();
+      if (demo.enabled) {
+        const amount = requestedAmount && requestedAmount > 0
+          ? Math.min(requestedAmount, demo.walletAvailable)
+          : demo.walletAvailable;
+        return NextResponse.json({
+          success: true,
+          payoutId: 'po_demo_' + Date.now(),
+          amount: Math.round(amount * 100) / 100,
+          fee: 0,
+          method,
+          arrival: method === 'instant' ? 'Minutes' : '1-2 business days',
+          tier: demo.tier === 'free' ? 'free' : 'hmu_first',
+        });
+      }
+    }
 
     if (!driver.stripe_account_id) {
       return NextResponse.json({ error: 'Payout account not set up' }, { status: 400 });

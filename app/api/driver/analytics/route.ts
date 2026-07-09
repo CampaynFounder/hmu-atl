@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { isDemoPhone } from '@/lib/demo/phones';
+import { getDemoDriverFinancials, buildDemoAnalytics } from '@/lib/demo/data';
 
 // Rides with less than this distance or duration are excluded from rate averages.
 // GPS cut-outs, test rides, and pre-OTW ends generate absurd $/mi values that poison aggregates.
@@ -18,9 +20,17 @@ export async function GET() {
     const { userId: clerkId } = await auth();
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const userRows = await sql`SELECT id FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+    const userRows = await sql`SELECT id, phone FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
     if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     const userId = (userRows[0] as { id: string }).id;
+    const userPhone = (userRows[0] as { phone: string | null }).phone;
+
+    // Demo reviewer account: synthesize the earnings chart from admin-entered
+    // monthly numbers instead of real rides.
+    if (isDemoPhone(userPhone)) {
+      const demo = await getDemoDriverFinancials();
+      if (demo.enabled) return NextResponse.json(buildDemoAnalytics(demo));
+    }
 
     // Per-ride metrics (last 50 completed rides with analytics)
     const rides = await sql`
