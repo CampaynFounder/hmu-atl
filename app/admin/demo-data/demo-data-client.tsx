@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 
 type Tier = 'hmu_first' | 'free';
-interface Month { month: string; cash: number; hmuPay: number; delivery: number; rides: number }
+interface Month { month: string; cash: number; hmuPay: number; delivery: number; deliveryJobs: number; rides: number }
 interface DriverCfg { enabled: boolean; walletAvailable: number; walletPending: number; tier: Tier; months: Month[] }
 interface Ride { date: string; driverName: string; driverHandle: string; pickup: string; dropoff: string; amount: number; rating: string }
 interface RiderCfg { enabled: boolean; rides: Ride[] }
@@ -111,6 +111,7 @@ export default function DemoDataClient() {
               <th style={th}>Cash $</th>
               <th style={th}>HMU Pay $</th>
               <th style={th}>Delivery $</th>
+              <th style={th}># Deliveries</th>
               <th style={th}># Rides</th>
               <th style={th}></th>
             </tr>
@@ -122,6 +123,7 @@ export default function DemoDataClient() {
                 <td style={{ padding: 4 }}><input style={inp} type="number" value={m.cash} onChange={(e) => setMonth(i, { cash: num(e.target.value) })} /></td>
                 <td style={{ padding: 4 }}><input style={inp} type="number" value={m.hmuPay} onChange={(e) => setMonth(i, { hmuPay: num(e.target.value) })} /></td>
                 <td style={{ padding: 4 }}><input style={inp} type="number" value={m.delivery} onChange={(e) => setMonth(i, { delivery: num(e.target.value) })} /></td>
+                <td style={{ padding: 4 }}><input style={inp} type="number" value={m.deliveryJobs ?? 0} onChange={(e) => setMonth(i, { deliveryJobs: Math.round(num(e.target.value)) })} /></td>
                 <td style={{ padding: 4 }}><input style={inp} type="number" value={m.rides} onChange={(e) => setMonth(i, { rides: Math.round(num(e.target.value)) })} /></td>
                 <td style={{ padding: 4 }}>
                   <button onClick={() => setD({ months: driver.months.filter((_, j) => j !== i) })} style={btn('transparent', '#552', '#c88')}>✕</button>
@@ -132,7 +134,7 @@ export default function DemoDataClient() {
         </table>
 
         <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={() => setD({ months: [...driver.months, { month: '', cash: 0, hmuPay: 0, delivery: 0, rides: 0 }] })} style={btn('#1a1a1a', '#333', '#ddd')}>+ Add month</button>
+          <button onClick={() => setD({ months: [...driver.months, { month: '', cash: 0, hmuPay: 0, delivery: 0, deliveryJobs: 0, rides: 0 }] })} style={btn('#1a1a1a', '#333', '#ddd')}>+ Add month</button>
           <button onClick={() => save('driver', driver)} disabled={saving === 'driver'} style={btn('rgba(0,230,118,0.15)', '#00E676', '#00E676')}>
             {saving === 'driver' ? 'Saving…' : 'Save driver data'}
           </button>
