@@ -1,15 +1,23 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { isDemoPhone } from '@/lib/demo/phones';
+import { getDemoDriverFinancials, buildDemoEarnings } from '@/lib/demo/data';
 
 export async function GET() {
   const { userId: clerkId } = await auth();
   if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const userRows = await sql`SELECT id, tier FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
+  const userRows = await sql`SELECT id, tier, phone FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
   if (!userRows.length) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-  const user = userRows[0] as { id: string; tier: string };
+  const user = userRows[0] as { id: string; tier: string; phone: string | null };
+
+  // Demo reviewer account: today/week tiles from admin-entered numbers.
+  if (isDemoPhone(user.phone)) {
+    const demo = await getDemoDriverFinancials();
+    if (demo.enabled) return NextResponse.json(buildDemoEarnings(demo));
+  }
 
   // Get today's earnings (ET timezone)
   const todayRows = await sql`

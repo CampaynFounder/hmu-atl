@@ -123,6 +123,9 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
   const [smsResult, setSmsResult] = useState<string | null>(null);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [copyFlash, setCopyFlash] = useState<string | null>(null);
+  const [handleDraft, setHandleDraft] = useState('');
+  const [handleSaving, setHandleSaving] = useState(false);
+  const [handleMsg, setHandleMsg] = useState<string | null>(null);
   // Hard delete dialog
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteReason, setDeleteReason] = useState<DeleteReason>('wrong_user_type');
@@ -218,6 +221,29 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
   useEffect(() => {
     fetchUser();
   }, [fetchUser]);
+
+  const saveHandle = useCallback(async () => {
+    const h = handleDraft.trim();
+    if (!h || handleSaving) return;
+    setHandleSaving(true);
+    setHandleMsg(null);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handle: h }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d?.error ?? 'Failed to save handle');
+      setHandleMsg('Saved ✓');
+      setHandleDraft('');
+      await fetchUser();
+    } catch (e) {
+      setHandleMsg(e instanceof Error ? e.message : 'Failed to save handle');
+    } finally {
+      setHandleSaving(false);
+    }
+  }, [handleDraft, handleSaving, userId, fetchUser]);
 
   const updateUser = async (updates: Record<string, unknown>) => {
     setSaving(true);
@@ -405,6 +431,24 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             </div>
           )}
           <p className="text-xs text-neutral-500 capitalize mt-0.5">{user.profileType}</p>
+          {/* Handle editor — updates driver_profiles/rider_profiles.handle (globally unique) */}
+          <div className="flex items-center gap-2 mt-1.5">
+            <span className="text-[11px] text-neutral-600">@</span>
+            <input
+              value={handleDraft}
+              onChange={(e) => setHandleDraft(e.target.value)}
+              placeholder={user.handle || 'set handle'}
+              className="bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-xs text-white w-40"
+            />
+            <button
+              onClick={saveHandle}
+              disabled={handleSaving || !handleDraft.trim()}
+              className="text-[11px] px-2 py-1 rounded bg-[#00E676]/15 text-[#00E676] border border-[#00E676]/30 disabled:opacity-40"
+            >
+              {handleSaving ? '…' : 'Save handle'}
+            </button>
+            {handleMsg && <span className="text-[11px] text-neutral-400">{handleMsg}</span>}
+          </div>
           {relatedAccounts.length > 0 && (
             <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2">
               <p className="text-[10px] font-semibold text-amber-400 mb-1">
