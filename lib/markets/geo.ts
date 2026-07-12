@@ -57,12 +57,22 @@ export interface GeoMarketResult {
   displayName: string;
 }
 
+// A market is open to users when it's launched. `soft_launch` counts as live
+// (public-facing); `setup` and `paused` do not.
+const ACTIVE_STATUSES = new Set(['live', 'soft_launch']);
+
 /**
  * Resolve a lat/lng to a market and whether HMU is live there. Maps the point to
- * the nearest market center, then reads `markets.is_active` from Neon.
+ * the nearest market center, then reads its `status` from Neon.
  * - Outside every market center → { isActive: false, marketSlug: null }.
  * - Geo-matched but not seeded in `markets` → treated as active ("not seeded" ≠
- *   "not launched"); only an explicit `is_active = false` blocks users.
+ *   "not launched"); only a non-active status blocks users.
+ *
+ * NOTE: the `markets` table has `status` (setup|soft_launch|live|paused) and
+ * `name` — NOT `is_active`/`display_name`. Selecting the latter threw on every
+ * call, which silently fell through to the `!rows.length` branch below and made
+ * EVERY in-radius point "active" regardless of status. Reading `status` restores
+ * real gating.
  */
 export async function resolveMarketByGeo(lat: number, lng: number): Promise<GeoMarketResult> {
   const bestSlug = nearestMarketSlug(lat, lng);
@@ -71,17 +81,17 @@ export async function resolveMarketByGeo(lat: number, lng: number): Promise<GeoM
   }
 
   const rows = await sql`
-    SELECT slug, display_name, is_active FROM markets WHERE slug = ${bestSlug} LIMIT 1
+    SELECT slug, name, status FROM markets WHERE slug = ${bestSlug} LIMIT 1
   `.catch(() => [] as unknown[]);
 
   if (!rows.length) {
     return { isActive: true, marketSlug: bestSlug, displayName: bestSlug.toUpperCase() };
   }
 
-  const market = rows[0] as { slug: string; display_name: string; is_active: boolean };
+  const market = rows[0] as { slug: string; name: string; status: string };
   return {
-    isActive: market.is_active,
+    isActive: ACTIVE_STATUSES.has(market.status),
     marketSlug: bestSlug,
-    displayName: market.display_name,
+    displayName: market.name,
   };
 }
