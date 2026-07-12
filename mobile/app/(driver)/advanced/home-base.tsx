@@ -14,7 +14,7 @@ import {
   TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@clerk/clerk-expo';
+import { useAuth, useUser } from '@clerk/clerk-expo';
 import { useStableToken } from '@/hooks/use-stable-token';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,11 +23,10 @@ import * as Location from 'expo-location';
 import Mapbox, { MapView, Camera, type MapState } from '@rnmapbox/maps';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+import { getMarketCenterLngLat, getUserMarketSlug } from '@/lib/market-centers';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 const DARK_STYLE = 'mapbox://styles/mapbox/dark-v11';
-// Atlanta city center — the fallback frame until we have a real position.
-const DEFAULT_CENTER: [number, number] = [-84.388, 33.749];
 
 interface HomeAreaData {
   homeLat?: number | null;
@@ -39,9 +38,13 @@ const r5 = (n: number) => Math.round(n * 1e5) / 1e5;
 
 export default function HomeBaseScreen() {
   const getToken = useStableToken();
+  const { user } = useUser();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const cameraRef = useRef<Camera>(null);
+  // Fallback frame until we have a real position — the driver's market center,
+  // not a hardcoded Atlanta.
+  const marketDefaultCenter = getMarketCenterLngLat(getUserMarketSlug(user?.unsafeMetadata));
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -99,7 +102,7 @@ export default function HomeBaseScreen() {
       const perm = await Location.requestForegroundPermissionsAsync();
       if (!perm.granted) {
         if (!silent) Alert.alert('Location off', 'Enable location access to drop your home base on the map.');
-        if (!center) setCenter(DEFAULT_CENTER);
+        if (!center) setCenter(marketDefaultCenter);
         return;
       }
       const loc = (await Location.getLastKnownPositionAsync())
@@ -110,7 +113,7 @@ export default function HomeBaseScreen() {
       setLat(String(r5(next[1])));
       cameraRef.current?.setCamera({ centerCoordinate: next, zoomLevel: 13, animationDuration: silent ? 0 : 600 });
     } catch {
-      if (!center) setCenter(DEFAULT_CENTER);
+      if (!center) setCenter(marketDefaultCenter);
     } finally {
       if (!silent) setLocating(false);
     }
@@ -219,7 +222,7 @@ export default function HomeBaseScreen() {
                 >
                   <Camera
                     ref={cameraRef}
-                    defaultSettings={{ centerCoordinate: center ?? DEFAULT_CENTER, zoomLevel: 13 }}
+                    defaultSettings={{ centerCoordinate: center ?? marketDefaultCenter, zoomLevel: 13 }}
                   />
                 </MapView>
                 {/* Fixed center pin — the map slides beneath it. */}
