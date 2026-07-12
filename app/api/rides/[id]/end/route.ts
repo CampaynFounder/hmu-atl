@@ -10,6 +10,7 @@ import { isWithinProximity } from '@/lib/geo/distance';
 import { calculateAndStoreRideAnalytics } from '@/lib/rides/analytics';
 import { syncBookingFromRide } from '@/lib/schedule/conflicts';
 import { getDriverEnrollment, updateEnrollmentProgress, isDriverInFreeWindow } from '@/lib/db/enrollment-offers';
+import { afterResponse } from '@/lib/runtime/after-response';
 import Stripe from 'stripe';
 
 export async function POST(
@@ -79,8 +80,10 @@ export async function POST(
       };
     }
 
-    // Decrement cash ride counter for cash rides (non-HMU First)
-    if (isCashRide) {
+    // Cash-ride counter + launch-offer tracking are side effects (several
+    // sequential DB writes) that don't affect the response — defer them so a
+    // cash ride's END tap returns immediately instead of waiting on them.
+    if (isCashRide) afterResponse(async () => {
       try {
         const tierRows = await sql`SELECT tier FROM users WHERE id = ${userId} LIMIT 1`;
         const tier = (tierRows[0] as Record<string, unknown>)?.tier as string;
@@ -132,7 +135,7 @@ export async function POST(
       } catch (e) {
         console.error('Launch offer update for cash ride failed:', e);
       }
-    }
+    });
 
     // Geo-verify: is driver near validated dropoff address?
     let endProximityFt: number | null = null;
@@ -188,60 +191,69 @@ export async function POST(
     // Post stays 'matched' during ended/dispute phase
     // Rating endpoint will set it to 'completed'
 
-    await publishRideUpdate(rideId, 'status_change', {
-      status: 'ended',
-      message: 'Ride ended',
-      driverReceives: payoutResult.driverReceives,
-      disputeWindowMinutes: disputeMinutes,
-    }).catch(() => {});
-    await notifyUserWithPush(ride.rider_id as string, 'ride_update', {
-      rideId, status: 'ended', message: 'Ride complete — rate your driver',
-    }, {
-      title: 'Ride complete 🏁',
-      body: 'Hope it was smooth — tap to rate your driver.',
-      data: { type: 'ride_update', rideId, status: 'ended' },
-    }).catch(() => {});
-    publishAdminEvent('ride_status_change', {
-      rideId, status: 'ended', endVerified,
-      driverReceives: payoutResult.driverReceives,
-      platformFee: payoutResult.platformReceives,
-    }).catch(() => {});
+    // ── Everything below is side-effect only — defer off the response path ──
+    // The driver's END tap is "done" the moment the ride row flips to 'ended'
+    // and payoutResult is known. Previously this awaited 2 Ably publishes, a
+    // push send, AND a Stripe balance-retrieve + payout-create (2–3 Stripe
+    // round-trips) before responding — the bulk of the ~5s. All of it runs
+    // after the response via ctx.waitUntil (afterResponse), so none of it
+    // gates the driver. Realtime/push still fire; the auto-payout still runs.
+    afterResponse(async () => {
+      await publishRideUpdate(rideId, 'status_change', {
+        status: 'ended',
+        message: 'Ride ended',
+        driverReceives: payoutResult.driverReceives,
+        disputeWindowMinutes: disputeMinutes,
+      }).catch(() => {});
+      await notifyUserWithPush(ride.rider_id as string, 'ride_update', {
+        rideId, status: 'ended', message: 'Ride complete — rate your driver',
+      }, {
+        title: 'Ride complete 🏁',
+        body: 'Hope it was smooth — tap to rate your driver.',
+        data: { type: 'ride_update', rideId, status: 'ended' },
+      }).catch(() => {});
+      await publishAdminEvent('ride_status_change', {
+        rideId, status: 'ended', endVerified,
+        driverReceives: payoutResult.driverReceives,
+        platformFee: payoutResult.platformReceives,
+      }).catch(() => {});
 
-    // ── Phase 2: Auto-instant payout for HMU First drivers ──
-    if (payoutResult.driverReceives > 0) {
-      try {
-        const tierRows = await sql`
-          SELECT u.tier, dp.stripe_account_id
-          FROM users u
-          JOIN driver_profiles dp ON dp.user_id = u.id
-          WHERE u.id = ${userId} LIMIT 1
-        `;
-        const driverInfo = tierRows[0] as { tier: string; stripe_account_id: string | null } | undefined;
+      // ── Phase 2: Auto-instant payout for HMU First drivers ──
+      if (payoutResult.driverReceives > 0) {
+        try {
+          const tierRows = await sql`
+            SELECT u.tier, dp.stripe_account_id
+            FROM users u
+            JOIN driver_profiles dp ON dp.user_id = u.id
+            WHERE u.id = ${userId} LIMIT 1
+          `;
+          const driverInfo = tierRows[0] as { tier: string; stripe_account_id: string | null } | undefined;
 
-        if (driverInfo?.tier === 'hmu_first' && driverInfo.stripe_account_id && process.env.STRIPE_MOCK !== 'true') {
-          const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-            httpClient: Stripe.createFetchHttpClient(),
-          });
-          const balance = await stripeClient.balance.retrieve({ stripeAccount: driverInfo.stripe_account_id });
-          const available = balance.available.reduce((sum, b) => sum + b.amount, 0);
-
-          if (available > 0) {
-            await stripeClient.payouts.create(
-              { amount: available, currency: 'usd', method: 'instant' },
-              { stripeAccount: driverInfo.stripe_account_id }
-            ).catch(() => {
-              // Instant not available — fall back to standard
-              return stripeClient.payouts.create(
-                { amount: available, currency: 'usd', method: 'standard' },
-                { stripeAccount: driverInfo.stripe_account_id! }
-              );
+          if (driverInfo?.tier === 'hmu_first' && driverInfo.stripe_account_id && process.env.STRIPE_MOCK !== 'true') {
+            const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+              httpClient: Stripe.createFetchHttpClient(),
             });
+            const balance = await stripeClient.balance.retrieve({ stripeAccount: driverInfo.stripe_account_id });
+            const available = balance.available.reduce((sum, b) => sum + b.amount, 0);
+
+            if (available > 0) {
+              await stripeClient.payouts.create(
+                { amount: available, currency: 'usd', method: 'instant' },
+                { stripeAccount: driverInfo.stripe_account_id }
+              ).catch(() => {
+                // Instant not available — fall back to standard
+                return stripeClient.payouts.create(
+                  { amount: available, currency: 'usd', method: 'standard' },
+                  { stripeAccount: driverInfo.stripe_account_id! }
+                );
+              });
+            }
           }
+        } catch (e) {
+          console.error('Auto-payout failed (non-blocking):', e);
         }
-      } catch (e) {
-        console.error('Auto-payout failed (non-blocking):', e);
       }
-    }
+    });
 
     return NextResponse.json({
       status: 'ended',
