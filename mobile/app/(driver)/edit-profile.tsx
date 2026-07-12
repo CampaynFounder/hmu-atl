@@ -18,30 +18,20 @@ import * as Haptics from 'expo-haptics';
 import { colors, fonts, radius, spacing, shadow, toggle } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 
-// ── Atlanta areas ──────────────────────────────────────────────────────────────
+// ── Market areas ─────────────────────────────────────────────────────────────
+// Areas are fetched per-market from GET /api/markets/areas (resolved by the
+// driver's users.market_id), NOT hardcoded — a New Orleans driver must see NOLA
+// neighborhoods, not Atlanta's. Cardinals come back lowercase; this is the
+// canonical display order, with any unknown cardinals appended.
 
-const ATL_AREAS = [
-  { slug: 'northside',       name: 'Northside',       group: 'NORTHSIDE' },
-  { slug: 'buckhead',        name: 'Buckhead',         group: 'NORTHSIDE' },
-  { slug: 'sandy-springs',   name: 'Sandy Springs',    group: 'NORTHSIDE' },
-  { slug: 'marietta',        name: 'Marietta',         group: 'NORTHSIDE' },
-  { slug: 'central',         name: 'Central',          group: 'CENTRAL'   },
-  { slug: 'midtown',         name: 'Midtown',          group: 'CENTRAL'   },
-  { slug: 'downtown',        name: 'Downtown',         group: 'CENTRAL'   },
-  { slug: 'westside',        name: 'Westside',         group: 'WESTSIDE'  },
-  { slug: 'west-end',        name: 'West End',         group: 'WESTSIDE'  },
-  { slug: 'eastside',        name: 'Eastside',         group: 'EASTSIDE'  },
-  { slug: 'east-atlanta',    name: 'East Atlanta',     group: 'EASTSIDE'  },
-  { slug: 'decatur',         name: 'Decatur',          group: 'EASTSIDE'  },
-  { slug: 'north-druid-hills', name: 'N. Druid Hills', group: 'EASTSIDE'  },
-  { slug: 'stone-mountain',  name: 'Stone Mtn',        group: 'EASTSIDE'  },
-  { slug: 'southside',       name: 'Southside',        group: 'SOUTHSIDE' },
-  { slug: 'south-atlanta',   name: 'South Atlanta',    group: 'SOUTHSIDE' },
-  { slug: 'college-park',    name: 'College Park',     group: 'SOUTHSIDE' },
-  { slug: 'airport',         name: 'Airport',          group: 'SOUTHSIDE' },
-];
+interface MarketArea {
+  slug: string;
+  name: string;
+  cardinal: string;
+  sort_order?: number;
+}
 
-const AREA_GROUPS = ['NORTHSIDE', 'CENTRAL', 'WESTSIDE', 'EASTSIDE', 'SOUTHSIDE'];
+const CARDINAL_ORDER = ['northside', 'central', 'westside', 'eastside', 'southside'];
 
 const WAIT_OPTS = [5, 7, 10, 15, 20];
 
@@ -81,6 +71,8 @@ export default function EditProfileScreen() {
   const [phone, setPhone] = useState('');
   const [areaSlugs, setAreaSlugs] = useState<string[]>([]);
   const [servicesEntireMarket, setServicesEntireMarket] = useState(false);
+  const [marketAreas, setMarketAreas] = useState<MarketArea[]>([]);
+  const [marketName, setMarketName] = useState('your market');
   const [acceptsLongDistance, setAcceptsLongDistance] = useState(false);
   const [lgbtqFriendly, setLgbtqFriendly] = useState(false);
   const [acceptsCash, setAcceptsCash] = useState(false);
@@ -96,6 +88,15 @@ export default function EditProfileScreen() {
     (async () => {
       try {
         const t = await getToken();
+        // Fetch the driver's market areas alongside the profile. Market comes
+        // from users.market_id server-side, so a NOLA driver gets NOLA areas.
+        // Fails soft: on error the picker just shows the entire-market toggle.
+        apiClient<{ market: { slug: string; name: string }; areas: MarketArea[] }>('/markets/areas', t)
+          .then((res) => {
+            if (Array.isArray(res.areas)) setMarketAreas(res.areas);
+            if (res.market?.name) setMarketName(res.market.name);
+          })
+          .catch(() => {});
         const p = await apiClient<Profile>('/driver/profile', t);
         setDisplayName(p.displayName ?? '');
         setPhone(p.phone ?? '');
@@ -119,6 +120,13 @@ export default function EditProfileScreen() {
     setSaved(key);
     setTimeout(() => setSaved(null), 2000);
   }
+
+  // Cardinals present in this market, in canonical order (unknown ones appended).
+  const presentCardinals = Array.from(new Set(marketAreas.map((a) => a.cardinal)));
+  const orderedCardinals = [
+    ...CARDINAL_ORDER.filter((c) => presentCardinals.includes(c)),
+    ...presentCardinals.filter((c) => !CARDINAL_ORDER.includes(c)),
+  ];
 
   // ── Save helpers ──────────────────────────────────────────────────────────
 
@@ -292,7 +300,7 @@ export default function EditProfileScreen() {
               value={phone}
               onChangeText={setPhone}
               onBlur={saveIdentity}
-              placeholder="+1 (404) 000-0000"
+              placeholder="+1 (555) 000-0000"
               placeholderTextColor={colors.textFaint}
               keyboardType="phone-pad"
               returnKeyType="done"
@@ -305,20 +313,22 @@ export default function EditProfileScreen() {
         <View style={[s.card, shadow.card]}>
           <ToggleRow
             label="Serve Entire Market"
-            sub="Atlanta + all suburbs"
+            sub={`All of ${marketName}`}
             value={servicesEntireMarket}
             onChange={toggleEntireMarket}
           />
-          {!servicesEntireMarket && (
+          {!servicesEntireMarket && marketAreas.length > 0 && (
             <>
               <Divider />
               <View style={s.areaSection}>
                 <Text style={s.areaHint}>TAP TO TOGGLE YOUR COVERAGE AREAS</Text>
-                {AREA_GROUPS.map((group) => {
-                  const groupAreas = ATL_AREAS.filter((a) => a.group === group);
+                {orderedCardinals.map((cardinal) => {
+                  const groupAreas = marketAreas
+                    .filter((a) => a.cardinal === cardinal)
+                    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
                   return (
-                    <View key={group} style={s.areaGroup}>
-                      <Text style={s.areaGroupLabel}>{group}</Text>
+                    <View key={cardinal} style={s.areaGroup}>
+                      <Text style={s.areaGroupLabel}>{cardinal.toUpperCase()}</Text>
                       <View style={s.areaChips}>
                         {groupAreas.map((area) => {
                           const selected = areaSlugs.includes(area.slug);
@@ -344,7 +354,7 @@ export default function EditProfileScreen() {
           <Divider />
           <ToggleRow
             label="Accept Long Distance"
-            sub="Rides outside Atlanta area"
+            sub={`Rides outside ${marketName}`}
             value={acceptsLongDistance}
             onChange={toggleLongDistance}
           />
