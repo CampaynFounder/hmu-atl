@@ -32,7 +32,7 @@ export default function NotInMarketScreen() {
 
         <Text style={s.headline}>NOT IN {displayArea.toUpperCase()} YET</Text>
         <Text style={s.body}>
-          HMU ATL is currently live in Atlanta, Georgia only. We&apos;re expanding fast — {displayArea} is on the map.
+          HMU isn&apos;t taking rides in {displayArea} just yet. We&apos;re expanding fast — {displayArea} is on the map.
         </Text>
 
         <View style={s.divider} />

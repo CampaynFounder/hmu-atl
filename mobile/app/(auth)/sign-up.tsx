@@ -109,7 +109,7 @@ export default function SignUp() {
           <>
             <TextInput
               style={s.input}
-              placeholder="+1 (404) 555-0000"
+              placeholder="+1 (555) 555-0000"
               placeholderTextColor={colors.textFaint}
               keyboardType="phone-pad"
               value={phone}

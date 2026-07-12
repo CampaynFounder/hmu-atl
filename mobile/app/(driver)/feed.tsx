@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+import { getMarketCenter, getUserMarketSlug } from '@/lib/market-centers';
 import { useAbly } from '@/hooks/use-ably';
 import { useNotifications } from '@/contexts/notifications';
 import { CommentsAccordion } from '@/components/CommentsAccordion';
@@ -120,9 +121,10 @@ export default function DriverFeed() {
 
       // getLastKnownPositionAsync is instant — getCurrentPositionAsync hangs on simulators.
       const loc = await Location.getLastKnownPositionAsync();
-      // Fall back to Atlanta city center if no cached position yet.
-      const lat = loc?.coords.latitude ?? 33.749;
-      const lng = loc?.coords.longitude ?? -84.388;
+      // Fall back to the driver's market center if no cached position yet.
+      const marketCenter = getMarketCenter(getUserMarketSlug(user?.unsafeMetadata));
+      const lat = loc?.coords.latitude ?? marketCenter.lat;
+      const lng = loc?.coords.longitude ?? marketCenter.lng;
 
       const data = await apiClient<{ opportunities: DeliveryOpportunity[] }>(
         `/delivery/nearby?lat=${lat}&lng=${lng}`,

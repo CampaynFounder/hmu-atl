@@ -214,7 +214,7 @@ export default function PayoutNative() {
               <Text style={s.stepTitle}>Home address</Text>
               <Field label="Street" value={line1} onChange={setLine1} placeholder="123 Peachtree St" />
               <Field label="Apt / unit (optional)" value={line2} onChange={setLine2} placeholder="Apt 4" />
-              <Field label="City" value={city} onChange={setCity} placeholder="Atlanta" />
+              <Field label="City" value={city} onChange={setCity} placeholder="Your city" />
               <View style={s.row}>
                 <Field style={{ flex: 1 }} label="State" value={state} onChange={(v) => setState(v.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2))} placeholder="GA" autoCapitalize="characters" />
                 <Field style={{ flex: 1.4 }} label="ZIP" value={zip} onChange={(v) => setZip(onlyDigits(v).slice(0, 5))} keyboardType="number-pad" placeholder="30303" />
