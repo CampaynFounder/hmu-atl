@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { stripe } from '@/lib/stripe/connect';
+import { holdIdempotencyKey, readHoldAttempt, bumpHoldAttempt } from '@/lib/payments/idempotency';
 import { notifyUser, publishToChannel } from '@/lib/ably/server';
 import { publishRideMatched } from '@/lib/blast/match-notify';
 import { writeBlastEvent, insertScheduleBlock } from '@/lib/blast/lifecycle';
@@ -167,6 +168,10 @@ async function handlePost(
         depositMax,
       );
 
+      // Key folds in the PM + an increment-on-failure attempt counter so a
+      // declined card can be retried without colliding with the poisoned first
+      // key. See lib/payments/idempotency.ts.
+      const depositAttempt = await readHoldAttempt('hmu_posts', 'deposit_attempt', blastId);
       const pi = await stripe.paymentIntents.create(
         {
           amount: depositCents,
@@ -179,7 +184,7 @@ async function handlePost(
           statement_descriptor_suffix: 'HMU BLAST',
           metadata: { blastId, riderId, driverId, kind: 'blast_deposit' },
         },
-        { idempotencyKey: `blast_deposit_${blastId}` },
+        { idempotencyKey: holdIdempotencyKey('blast_deposit', blastId, depositCents, paymentMethodId, depositAttempt) },
       );
 
       if (pi.status !== 'requires_capture') {
@@ -210,7 +215,9 @@ async function handlePost(
   }
 
   if (paymentErr) {
-    // Roll back the claim so the rider can retry
+    // Bump the attempt so the next tap gets a fresh idempotency key, then roll
+    // back the claim so the rider can retry.
+    await bumpHoldAttempt('hmu_posts', 'deposit_attempt', blastId);
     await sql`UPDATE hmu_posts SET status = 'active' WHERE id = ${blastId}`;
     return NextResponse.json({ error: 'PAYMENT_FAILED', message: paymentErr }, { status: 402 });
   }

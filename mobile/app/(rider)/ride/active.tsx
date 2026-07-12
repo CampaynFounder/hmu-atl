@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
-import { apiClient } from '@/lib/api';
+import { apiClient, ApiError } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
 import { useNotifications } from '@/contexts/notifications';
 import { RideMap } from '@/components/ride/RideMap';
@@ -122,6 +122,9 @@ export default function RiderActiveScreen() {
   const [loading, setLoading] = useState(true);
   const [addingItem, setAddingItem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Set when Pull Up fails on a card decline / missing card, so the error box
+  // can offer an "Update payment method" CTA instead of a dead-end message.
+  const [paymentDeclined, setPaymentDeclined] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [driverLocation, setDriverLocation] = useState<LatLng | null>(null);
   const [confirmingRide, setConfirmingRide] = useState(false);
@@ -568,6 +571,7 @@ export default function RiderActiveScreen() {
     }
     setPullingUp(true);
     setError(null);
+    setPaymentDeclined(false);
     try {
       const t = await getToken();
       await apiClient(`/rides/${rideId}/coo`, t, {
@@ -586,9 +590,21 @@ export default function RiderActiveScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       void fetchRide(); // status flips to coo/inbound → live map + ETA light up
     } catch (e: any) {
-      const msg: string = e?.message ?? '';
-      if (msg.includes('payment') || msg.includes('card')) setError(msg);
-      else setError(msg || 'Could not pull up. Try again.');
+      // A card decline or missing card is recoverable: surface the friendly
+      // reason AND a CTA to update the card. Once the rider adds a new card the
+      // retry gets a fresh Stripe idempotency key (keyed on the PM) so it goes
+      // through — no more permanently-stuck Pull Up.
+      const code = e instanceof ApiError ? e.code : null;
+      if (code === 'payment_failed' || code === 'no_payment_method') {
+        setPaymentDeclined(true);
+        setError(
+          code === 'no_payment_method'
+            ? 'Add a payment method to pull up.'
+            : 'Your card was declined. Update your payment method to pull up.',
+        );
+      } else {
+        setError(e?.message || 'Could not pull up. Try again.');
+      }
     } finally {
       setPullingUp(false);
     }
@@ -965,9 +981,21 @@ export default function RiderActiveScreen() {
         )}
 
         {error && (
-          <View style={s.errorBox}>
-            <Ionicons name="alert-circle" size={14} color={colors.red} />
-            <Text style={s.errorText2}>{error}</Text>
+          <View>
+            <View style={s.errorBox}>
+              <Ionicons name="alert-circle" size={14} color={colors.red} />
+              <Text style={s.errorText2}>{error}</Text>
+            </View>
+            {paymentDeclined && (
+              <TouchableOpacity
+                style={s.payCtaBtn}
+                onPress={() => router.push('/(rider)/payment-methods' as any)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="card-outline" size={16} color={colors.green} />
+                <Text style={s.payCtaBtnText}>UPDATE PAYMENT METHOD</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
@@ -1289,6 +1317,13 @@ const s = StyleSheet.create({
     padding: spacing.md, borderWidth: 1, borderColor: colors.redBorder, marginBottom: spacing.md,
   },
   errorText2: { fontFamily: fonts.body, fontSize: 13, color: colors.red, flex: 1 },
+  payCtaBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: spacing.sm, borderRadius: radius.pill, paddingVertical: 13,
+    backgroundColor: colors.greenDim, borderWidth: 1, borderColor: colors.greenBorder,
+    marginBottom: spacing.md,
+  },
+  payCtaBtnText: { fontFamily: fonts.monoBold, fontSize: 12, color: colors.green, letterSpacing: 1.5 },
 
   overlay: {
     position: 'absolute', left: 0, right: 0, bottom: 0, top: '30%',
