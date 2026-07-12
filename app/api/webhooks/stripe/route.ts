@@ -56,38 +56,33 @@ export async function POST(request: NextRequest) {
         break;
       }
 
-      case 'payment_intent.payment_failed': {
-        const pi = event.data.object as Stripe.PaymentIntent;
-        const rideId = pi.metadata?.rideId;
-        if (rideId) {
-          await sql`
-            UPDATE rides SET status = 'cancelled'
-            WHERE id = ${rideId} AND payment_intent_id = ${pi.id}
-          `;
-          // Cascade: cancel calendar booking + linked post
-          const { cancelRideBooking } = await import('@/lib/schedule/conflicts');
-          cancelRideBooking(rideId).catch(() => {});
-          const postRows = await sql`SELECT hmu_post_id FROM rides WHERE id = ${rideId} LIMIT 1`;
-          const postId = (postRows[0] as Record<string, unknown>)?.hmu_post_id as string;
-          if (postId) await sql`UPDATE hmu_posts SET status = 'cancelled' WHERE id = ${postId}`.catch(() => {});
-        }
-        break;
-      }
-
+      case 'payment_intent.payment_failed':
       case 'payment_intent.canceled': {
         const pi = event.data.object as Stripe.PaymentIntent;
         const rideId = pi.metadata?.rideId;
         if (rideId) {
-          await sql`
-            UPDATE rides SET status = 'cancelled'
-            WHERE id = ${rideId} AND payment_intent_id = ${pi.id}
-          `;
-          // Cascade: cancel calendar booking + linked post
-          const { cancelRideBooking } = await import('@/lib/schedule/conflicts');
-          cancelRideBooking(rideId).catch(() => {});
-          const postRows = await sql`SELECT hmu_post_id FROM rides WHERE id = ${rideId} LIMIT 1`;
-          const postId = (postRows[0] as Record<string, unknown>)?.hmu_post_id as string;
-          if (postId) await sql`UPDATE hmu_posts SET status = 'cancelled' WHERE id = ${postId}`.catch(() => {});
+          // Only act when this PI is the one actually attached to the ride and
+          // the ride isn't already terminal. This skips a failed hold (whose PI
+          // was never persisted) and no-ops when our own cancel flow already
+          // cascaded this ride (payment_intent.canceled fires on every hold
+          // release). Route through cascadeRideCancel so the cancel gets the
+          // full realtime fan-out — a bare UPDATE left the other party's ride
+          // screen stuck with no status_change event.
+          const rows = (await sql`
+            SELECT id, driver_id, rider_id, hmu_post_id, status
+            FROM rides WHERE id = ${rideId} AND payment_intent_id = ${pi.id} LIMIT 1
+          `) as Array<{ id: string; driver_id: string | null; rider_id: string | null; hmu_post_id: string | null; status: string }>;
+          const r = rows[0];
+          if (r && r.status !== 'cancelled' && r.status !== 'completed') {
+            const { cascadeRideCancel } = await import('@/lib/rides/cancel-cascade');
+            await cascadeRideCancel({
+              ride: { id: r.id, driver_id: r.driver_id, rider_id: r.rider_id, hmu_post_id: r.hmu_post_id },
+              reason: event.type === 'payment_intent.payment_failed'
+                ? 'Payment could not be authorized'
+                : 'Payment hold was canceled',
+              initiator: 'mutual',
+            });
+          }
         }
         break;
       }

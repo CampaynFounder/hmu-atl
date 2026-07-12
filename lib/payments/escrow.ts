@@ -1,5 +1,6 @@
 import { stripe } from '@/lib/stripe/connect';
 import { sql } from '@/lib/db/client';
+import { holdIdempotencyKey, readHoldAttempt, bumpHoldAttempt } from './idempotency';
 import { getDailyEarnings } from './fee-calculator';
 import { getDriverEnrollment, updateEnrollmentProgress, isDriverInFreeWindow, getOfferProgress } from '@/lib/db/enrollment-offers';
 import { calculateUnsettledAddOnTotal } from '@/lib/db/service-menu';
@@ -92,27 +93,43 @@ export async function holdRiderPayment(params: {
   // configuration. We previously cloned the rider's PM to the driver's
   // sub-account (Direct Charges) which broke for Cash App Pay / Affirm /
   // Klarna / Afterpay — those PMs cannot be shared cross-account.
-  const paymentIntent = await stripe.paymentIntents.create({
-    amount: amountInCents,
-    currency: 'usd',
-    customer: params.stripeCustomerId,
-    payment_method: params.paymentMethodId,
-    capture_method: 'manual',
-    confirm: true,
-    off_session: true,
-    transfer_data: { destination: params.driverStripeAccountId },
-    statement_descriptor_suffix: 'HMU RIDE',
-    metadata: {
-      rideId: params.rideId,
-      riderId: params.riderId,
-      driverId: params.driverId,
-      pricingMode: holdDecision.holdMode,
-    },
-  }, {
-    idempotencyKey: `hold_${params.rideId}_${amountInCents}`,
-  });
+  // Idempotency key folds in the payment method AND an increment-on-failure
+  // attempt counter (see lib/payments/idempotency.ts). A prior decline binds a
+  // Stripe key to the failed card's body for 24h; a fixed key made every retry
+  // after a card update collide ("Keys for idempotent requests can only be used
+  // with the same parameters they were first used with"). Now a new card OR a
+  // bumped attempt yields a fresh key, while an accidental double-tap reuses the
+  // key and Stripe dedupes it to a single hold.
+  const holdAttempt = await readHoldAttempt('rides', 'hold_attempt', params.rideId);
+  let paymentIntent: Awaited<ReturnType<typeof stripe.paymentIntents.create>>;
+  try {
+    paymentIntent = await stripe.paymentIntents.create({
+      amount: amountInCents,
+      currency: 'usd',
+      customer: params.stripeCustomerId,
+      payment_method: params.paymentMethodId,
+      capture_method: 'manual',
+      confirm: true,
+      off_session: true,
+      transfer_data: { destination: params.driverStripeAccountId },
+      statement_descriptor_suffix: 'HMU RIDE',
+      metadata: {
+        rideId: params.rideId,
+        riderId: params.riderId,
+        driverId: params.driverId,
+        pricingMode: holdDecision.holdMode,
+      },
+    }, {
+      idempotencyKey: holdIdempotencyKey('hold', params.rideId, amountInCents, params.paymentMethodId, holdAttempt),
+    });
+  } catch (err) {
+    // Bump so the rider's next retry gets a fresh key instead of re-colliding.
+    await bumpHoldAttempt('rides', 'hold_attempt', params.rideId);
+    throw err;
+  }
 
   if (paymentIntent.status !== 'requires_capture') {
+    await bumpHoldAttempt('rides', 'hold_attempt', params.rideId);
     throw new Error(`Payment authorization failed: ${paymentIntent.status}`);
   }
 

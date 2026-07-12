@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
-import { apiClient } from '@/lib/api';
+import { apiClient, ApiError } from '@/lib/api';
 import { loadPendingRideLocations, clearPendingRideLocations } from '@/lib/pending-ride-locations';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
@@ -173,6 +173,8 @@ export default function PullUpScreen() {
   const [gettingLocation, setGettingLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set on a card decline / missing card so the error offers an update CTA.
+  const [paymentDeclined, setPaymentDeclined] = useState(false);
   const [pickupTime, setPickupTime] = useState<string | null>(null);
   const [pickupIsNow, setPickupIsNow] = useState(false);
   const [menu, setMenu] = useState<{ id: string; name: string; price: number }[]>([]);
@@ -268,6 +270,7 @@ export default function PullUpScreen() {
     if (!pickup || !dropoff || !rideId || submitting) return;
     setSubmitting(true);
     setError(null);
+    setPaymentDeclined(false);
     try {
       const t = await getToken();
       await apiClient(`/rides/${rideId}/coo`, t, {
@@ -287,7 +290,19 @@ export default function PullUpScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace(`/(rider)/ride/active?rideId=${rideId}` as any);
     } catch (e: any) {
-      setError(e.message ?? 'Failed to submit details');
+      // Recoverable payment failures get a friendly message + an update CTA;
+      // adding a new card gives the retry a fresh Stripe idempotency key.
+      const code = e instanceof ApiError ? e.code : null;
+      if (code === 'payment_failed' || code === 'no_payment_method') {
+        setPaymentDeclined(true);
+        setError(
+          code === 'no_payment_method'
+            ? 'Add a payment method to pull up.'
+            : 'Your card was declined. Update your payment method to pull up.',
+        );
+      } else {
+        setError(e?.message ?? 'Failed to submit details');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -421,9 +436,21 @@ export default function PullUpScreen() {
         )}
 
         {error && (
-          <View style={s.errorBox}>
-            <Ionicons name="alert-circle" size={14} color={colors.red} />
-            <Text style={s.errorText}>{error}</Text>
+          <View>
+            <View style={s.errorBox}>
+              <Ionicons name="alert-circle" size={14} color={colors.red} />
+              <Text style={s.errorText}>{error}</Text>
+            </View>
+            {paymentDeclined && (
+              <TouchableOpacity
+                style={s.payCtaBtn}
+                onPress={() => router.push('/(rider)/payment-methods' as any)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="card-outline" size={16} color={colors.green} />
+                <Text style={s.payCtaBtnText}>UPDATE PAYMENT METHOD</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </ScrollView>
@@ -507,6 +534,13 @@ const s = StyleSheet.create({
     marginBottom: spacing.md,
   },
   errorText: { fontFamily: fonts.body, fontSize: 13, color: colors.red, flex: 1 },
+  payCtaBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: spacing.sm, borderRadius: radius.pill, paddingVertical: 13,
+    backgroundColor: colors.greenDim, borderWidth: 1, borderColor: colors.greenBorder,
+    marginBottom: spacing.md,
+  },
+  payCtaBtnText: { fontFamily: fonts.monoBold, fontSize: 12, color: colors.green, letterSpacing: 1.5 },
 
   footer: {
     paddingHorizontal: spacing.xl, paddingTop: spacing.md,

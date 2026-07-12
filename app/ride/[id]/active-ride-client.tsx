@@ -5217,6 +5217,9 @@ function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }:
   const [geoError, setGeoError] = useState<string | null>(null);
   const [geoPermanentlyDenied, setGeoPermanentlyDenied] = useState(false);
   const [needsPayment, setNeedsPayment] = useState(false);
+  // Set when Stripe declines the card (vs. no card on file). Drives the
+  // "card declined — update your payment method" copy on the payment sheet.
+  const [declineMsg, setDeclineMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Validated address state — rehydrated from sessionStorage on remount so
@@ -5384,6 +5387,14 @@ function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }:
         onCooSent(geoLat, geoLng, pickupAddr?.address || locationText.trim() || null, pickupAddr || undefined, dropoffAddr, validatedStops.length > 0 ? validatedStops : undefined);
       } else {
         if (data.code === 'no_payment_method') {
+          setDeclineMsg(null);
+          setNeedsPayment(true);
+        } else if (data.code === 'payment_failed') {
+          // Card was declined (or an old idempotency-locked attempt). Send the
+          // rider to the same payment sheet used for a missing card, but with
+          // decline copy — updating the card gets a fresh Stripe idempotency
+          // key so the auto-retry on success actually goes through.
+          setDeclineMsg('Your card was declined. Update your payment method to pull up.');
           setNeedsPayment(true);
         } else {
           setError(data.error || 'Pull Up failed — try again');
@@ -5412,11 +5423,11 @@ function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }:
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '15px', color: COLORS.white, fontWeight: 600 }}>
-            Link a payment method to continue
+          <div style={{ fontSize: '15px', color: declineMsg ? COLORS.red : COLORS.white, fontWeight: 600 }}>
+            {declineMsg ? 'Card declined' : 'Link a payment method to continue'}
           </div>
           <div style={{ fontSize: '13px', color: COLORS.grayLight, marginTop: 4 }}>
-            Your driver knows payment is secured once you tap Pull Up
+            {declineMsg ?? 'Your driver knows payment is secured once you tap Pull Up'}
           </div>
         </div>
         <div style={{
@@ -5425,13 +5436,15 @@ function CooButton({ rideId, isCash, onCooSent, initialPickup, initialDropoff }:
         }}>
           <InlinePaymentForm onSuccess={() => {
             setNeedsPayment(false);
-            // Auto-send Pull Up after payment method is linked
+            setDeclineMsg(null);
+            // Auto-send Pull Up after payment method is linked. The new card
+            // yields a fresh Stripe idempotency key, so this retry goes through.
             setTimeout(() => handleCoo(), 500);
           }} />
         </div>
         <button
           type="button"
-          onClick={() => setNeedsPayment(false)}
+          onClick={() => { setNeedsPayment(false); setDeclineMsg(null); }}
           style={{
             background: 'transparent', border: 'none', color: COLORS.gray,
             fontSize: '13px', cursor: 'pointer', padding: '8px',

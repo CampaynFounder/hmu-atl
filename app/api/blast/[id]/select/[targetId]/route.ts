@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { stripe } from '@/lib/stripe/connect';
+import { holdIdempotencyKey, readHoldAttempt, bumpHoldAttempt } from '@/lib/payments/idempotency';
 import { publishToChannel, notifyUser } from '@/lib/ably/server';
 import { publishRideMatched } from '@/lib/blast/match-notify';
 import { generateRefCode } from '@/lib/rides/ref-code';
@@ -140,6 +141,10 @@ export async function POST(
 
   let depositPiId: string | null = null;
   let depositErr: string | null = null;
+  // Key folds in the PM + an increment-on-failure attempt counter so a rider
+  // whose card declined can retry (new card or same card topped up) instead of
+  // colliding with the poisoned first key. See lib/payments/idempotency.ts.
+  const depositAttempt = await readHoldAttempt('hmu_posts', 'deposit_attempt', blastId);
   try {
     const pi = await stripe.paymentIntents.create({
       amount: depositCents,
@@ -151,7 +156,7 @@ export async function POST(
       off_session: true,
       statement_descriptor_suffix: 'HMU BLAST',
       metadata: { blastId, riderId, driverId, kind: 'blast_deposit' },
-    }, { idempotencyKey: `blast_deposit_${blastId}` });
+    }, { idempotencyKey: holdIdempotencyKey('blast_deposit', blastId, depositCents, paymentMethodId, depositAttempt) });
     if (pi.status !== 'requires_capture') {
       depositErr = `unexpected_status:${pi.status}`;
       // PI exists on Stripe but isn't in a usable state (e.g. requires_action
@@ -167,7 +172,9 @@ export async function POST(
   }
 
   if (depositErr || !depositPiId) {
-    // Roll the claim back so the rider can try a different card / driver.
+    // Bump the attempt so the next tap gets a fresh idempotency key, then roll
+    // the claim back so the rider can try a different card / driver.
+    await bumpHoldAttempt('hmu_posts', 'deposit_attempt', blastId);
     await sql`UPDATE hmu_posts SET status = 'active' WHERE id = ${blastId}`;
     return NextResponse.json(
       { error: 'DEPOSIT_FAILED', message: depositErr || 'Could not authorize deposit' },
