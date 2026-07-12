@@ -5,6 +5,7 @@ import { getRideForUser, validateTransition } from '@/lib/rides/state-machine';
 import { publishRideUpdate } from '@/lib/ably/server';
 import { notifyUserWithPush } from '@/lib/notify';
 import { syncBookingFromRide } from '@/lib/schedule/conflicts';
+import { afterResponse } from '@/lib/runtime/after-response';
 
 // Haversine distance in meters
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -86,26 +87,32 @@ export async function POST(
 
     syncBookingFromRide(rideId, 'confirming').catch(() => {});
 
-    // Ably: tell rider to confirm
-    await publishRideUpdate(rideId, 'confirm_start', {
-      status: 'confirming',
-      confirmDeadline,
-      proximityOk,
-      distanceM,
-      message: 'Driver started the ride — confirm you\'re in the car',
-    }).catch(() => {});
+    // Realtime + push are side effects that must NOT block the driver's tap.
+    // Awaiting an Ably round-trip + a push send here added ~seconds to START.
+    // Defer them so the response returns as soon as the state flip commits;
+    // the rider still gets the confirm prompt a beat later. (Matches the COO
+    // route's afterResponse pattern.)
+    afterResponse(async () => {
+      await publishRideUpdate(rideId, 'confirm_start', {
+        status: 'confirming',
+        confirmDeadline,
+        proximityOk,
+        distanceM,
+        message: 'Driver started the ride — confirm you\'re in the car',
+      }).catch(() => {});
 
-    // Also push notification to rider — wake them so they can tap "I'm In"
-    await notifyUserWithPush(ride.rider_id as string, 'ride_update', {
-      rideId,
-      status: 'confirming',
-      confirmDeadline,
-      message: 'Confirm you\'re in the car to start the ride',
-    }, {
-      title: "You're in? Confirm to start 🚀",
-      body: 'Tap "I\'m In" to start your ride.',
-      data: { type: 'ride_update', rideId, status: 'confirming' },
-    }).catch(() => {});
+      // Push notification to rider — wake them so they can tap "I'm In"
+      await notifyUserWithPush(ride.rider_id as string, 'ride_update', {
+        rideId,
+        status: 'confirming',
+        confirmDeadline,
+        message: 'Confirm you\'re in the car to start the ride',
+      }, {
+        title: "You're in? Confirm to start 🚀",
+        body: 'Tap "I\'m In" to start your ride.',
+        data: { type: 'ride_update', rideId, status: 'confirming' },
+      }).catch(() => {});
+    });
 
     return NextResponse.json({
       status: 'confirming',

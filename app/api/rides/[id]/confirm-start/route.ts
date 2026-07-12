@@ -8,6 +8,7 @@ import { publishRideUpdate } from '@/lib/ably/server';
 import { notifyUserWithPush } from '@/lib/notify';
 import { syncBookingFromRide } from '@/lib/schedule/conflicts';
 import { getPlatformConfig } from '@/lib/platform-config/get';
+import { afterResponse } from '@/lib/runtime/after-response';
 
 /**
  * Rider confirms they're in the car → capture payment → ride active.
@@ -121,23 +122,27 @@ export async function POST(
     // actual collection is handled separately once payments are fully live.
     recordDownBadFacilitationFee(rideId, ride).catch(() => {});
 
-    // Notify both parties
-    await publishRideUpdate(rideId, 'status_change', {
-      status: 'active',
-      message: 'Rider confirmed — ride is active',
-      captured: !isCashRide,
-      driverReceives: captureResult.driverReceives,
-    }).catch(() => {});
+    // Notify both parties — off the response path. The capture above already
+    // committed; the driver's live screen flips via this Ably event a beat
+    // after the rider's tap returns, instead of the rider waiting on it.
+    afterResponse(async () => {
+      await publishRideUpdate(rideId, 'status_change', {
+        status: 'active',
+        message: 'Rider confirmed — ride is active',
+        captured: !isCashRide,
+        driverReceives: captureResult.driverReceives,
+      }).catch(() => {});
 
-    await notifyUserWithPush(ride.driver_id as string, 'ride_update', {
-      rideId,
-      status: 'active',
-      message: 'Rider confirmed — ride is active!',
-    }, {
-      title: 'Ride started ✅',
-      body: 'Your rider confirmed — the ride is active.',
-      data: { type: 'ride_update', rideId, status: 'active' },
-    }).catch(() => {});
+      await notifyUserWithPush(ride.driver_id as string, 'ride_update', {
+        rideId,
+        status: 'active',
+        message: 'Rider confirmed — ride is active!',
+      }, {
+        title: 'Ride started ✅',
+        body: 'Your rider confirmed — the ride is active.',
+        data: { type: 'ride_update', rideId, status: 'active' },
+      }).catch(() => {});
+    });
 
     return NextResponse.json({
       status: 'active',
