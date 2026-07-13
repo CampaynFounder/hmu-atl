@@ -3,6 +3,7 @@
 
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse, type NextRequest } from 'next/server';
+import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { getStateCached } from '@/lib/maintenance';
 
 // Attribution cookie — first-touch ID, 30-day lifetime. Pure cookie (no DB hit).
@@ -65,14 +66,30 @@ function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: 
 
 type MarketCenter = typeof MARKET_CENTERS[number];
 
-// Returns the nearest live market (with its redirect flag), or null if
-// the user is out of every market's radius (Memphis, Dallas, etc.).
-function detectMarketFromGeo(req: NextRequest): MarketCenter | null {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const cf = (req as any).cf as { latitude?: string; longitude?: string } | undefined;
+// Cloudflare edge geolocation for the current request. Under
+// @opennextjs/cloudflare the incoming `request.cf` is NOT re-attached to the
+// NextRequest that middleware sees — OpenNext stashes it on its own context
+// instead (see cloudflareContextALS.run({ ..., cf: request.cf })). Reading
+// `req.cf` therefore returns undefined and silently geo-gates every visitor
+// (the bug this replaced). Returns undefined when geo is unavailable so callers
+// can fail open instead of dead-ending real visitors on the waitlist.
+function readCfGeo(): { lat: number; lng: number; city: string } | undefined {
+  let cf: { latitude?: string; longitude?: string; city?: string } | undefined;
+  try {
+    cf = getCloudflareContext().cf as typeof cf;
+  } catch {
+    return undefined; // outside the worker runtime (SSG/dev) — fail open
+  }
   const lat = parseFloat(cf?.latitude ?? '');
   const lng = parseFloat(cf?.longitude ?? '');
-  if (!isFinite(lat) || !isFinite(lng)) return null;
+  if (!isFinite(lat) || !isFinite(lng)) return undefined;
+  return { lat, lng, city: cf?.city ?? '' };
+}
+
+// Nearest live market whose radius contains the point, or null if the point is
+// outside every market (Memphis, Dallas…). Callers distinguish this "confirmed
+// out of market" null from "no geo at all" (readCfGeo returned undefined).
+function nearestMarket(lat: number, lng: number): MarketCenter | null {
   let best: MarketCenter | null = null;
   let minDist = Infinity;
   for (const m of MARKET_CENTERS) {
@@ -290,11 +307,10 @@ export default clerkMiddleware(async (auth, req) => {
       || path.startsWith('/_next/')
       || path.startsWith('/.well-known/');
     if (!skipApexRedirect) {
-      const market = detectMarketFromGeo(req);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cfCity = ((req as any).cf as { city?: string } | undefined)?.city ?? '';
+      const geo = readCfGeo();
+      const market = geo ? nearestMarket(geo.lat, geo.lng) : null;
       const h = new Headers(req.headers);
-      if (cfCity) h.set('x-cf-city', cfCity);
+      if (geo?.city) h.set('x-cf-city', geo.city);
 
       if (market?.redirect) {
         // ATL: redirect to its subdomain. Existing ATL users have sessions
@@ -310,6 +326,16 @@ export default clerkMiddleware(async (auth, req) => {
         // subdomain or Clerk satellite config needed beyond the apex registration.
         h.set('x-market-slug', market.slug);
         return NextResponse.next({ request: { headers: h } });
+      } else if (!geo) {
+        // Geo unavailable (Cloudflare attached no lat/lng, or we're off-worker).
+        // DON'T dead-end the visitor on the expansion waitlist — fail open to the
+        // ATL flagship by redirecting to its subdomain, exactly as an in-ATL
+        // detection would. Only a *confirmed* out-of-market point (geo present
+        // but outside every radius, the branch below) should see the waitlist.
+        return NextResponse.redirect(
+          `https://atl.hmucashride.com${path}${req.nextUrl.search}`,
+          307,
+        );
       } else {
         // Out of every live market (Memphis, Dallas…): show waitlist page.
         h.set('x-market-slug', 'none');
