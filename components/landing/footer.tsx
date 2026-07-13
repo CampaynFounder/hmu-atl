@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Instagram, Twitter, Facebook, Linkedin } from 'lucide-react';
+import { AppStoreBadges } from '@/components/landing/app-store-badges';
 
 // Auto-detect which market subdomain we're on at render time. Used when the
 // parent doesn't pass an explicit brandCity — common for existing call sites
@@ -126,6 +127,8 @@ export function Footer({ brandCity: explicitBrandCity }: { brandCity?: string } 
                 <span>Safety-First</span>
               </div>
             )}
+            <AppStoreBadges className="mb-6" align="start" />
+
             <div className="flex gap-3">
               {socials.map((s) => (
                 <a

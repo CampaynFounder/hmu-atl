@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { AppStoreBadges } from '@/components/landing/app-store-badges';
+import { hasAnyApp } from '@/lib/app-store';
 
 export default function OutOfMarketPage({ city }: { city?: string }) {
   const cityLabel = city || 'your city';
@@ -141,6 +143,15 @@ export default function OutOfMarketPage({ city }: { city?: string }) {
               We'll text you once when we launch in {cityLabel}. No spam. Reply STOP to cancel.
             </p>
           </>
+        )}
+
+        {hasAnyApp && (
+          <div style={{ marginTop: 40, borderTop: '1px solid #1a1a1a', paddingTop: 24 }}>
+            <p style={{ color: '#666', fontSize: 12, letterSpacing: 1, marginBottom: 14, textTransform: 'uppercase' }}>
+              Get the app
+            </p>
+            <AppStoreBadges align="center" />
+          </div>
         )}
 
         <div style={{ marginTop: 40, borderTop: '1px solid #1a1a1a', paddingTop: 24 }}>

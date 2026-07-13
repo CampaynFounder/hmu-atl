@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Footer } from '@/components/landing/footer';
+import { AppStoreBadges } from '@/components/landing/app-store-badges';
 import { CmsProvider } from '@/lib/cms/provider';
 import { useZone } from '@/lib/cms/use-zone';
 import { useFlag } from '@/lib/cms/use-flag';
@@ -193,6 +194,8 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
             </div>
           ))}
         </div>
+
+        <AppStoreBadges className={`mt-10 ${styles.fadeUp}`} align="center" />
       </section>
 
       {/* HOW IT WORKS */}
@@ -404,6 +407,8 @@ function HomePageInner({ brandCity, brandCityShort }: { brandCity: string; brand
               </a>
             </div>
           </div>
+
+          <AppStoreBadges className={`mt-10 ${styles.reveal}`} align="center" />
 
           <div className={`${styles.dualCtaSignIn} ${styles.reveal}`}>
             Already have an account? <a href="/sign-in">Sign in</a>
