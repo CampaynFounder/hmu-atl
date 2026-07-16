@@ -267,6 +267,37 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
     }
   };
 
+  // Reset a driver's Stripe Connect connection so they can relink from scratch.
+  const [resetStripeConfirm, setResetStripeConfirm] = useState(false);
+  const [resetStripeLoading, setResetStripeLoading] = useState(false);
+  const [resetStripeMsg, setResetStripeMsg] = useState<string | null>(null);
+
+  const resetStripe = async () => {
+    setResetStripeLoading(true);
+    setResetStripeMsg(null);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/reset-stripe`, { method: 'POST' });
+      const data = await res.json().catch(() => ({})) as {
+        error?: string; stripeDeleted?: boolean; stripeError?: string;
+      };
+      if (res.ok) {
+        setResetStripeMsg(
+          data.stripeDeleted
+            ? 'Cleared — driver can now relink (old Stripe account deleted)'
+            : `Cleared — driver can now relink${data.stripeError ? ' (Stripe delete skipped)' : ''}`,
+        );
+        setResetStripeConfirm(false);
+        fetchUser();
+      } else {
+        setResetStripeMsg(data.error || 'Reset failed');
+      }
+    } catch {
+      setResetStripeMsg('Reset failed');
+    } finally {
+      setResetStripeLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -759,6 +790,48 @@ export function UserProfile({ userId, onBack }: { userId: string; onBack: () => 
             </div>
           )}
         </div>
+
+        {/* Reset Stripe Connect — super admin only, drivers only. Lets a driver
+            who abandoned onboarding relink from scratch. */}
+        {admin?.isSuper && user.profileType !== 'rider' && (
+          <div className="mt-4 pt-4 border-t border-neutral-800">
+            {!resetStripeConfirm ? (
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  onClick={() => { setResetStripeMsg(null); setResetStripeConfirm(true); }}
+                  className="bg-amber-950 hover:bg-amber-900 border border-amber-800 text-amber-300 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  Reset Stripe Connection
+                </button>
+                <span className="text-[11px] text-neutral-500">
+                  Clears the Connect account so the driver can relink from scratch.
+                </span>
+                {resetStripeMsg && <span className="text-[11px] text-emerald-400">{resetStripeMsg}</span>}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] text-amber-300">
+                  Delete this driver&apos;s Stripe Connect account and clear payout setup? They&apos;ll have to relink.
+                </span>
+                <button
+                  onClick={resetStripe}
+                  disabled={resetStripeLoading}
+                  className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-black text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  {resetStripeLoading ? 'Resetting…' : 'Confirm reset'}
+                </button>
+                <button
+                  onClick={() => setResetStripeConfirm(false)}
+                  disabled={resetStripeLoading}
+                  className="border border-neutral-700 text-neutral-300 text-xs font-semibold px-3 py-1.5 rounded-lg"
+                >
+                  Cancel
+                </button>
+                {resetStripeMsg && <span className="text-[11px] text-red-400">{resetStripeMsg}</span>}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Video Intro */}
