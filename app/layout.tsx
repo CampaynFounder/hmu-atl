@@ -253,6 +253,10 @@ export default async function RootLayout({
   //      Requires hmucashride.com to be registered in Clerk dashboard → Satellites.
   const h = await headers();
   const slug = h.get(MARKET_SLUG_HEADER);
+  // Middleware stamps this on every public/marketing route (see buildPublicResponse).
+  // The auth-recovery watchdog is an authenticated-app tool — keep it off public
+  // pages so a slow/blocked Clerk can't cover a marketing page with a reset overlay.
+  const isPublicRoute = h.get('x-hmu-public-route') === '1';
   const actualHost = h.get('host')?.toLowerCase().split(':')[0] || '';
   const isSatellite = slug !== null && slug !== 'atl' && slug !== 'none';
   // Use the actual host so Clerk's handshake targets the right domain.
@@ -285,7 +289,7 @@ export default async function RootLayout({
         </head>
         <body className={`${inter.variable} ${bebasNeue.variable} ${dmSans.variable} ${spaceMono.variable} font-sans antialiased`}>
           <ChunkErrorHandler />
-          <AppRecoveryWatchdog />
+          {!isPublicRoute && <AppRecoveryWatchdog />}
           <Suspense>
             <PostHogProvider>
               <MetaPixel />

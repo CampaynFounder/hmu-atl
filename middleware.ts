@@ -121,14 +121,18 @@ function buildPublicResponse(req: NextRequest): NextResponse {
   // admin tree is registered as `isPublicRoute` (auth is enforced inside the
   // layout, not at middleware), so this is the only path admin requests take.
   const isAdminPath = req.nextUrl.pathname.startsWith('/admin');
-  const requestHeaders = (slug || isAdminPath)
-    ? (() => {
-        const h = new Headers(req.headers);
-        if (slug) h.set('x-market-slug', slug);
-        if (isAdminPath) h.set('x-admin-pathname', req.nextUrl.pathname);
-        return h;
-      })()
-    : req.headers;
+  const requestHeaders = (() => {
+    const h = new Headers(req.headers);
+    if (slug) h.set('x-market-slug', slug);
+    if (isAdminPath) h.set('x-admin-pathname', req.nextUrl.pathname);
+    // Mark this as a public/marketing route so the root layout can disable the
+    // auth-recovery watchdog. A stuck Clerk must never throw a "reset your
+    // device / sign in fresh" overlay over a logged-out marketing page (e.g.
+    // /appstore, /driver, /rider). Source of truth is the isPublicRoute matcher
+    // — buildPublicResponse only runs for routes it matched.
+    h.set('x-hmu-public-route', '1');
+    return h;
+  })();
 
   const res = NextResponse.next({ request: { headers: requestHeaders } });
 
@@ -160,6 +164,7 @@ const isMaintenanceExempt = createRouteMatcher([
   '/.well-known(.*)',
   '/driver',
   '/rider',
+  '/appstore',
   '/privacy',
   '/terms',
   '/about',
@@ -229,6 +234,7 @@ const isPublicRoute = createRouteMatcher([
   '/r/(.*)',  // rider ad-funnel landing (paid Meta/TikTok ads link target)
   '/rider',
   '/rider/home',
+  '/appstore',             // app download landing — pure marketing, no auth
   '/rider/browse(.*)',     // includes /rider/browse/blast (unauth-friendly blast landing)
   '/blast',                // Blast v3 unauth social-proof landing page (Stream A)
   '/rider/blast/new',      // the form itself; auth gate is on submit, not page load
