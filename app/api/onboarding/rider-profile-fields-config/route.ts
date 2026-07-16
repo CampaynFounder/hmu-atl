@@ -7,10 +7,12 @@
 // home-area picker renders without a second round-trip.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { getRiderProfileFieldsConfig } from '@/lib/onboarding/rider-profile-fields-config';
 import {
   DEFAULT_MARKET_SLUG,
   resolveMarketBySlug,
+  resolveMarketForClerkUser,
   resolveMarketFromHeaders,
   resolveMarketFromHost,
   type MarketContext,
@@ -22,7 +24,12 @@ export const runtime = 'nodejs';
 export async function GET(req: NextRequest) {
   const config = await getRiderProfileFieldsConfig();
 
-  let market: MarketContext | null = await resolveMarketFromHeaders(req.headers);
+  // Market-aware: the authenticated rider's assigned market wins (mobile always
+  // hits the atl host). Fall back to header / Host / default for pre-auth web.
+  let market: MarketContext | null = null;
+  const { userId: clerkId } = await auth();
+  if (clerkId) market = await resolveMarketForClerkUser(clerkId);
+  if (!market) market = await resolveMarketFromHeaders(req.headers);
   if (!market) market = await resolveMarketFromHost(req.headers.get('host'));
   if (!market) market = await resolveMarketBySlug(DEFAULT_MARKET_SLUG);
 
