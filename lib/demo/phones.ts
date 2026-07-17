@@ -23,3 +23,10 @@ export function isDemoPhone(phone: string | null | undefined): boolean {
   const n = norm10(phone);
   return n.length === 10 && DEMO_PHONES.some((p) => norm10(p) === n);
 }
+
+// The configured demo phones as last-10-digit strings, for matching against
+// users.phone (stored as +1XXXXXXXXXX) via a digits-only RIGHT(...,10) compare.
+// Empty when DEMO_LOGIN_PHONE is unset.
+export function demoPhones10(): string[] {
+  return DEMO_PHONES.map(norm10).filter((d) => d.length === 10);
+}

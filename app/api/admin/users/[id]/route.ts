@@ -5,6 +5,7 @@ import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/
 import { sql } from '@/lib/db/client';
 import { clerkClient } from '@clerk/nextjs/server';
 import { resolveActionItem } from '@/lib/admin/action-items';
+import { normalizeHandle, isHandleTaken, HANDLE_ERROR } from '@/lib/profile/handle';
 
 export async function GET(
   req: NextRequest,
@@ -278,17 +279,11 @@ export async function PATCH(
   // (they share one /d/{handle} + @handle namespace). Updates whichever profile
   // this user has.
   if (typeof handle === 'string' && handle.trim()) {
-    const normalized = handle.trim().toLowerCase().replace(/\s+/g, '');
-    if (!/^[a-z0-9_-]{2,}$/.test(normalized)) {
-      return NextResponse.json({ error: 'Handle must be letters, numbers, _ or - (min 2 chars)' }, { status: 400 });
+    const normalized = normalizeHandle(handle);
+    if (!normalized) {
+      return NextResponse.json({ error: HANDLE_ERROR }, { status: 400 });
     }
-    const taken = await sql`
-      SELECT 1 FROM driver_profiles WHERE LOWER(REPLACE(handle, ' ', '')) = ${normalized} AND user_id <> ${id}
-      UNION ALL
-      SELECT 1 FROM rider_profiles  WHERE LOWER(REPLACE(handle, ' ', '')) = ${normalized} AND user_id <> ${id}
-      LIMIT 1
-    `;
-    if (taken.length) {
+    if (await isHandleTaken(normalized, id)) {
       return NextResponse.json({ error: `Handle "${normalized}" is already taken` }, { status: 409 });
     }
     const ptRows = await sql`SELECT profile_type FROM users WHERE id = ${id} LIMIT 1`;

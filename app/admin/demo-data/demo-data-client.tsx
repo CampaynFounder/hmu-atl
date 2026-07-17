@@ -7,6 +7,8 @@ interface Month { month: string; cash: number; hmuPay: number; delivery: number;
 interface DriverCfg { enabled: boolean; walletAvailable: number; walletPending: number; tier: Tier; months: Month[] }
 interface Ride { date: string; driverName: string; driverHandle: string; pickup: string; dropoff: string; amount: number; rating: string }
 interface RiderCfg { enabled: boolean; rides: Ride[] }
+interface HandleInfo { role: 'driver' | 'rider'; userId: string | null; handle: string | null; displayName: string | null }
+interface Handles { driver: HandleInfo; rider: HandleInfo }
 
 const card: React.CSSProperties = { background: '#141414', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: 20, marginBottom: 20 };
 const inp: React.CSSProperties = { background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 6, padding: '6px 8px', color: '#fff', fontSize: 13, width: '100%' };
@@ -17,15 +19,23 @@ const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) 
 export default function DemoDataClient() {
   const [driver, setDriver] = useState<DriverCfg | null>(null);
   const [rider, setRider] = useState<RiderCfg | null>(null);
+  const [handles, setHandles] = useState<Handles | null>(null);
+  const [handleDraft, setHandleDraft] = useState<{ driver: string; rider: string }>({ driver: '', rider: '' });
   const [demoConfigured, setDemoConfigured] = useState(true);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
 
+  function applyHandles(h: Handles | undefined | null) {
+    if (!h) return;
+    setHandles(h);
+    setHandleDraft({ driver: h.driver.handle ?? '', rider: h.rider.handle ?? '' });
+  }
+
   useEffect(() => {
     fetch('/api/admin/demo-data')
       .then((r) => r.json())
-      .then((d) => { setDriver(d.driver); setRider(d.rider); setDemoConfigured(d.demoConfigured); })
+      .then((d) => { setDriver(d.driver); setRider(d.rider); applyHandles(d.handles); setDemoConfigured(d.demoConfigured); })
       .catch(() => setMsg('Could not load'))
       .finally(() => setLoading(false));
   }, []);
@@ -46,6 +56,22 @@ export default function DemoDataClient() {
     } finally { setSaving(null); }
   }
 
+  async function saveHandle(role: 'driver' | 'rider') {
+    setSaving(`${role}_handle`); setMsg(null);
+    try {
+      const res = await fetch('/api/admin/demo-data', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: `${role}_handle`, handle: handleDraft[role] }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d?.error ?? 'Failed');
+      applyHandles(d.handles);
+      setMsg(`${role === 'driver' ? 'Driver' : 'Rider'} handle saved ✓`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Failed to save');
+    } finally { setSaving(null); }
+  }
+
   if (loading) return <div style={{ padding: 24, color: '#888' }}>Loading…</div>;
   if (!driver || !rider) return <div style={{ padding: 24, color: '#FF5252' }}>Could not load demo config.</div>;
 
@@ -55,6 +81,40 @@ export default function DemoDataClient() {
   const setR = (patch: Partial<RiderCfg>) => setRider({ ...rider, ...patch });
   const setRide = (i: number, patch: Partial<Ride>) =>
     setR({ rides: rider.rides.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
+
+  const handleEditor = (role: 'driver' | 'rider') => {
+    const info = handles?.[role];
+    const provisioned = !!info?.userId;
+    return (
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+        <label style={{ fontSize: 12, color: '#aaa' }}>
+          Public @handle (what {role === 'driver' ? 'riders' : 'drivers'} see)
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+            <span style={{ color: '#666', fontSize: 14 }}>@</span>
+            <input
+              style={{ ...inp, width: 220 }}
+              value={handleDraft[role]}
+              placeholder="handle"
+              disabled={!provisioned}
+              onChange={(e) => setHandleDraft({ ...handleDraft, [role]: e.target.value })}
+            />
+          </div>
+        </label>
+        <button
+          onClick={() => saveHandle(role)}
+          disabled={saving === `${role}_handle` || !provisioned}
+          style={{ ...btn('rgba(0,230,118,0.15)', '#00E676', '#00E676'), opacity: provisioned ? 1 : 0.5, cursor: provisioned ? 'pointer' : 'not-allowed' }}
+        >
+          {saving === `${role}_handle` ? 'Saving…' : 'Save handle'}
+        </button>
+        {!provisioned && (
+          <span style={{ fontSize: 11, color: '#FFB020', maxWidth: 320 }}>
+            No demo {role} account found — set <code>DEMO_LOGIN_PHONE</code> and provision the demo accounts first.
+          </span>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: 24, color: '#fff', fontFamily: 'DM Sans, system-ui, sans-serif' }}>
@@ -83,6 +143,8 @@ export default function DemoDataClient() {
             Show demo data
           </label>
         </div>
+
+        {handleEditor('driver')}
 
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
           <label style={{ fontSize: 12, color: '#aaa' }}>
@@ -150,6 +212,8 @@ export default function DemoDataClient() {
             Show demo data
           </label>
         </div>
+
+        {handleEditor('rider')}
 
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
           <thead>

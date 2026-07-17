@@ -12,6 +12,7 @@ import {
   DEMO_DRIVER_KEY, DEMO_RIDER_KEY,
   getDemoDriverFinancials, getDemoRiderHistory,
 } from '@/lib/demo/data';
+import { getDemoUserHandles, setDemoUserHandle } from '@/lib/demo/handles';
 
 export const runtime = 'nodejs';
 
@@ -20,8 +21,10 @@ export async function GET() {
   if (!admin) return unauthorizedResponse();
   if (!admin.is_super) return unauthorizedResponse();
 
-  const [driver, rider] = await Promise.all([getDemoDriverFinancials(), getDemoRiderHistory()]);
-  return NextResponse.json({ driver, rider, demoConfigured: !!process.env.DEMO_LOGIN_PHONE });
+  const [driver, rider, handles] = await Promise.all([
+    getDemoDriverFinancials(), getDemoRiderHistory(), getDemoUserHandles(),
+  ]);
+  return NextResponse.json({ driver, rider, handles, demoConfigured: !!process.env.DEMO_LOGIN_PHONE });
 }
 
 export async function PATCH(req: NextRequest) {
@@ -29,10 +32,22 @@ export async function PATCH(req: NextRequest) {
   if (!admin) return unauthorizedResponse();
   if (!admin.is_super) return unauthorizedResponse();
 
-  const body = (await req.json().catch(() => ({}))) as { section?: string; config?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { section?: string; config?: unknown; handle?: unknown };
+
+  // Public @handle update for a demo account (real driver_profiles/rider_profiles row).
+  if (body.section === 'driver_handle' || body.section === 'rider_handle') {
+    const role = body.section === 'driver_handle' ? 'driver' : 'rider';
+    const result = await setDemoUserHandle(role, body.handle);
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+    await logAdminAction(admin.id, 'demo_handle_update', `${role}_profiles`, result.handles[role].userId ?? undefined, {
+      role, handle: result.handles[role].handle,
+    });
+    return NextResponse.json({ handles: result.handles });
+  }
+
   const key = body.section === 'driver' ? DEMO_DRIVER_KEY : body.section === 'rider' ? DEMO_RIDER_KEY : null;
   if (!key || typeof body.config !== 'object' || body.config === null) {
-    return NextResponse.json({ error: "section ('driver'|'rider') and config object required" }, { status: 400 });
+    return NextResponse.json({ error: "section ('driver'|'rider'|'driver_handle'|'rider_handle') required" }, { status: 400 });
   }
 
   await sql`
