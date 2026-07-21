@@ -6,6 +6,7 @@ import { partialCaptureNoShow, cancelPaymentHold } from '@/lib/payments/escrow';
 import { publishRideUpdate, notifyUser } from '@/lib/ably/server';
 import { getHoldPolicy, calculateNoShowSplit } from '@/lib/payments/hold-policy';
 import { cascadeRideCancel } from '@/lib/rides/cancel-cascade';
+import { shadowAdjudicate } from '@/lib/rides/no-show';
 
 /**
  * Driver pulls off / marks rider as no-show.
@@ -159,6 +160,12 @@ export async function POST(
     if (ride.hmu_post_id) {
       await sql`UPDATE hmu_posts SET status = 'cancelled' WHERE id = ${ride.hmu_post_id}`.catch(() => {});
     }
+
+    // No-show protection (Phase 0, shadow only): record what the GPS-truth
+    // engine WOULD decide on this driver-initiated no-show, for validation
+    // against the manual outcome before enforcement is enabled. Fire-and-forget
+    // — takes no money action and never affects this response.
+    void shadowAdjudicate(rideId, 'driver_pulloff', { triggeredBy: userId });
 
     return NextResponse.json({
       status: chargePercent === 0 ? 'cancelled' : 'ended',

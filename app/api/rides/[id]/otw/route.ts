@@ -6,6 +6,7 @@ import { publishRideUpdate, publishAdminEvent } from '@/lib/ably/server';
 import { notifyUserWithPush } from '@/lib/notify';
 import { notifyRiderDriverOtw } from '@/lib/sms/textbee';
 import { syncBookingFromRide } from '@/lib/schedule/conflicts';
+import { getNoShowConfig, computeArrivalWindowSec } from '@/lib/rides/no-show';
 
 export async function POST(
   _req: NextRequest,
@@ -36,8 +37,6 @@ export async function POST(
       return NextResponse.json({ error: 'Waiting for rider to Pull Up — they need to confirm payment and share location' }, { status: 400 });
     }
 
-    const deadlineMinutes = parseInt(process.env.OTW_DEADLINE_MINUTES || '10');
-
     await sql`
       UPDATE rides SET
         status = 'otw',
@@ -46,6 +45,34 @@ export async function POST(
         updated_at = NOW()
       WHERE id = ${rideId} AND status = 'matched'
     `;
+
+    // No-show protection: stamp the arrival deadline ONCE, from the driver's
+    // position now to the pickup. Fixed at OTW so it can't be reset by
+    // re-going-OTW. Best-effort — never blocks the OTW transition, and
+    // tolerates the column being absent during the deploy/migration window.
+    try {
+      const cfg = await getNoShowConfig(null);
+      const driverLocRows = await sql`
+        SELECT current_lat, current_lng FROM driver_profiles WHERE user_id = ${userId} LIMIT 1
+      `;
+      const dl = driverLocRows[0] as Record<string, unknown> | undefined;
+      const driverAtOtw =
+        dl && dl.current_lat != null && dl.current_lng != null
+          ? { latitude: Number(dl.current_lat), longitude: Number(dl.current_lng) }
+          : null;
+      const pickup =
+        ride.pickup_lat != null && ride.pickup_lng != null
+          ? { latitude: Number(ride.pickup_lat), longitude: Number(ride.pickup_lng) }
+          : null;
+      const windowSec = computeArrivalWindowSec(pickup, driverAtOtw, cfg);
+      await sql`
+        UPDATE rides
+        SET arrival_deadline_at = NOW() + (${windowSec} * INTERVAL '1 second')
+        WHERE id = ${rideId} AND arrival_deadline_at IS NULL
+      `;
+    } catch (e) {
+      console.error('[no-show] arrival_deadline stamp skipped:', e);
+    }
 
     // Flip the calendar booking to in_progress so the slot stays occupied
     // for any conflict checks during the ride.

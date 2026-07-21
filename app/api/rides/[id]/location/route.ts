@@ -29,7 +29,7 @@ export async function POST(
     // rides still reject (no live tracking before the rider commits).
     // See lib/rides/stage-contract.ts → 'inbound'.
     const rideRows = await sql`
-      SELECT status FROM rides
+      SELECT status, driver_id, pickup_lat, pickup_lng FROM rides
       WHERE id = ${rideId} AND (driver_id = ${userId} OR rider_id = ${userId})
       AND (
         status IN ('otw', 'here', 'confirming', 'active')
@@ -52,8 +52,41 @@ export async function POST(
     // Also publish to admin feed for live ops map
     await publishAdminEvent('driver_location', { rideId, lat, lng, timestamp: ts }).catch(() => {});
 
+    // No-show protection: the FIRST time the driver's live GPS is verified
+    // within pickup proximity (~300ft) while inbound, stamp driver_arrived_at.
+    // This is geofence-truth arrival, independent of whether the driver ever
+    // taps HERE (a no-showing driver won't). Best-effort — never blocks the
+    // location write, and only sets the column when it's still NULL, so it
+    // records the earliest arrival and can't be re-armed. Fixed 300ft matches
+    // the stop-tracking threshold below and the no_show config default, keeping
+    // this hot (~15s) path free of an extra config read.
+    const ride0 = rideRows[0] as Record<string, unknown>;
+    const rideStatus = ride0.status;
+    if (
+      ride0.driver_id === userId &&
+      (rideStatus === 'otw' || rideStatus === 'here') &&
+      ride0.pickup_lat != null && ride0.pickup_lng != null
+    ) {
+      try {
+        const R = 3958.8;
+        const pLat = Number(ride0.pickup_lat);
+        const pLng = Number(ride0.pickup_lng);
+        const dLat = (pLat - lat) * Math.PI / 180;
+        const dLon = (pLng - lng) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat * Math.PI / 180) * Math.cos(pLat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+        const distFt = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 5280;
+        if (distFt <= 300) {
+          await sql`
+            UPDATE rides SET driver_arrived_at = NOW()
+            WHERE id = ${rideId} AND driver_arrived_at IS NULL
+          `;
+        }
+      } catch (e) {
+        console.error('[no-show] driver_arrived_at stamp skipped:', e);
+      }
+    }
+
     // Background stop tracking — auto-mark stops as reached when within ~300ft
-    const rideStatus = (rideRows[0] as Record<string, unknown>).status;
     if (rideStatus === 'active') {
       try {
         const stopsRows = await sql`SELECT stops FROM rides WHERE id = ${rideId} LIMIT 1`;
