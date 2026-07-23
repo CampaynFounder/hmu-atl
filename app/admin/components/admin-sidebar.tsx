@@ -36,6 +36,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
     items: [
       { href: '/admin/support', label: 'Support', icon: '🎫', badgeCategory: 'support', badgeColor: 'amber' },
       { href: '/admin/notifications', label: 'Notifications', icon: '🔔' },
+      { href: '/admin/push', label: 'Push Message', icon: '📲' },
       { href: '/admin/disputes', label: 'Disputes', icon: '⚖️', badgeCategory: 'disputes', badgeColor: 'red' },
       { href: '/admin/safety', label: 'Safety', icon: '🛡️', badgeCategory: 'safety', badgeColor: 'red' },
       { href: '/admin/users', label: 'Users', icon: '👥', badgeCategory: 'users', badgeColor: 'green' },
