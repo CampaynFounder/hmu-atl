@@ -217,6 +217,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       case 'blast_rider_hmu':
         router.push('/(driver)/feed' as never);
         break;
+      case 'admin_message':
+      case 'marketing':
+        // Marketing/announcement push: deep-link if the admin supplied a route,
+        // otherwise the tap just opens the app on the current/home screen.
+        if (typeof data.route === 'string' && data.route) router.push(data.route as never);
+        break;
       default:
         break;
     }
@@ -692,6 +698,22 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             timestamp: Date.now(),
           });
         }
+        break;
+      }
+
+      // Generic admin/marketing message — the only event that carries an
+      // arbitrary title/body (every other case hardcodes ride/booking copy).
+      // Shown as an 'info' banner; tap deep-links if a route was supplied.
+      case 'admin_message':
+      case 'marketing': {
+        enqueue({
+          id: `marketing-${Date.now()}`,
+          type: 'info',
+          title: (data?.title as string) || 'HMU',
+          body: (data?.body as string) || (data?.message as string) || '',
+          route: (data?.route as string) || undefined,
+          timestamp: Date.now(),
+        });
         break;
       }
 
