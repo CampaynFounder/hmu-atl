@@ -21,6 +21,11 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
+import { CommentsModal } from '@/components/comments/CommentsModal';
+import {
+  AdFeedCard, type AdCardData, type AdApiRow, toAdCard,
+  interleaveAds, type FeedItem, isAdItem,
+} from '@/components/AdFeedCard';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const PAGE_SIZE = 30;
@@ -59,6 +64,33 @@ export default function FindRidersScreen() {
   const [searchVisible, setSearchVisible] = useState(false);
   const searchRef = useRef<TextInput>(null);
   const offsetRef = useRef(0);
+
+  const [ads, setAds] = useState<AdCardData[]>([]);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [commentsCtx, setCommentsCtx] = useState<{ handle: string; token: string | null } | null>(null);
+
+  const openComments = useCallback(async (handle: string) => {
+    const t = await getToken().catch(() => null);
+    setCommentsCtx({ handle, token: t });
+  }, [getToken]);
+
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: { key: string }[] }) => {
+      if (viewableItems.length > 0) setActiveKey(viewableItems[0].key);
+    },
+  ).current;
+
+  // Interleaved driver-surface ads (public endpoint).
+  useEffect(() => {
+    (async () => {
+      try {
+        const t = await getToken().catch(() => null);
+        const data = await apiClient<{ ads: AdApiRow[] }>('/ads/feed?surface=driver_browse', t);
+        setAds((data.ads ?? []).map(toAdCard));
+      } catch { /* no ads is fine */ }
+    })();
+  }, [getToken]);
 
   // Card height measured from the FlatList container via onLayout so that
   // pagingEnabled snap always aligns perfectly regardless of search bar state.
@@ -111,6 +143,15 @@ export default function FindRidersScreen() {
       return matchSearch && matchArea;
     });
   }, [riders, search, activeArea]);
+
+  const feedData = useMemo<FeedItem<MaskedRider>[]>(
+    () => interleaveAds(filtered, ads),
+    [filtered, ads],
+  );
+  const feedKey = useCallback(
+    (item: FeedItem<MaskedRider>) => (isAdItem(item) ? `ad:${item.id}` : item.id),
+    [],
+  );
 
   async function sendHmu(rider: MaskedRider) {
     if (hmuState[rider.id] === 'sent' || hmuState[rider.id] === 'sending') return;
@@ -222,20 +263,27 @@ export default function FindRidersScreen() {
           onLayout={e => setListHeight(e.nativeEvent.layout.height)}
         >
           <FlatList
-            data={filtered}
-            keyExtractor={(item) => item.id}
+            data={feedData}
+            keyExtractor={feedKey}
             pagingEnabled
             showsVerticalScrollIndicator={false}
             decelerationRate="fast"
             snapToAlignment="start"
             getItemLayout={(_, i) => ({ length: CARD_H, offset: CARD_H * i, index: i })}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
             renderItem={({ item }) => (
-              <RiderCard
-                rider={item}
-                cardHeight={CARD_H}
-                hmuStatus={hmuState[item.id] ?? 'idle'}
-                onHmu={() => sendHmu(item)}
-              />
+              isAdItem(item) ? (
+                <AdFeedCard ad={item} height={CARD_H} active={activeKey === `ad:${item.id}`} />
+              ) : (
+                <RiderCard
+                  rider={item}
+                  cardHeight={CARD_H}
+                  hmuStatus={hmuState[item.id] ?? 'idle'}
+                  onHmu={() => sendHmu(item)}
+                  onComments={() => openComments(item.handle)}
+                />
+              )
             )}
             onEndReached={() => { if (!loadingMore) void loadPage(); }}
             onEndReachedThreshold={0.5}
@@ -247,6 +295,16 @@ export default function FindRidersScreen() {
           />
         </View>
       )}
+
+      {commentsCtx && (
+        <CommentsModal
+          visible
+          handle={commentsCtx.handle}
+          token={commentsCtx.token}
+          subjectLabel={`@${commentsCtx.handle}`}
+          onClose={() => setCommentsCtx(null)}
+        />
+      )}
     </View>
   );
 }
@@ -254,12 +312,13 @@ export default function FindRidersScreen() {
 // ── RiderCard ─────────────────────────────────────────────────────────────────
 
 function RiderCard({
-  rider, cardHeight, hmuStatus, onHmu,
+  rider, cardHeight, hmuStatus, onHmu, onComments,
 }: {
   rider: MaskedRider;
   cardHeight: number;
   hmuStatus: 'idle' | 'sending' | 'sent' | 'error';
   onHmu: () => void;
+  onComments: () => void;
 }) {
   const initials = [rider.firstName[0], rider.lastName[0]].filter(Boolean).join('').toUpperCase() || rider.handle[0]?.toUpperCase() || '?';
   const sent = hmuStatus === 'sent';
@@ -348,6 +407,10 @@ function RiderCard({
             )}
           </Animated.View>
         </Pressable>
+        <TouchableOpacity style={c.commentsLink} activeOpacity={0.7} onPress={onComments} hitSlop={8}>
+          <Ionicons name="chatbubbles-outline" size={13} color={colors.textSecondary} />
+          <Text style={c.commentsText}>Comments</Text>
+        </TouchableOpacity>
         <View style={c.swipeHintRow}>
           <Ionicons name="chevron-up" size={12} color={colors.textFaint} />
           <Text style={c.swipeHint}>NEXT RIDER</Text>
@@ -460,4 +523,6 @@ const c = StyleSheet.create({
   hmuBtnText: { fontFamily: fonts.mono, fontSize: 14, color: colors.bg },
   swipeHintRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: spacing.sm, opacity: 0.6 },
   swipeHint: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 1 },
+  commentsLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: spacing.xs, marginTop: spacing.sm },
+  commentsText: { fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary, letterSpacing: 0.5 },
 });

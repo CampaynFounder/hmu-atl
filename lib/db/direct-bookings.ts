@@ -37,9 +37,11 @@ export async function checkRiderEligibility(
       LIMIT 1
     `,
     sql`
-      SELECT accept_direct_bookings, min_rider_chill_score, require_og_status, handle, cash_only
-      FROM driver_profiles
-      WHERE user_id = ${driverUserId}
+      SELECT dp.accept_direct_bookings, dp.min_rider_chill_score, dp.require_og_status,
+             dp.handle, dp.cash_only, u.is_seed
+      FROM driver_profiles dp
+      JOIN users u ON u.id = dp.user_id
+      WHERE dp.user_id = ${driverUserId}
       LIMIT 1
     `,
     sql`
@@ -74,6 +76,7 @@ export async function checkRiderEligibility(
     require_og_status: boolean;
     handle: string | null;
     cash_only: boolean | null;
+    is_seed: boolean | null;
   } | undefined;
 
   const dailyCount = Number((dailyCountRows[0] as { count: string }).count);
@@ -94,8 +97,8 @@ export async function checkRiderEligibility(
   // hasPaymentMethod is intentionally unused here; COO is the single gate.
   void hasPaymentMethod;
 
-  // 2. Driver availability check
-  if (!driver || !driver.accept_direct_bookings) {
+  // 2. Driver availability check — a seed/demo driver can never be booked for real.
+  if (!driver || driver.is_seed || !driver.accept_direct_bookings) {
     return {
       eligible: false,
       code: 'driver_closed',

@@ -246,6 +246,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/mobile/provision-demo', // one-time demo provisioning — gated by DEMO_PROVISION_SECRET in-handler, not Clerk
   '/api/public/(.*)',
   '/api/rider/browse/(.*)',
+  '/api/ads/feed',         // seed advertisement feed for browse — market resolved in-handler, anon-safe
   '/privacy',
   '/terms',
   '/about',

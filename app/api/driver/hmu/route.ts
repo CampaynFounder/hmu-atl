@@ -27,6 +27,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'riderId required' }, { status: 400 });
   }
 
+  // Seed/demo riders populate the find-riders feed but have no device to
+  // receive an HMU. Return success so the UI feels normal, but don't create
+  // a phantom request that will never be answered.
+  const targetRows = await sql`SELECT is_seed FROM users WHERE id = ${body.riderId} LIMIT 1`;
+  if ((targetRows[0]?.is_seed as boolean | undefined) === true) {
+    return NextResponse.json({ ok: true, seed: true });
+  }
+
   // market_id used to stamp the HMU row for audit/admin filtering.
   // Presence gating was removed on 2026-04-23 — drivers can HMU riders
   // without being "live." If we want to throttle non-live drivers later,

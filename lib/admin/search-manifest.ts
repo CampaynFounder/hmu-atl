@@ -313,6 +313,15 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     keywords: ['flags', 'toggles', 'experiments', 'gates'],
   },
   {
+    id: 'seed-data',
+    label: 'Seed Data',
+    description: 'Create & delete seed drivers, riders, and advertisements',
+    href: '/admin/seed-data',
+    section: 'System',
+    icon: '🌱',
+    keywords: ['seed', 'demo drivers', 'demo riders', 'advertisements', 'ads', 'populate feed', 'fake profiles'],
+  },
+  {
     id: 'hmu-config',
     label: 'HMU Config',
     description: 'Tune HMU link caps and behavior',
