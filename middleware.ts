@@ -247,6 +247,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/public/(.*)',
   '/api/rider/browse/(.*)',
   '/api/ads/feed',         // seed advertisement feed for browse — market resolved in-handler, anon-safe
+  '/api/comments/(.*)',    // profile comments — public read for driver subjects; every handler does its own auth (JSON 401), so middleware must not HTML-redirect
   '/privacy',
   '/terms',
   '/about',
