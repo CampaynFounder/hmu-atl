@@ -1,0 +1,12 @@
+-- 2026-08-01-comments-ride-id-nullable.sql
+-- Idempotent. Drops the NOT NULL on comments.ride_id.
+--
+-- Why: profile-scoped comments (comments about a driver/rider profile, not tied
+-- to a ride — see /api/comments/profile) insert ride_id = NULL. Production's
+-- comments table predated the nullable definition in 007b_comments_base.sql and
+-- kept ride_id NOT NULL (CREATE TABLE IF NOT EXISTS never alters an existing
+-- column), so those inserts failed with a not-null violation → 500. This also
+-- fixes a latent contradiction: the FK is ON DELETE SET NULL, which is
+-- impossible while the column is NOT NULL. ALTER ... DROP NOT NULL is a no-op
+-- if the column is already nullable.
+ALTER TABLE comments ALTER COLUMN ride_id DROP NOT NULL;
