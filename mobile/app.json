@@ -2,6 +2,7 @@
   "expo": {
     "name": "HMU ATL",
     "slug": "hmu-atl",
+    "platforms": ["ios", "android"],
     "version": "1.0.9",
     "runtimeVersion": {
       "policy": "appVersion"
