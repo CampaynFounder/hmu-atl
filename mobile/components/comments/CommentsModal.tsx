@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, ScrollView,
-  ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, Alert,
+  ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, Alert, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { apiClient } from '@/lib/api';
@@ -215,6 +215,18 @@ export function CommentsModal({
   );
 }
 
+function CommentAvatar({ photo, label }: { photo: string | null; label: string }) {
+  const initial = (label.replace(/^@/, '')[0] ?? '?').toUpperCase();
+  if (photo) {
+    return <Image source={{ uri: photo }} style={s.avatar} />;
+  }
+  return (
+    <View style={[s.avatar, s.avatarFallback]}>
+      <Text style={s.avatarInitial}>{initial}</Text>
+    </View>
+  );
+}
+
 function CommentRow({
   node, depth, accentColor, onReply, onEdit, onDelete,
 }: {
@@ -228,13 +240,16 @@ function CommentRow({
   const indent = Math.min(depth, MAX_DEPTH_INDENT) * spacing.md;
   const body = node.redacted_content ?? node.content;
 
+  const authorLabel = node.author_handle ? `@${node.author_handle}` : (node.author_name ?? 'Anonymous');
+
   return (
     <View style={{ marginLeft: indent }}>
       <View style={[s.comment, depth > 0 && s.reply]}>
         <View style={s.commentTop}>
-          <Text style={s.author}>
-            {node.author_handle ? `@${node.author_handle}` : (node.author_name ?? 'Anonymous')}
-          </Text>
+          <View style={s.authorRow}>
+            <CommentAvatar photo={node.author_photo} label={authorLabel} />
+            <Text style={s.author} numberOfLines={1}>{authorLabel}</Text>
+          </View>
           <Text style={s.date}>
             {fmtDate(node.created_at)}{node.edited_at ? ' · edited' : ''}
           </Text>
@@ -286,8 +301,12 @@ const s = StyleSheet.create({
     borderLeftWidth: 2, borderLeftColor: colors.borderStrong,
   },
   reply: { backgroundColor: colors.cardAlt, marginTop: spacing.sm },
-  commentTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 },
-  author: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.textSecondary, letterSpacing: 0.5 },
+  commentTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  authorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1, marginRight: spacing.sm },
+  avatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: colors.cardAlt },
+  avatarFallback: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.borderStrong },
+  avatarInitial: { fontFamily: fonts.monoBold, fontSize: 10, color: colors.textTertiary },
+  author: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.textSecondary, letterSpacing: 0.5, flexShrink: 1 },
   date: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint },
   body: { fontFamily: fonts.body, fontSize: 14, color: colors.textPrimary, lineHeight: 19 },
   actions: { flexDirection: 'row', gap: spacing.lg, marginTop: spacing.sm },
