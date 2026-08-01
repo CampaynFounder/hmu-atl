@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, Image, TouchableOpacity, StyleSheet,
   FlatList, ActivityIndicator, TextInput,
-  Dimensions, Pressable, ScrollView, Linking,
+  Dimensions, Pressable, ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -20,6 +20,12 @@ import Animated, {
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { HmuImage } from '@/components/HmuImage';
+import { AutoplayVideo } from '@/components/AutoplayVideo';
+import { CommentsModal } from '@/components/comments/CommentsModal';
+import {
+  AdFeedCard, type AdCardData, type AdApiRow, toAdCard,
+  interleaveAds, type FeedItem, isAdItem,
+} from '@/components/AdFeedCard';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const TAB_BAR_H = 64;
@@ -94,13 +100,15 @@ const chip = StyleSheet.create({
 
 // ── Driver card ───────────────────────────────────────────────────────────────
 
-function DriverCardView({ driver, cardH, canDirect, canDownBad, onHmu, onDownBad }: {
+function DriverCardView({ driver, cardH, canDirect, canDownBad, active, onHmu, onDownBad, onComments }: {
   driver: DriverCard;
   cardH: number;
   canDirect: boolean;
   canDownBad: boolean;
+  active: boolean;
   onHmu: (handle: string) => void;
   onDownBad: (handle: string) => void;
+  onComments: (handle: string) => void;
 }) {
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
@@ -124,8 +132,12 @@ function DriverCardView({ driver, cardH, canDirect, canDownBad, onHmu, onDownBad
 
   return (
     <View style={[s.card, { height: cardH, width: SCREEN_W }]}>
-      {/* Full-bleed media — native Image required; expo-image breaks absoluteFill in paging FlatList */}
-      {mediaUri ? (
+      {/* Full-bleed media. When the driver has a video AND this is the on-screen
+          card, autoplay it (muted, looping) with the photo as poster. Off-screen
+          cards render the static photo only to save battery/bandwidth. */}
+      {hasVideo && active ? (
+        <AutoplayVideo uri={driver.videoUrl as string} poster={mediaUri} active={active} />
+      ) : mediaUri ? (
         <Image source={{ uri: mediaUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
       ) : (
         <View style={[StyleSheet.absoluteFill, s.fallbackBg]}>
@@ -133,17 +145,13 @@ function DriverCardView({ driver, cardH, canDirect, canDownBad, onHmu, onDownBad
         </View>
       )}
 
-      {/* Video badge */}
-      {hasVideo && (
-        <TouchableOpacity
-          style={s.playBtn}
-          onPress={() => driver.videoUrl && Linking.openURL(driver.videoUrl)}
-          activeOpacity={0.8}
-        >
+      {/* Video indicator when the card isn't active yet (poster showing) */}
+      {hasVideo && !active && (
+        <View style={s.playBtn}>
           <View style={s.playIcon}>
             <Ionicons name="play" size={18} color={colors.textPrimary} />
           </View>
-        </TouchableOpacity>
+        </View>
       )}
 
       {/* Live indicator */}
@@ -261,6 +269,16 @@ function DriverCardView({ driver, cardH, canDirect, canDownBad, onHmu, onDownBad
             <Text style={s.downBadText}>Make a Down Bad offer ↓</Text>
           </TouchableOpacity>
         )}
+
+        <TouchableOpacity
+          style={s.commentsLink}
+          activeOpacity={0.7}
+          onPress={() => onComments(driver.handle)}
+          hitSlop={8}
+        >
+          <Ionicons name="chatbubbles-outline" size={13} color={colors.textSecondary} />
+          <Text style={s.commentsText}>Comments</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -389,6 +407,25 @@ export default function BrowseDrivers() {
   const hasLoaded = useRef(false);
   const offsetRef = useRef(0);
 
+  // Seed advertisements interleaved into the feed.
+  const [ads, setAds] = useState<AdCardData[]>([]);
+  // The on-screen card key in the paging feed — only it autoplays video.
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  // Comments modal target: { handle, token }.
+  const [commentsCtx, setCommentsCtx] = useState<{ handle: string; token: string | null } | null>(null);
+
+  const openComments = useCallback(async (handle: string) => {
+    const t = await getToken().catch(() => null);
+    setCommentsCtx({ handle, token: t });
+  }, [getToken]);
+
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: { key: string }[] }) => {
+      if (viewableItems.length > 0) setActiveKey(viewableItems[0].key);
+    },
+  ).current;
+
   // Unique areas from loaded drivers for filter chips
   const allAreas = useMemo(() => {
     const set = new Set<string>();
@@ -458,6 +495,17 @@ export default function BrowseDrivers() {
     }
   }, [getToken, buildUrl]);
 
+  // Fetch interleaved ads once (public endpoint — anon-safe).
+  useEffect(() => {
+    (async () => {
+      try {
+        const t = await getToken().catch(() => null);
+        const data = await apiClient<{ ads: AdApiRow[] }>('/ads/feed?surface=rider_browse', t);
+        setAds((data.ads ?? []).map(toAdCard));
+      } catch { /* no ads is fine */ }
+    })();
+  }, [getToken]);
+
   // Fetch booking-type availability once — gates Direct/Down Bad entry points.
   useEffect(() => {
     (async () => {
@@ -497,19 +545,37 @@ export default function BrowseDrivers() {
     } as never);
   }
 
-  const renderItem = useCallback(({ item }: { item: DriverCard }) => (
-    <DriverCardView
-      driver={item}
-      cardH={CARD_H}
-      canDirect={canDirect}
-      canDownBad={canDownBad}
-      onHmu={handleHmu}
-      onDownBad={(handle) => router.push({
-        pathname: '/(rider)/book/down-bad',
-        params: { prefillHandle: handle },
-      } as never)}
-    />
-  ), [CARD_H, canDirect, canDownBad]);
+  // Interleave ads into the filtered driver list for the paging feed.
+  const feedData = useMemo<FeedItem<DriverCard>[]>(
+    () => interleaveAds(filtered, ads),
+    [filtered, ads],
+  );
+
+  const feedKey = useCallback(
+    (item: FeedItem<DriverCard>) => (isAdItem(item) ? `ad:${item.id}` : item.handle),
+    [],
+  );
+
+  const renderItem = useCallback(({ item }: { item: FeedItem<DriverCard> }) => {
+    if (isAdItem(item)) {
+      return <AdFeedCard ad={item} height={CARD_H} active={activeKey === `ad:${item.id}`} />;
+    }
+    return (
+      <DriverCardView
+        driver={item}
+        cardH={CARD_H}
+        canDirect={canDirect}
+        canDownBad={canDownBad}
+        active={activeKey === item.handle}
+        onHmu={handleHmu}
+        onComments={openComments}
+        onDownBad={(handle) => router.push({
+          pathname: '/(rider)/book/down-bad',
+          params: { prefillHandle: handle },
+        } as never)}
+      />
+    );
+  }, [CARD_H, canDirect, canDownBad, activeKey, openComments]);
 
   const getItemLayout = useCallback((_: unknown, index: number) => ({
     length: CARD_H, offset: CARD_H * index, index,
@@ -692,14 +758,16 @@ export default function BrowseDrivers() {
         >
           <FlatList
             key="feed"
-            data={filtered}
-            keyExtractor={item => item.handle}
+            data={feedData}
+            keyExtractor={feedKey}
             renderItem={renderItem}
             getItemLayout={getItemLayout}
             pagingEnabled
             snapToAlignment="start"
             decelerationRate="fast"
             showsVerticalScrollIndicator={false}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
             onEndReached={onEndReached}
             onEndReachedThreshold={0.5}
             ListFooterComponent={loadingMore ? (
@@ -709,6 +777,16 @@ export default function BrowseDrivers() {
             ) : null}
           />
         </View>
+      )}
+
+      {commentsCtx && (
+        <CommentsModal
+          visible
+          handle={commentsCtx.handle}
+          token={commentsCtx.token}
+          subjectLabel={`@${commentsCtx.handle}`}
+          onClose={() => setCommentsCtx(null)}
+        />
       )}
     </View>
   );
@@ -834,6 +912,8 @@ const s = StyleSheet.create({
 
   downBadLink: { alignItems: 'center', paddingVertical: spacing.xs },
   downBadText: { fontFamily: fonts.body, fontSize: 12, color: colors.amber },
+  commentsLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: spacing.xs, marginTop: 2 },
+  commentsText: { fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary, letterSpacing: 0.5 },
 });
 
 // ── Grid card styles ────────────────────────────────────────────────────────
