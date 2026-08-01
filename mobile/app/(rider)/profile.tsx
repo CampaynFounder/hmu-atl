@@ -20,6 +20,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
+import { VersionBadge } from '@/components/VersionBadge';
 import { apiClient, API_BASE } from '@/lib/api';
 import { useUserContext } from '@/contexts/UserContext';
 import { AdminSheet } from '@/components/AdminSheet';
@@ -294,6 +295,8 @@ export default function RiderProfileScreen() {
             <Text style={s.deleteRowText}>Delete account</Text>
           </TouchableOpacity>
         )}
+
+        <VersionBadge />
       </ScrollView>
     </View>
   );

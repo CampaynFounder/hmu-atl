@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { useUserContext } from '@/contexts/UserContext';
+import { VersionBadge } from '@/components/VersionBadge';
 import { AdminSheet } from '@/components/AdminSheet';
 
 interface DriverProfile {
@@ -230,6 +231,8 @@ export default function DriverProfileScreen() {
           <Text style={s.deleteRowText}>Delete account</Text>
         </TouchableOpacity>
       )}
+
+      <VersionBadge />
     </ScrollView>
     </View>
   );
