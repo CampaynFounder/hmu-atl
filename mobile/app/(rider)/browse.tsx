@@ -437,7 +437,7 @@ export default function BrowseDrivers() {
   const filtered = useMemo(() => {
     let list = drivers;
     if (query.trim()) {
-      const q = query.toLowerCase();
+      const q = query.toLowerCase().replace(/^@+/, '');
       list = list.filter(d =>
         d.handle.toLowerCase().includes(q) ||
         d.displayName.toLowerCase().includes(q),
@@ -462,8 +462,12 @@ export default function BrowseDrivers() {
     // Closest-first only resolves server-side when we have rider coords; the
     // backend falls back to recommended otherwise, so it's safe to always send.
     if (sortBy === 'closest' && coords) url += `&sort=distance`;
+    // Server-side search so a handle/name match is found even when it's on a
+    // later page (client-side filtering only sees already-loaded drivers).
+    const q = query.trim().replace(/^@+/, '');
+    if (q) url += `&q=${encodeURIComponent(q)}`;
     return url;
-  }, [coords, genderFilter, accFilter, sortBy]);
+  }, [coords, genderFilter, accFilter, sortBy, query]);
 
   const load = useCallback(async (reset = false) => {
     if (reset) {
@@ -532,6 +536,14 @@ export default function BrowseDrivers() {
   useEffect(() => {
     if (hasLoaded.current) void load(true);
   }, [coords, genderFilter, accFilter, sortBy]);
+
+  // Debounced server search: reload from the server when the query changes so
+  // matches on later pages surface (the local `filtered` only sees loaded rows).
+  useEffect(() => {
+    if (!hasLoaded.current) return;
+    const t = setTimeout(() => { void load(true); }, 350);
+    return () => clearTimeout(t);
+  }, [query]);
 
   // Load on first focus only
   useFocusEffect(useCallback(() => {

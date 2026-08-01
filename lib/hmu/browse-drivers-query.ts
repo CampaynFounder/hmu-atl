@@ -40,6 +40,10 @@ export interface BrowseRiderContext {
    * resolvable location last. Distance mode only takes effect when rider coords
    * are present; otherwise it falls back to 'recommended'. */
   sortBy?: 'recommended' | 'distance';
+  /** Free-text search over handle + display name. A leading '@' is ignored.
+   * Null/empty = no filter. Server-side so it matches every eligible driver,
+   * not just the ones already paged into the client. */
+  search?: string | null;
 }
 
 export interface BrowseDriverRow {
@@ -111,6 +115,10 @@ export async function queryBrowseDrivers(
   // Without rider coords every distance_mi is null, so fall back to the
   // curated ranking instead of returning an arbitrary (all-null) order.
   const sortByDistance = rider.sortBy === 'distance' && haveRiderCoords;
+
+  // Normalize the search term: trim + drop a leading '@' so "@handle" matches the
+  // stored handle. Null when empty. Applied server-side against handle + display name.
+  const searchTerm = (rider.search ?? '').trim().replace(/^@+/, '') || null;
 
   // Curated "recommended" ranking — also the tiebreaker within equal distance
   // and the ordering for location-less drivers in distance mode. Postgres lets
@@ -244,6 +252,11 @@ export async function queryBrowseDrivers(
         OR (dp.vehicle_info ? 'photo_url'
             AND dp.vehicle_info->>'photo_url' IS NOT NULL
             AND dp.vehicle_info->>'photo_url' <> '')
+      )
+      AND (
+        ${searchTerm}::text IS NULL
+        OR dp.handle ILIKE '%' || ${searchTerm} || '%'
+        OR COALESCE(dp.display_name, '') ILIKE '%' || ${searchTerm} || '%'
       )
     ${orderByClause}
     OFFSET ${offset}
