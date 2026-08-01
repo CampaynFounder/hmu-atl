@@ -68,11 +68,18 @@ async function requireFreshHandle(raw: string): Promise<string> {
   return normalized;
 }
 
-/** Insert a bare seed `users` row and return its id. */
+/**
+ * Insert a bare seed `users` row and return its id.
+ *
+ * `clerk_id` is NOT NULL + UNIQUE (seed users have no real Clerk account), so we
+ * write a namespaced dummy `seed_<uuid>`. It can never collide with a real Clerk
+ * id (`user_…`), so no auth lookup or webhook `ON CONFLICT (clerk_id)` ever
+ * matches a seed row. We generate it in SQL for atomic uniqueness.
+ */
 async function insertSeedUserRow(role: SeedRole, marketId: string | null): Promise<string> {
   const rows = await sql`
-    INSERT INTO users (profile_type, account_status, chill_score, is_seed, market_id)
-    VALUES (${role}, 'active', 100, true, ${marketId})
+    INSERT INTO users (clerk_id, profile_type, account_status, chill_score, is_seed, market_id)
+    VALUES ('seed_' || gen_random_uuid()::text, ${role}, 'active', 100, true, ${marketId})
     RETURNING id
   `;
   return (rows[0] as { id: string }).id;
