@@ -14,6 +14,10 @@ interface SeedUser {
   gender: string | null; market_slug: string | null; photo_url: string | null;
   video_url: string | null; created_at: string;
 }
+interface SeedComment {
+  id: string; content: string; seed_author_name: string | null;
+  seed_author_handle: string | null; seed_author_avatar_url: string | null; created_at: string;
+}
 interface SeedAd {
   id: string; surface: string; market_id: string | null; market_slug?: string | null;
   headline: string; body: string | null; cta_label: string | null; cta_url: string | null;
@@ -87,7 +91,7 @@ export default function SeedDataClient({ markets }: { markets: Market[] }) {
 
 // ── media upload widget ──────────────────────────────────────────────────────
 function MediaUpload({ kind, label: lbl, value, mediaType, onDone }: {
-  kind: 'driver' | 'rider' | 'ad';
+  kind: 'driver' | 'rider' | 'ad' | 'comment';
   label: string;
   value: string | null;
   mediaType?: string | null;
@@ -252,22 +256,102 @@ function UserSection({ role, markets, users, reload, flash }: {
         {users.length === 0 ? <p style={{ color: '#666', fontSize: 13 }}>None yet.</p> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {users.map((u) => (
-              <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, background: '#0e0e0e', borderRadius: 8 }}>
-                {u.photo_url
-                  // eslint-disable-next-line @next/next/no-img-element
-                  ? <img src={u.photo_url} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover' }} />
-                  : <div style={{ width: 40, height: 40, borderRadius: 8, background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>{(u.display_name ?? '?')[0]}</div>}
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{u.display_name} <span style={{ color: '#888', fontWeight: 400 }}>@{u.handle}</span></div>
-                  <div style={{ color: '#666', fontSize: 11 }}>{u.market_slug ?? 'all markets'} · {u.video_url ? '🎥 video' : 'no video'}</div>
-                </div>
-                <button style={btn('transparent', '#552', '#c88')} onClick={() => remove(u.id, u.handle)}>Delete</button>
-              </div>
+              <SeedUserRow key={u.id} user={u} onDelete={() => remove(u.id, u.handle)} flash={flash} />
             ))}
           </div>
         )}
       </div>
     </>
+  );
+}
+
+// ── seed user row + its comment manager ─────────────────────────────────────
+function SeedUserRow({ user, onDelete, flash }: {
+  user: SeedUser; onDelete: () => void; flash: (m: string, ok?: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ background: '#0e0e0e', borderRadius: 8, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10 }}>
+        {user.photo_url
+          // eslint-disable-next-line @next/next/no-img-element
+          ? <img src={user.photo_url} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover' }} />
+          : <div style={{ width: 40, height: 40, borderRadius: 8, background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>{(user.display_name ?? '?')[0]}</div>}
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{user.display_name} <span style={{ color: '#888', fontWeight: 400 }}>@{user.handle}</span></div>
+          <div style={{ color: '#666', fontSize: 11 }}>{user.market_slug ?? 'all markets'} · {user.video_url ? '🎥 video' : 'no video'}</div>
+        </div>
+        <button style={btn('transparent', '#2a2a2a', '#bbb')} onClick={() => setOpen((o) => !o)}>💬 Comments</button>
+        <button style={btn('transparent', '#552', '#c88')} onClick={onDelete}>Delete</button>
+      </div>
+      {open && <SeedCommentsManager userId={user.id} flash={flash} />}
+    </div>
+  );
+}
+
+function SeedCommentsManager({ userId, flash }: { userId: string; flash: (m: string, ok?: boolean) => void }) {
+  const [comments, setComments] = useState<SeedComment[]>([]);
+  const [name, setName] = useState('');
+  const [handle, setHandle] = useState('');
+  const [content, setContent] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    const r = await fetch(`/api/admin/seed-users/${userId}/comments`);
+    if (r.ok) setComments((await r.json()).comments ?? []);
+  }
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [userId]);
+
+  async function add() {
+    if (!name.trim() || !content.trim()) { flash('Username and comment are required', false); return; }
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/admin/seed-users/${userId}/comments`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ authorName: name, authorHandle: handle || null, avatarUrl, content }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Failed');
+      setName(''); setHandle(''); setContent(''); setAvatarUrl(null);
+      flash('Comment added'); load();
+    } catch (e) { flash(e instanceof Error ? e.message : 'Failed', false); } finally { setSaving(false); }
+  }
+  async function del(id: string) {
+    const r = await fetch(`/api/admin/seed-comments/${id}`, { method: 'DELETE' });
+    if (r.ok) { flash('Comment deleted'); load(); } else flash('Delete failed', false);
+  }
+
+  return (
+    <div style={{ borderTop: '1px solid #222', padding: 12, background: '#0b0b0b' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div><span style={label}>Username</span><input style={inp} value={name} onChange={(e) => setName(e.target.value)} placeholder="atlqueen" /></div>
+        <div><span style={label}>Handle (optional)</span><input style={inp} value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@atlqueen" /></div>
+      </div>
+      <div style={{ marginTop: 8 }}><span style={label}>Comment</span>
+        <textarea style={{ ...inp, minHeight: 54, resize: 'vertical' }} value={content} onChange={(e) => setContent(e.target.value)} maxLength={500} placeholder="She got me right on time, super chill 💚" />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginTop: 4 }}>
+        <MediaUpload kind="comment" label="Avatar" value={avatarUrl} mediaType="photo" onDone={(r) => setAvatarUrl(r.mediaUrl)} />
+        <button style={btn('#00E676', '#00E676', '#000')} onClick={add} disabled={saving}>{saving ? 'Adding…' : 'Add comment'}</button>
+      </div>
+
+      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {comments.length === 0 ? <p style={{ color: '#555', fontSize: 12 }}>No seed comments yet.</p> : comments.map((c) => (
+          <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, background: '#141414', borderRadius: 6 }}>
+            {c.seed_author_avatar_url
+              // eslint-disable-next-line @next/next/no-img-element
+              ? <img src={c.seed_author_avatar_url} alt="" style={{ width: 28, height: 28, borderRadius: 14, objectFit: 'cover' }} />
+              : <div style={{ width: 28, height: 28, borderRadius: 14, background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', fontSize: 12 }}>{(c.seed_author_name ?? '?')[0]}</div>}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 600 }}>{c.seed_author_name}{c.seed_author_handle ? <span style={{ color: '#888', fontWeight: 400 }}> @{c.seed_author_handle}</span> : null}</div>
+              <div style={{ fontSize: 12, color: '#bbb' }}>{c.content}</div>
+            </div>
+            <button style={btn('transparent', '#552', '#c88')} onClick={() => del(c.id)}>✕</button>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

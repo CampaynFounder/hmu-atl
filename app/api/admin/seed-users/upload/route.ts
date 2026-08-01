@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
 
   const kindRaw = String(formData.get('kind') || 'driver');
-  const kind = ['driver', 'rider', 'ad'].includes(kindRaw) ? kindRaw : 'driver';
+  const kind = ['driver', 'rider', 'ad', 'comment'].includes(kindRaw) ? kindRaw : 'driver';
 
   const isVideo = file.type.startsWith('video/');
   const isImage = file.type.startsWith('image/');

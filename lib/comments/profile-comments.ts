@@ -60,9 +60,11 @@ export async function fetchCommentTree(
     SELECT
       c.id, c.parent_id, c.content, c.redacted_content, c.created_at, c.edited_at,
       u.id AS author_id,
-      COALESCE(dp.handle, rp.handle) AS author_handle,
-      COALESCE(dp.display_name, rp.display_name) AS author_name,
-      COALESCE(dp.thumbnail_url, rp.thumbnail_url, rp.avatar_url, dp.vehicle_info->>'photo_url') AS author_photo,
+      -- Seed comments carry their own display identity (seed_author_*); fall back
+      -- to the real author's profile for normal comments.
+      COALESCE(c.seed_author_handle, dp.handle, rp.handle) AS author_handle,
+      COALESCE(c.seed_author_name, dp.display_name, rp.display_name) AS author_name,
+      COALESCE(c.seed_author_avatar_url, dp.thumbnail_url, rp.thumbnail_url, rp.avatar_url, dp.vehicle_info->>'photo_url') AS author_photo,
       (
         SELECT json_agg(json_build_object('reaction', cr.reaction, 'count', cr.cnt))
         FROM (
