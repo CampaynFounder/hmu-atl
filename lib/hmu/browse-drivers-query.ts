@@ -44,6 +44,10 @@ export interface BrowseRiderContext {
    * Null/empty = no filter. Server-side so it matches every eligible driver,
    * not just the ones already paged into the client. */
   search?: string | null;
+  /** When true, seed/demo drivers sort to the very top of the feed (superadmin
+   * "pin seed to top" mode). Off by default — normal ranking, seed drivers
+   * placed realistically. */
+  seedFirst?: boolean;
 }
 
 export interface BrowseDriverRow {
@@ -124,9 +128,14 @@ export async function queryBrowseDrivers(
   // and the ordering for location-less drivers in distance mode. Postgres lets
   // `distance_mi` (a SELECT alias) be a standalone ORDER BY key, so closest-first
   // works without wrapping the query in a subselect.
+  // Optional "pin seed to top" — sorts is_seed=true rows first, ahead of every
+  // other ranking key. Empty fragment when off (normal ranking).
+  const seedOrder = rider.seedFirst ? sql`u.is_seed DESC,` : sql``;
+
   const orderByClause = sortByDistance
     ? sql`
       ORDER BY
+        ${seedOrder}
         distance_mi ASC NULLS LAST,
         CASE
           WHEN (dp.video_url IS NOT NULL AND dp.video_url <> '' AND dp.show_video_on_link IS NOT FALSE)
@@ -138,6 +147,7 @@ export async function queryBrowseDrivers(
         dp.handle ASC`
     : sql`
       ORDER BY
+        ${seedOrder}
         CASE
           WHEN (dp.video_url IS NOT NULL AND dp.video_url <> '' AND dp.show_video_on_link IS NOT FALSE)
             OR (dp.vehicle_info ? 'photo_url'

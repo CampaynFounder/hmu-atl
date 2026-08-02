@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { queryBrowseDrivers } from '@/lib/hmu/browse-drivers-query';
+import { getPlatformConfig } from '@/lib/platform-config/get';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -63,8 +64,12 @@ export async function GET(req: NextRequest) {
       driverPreference = (riderRows[0]?.driver_preference as string | null) ?? null;
     }
 
+    // Superadmin "pin seed to top" control (default off — normal ranking).
+    const seedCfg = await getPlatformConfig('browse.seed_placement', { mode: 'off' as 'off' | 'top' });
+    const seedFirst = seedCfg.mode === 'top';
+
     const drivers = await queryBrowseDrivers(
-      { driverPreference, genderFilter, hasMediaOnly, fwuOnly, areaFilter, maxPrice, minAcceptanceRate, riderLat, riderLng, sortBy, search },
+      { driverPreference, genderFilter, hasMediaOnly, fwuOnly, areaFilter, maxPrice, minAcceptanceRate, riderLat, riderLng, sortBy, search, seedFirst },
       offset,
       limit,
     );
