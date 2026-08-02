@@ -15,9 +15,10 @@ interface SeedUser {
   video_url: string | null; created_at: string;
 }
 interface SeedComment {
-  id: string; content: string; seed_author_name: string | null;
+  id: string; parent_id: string | null; content: string; seed_author_name: string | null;
   seed_author_handle: string | null; seed_author_avatar_url: string | null; created_at: string;
 }
+interface SeedCommentNode extends SeedComment { replies: SeedCommentNode[] }
 interface SeedAd {
   id: string; surface: string; market_id: string | null; market_slug?: string | null;
   headline: string; body: string | null; cta_label: string | null; cta_url: string | null;
@@ -316,66 +317,116 @@ function SeedUserRow({ user, onDelete, flash }: {
   );
 }
 
-function SeedCommentsManager({ userId, flash }: { userId: string; flash: (m: string, ok?: boolean) => void }) {
-  const [comments, setComments] = useState<SeedComment[]>([]);
+function buildCommentTree(flat: SeedComment[]): SeedCommentNode[] {
+  const byId = new Map<string, SeedCommentNode>();
+  const roots: SeedCommentNode[] = [];
+  flat.forEach((c) => byId.set(c.id, { ...c, replies: [] }));
+  byId.forEach((n) => {
+    if (n.parent_id && byId.has(n.parent_id)) byId.get(n.parent_id)!.replies.push(n);
+    else roots.push(n);
+  });
+  return roots;
+}
+
+// Reusable composer — top-level (parentId null) or a reply (parentId set).
+function SeedCommentComposer({ userId, parentId, onDone, flash }: {
+  userId: string; parentId: string | null; onDone: () => void; flash: (m: string, ok?: boolean) => void;
+}) {
   const [name, setName] = useState('');
   const [handle, setHandle] = useState('');
   const [content, setContent] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  async function load() {
-    const r = await fetch(`/api/admin/seed-users/${userId}/comments`);
-    if (r.ok) setComments((await r.json()).comments ?? []);
-  }
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [userId]);
-
-  async function add() {
+  async function submit() {
     if (!name.trim() || !content.trim()) { flash('Username and comment are required', false); return; }
     setSaving(true);
     try {
       const r = await fetch(`/api/admin/seed-users/${userId}/comments`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ authorName: name, authorHandle: handle || null, avatarUrl, content }),
+        body: JSON.stringify({ authorName: name, authorHandle: handle || null, avatarUrl, content, parentId }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'Failed');
       setName(''); setHandle(''); setContent(''); setAvatarUrl(null);
-      flash('Comment added'); load();
+      onDone();
     } catch (e) { flash(e instanceof Error ? e.message : 'Failed', false); } finally { setSaving(false); }
-  }
-  async function del(id: string) {
-    const r = await fetch(`/api/admin/seed-comments/${id}`, { method: 'DELETE' });
-    if (r.ok) { flash('Comment deleted'); load(); } else flash('Delete failed', false);
   }
 
   return (
-    <div style={{ borderTop: '1px solid #222', padding: 12, background: '#0b0b0b' }}>
+    <div style={{ background: parentId ? '#111' : 'transparent', borderRadius: 6, padding: parentId ? 8 : 0 }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <div><span style={label}>Username</span><input style={inp} value={name} onChange={(e) => setName(e.target.value)} placeholder="atlqueen" /></div>
         <div><span style={label}>Handle (optional)</span><input style={inp} value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@atlqueen" /></div>
       </div>
-      <div style={{ marginTop: 8 }}><span style={label}>Comment</span>
-        <textarea style={{ ...inp, minHeight: 54, resize: 'vertical' }} value={content} onChange={(e) => setContent(e.target.value)} maxLength={500} placeholder="She got me right on time, super chill 💚" />
+      <div style={{ marginTop: 8 }}><span style={label}>{parentId ? 'Reply' : 'Comment'}</span>
+        <textarea style={{ ...inp, minHeight: 48, resize: 'vertical' }} value={content} onChange={(e) => setContent(e.target.value)} maxLength={500} placeholder={parentId ? 'On time and super chill 💚' : 'She got me right on time, super chill 💚'} />
       </div>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginTop: 4 }}>
         <MediaUpload kind="comment" label="Avatar" value={avatarUrl} mediaType="photo" onDone={(r) => setAvatarUrl(r.mediaUrl)} />
-        <button style={btn('#00E676', '#00E676', '#000')} onClick={add} disabled={saving}>{saving ? 'Adding…' : 'Add comment'}</button>
+        <button style={btn('#00E676', '#00E676', '#000')} onClick={submit} disabled={saving}>{saving ? 'Saving…' : parentId ? 'Post reply' : 'Add comment'}</button>
       </div>
+    </div>
+  );
+}
 
+function SeedCommentTreeNode({ node, depth, onReply, onDelete, replyingTo, setReplyingTo, userId, reload, flash }: {
+  node: SeedCommentNode; depth: number;
+  onReply: (id: string) => void; onDelete: (id: string) => void;
+  replyingTo: string | null; setReplyingTo: (id: string | null) => void;
+  userId: string; reload: () => void; flash: (m: string, ok?: boolean) => void;
+}) {
+  return (
+    <div style={{ marginLeft: depth > 0 ? 20 : 0, borderLeft: depth > 0 ? '1px solid #222' : 'none', paddingLeft: depth > 0 ? 8 : 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, background: '#141414', borderRadius: 6 }}>
+        {node.seed_author_avatar_url
+          // eslint-disable-next-line @next/next/no-img-element
+          ? <img src={node.seed_author_avatar_url} alt="" style={{ width: 28, height: 28, borderRadius: 14, objectFit: 'cover' }} />
+          : <div style={{ width: 28, height: 28, borderRadius: 14, background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', fontSize: 12 }}>{(node.seed_author_name ?? '?')[0]}</div>}
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 12, fontWeight: 600 }}>{node.seed_author_name}{node.seed_author_handle ? <span style={{ color: '#888', fontWeight: 400 }}> @{node.seed_author_handle}</span> : null}</div>
+          <div style={{ fontSize: 12, color: '#bbb' }}>{node.content}</div>
+        </div>
+        <button style={btn('transparent', '#2a2a2a', '#bbb')} onClick={() => onReply(node.id)}>Reply</button>
+        <button style={btn('transparent', '#552', '#c88')} title="Delete comment + its replies" onClick={() => onDelete(node.id)}>✕</button>
+      </div>
+      {replyingTo === node.id && (
+        <div style={{ marginLeft: 20, marginTop: 6 }}>
+          <SeedCommentComposer userId={userId} parentId={node.id} flash={flash} onDone={() => { setReplyingTo(null); reload(); }} />
+        </div>
+      )}
+      {node.replies.map((r) => (
+        <SeedCommentTreeNode key={r.id} node={r} depth={depth + 1} onReply={onReply} onDelete={onDelete}
+          replyingTo={replyingTo} setReplyingTo={setReplyingTo} userId={userId} reload={reload} flash={flash} />
+      ))}
+    </div>
+  );
+}
+
+function SeedCommentsManager({ userId, flash }: { userId: string; flash: (m: string, ok?: boolean) => void }) {
+  const [flat, setFlat] = useState<SeedComment[]>([]);
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+
+  async function load() {
+    const r = await fetch(`/api/admin/seed-users/${userId}/comments`);
+    if (r.ok) setFlat((await r.json()).comments ?? []);
+  }
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [userId]);
+
+  async function del(id: string) {
+    const r = await fetch(`/api/admin/seed-comments/${id}`, { method: 'DELETE' });
+    if (r.ok) { flash('Comment + replies deleted'); load(); } else flash('Delete failed', false);
+  }
+
+  const tree = buildCommentTree(flat);
+
+  return (
+    <div style={{ borderTop: '1px solid #222', padding: 12, background: '#0b0b0b' }}>
+      <SeedCommentComposer userId={userId} parentId={null} flash={flash} onDone={load} />
       <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {comments.length === 0 ? <p style={{ color: '#555', fontSize: 12 }}>No seed comments yet.</p> : comments.map((c) => (
-          <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, background: '#141414', borderRadius: 6 }}>
-            {c.seed_author_avatar_url
-              // eslint-disable-next-line @next/next/no-img-element
-              ? <img src={c.seed_author_avatar_url} alt="" style={{ width: 28, height: 28, borderRadius: 14, objectFit: 'cover' }} />
-              : <div style={{ width: 28, height: 28, borderRadius: 14, background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', fontSize: 12 }}>{(c.seed_author_name ?? '?')[0]}</div>}
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, fontWeight: 600 }}>{c.seed_author_name}{c.seed_author_handle ? <span style={{ color: '#888', fontWeight: 400 }}> @{c.seed_author_handle}</span> : null}</div>
-              <div style={{ fontSize: 12, color: '#bbb' }}>{c.content}</div>
-            </div>
-            <button style={btn('transparent', '#552', '#c88')} onClick={() => del(c.id)}>✕</button>
-          </div>
+        {tree.length === 0 ? <p style={{ color: '#555', fontSize: 12 }}>No seed comments yet.</p> : tree.map((n) => (
+          <SeedCommentTreeNode key={n.id} node={n} depth={0} onReply={setReplyingTo} onDelete={del}
+            replyingTo={replyingTo} setReplyingTo={setReplyingTo} userId={userId} reload={load} flash={flash} />
         ))}
       </div>
     </div>

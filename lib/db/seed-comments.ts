@@ -9,6 +9,7 @@ import { sql } from './client';
 
 export interface SeedComment {
   id: string;
+  parent_id: string | null;
   content: string;
   seed_author_name: string | null;
   seed_author_handle: string | null;
@@ -22,6 +23,15 @@ export interface CreateSeedCommentParams {
   authorHandle?: string | null;
   avatarUrl?: string | null;
   content: string;
+  parentId?: string | null;
+}
+
+/** True if a comment exists on this subject (used to validate a reply target). */
+export async function commentBelongsToSubject(commentId: string, subjectUserId: string): Promise<boolean> {
+  const rows = await sql`
+    SELECT 1 FROM comments WHERE id = ${commentId} AND subject_id = ${subjectUserId} AND deleted_at IS NULL LIMIT 1
+  `;
+  return rows.length > 0;
 }
 
 /** True if the given user is a seed user (guards against fabricating comments on real people). */
@@ -37,21 +47,23 @@ export async function createSeedComment(params: CreateSeedCommentParams): Promis
       is_visible, flagged_for_review,
       is_seed, seed_author_name, seed_author_handle, seed_author_avatar_url
     ) VALUES (
-      NULL, ${params.subjectUserId}, ${params.subjectUserId}, ${params.content}, NULL,
+      NULL, ${params.subjectUserId}, ${params.subjectUserId}, ${params.content}, ${params.parentId ?? null},
       true, false,
       true, ${params.authorName}, ${params.authorHandle ?? null}, ${params.avatarUrl ?? null}
     )
-    RETURNING id, content, seed_author_name, seed_author_handle, seed_author_avatar_url, created_at
+    RETURNING id, parent_id, content, seed_author_name, seed_author_handle, seed_author_avatar_url, created_at
   `;
   return rows[0] as SeedComment;
 }
 
+// All seed comments on a subject (flat, oldest first) so the admin can nest them
+// by parent_id. Includes replies as well as top-level.
 export async function listSeedComments(subjectUserId: string): Promise<SeedComment[]> {
   const rows = await sql`
-    SELECT id, content, seed_author_name, seed_author_handle, seed_author_avatar_url, created_at
+    SELECT id, parent_id, content, seed_author_name, seed_author_handle, seed_author_avatar_url, created_at
     FROM comments
     WHERE subject_id = ${subjectUserId} AND is_seed = true AND deleted_at IS NULL
-    ORDER BY created_at DESC
+    ORDER BY created_at ASC
   `;
   return rows as SeedComment[];
 }

@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, unauthorizedResponse, logAdminAction } from '@/lib/admin/helpers';
-import { isSeedUser, createSeedComment, listSeedComments } from '@/lib/db/seed-comments';
+import { isSeedUser, createSeedComment, listSeedComments, commentBelongsToSubject } from '@/lib/db/seed-comments';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,12 +33,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!content) return NextResponse.json({ error: 'content is required' }, { status: 400 });
   if (content.length > 500) return NextResponse.json({ error: 'content must be ≤ 500 characters' }, { status: 400 });
 
+  // Optional reply target — must be a comment already on this seed subject's thread.
+  const parentId = typeof body.parentId === 'string' && body.parentId ? body.parentId : null;
+  if (parentId && !(await commentBelongsToSubject(parentId, id))) {
+    return NextResponse.json({ error: 'Parent comment not found on this profile' }, { status: 404 });
+  }
+
   const comment = await createSeedComment({
     subjectUserId: id,
     authorName,
     authorHandle: typeof body.authorHandle === 'string' && body.authorHandle.trim() ? body.authorHandle.trim().replace(/^@+/, '') : null,
     avatarUrl: typeof body.avatarUrl === 'string' && body.avatarUrl ? body.avatarUrl : null,
     content,
+    parentId,
   });
 
   await logAdminAction(admin.id, 'seed_comment.create', 'user', id, { commentId: comment.id, authorName });
