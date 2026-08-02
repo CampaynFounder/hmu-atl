@@ -37,6 +37,7 @@ export default function SeedDataClient({ markets }: { markets: Market[] }) {
   const [tab, setTab] = useState<Tab>('driver');
   const [users, setUsers] = useState<SeedUser[]>([]);
   const [ads, setAds] = useState<SeedAd[]>([]);
+  const [seedMode, setSeedMode] = useState<'off' | 'top'>('off');
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
   function flash(msg: string, ok = true) {
@@ -52,7 +53,19 @@ export default function SeedDataClient({ markets }: { markets: Market[] }) {
     const r = await fetch('/api/admin/seed-ads');
     if (r.ok) setAds((await r.json()).ads ?? []);
   }
-  useEffect(() => { loadUsers(); loadAds(); }, []);
+  async function loadConfig() {
+    const r = await fetch('/api/admin/seed-config');
+    if (r.ok) setSeedMode((await r.json()).mode ?? 'off');
+  }
+  async function setMode(mode: 'off' | 'top') {
+    setSeedMode(mode); // optimistic
+    const r = await fetch('/api/admin/seed-config', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }),
+    });
+    if (r.ok) flash(mode === 'top' ? 'Seed drivers pinned to top of browse' : 'Seed drivers use normal ranking');
+    else { flash('Could not update placement', false); loadConfig(); }
+  }
+  useEffect(() => { loadUsers(); loadAds(); loadConfig(); }, []);
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: 24, color: '#fff' }}>
@@ -61,6 +74,20 @@ export default function SeedDataClient({ markets }: { markets: Market[] }) {
         Create demo drivers, riders, and promo ads that populate the native browse feeds.
         Seed profiles never receive real ride requests. Deleting a seed user also removes their comments.
       </p>
+
+      <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>Feed placement</div>
+          <div style={{ color: '#888', fontSize: 12 }}>
+            Seed drivers rank realistically by default, so they sit deep in the swipe feed.
+            Pin them to the top to showcase them (affects real riders in their market — turn off for normal ops).
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button style={tabBtn(seedMode === 'off')} onClick={() => setMode('off')}>Normal ranking</button>
+          <button style={tabBtn(seedMode === 'top')} onClick={() => setMode('top')}>Pin seed to top</button>
+        </div>
+      </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         <button style={tabBtn(tab === 'driver')} onClick={() => setTab('driver')}>Drivers</button>
