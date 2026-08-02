@@ -8,6 +8,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { checkRateLimit } from '@/lib/rate-limit/check';
 import { notifyUser } from '@/lib/ably/server';
+import { notifyUserWithPush } from '@/lib/notify';
 import { resolveSubjectByHandle } from '@/lib/comments/profile-comments';
 
 export const runtime = 'nodejs';
@@ -59,13 +60,15 @@ export async function POST(req: NextRequest) {
     if (!subject) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
 
     // Reply target must exist and belong to the same subject thread.
+    let parentAuthorId: string | null = null;
     if (parentId) {
       const parentRows = await sql`
-        SELECT id FROM comments
+        SELECT id, author_id FROM comments
         WHERE id = ${parentId} AND subject_id = ${subject.id} AND deleted_at IS NULL
         LIMIT 1
       `;
       if (!parentRows.length) return NextResponse.json({ error: 'Parent comment not found' }, { status: 404 });
+      parentAuthorId = (parentRows[0] as { author_id: string }).author_id;
     }
 
     const result = await sql`
@@ -75,9 +78,38 @@ export async function POST(req: NextRequest) {
     `;
     const id = (result[0] as { id: string }).id;
 
-    // Notify the profile owner (best-effort) unless they're commenting on themselves.
-    if (subject.id !== authorId) {
-      notifyUser(subject.id, 'new_comment', { commentId: id, subjectHandle }).catch(() => {});
+    // Notify (in-app + OS push) — best-effort, never blocks the response.
+    // sendPushToUser no-ops when the recipient has no push token (e.g. seed users).
+    const ah = await sql`
+      SELECT COALESCE(dp.handle, rp.handle) AS handle
+      FROM users u
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      LEFT JOIN rider_profiles  rp ON rp.user_id = u.id
+      WHERE u.id = ${authorId} LIMIT 1
+    `;
+    const who = (ah[0]?.handle as string | null) ? `@${ah[0].handle}` : 'Someone';
+    const preview = content.length > 90 ? `${content.slice(0, 87)}…` : content;
+
+    if (parentId) {
+      // Reply → push the person whose comment was replied to (if a different real user).
+      if (parentAuthorId && parentAuthorId !== authorId) {
+        notifyUserWithPush(parentAuthorId, 'new_comment', { commentId: id, subjectHandle, parentId }, {
+          title: `${who} replied to your comment 💬`,
+          body: preview,
+          data: { type: 'comment_reply', subjectHandle },
+        }).catch(() => {});
+      }
+      // Profile owner still gets the in-app event (no extra push, to avoid noise).
+      if (subject.id !== authorId && subject.id !== parentAuthorId) {
+        notifyUser(subject.id, 'new_comment', { commentId: id, subjectHandle, parentId }).catch(() => {});
+      }
+    } else if (subject.id !== authorId) {
+      // Top-level comment → push the profile owner: "someone commented on your profile".
+      notifyUserWithPush(subject.id, 'new_comment', { commentId: id, subjectHandle }, {
+        title: `${who} commented on your profile 💬`,
+        body: preview,
+        data: { type: 'new_comment', subjectHandle },
+      }).catch(() => {});
     }
 
     return NextResponse.json({ id, created_at: (result[0] as { created_at: string }).created_at }, { status: 201 });
