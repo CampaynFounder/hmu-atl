@@ -33,6 +33,7 @@ import { getMatchingConfig, getKnob } from '@/lib/blast/config';
 // fanoutBlast intentionally not called here — notification is deferred to the
 // per-driver right-swipe action in POST /api/blast/[id]/hmu-fallback/[targetId].
 import { publishToChannel, notifyUser } from '@/lib/ably/server';
+import { alertRideRequested } from '@/lib/admin/push-alerts';
 import { sendBlastTakenSms } from '@/lib/blast/notify';
 import { getMatchingProvider, InternalMatcher } from '@/lib/blast/provider';
 import type { BlastConfig as V3BlastConfig, BlastCreateInput } from '@/lib/blast/types';
@@ -596,6 +597,9 @@ export async function POST(req: NextRequest) {
       finalRadiusMi,
       expansionsUsed,
     }).catch(() => {});
+
+    // Push super-admins on the new blast request (gated by admin.push_alerts).
+    alertRideRequested({ kind: 'blast', price: priceDollars }).catch(() => {});
 
     return NextResponse.json({
       blastId,

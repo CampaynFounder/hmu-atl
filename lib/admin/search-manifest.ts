@@ -322,6 +322,15 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     keywords: ['seed', 'demo drivers', 'demo riders', 'advertisements', 'ads', 'populate feed', 'fake profiles'],
   },
   {
+    id: 'admin-alerts',
+    label: 'Admin Push Alerts',
+    description: 'Super-admin push: new ride requests + daily 7am summary',
+    href: '/admin/admin-alerts',
+    section: 'System',
+    icon: '🔔',
+    keywords: ['push', 'notifications', 'alerts', 'daily summary', 'ride requests', 'revenue', 'profit'],
+  },
+  {
     id: 'hmu-config',
     label: 'HMU Config',
     description: 'Tune HMU link caps and behavior',

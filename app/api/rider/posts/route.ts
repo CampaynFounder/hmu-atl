@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishToChannel, publishAdminEvent } from '@/lib/ably/server';
+import { alertRideRequested } from '@/lib/admin/push-alerts';
 import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
 import { parseRoute, resolveProvidedSlugs } from '@/lib/markets/parse-areas';
 import { globalDefaultAllowsCashOnly } from '@/lib/payments/strategies';
@@ -149,6 +150,12 @@ export async function POST(req: NextRequest) {
       postId, price, message, market: market.slug,
       pickup_area_slug: route.pickup_area_slug,
       dropoff_area_slug: route.dropoff_area_slug,
+    }).catch(() => {});
+
+    // Push super-admins on the new ride request (gated by admin.push_alerts).
+    alertRideRequested({
+      kind: 'rider_request', price,
+      areas: [route.pickup_area_slug, route.dropoff_area_slug].filter(Boolean).join(' → ') || null,
     }).catch(() => {});
 
     return NextResponse.json({

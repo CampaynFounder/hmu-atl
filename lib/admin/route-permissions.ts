@@ -104,6 +104,7 @@ export const ADMIN_ROUTES: AdminRouteEntry[] = [
   { pattern: '/admin/sms-templates',       rule: { kind: 'permission', slug: 'admin.smstemplates' } },
   { pattern: '/admin/chill-config',        rule: { kind: 'super' } },
   { pattern: '/admin/seed-data',           rule: { kind: 'super' } }, // create/delete seed drivers, riders & ads — super only
+  { pattern: '/admin/admin-alerts',        rule: { kind: 'super' } }, // super-admin push alert toggles — super only
   { pattern: '/admin/down-bad',            rule: { kind: 'super' } },
   { pattern: '/admin/booking-types',       rule: { kind: 'super' } }, // per-market rollout switches for direct/blast/down-bad/delivery — super only
   { pattern: '/admin/partner-fees',        rule: { kind: 'super' } }, // controls money split on partner deliveries — super only
