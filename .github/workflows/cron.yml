@@ -21,8 +21,6 @@ on:
                             # + safety-scheduler (scheduled check-ins + anomaly scan)
                             # + cancel-timeouts (backstop for stale cancel requests)
     - cron: '0 17 * * 1'    # driver-nudges weekly — Mondays 17:00 UTC (12pm ET)
-    - cron: '0 11 * * *'    # admin-daily-summary — 7am EDT (summer); handler no-ops unless it's 7am ET
-    - cron: '0 12 * * *'    # admin-daily-summary — 7am EST (winter); handler no-ops unless it's 7am ET
   workflow_dispatch:
     inputs:
       job:
@@ -174,11 +172,11 @@ jobs:
 
   admin-daily-summary:
     name: Super-admin daily summary push (7am ET)
-    # Fires at 11:00 and 12:00 UTC; the endpoint only actually sends when it's
-    # 7am in America/New_York, so exactly one run/day pushes across the DST shift.
+    # Runs on the reliable */5 schedule (GitHub drops exact top-of-hour crons).
+    # The endpoint sends only once/day, on the first tick in the 7–9am ET window,
+    # guarded by a stored last-sent date — so the many */5 ticks don't re-fire it.
     if: >-
-      github.event.schedule == '0 11 * * *' ||
-      github.event.schedule == '0 12 * * *' ||
+      github.event.schedule == '*/5 * * * *' ||
       github.event.inputs.job == 'admin-daily-summary'
     runs-on: ubuntu-latest
     timeout-minutes: 2
