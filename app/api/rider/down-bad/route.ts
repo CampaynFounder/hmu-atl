@@ -20,6 +20,7 @@ import { getPlatformConfig } from '@/lib/platform-config/get';
 import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
 import { isBookingTypeEnabled } from '@/lib/markets/booking-types';
 import { publishToChannel } from '@/lib/ably/server';
+import { alertRideRequested } from '@/lib/admin/push-alerts';
 import { notifyDriverDownBadPosted } from '@/lib/sms/textbee';
 
 interface DownBadConfig {
@@ -273,6 +274,9 @@ export async function POST(req: NextRequest) {
     for (const row of smsDriverRows) {
       notifyDriverDownBadPosted(row.phone, price, { market: market.slug }).catch(() => {});
     }
+
+    // Push super-admins on the new Down Bad request (gated by admin.push_alerts).
+    alertRideRequested({ kind: 'down_bad', price }).catch(() => {});
 
     return NextResponse.json({ postId, expiresAt: expiresAt.toISOString() }, { status: 201 });
   } catch (err) {
