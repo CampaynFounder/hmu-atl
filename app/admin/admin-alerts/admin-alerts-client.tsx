@@ -44,13 +44,18 @@ export default function AdminAlertsClient() {
   function setRide(v: boolean) { setRideRequests(v); save({ rideRequests: v, dailySummary }); }
   function setDaily(v: boolean) { setDailySummary(v); save({ rideRequests, dailySummary: v }); }
 
-  async function sendTest() {
+  async function sendTest(type: 'summary' | 'ride_request') {
     setTesting(true);
     try {
-      const r = await fetch('/api/admin/admin-alerts', { method: 'POST' });
+      const r = await fetch('/api/admin/admin-alerts', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type }),
+      });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Failed');
-      flash(`Test sent to ${d.recipients} admin${d.recipients === 1 ? '' : 's'} — ${d.requested} req / ${d.completed} done`);
+      const to = `${d.recipients} admin${d.recipients === 1 ? '' : 's'}`;
+      flash(type === 'ride_request'
+        ? `Test ride-request ping sent to ${to}`
+        : `Test summary sent to ${to} — ${d.requested} req / ${d.completed} done`);
     } catch (e) { flash(e instanceof Error ? e.message : 'Failed', false); } finally { setTesting(false); }
   }
 
@@ -79,9 +84,14 @@ export default function AdminAlertsClient() {
         <Toggle on={dailySummary} onChange={setDaily} />
       </div>
 
-      <button style={btn('transparent', '#2a2a2a', '#bbb')} onClick={sendTest} disabled={testing}>
-        {testing ? 'Sending…' : 'Send test summary now'}
-      </button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button style={btn('transparent', '#2a2a2a', '#bbb')} onClick={() => sendTest('summary')} disabled={testing}>
+          {testing ? 'Sending…' : 'Send test summary'}
+        </button>
+        <button style={btn('transparent', '#2a2a2a', '#bbb')} onClick={() => sendTest('ride_request')} disabled={testing}>
+          {testing ? 'Sending…' : 'Send test ride-request ping'}
+        </button>
+      </div>
 
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, right: 24, background: toast.ok ? '#0b2a17' : '#2a0b0b', border: `1px solid ${toast.ok ? '#00E676' : '#ff5252'}`, color: toast.ok ? '#00E676' : '#ff8a8a', padding: '12px 18px', borderRadius: 10, fontSize: 13 }}>
