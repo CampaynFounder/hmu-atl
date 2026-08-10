@@ -356,7 +356,9 @@ export default function RiderRideDetail() {
   }
 
   const price = ride.final_agreed_price ?? ride.amount;
-  const canRate = ride.status === 'ended' && ride.driver_rating == null;
+  // Allow rating while ended OR completed — the first rater moves the ride to
+  // 'completed', which must not lock the other party out of rating.
+  const canRate = ['ended', 'completed'].includes(ride.status) && ride.driver_rating == null;
 
   const driverRatingMeta = ride.driver_rating ? RATING_META[String(ride.driver_rating)] : null;
   const riderRatingMeta  = ride.rider_rating  ? RATING_META[String(ride.rider_rating)]  : null;

@@ -67,11 +67,12 @@ export default function FindRidersScreen() {
 
   const [ads, setAds] = useState<AdCardData[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
-  const [commentsCtx, setCommentsCtx] = useState<{ handle: string; token: string | null } | null>(null);
+  const [commentsCtx, setCommentsCtx] = useState<{ subject: string; label: string; token: string | null } | null>(null);
 
-  const openComments = useCallback(async (handle: string) => {
+  // Many riders have no handle, so address the comment subject by id when needed.
+  const openComments = useCallback(async (subject: string, label: string) => {
     const t = await getToken().catch(() => null);
-    setCommentsCtx({ handle, token: t });
+    setCommentsCtx({ subject, label, token: t });
   }, [getToken]);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
@@ -281,7 +282,10 @@ export default function FindRidersScreen() {
                   cardHeight={CARD_H}
                   hmuStatus={hmuState[item.id] ?? 'idle'}
                   onHmu={() => sendHmu(item)}
-                  onComments={() => openComments(item.handle)}
+                  onComments={() => openComments(
+                    item.handle || item.id,
+                    item.handle ? `@${item.handle}` : `${item.firstName}${item.lastName ? ` ${item.lastName[0]}.` : ''}`,
+                  )}
                 />
               )
             )}
@@ -299,9 +303,9 @@ export default function FindRidersScreen() {
       {commentsCtx && (
         <CommentsModal
           visible
-          handle={commentsCtx.handle}
+          handle={commentsCtx.subject}
           token={commentsCtx.token}
-          subjectLabel={`@${commentsCtx.handle}`}
+          subjectLabel={commentsCtx.label}
           onClose={() => setCommentsCtx(null)}
         />
       )}

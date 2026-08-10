@@ -34,6 +34,7 @@ export async function GET(
         r.visible_deposit,
         r.pricing_mode_key,
         r.payment_captured,
+        r.rider_rating,
         r.coo_at,
         r.pickup_address,
         r.pickup_lat,
@@ -103,6 +104,9 @@ export async function GET(
       isDepositMode,
       cashToCollect,
       paymentCaptured: Boolean(r.payment_captured),
+      // The driver rates the rider → sets rider_rating. Used to stop re-prompting
+      // the rating sheet after they've already rated (fixes the rate-step loop).
+      ratedByMe: r.rider_rating != null,
       breakdown,
       cooAt: r.coo_at ?? null,
       pickupAddress: r.pickup_address ?? null,

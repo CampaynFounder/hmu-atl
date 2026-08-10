@@ -9,8 +9,24 @@ export interface SubjectRef {
   profile_type: string;
 }
 
-/** Resolve a public @handle (driver or rider) to its owning user. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolve a comment subject to its owning user. Accepts a public @handle OR a
+ * user id (UUID) — many existing riders have no handle, so the find-riders feed
+ * passes the rider's id instead, and commenting on them must still work.
+ */
 export async function resolveSubjectByHandle(handle: string): Promise<SubjectRef | null> {
+  // Id path: handle-less subjects (e.g. riders without a handle) are addressed by id.
+  if (UUID_RE.test(handle)) {
+    const byId = await sql`
+      SELECT id, profile_type FROM users
+      WHERE id = ${handle} AND account_status <> 'deleted'
+      LIMIT 1
+    `;
+    return (byId[0] as SubjectRef) || null;
+  }
+
   const rows = await sql`
     SELECT u.id, u.profile_type
     FROM users u
