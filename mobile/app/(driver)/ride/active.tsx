@@ -20,6 +20,7 @@ import { apiClient } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
 import { useNotifications } from '@/contexts/notifications';
 import { RideMap } from '@/components/ride/RideMap';
+import { DepositSplitCard } from '@/components/ride/DepositSplitCard';
 import { toLatLng, LatLng } from '@/components/ride/types';
 import { useRideMessages, ChatMessage } from '@/components/ride/useRideMessages';
 import { RideChat } from '@/components/ride/RideChat';
@@ -1031,18 +1032,16 @@ export default function ActiveRideScreen() {
           </View>
         )}
 
-        {/* ── Collect cash (deposit mode, before the ride ends) ── */}
-        {ride.isDepositMode && !isEnded && (ride.cashToCollect ?? 0) > 0 && (
-          <View style={s.cashCollectBanner}>
-            <Ionicons name="cash" size={20} color={colors.cash} />
-            <View style={{ flex: 1, marginLeft: spacing.md }}>
-              <Text style={s.cashCollectLabel}>COLLECT FROM RIDER AT PICKUP</Text>
-              <Text style={s.cashCollectAmount}>${(ride.cashToCollect ?? 0).toFixed(2)} cash</Text>
-            </View>
-            <Text style={s.cashCollectSub}>
-              ${(ride.visibleDeposit ?? 0).toFixed(2)}{'\n'}deposit in app
-            </Text>
-          </View>
+        {/* ── Deposit-only split (same card the rider sees) — what HMU collected
+              on-platform vs the cash you collect off-platform. Shown from OTW onward. ── */}
+        {ride.isDepositMode && (ride.cashToCollect ?? 0) > 0 &&
+          ['otw', 'here', 'confirming', 'active', 'in_progress'].includes(ride.status) && (
+          <DepositSplitCard
+            variant="driver"
+            deposit={ride.visibleDeposit ?? 0}
+            cashDue={ride.cashToCollect ?? 0}
+            total={ride.agreedPrice}
+          />
         )}
 
         {/* ── Payout card ── */}

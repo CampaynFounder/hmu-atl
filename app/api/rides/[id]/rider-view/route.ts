@@ -25,6 +25,8 @@ export async function GET(
         r.status,
         r.amount,
         r.final_agreed_price,
+        r.visible_deposit,
+        r.pricing_mode_key,
         r.proposed_price,
         r.proposed_price_reason,
         r.is_cash,
@@ -70,11 +72,24 @@ export async function GET(
       return NextResponse.json({ error: 'Only the rider can access this view' }, { status: 403 });
     }
 
+    // Deposit-only split — mirrors driver-view. The rider sees what HMU collected
+    // on-platform (the deposit) and what they still owe the driver off-platform
+    // (cash due). Never exposes driver payout / platform fee.
+    const agreedPrice = Number(r.final_agreed_price ?? r.amount ?? 0);
+    const visibleDeposit = Number(r.visible_deposit ?? 0);
+    const pricingModeKey = (r.pricing_mode_key as string) ?? null;
+    const isDepositMode = pricingModeKey === 'deposit_only' && visibleDeposit > 0 && visibleDeposit < agreedPrice;
+    const cashToCollect = isDepositMode ? Math.round((agreedPrice - visibleDeposit) * 100) / 100 : 0;
+
     return NextResponse.json({
       id: r.id,
       refCode: r.ref_code ?? null,
       status: r.status,
-      agreedPrice: Number(r.final_agreed_price ?? r.amount ?? 0),
+      agreedPrice,
+      visibleDeposit,
+      pricingModeKey,
+      isDepositMode,
+      cashToCollect,
       proposedPrice: r.proposed_price != null ? Number(r.proposed_price) : null,
       proposedPriceReason: (r.proposed_price_reason as string) ?? null,
       isCash: Boolean(r.is_cash),
