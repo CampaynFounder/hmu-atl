@@ -71,6 +71,7 @@ interface RideView {
   isDepositMode?: boolean;
   cashToCollect?: number;
   paymentCaptured?: boolean;
+  ratedByMe?: boolean;
   breakdown?: RideBreakdown | null;
 }
 
@@ -190,6 +191,9 @@ export default function ActiveRideScreen() {
   const [ratingComment, setRatingComment] = useState('');
   const [submittingRating, setSubmittingRating] = useState(false);
   const ratingSlide = useRef(new Animated.Value(300)).current;
+  // Set once the driver submits their rating — belt-and-suspenders against a
+  // replayed Ably 'ended' event re-opening the sheet after they've rated.
+  const ratedRef = useRef(false);
 
   // Cancel overlay state
   const [showCancel, setShowCancel] = useState(false);
@@ -260,12 +264,15 @@ export default function ActiveRideScreen() {
         stops: Array.isArray(raw.stops) ? raw.stops : [],
       };
       setRide(data);
-      // Only prompt the rating sheet for a freshly-ENDED ride (rating pending).
-      // 'completed' means the ride is finalized (the driver already rated, which
-      // transitions ended→completed, or it auto-completed) — re-opening the sheet
-      // for it is what looped the driver back into "rate" after they'd rated,
-      // every time they re-entered this screen (e.g. via the live-ride bar).
-      if (data.status === 'ended') openRatingSheet();
+      // Prompt the rating sheet only when the ride is finished AND the driver
+      // hasn't rated yet (ratedByMe = rider_rating set server-side). Gating on the
+      // driver's own rating — not just status — stops the loop: the first rater
+      // moves the ride ended→completed, so gating on 'ended' alone either re-prompts
+      // (if status lags) or locks out the second rater. We show it for ended OR
+      // completed while unrated, and never again once rated.
+      if ((data.status === 'ended' || data.status === 'completed') && !data.ratedByMe && !ratedRef.current) {
+        openRatingSheet();
+      }
     } catch (e: any) {
       setError(e.message ?? 'Failed to load ride');
     } finally {
@@ -364,7 +371,9 @@ export default function ActiveRideScreen() {
         // which would re-loop the driver into the rating sheet.
         if (newStatus === 'ended' || newStatus === 'completed') {
           void stopRideTracking();
-          if (newStatus === 'ended') openRatingSheet();
+          // Open only if this driver hasn't rated (ratedRef guards replayed
+          // 'ended' events after they've already rated → the loop).
+          if (newStatus === 'ended' && !ratedRef.current) openRatingSheet();
         }
         if (newStatus === 'cancelled') { void stopRideTracking(); openCancelOverlay(); }
       }
@@ -643,6 +652,7 @@ export default function ActiveRideScreen() {
           body: JSON.stringify({ rideId, content: ratingComment.trim() }),
         }).catch(() => {});
       }
+      ratedRef.current = true;
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace('/(driver)/home');
     } catch (e: any) {
