@@ -19,6 +19,7 @@ import { apiClient, ApiError } from '@/lib/api';
 import { useAbly } from '@/hooks/use-ably';
 import { useNotifications } from '@/contexts/notifications';
 import { RideMap } from '@/components/ride/RideMap';
+import { DepositSplitCard } from '@/components/ride/DepositSplitCard';
 import {
   loadPendingRideLocations, clearPendingRideLocations, type PendingRideLocations,
 } from '@/lib/pending-ride-locations';
@@ -38,6 +39,9 @@ interface RideView {
   refCode: string | null;
   status: string;
   agreedPrice: number;
+  visibleDeposit: number;
+  isDepositMode: boolean;
+  cashToCollect: number;
   proposedPrice: number | null;
   proposedPriceReason: string | null;
   isCash: boolean;
@@ -883,6 +887,18 @@ export default function RiderActiveScreen() {
             </View>
           )}
         </View>
+
+        {/* Deposit-only split — what HMU took vs what you pay the driver off-platform.
+            Shown from OTW onward so you know what to hand your driver on arrival. */}
+        {ride.isDepositMode && ride.cashToCollect > 0 &&
+          ['otw', 'here', 'confirming', 'active', 'in_progress'].includes(ride.status) && (
+          <DepositSplitCard
+            variant="rider"
+            deposit={ride.visibleDeposit}
+            cashDue={ride.cashToCollect}
+            total={ride.agreedPrice}
+          />
+        )}
 
         {/* Route card */}
         <View style={[s.card, shadow.card]}>
