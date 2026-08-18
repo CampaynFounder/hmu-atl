@@ -150,14 +150,18 @@ export default function SignIn() {
               style={s.input}
               placeholder={demo ? 'Invite code (e.g. HMU-7F2A)' : '6-digit code'}
               placeholderTextColor={colors.textFaint}
-              // Invite codes are alphanumeric (HMU-XXXX) — use the default keyboard
-              // so letters can be typed; real OTP stays numeric.
-              keyboardType={demo ? 'default' : 'number-pad'}
+              // Invite codes are alphanumeric (HMU-XXXX) → default keyboard so
+              // letters type. Real OTP uses 'numbers-and-punctuation' (NOT
+              // 'number-pad'): the number pad has no QuickType bar, so iOS has
+              // nowhere to render the one-tap "From Messages" auto-fill chip.
+              // numbers-and-punctuation opens on digits AND shows the bar, so
+              // the modern one-tap SMS-code autofill works.
+              keyboardType={demo ? 'default' : 'numbers-and-punctuation'}
               autoCapitalize={demo ? 'characters' : 'none'}
               autoCorrect={false}
               value={code}
               onChangeText={setCode}
-              autoComplete={demo ? 'off' : 'one-time-code'}
+              autoComplete={demo ? 'off' : 'sms-otp'}
               textContentType={demo ? 'none' : 'oneTimeCode'}
               autoFocus
               returnKeyType="done"
