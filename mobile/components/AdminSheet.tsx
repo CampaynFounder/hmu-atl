@@ -1844,7 +1844,7 @@ function DemoSection({ token }: { token: string | null }) {
         body: JSON.stringify({ phone, role, marketSlug: marketSlug === 'all' ? null : marketSlug, label: label || null }),
       });
       setPhone(''); setLabel('');
-      Alert.alert('Demo account ready', `${d.account.phone}\nCode: ${d.account.otp_code}`);
+      Alert.alert('Demo account ready', `${d.account.phone}\nInvite code: ${d.account.otp_code}`);
       await load();
     } catch (e: unknown) {
       setErr((e as { message?: string }).message ?? 'Failed to provision');
@@ -1856,7 +1856,7 @@ function DemoSection({ token }: { token: string | null }) {
       const d = await apiClient<{ otp_code: string }>(`/admin/demo-accounts/${id}`, token, {
         method: 'PATCH', body: JSON.stringify({ action: 'rotate' }),
       });
-      Alert.alert('New code', d.otp_code);
+      Alert.alert('New invite code', d.otp_code);
       await load();
     } catch { Alert.alert('Rotate failed'); }
   }
@@ -1908,7 +1908,7 @@ function DemoSection({ token }: { token: string | null }) {
         </View>
         {err && <Text style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.red }}>{err}</Text>}
         <TouchableOpacity style={sc.saveBtn} onPress={provision} disabled={saving}>
-          {saving ? <ActivityIndicator size="small" color={colors.bg} /> : <Text style={sc.saveBtnText}>PROVISION + CODE</Text>}
+          {saving ? <ActivityIndicator size="small" color={colors.bg} /> : <Text style={sc.saveBtnText}>PROVISION + INVITE CODE</Text>}
         </TouchableOpacity>
       </View>
 
@@ -1919,7 +1919,7 @@ function DemoSection({ token }: { token: string | null }) {
             <Text style={sc.rowTitle}>{a.phone} · {a.role}{a.handle ? ` · @${a.handle}` : ''}</Text>
             <Text style={sc.rowSub}>{a.market_slug ?? 'no market'}{a.label ? ` · ${a.label}` : ''}</Text>
           </View>
-          <TouchableOpacity onPress={() => Alert.alert('Demo code', a.otp_code)}>
+          <TouchableOpacity onPress={() => Alert.alert('Invite code', a.otp_code)}>
             <Text style={[sc.tag, { color: G }]}>{a.otp_code}</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => rotate(a.id)} style={{ paddingHorizontal: 6 }}>
