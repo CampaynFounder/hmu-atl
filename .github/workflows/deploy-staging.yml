@@ -169,6 +169,7 @@ jobs:
           node scripts/apply-migration.mjs lib/db/migrations/2026-08-01-seed-data-and-comment-crud.sql
           node scripts/apply-migration.mjs lib/db/migrations/2026-08-01-comments-ride-id-nullable.sql
           node scripts/apply-migration.mjs lib/db/migrations/2026-08-01-seed-comments.sql
+          node scripts/apply-migration.mjs lib/db/migrations/2026-08-18-demo-accounts.sql
 
       - name: Post-deploy health check
         run: |

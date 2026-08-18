@@ -88,6 +88,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: '/admin/booking-types', label: 'Booking Types', icon: '🎚️' },
       { href: '/admin/account-deletion', label: 'Account Deletion', icon: '🗑️' },
       { href: '/admin/demo-data', label: 'Demo Account Data', icon: '🎬' },
+      { href: '/admin/demo-accounts', label: 'Demo Accounts', icon: '🎟️' },
       { href: '/admin/seed-data', label: 'Seed Data', icon: '🌱' },
       { href: '/admin/admin-alerts', label: 'Admin Push Alerts', icon: '🔔' },
       { href: '/admin/chart-colors', label: 'Chart Colors', icon: '🎨' },

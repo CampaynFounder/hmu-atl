@@ -108,7 +108,7 @@ export default function SignIn() {
         {/* Logo */}
         <Text style={s.logo}>HMU ATL</Text>
         <Text style={s.tagline}>
-          {step === 'phone' ? 'Enter your number to get in' : 'Check your texts'}
+          {step === 'phone' ? 'Enter your number to get in' : demo ? 'Enter your demo code' : 'Check your texts'}
         </Text>
 
         {step === 'phone' ? (
@@ -131,6 +131,17 @@ export default function SignIn() {
                 ? <ActivityIndicator color={colors.bg} />
                 : <Text style={s.btnText}>SEND CODE</Text>
               }
+            </TouchableOpacity>
+            {/* Demo/test accounts: enter the phone + admin-issued code, no SMS.
+                Isolated from the normal Clerk flow above — inert without a code. */}
+            <TouchableOpacity
+              style={s.ghost}
+              onPress={() => {
+                if (!phone) { setError('Enter the demo phone number first'); return; }
+                setError(null); setDemo(true); setCode(''); setStep('code');
+              }}
+            >
+              <Text style={s.ghostText}>Have a demo code?</Text>
             </TouchableOpacity>
           </>
         ) : (
