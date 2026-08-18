@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { clerkClient } from '@clerk/nextjs/server';
 import { checkRateLimit } from '@/lib/rate-limit/check';
+import { findDemoByPhone } from '@/lib/demo/registry';
 
 export const runtime = 'nodejs';
 
@@ -45,15 +46,10 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
-  // Feature disabled unless explicitly configured.
-  if (DEMO_PHONES.length === 0 || !DEMO_CODE) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
-
-  // Brute-force guard. This endpoint has no Clerk OTP, so a short numeric code is
-  // only safe behind a strict per-IP limiter. A legitimate reviewer types the
-  // code once; 8 attempts / 15 min leaves room for typos while making a 6-digit
-  // sweep take years.
+  // Brute-force guard. No Clerk OTP here, so codes are only safe behind a strict
+  // per-IP limiter. A legitimate user types the code once; 8 attempts / 15 min
+  // leaves room for typos while making any code sweep take years. Runs first so
+  // an unprovisioned endpoint is still rate-limited.
   const ip = req.headers.get('cf-connecting-ip') || req.headers.get('x-forwarded-for') || 'unknown';
   const rl = await checkRateLimit({ key: `mobile:demo-signin:${ip}`, limit: 8, windowSeconds: 900 });
   if (!rl.ok) {
@@ -70,21 +66,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   }
 
-  // Match the submitted phone to a configured demo phone; use the configured
-  // (E.164) value for the Clerk lookup so the format is always exact.
-  const matched = DEMO_PHONES.find((p) => norm10(p) === norm10(body.phone ?? ''));
-  const codeOk = safeEqual(body.code ?? '', DEMO_CODE);
-  // Single generic 401 for any mismatch — don't reveal which field was wrong.
-  if (!matched || !codeOk) {
+  const phone = body.phone ?? '';
+  const code = body.code ?? '';
+
+  // 1) Env reviewer path — UNCHANGED. Fixed DEMO_LOGIN_PHONE + DEMO_LOGIN_CODE.
+  let clerkPhone: string | null = null;
+  if (DEMO_PHONES.length > 0 && DEMO_CODE) {
+    const matched = DEMO_PHONES.find((p) => norm10(p) === norm10(phone));
+    if (matched && safeEqual(code, DEMO_CODE)) clerkPhone = matched;
+  }
+
+  // 2) DB registry path — admin-provisioned accounts with per-account codes.
+  if (!clerkPhone) {
+    const acct = await findDemoByPhone(phone);
+    if (acct && safeEqual(code, acct.otp_code)) clerkPhone = acct.phone;
+  }
+
+  // Single generic 401 for any mismatch — don't reveal which field was wrong, and
+  // (with no demo accounts + no env) the endpoint is closed by default.
+  if (!clerkPhone) {
     return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
   }
 
   try {
     const clerk = await clerkClient();
-    const list = await clerk.users.getUserList({ phoneNumber: [matched], limit: 1 });
+    const list = await clerk.users.getUserList({ phoneNumber: [clerkPhone], limit: 1 });
     const user = list.data[0];
     if (!user) {
-      // Misconfiguration: phone/code matched but the demo user isn't provisioned.
       return NextResponse.json({ error: 'Demo account not provisioned' }, { status: 500 });
     }
 

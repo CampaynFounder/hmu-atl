@@ -322,6 +322,15 @@ export const ADMIN_SEARCH_MANIFEST: AdminSearchItem[] = [
     keywords: ['seed', 'demo drivers', 'demo riders', 'advertisements', 'ads', 'populate feed', 'fake profiles'],
   },
   {
+    id: 'demo-accounts',
+    label: 'Demo Accounts',
+    description: 'Provision demo accounts + OTP bypass codes (no Clerk SMS)',
+    href: '/admin/demo-accounts',
+    section: 'System',
+    icon: '🎟️',
+    keywords: ['demo', 'demo account', 'otp', 'bypass', 'clerk', 'reviewer', 'test login', 'provision'],
+  },
+  {
     id: 'admin-alerts',
     label: 'Admin Push Alerts',
     description: 'Super-admin push: new ride requests + daily 7am summary',
