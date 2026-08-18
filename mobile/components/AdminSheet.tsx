@@ -1814,13 +1814,23 @@ interface DemoAcct {
   market_slug: string | null; label: string | null; handle: string | null;
   account_status: string | null;
 }
+interface DemoMarket { id: string; slug: string; name: string; status: string }
+
+// Pretty US phone as the admin types: (404) 555-0142.
+function formatUsPhone(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 10);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+}
 
 function DemoSection({ token }: { token: string | null }) {
   const [accounts, setAccounts] = useState<DemoAcct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [markets, setMarkets] = useState<DemoMarket[]>([]);
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<'driver' | 'rider'>('rider');
-  const [marketSlug, setMarketSlug] = useState<string>('atl');
+  const [marketId, setMarketId] = useState<string | null>(null);
   const [label, setLabel] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1835,16 +1845,28 @@ function DemoSection({ token }: { token: string | null }) {
   }, [token]);
   useEffect(() => { void load(); }, [load]);
 
+  // Real markets (friendly names, live-first) for the picker — no hardcoded slugs.
+  useEffect(() => {
+    apiClient<{ markets: DemoMarket[] }>('/admin/markets', token)
+      .then((d) => {
+        const ms = d.markets ?? [];
+        setMarkets(ms);
+        const firstLive = ms.find((m) => m.status === 'live') ?? ms[0];
+        if (firstLive) setMarketId((cur) => cur ?? firstLive.id);
+      })
+      .catch(() => {});
+  }, [token]);
+
   async function provision() {
     if (!phone.trim()) { setErr('Enter a phone number'); return; }
     setSaving(true); setErr(null);
     try {
       const d = await apiClient<{ account: DemoAcct }>('/admin/demo-accounts', token, {
         method: 'POST',
-        body: JSON.stringify({ phone, role, marketSlug: marketSlug === 'all' ? null : marketSlug, label: label || null }),
+        body: JSON.stringify({ phone, role, marketId, label: label || null }),
       });
       setPhone(''); setLabel('');
-      Alert.alert('Demo account ready', `${d.account.phone}\nInvite code: ${d.account.otp_code}`);
+      Alert.alert('Demo account ready', `${d.account.phone}\nInvite code: ${d.account.otp_code}\n\nIn the app, tap “Have an invite code?”, enter this phone + code.`);
       await load();
     } catch (e: unknown) {
       setErr((e as { message?: string }).message ?? 'Failed to provision');
@@ -1876,38 +1898,50 @@ function DemoSection({ token }: { token: string | null }) {
       {/* Provision form */}
       <View style={sc.pricingCard}>
         <SectionHeader title="PROVISION DEMO ACCOUNT" />
-        <View style={sc.costRow}>
-          <Text style={sc.costLabel}>PHONE (US)</Text>
-          <TextInput
-            style={sc.costInput} value={phone} onChangeText={(v) => { setPhone(v); setErr(null); }}
-            keyboardType="phone-pad" placeholder="(404) 555-0142" placeholderTextColor={colors.textFaint}
-          />
-        </View>
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+
+        {/* Phone */}
+        <Text style={ds.fieldLabel}>PHONE NUMBER</Text>
+        <TextInput
+          style={ds.field}
+          value={phone}
+          onChangeText={(v) => { setPhone(formatUsPhone(v)); setErr(null); }}
+          keyboardType="phone-pad" placeholder="(404) 555-0142" placeholderTextColor={colors.textFaint}
+        />
+
+        {/* Role */}
+        <Text style={ds.fieldLabel}>ROLE</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           {(['rider', 'driver'] as const).map((r) => (
-            <TouchableOpacity key={r} style={[sc.modeBtn, role === r && sc.modeBtnActive]} onPress={() => setRole(r)}>
-              <Text style={[sc.modeBtnText, role === r && { color: G }]}>{r.toUpperCase()}</Text>
+            <TouchableOpacity key={r} style={[sc.modeBtn, { flex: 1 }, role === r && sc.modeBtnActive]} onPress={() => setRole(r)}>
+              <Text style={[sc.modeBtnText, role === r && { color: G }]}>{r === 'rider' ? 'RIDER' : 'DRIVER'}</Text>
             </TouchableOpacity>
           ))}
         </View>
-        <TouchableOpacity
-          style={[sc.modeBtn, { alignSelf: 'flex-start' }]}
-          onPress={() => {
-            const idx = MARKET_OPTS.indexOf(marketSlug as typeof MARKET_OPTS[number]);
-            setMarketSlug(MARKET_OPTS[(idx + 1) % MARKET_OPTS.length]);
-          }}
-        >
-          <Text style={sc.modeBtnText}>MARKET: {marketSlug.toUpperCase()}</Text>
-        </TouchableOpacity>
-        <View style={[sc.costRow, { marginTop: spacing.sm }]}>
-          <Text style={sc.costLabel}>LABEL</Text>
-          <TextInput
-            style={sc.costInput} value={label} onChangeText={setLabel}
-            placeholder="QA driver / reviewer" placeholderTextColor={colors.textFaint}
-          />
-        </View>
-        {err && <Text style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.red }}>{err}</Text>}
-        <TouchableOpacity style={sc.saveBtn} onPress={provision} disabled={saving}>
+
+        {/* Market — friendly names, live first, horizontal chips */}
+        <Text style={ds.fieldLabel}>MARKET</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, paddingVertical: 2 }} keyboardShouldPersistTaps="handled">
+          {markets.map((m) => {
+            const on = marketId === m.id;
+            return (
+              <TouchableOpacity key={m.id} style={[ds.chip, on && ds.chipOn]} onPress={() => setMarketId(m.id)}>
+                <Text style={[ds.chipText, on && { color: colors.bg }]}>{m.name}</Text>
+                {m.status === 'live' && <View style={[ds.liveDot, on && { backgroundColor: colors.bg }]} />}
+              </TouchableOpacity>
+            );
+          })}
+          {markets.length === 0 && <Text style={sc.rowSub}>Loading markets…</Text>}
+        </ScrollView>
+
+        {/* Label */}
+        <Text style={ds.fieldLabel}>LABEL (OPTIONAL)</Text>
+        <TextInput
+          style={ds.field} value={label} onChangeText={setLabel}
+          placeholder="QA driver / reviewer name" placeholderTextColor={colors.textFaint}
+        />
+
+        {err && <Text style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.red, marginTop: spacing.sm }}>{err}</Text>}
+        <TouchableOpacity style={[sc.saveBtn, { marginTop: spacing.md }]} onPress={provision} disabled={saving}>
           {saving ? <ActivityIndicator size="small" color={colors.bg} /> : <Text style={sc.saveBtnText}>PROVISION + INVITE CODE</Text>}
         </TouchableOpacity>
       </View>
@@ -1917,7 +1951,10 @@ function DemoSection({ token }: { token: string | null }) {
         <View key={a.id} style={[sc.row, a.account_status === 'deleted' && { opacity: 0.5 }]}>
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={sc.rowTitle}>{a.phone} · {a.role}{a.handle ? ` · @${a.handle}` : ''}</Text>
-            <Text style={sc.rowSub}>{a.market_slug ?? 'no market'}{a.label ? ` · ${a.label}` : ''}</Text>
+            <Text style={sc.rowSub}>
+              {(markets.find((m) => m.slug === a.market_slug)?.name) ?? a.market_slug ?? 'no market'}
+              {a.label ? ` · ${a.label}` : ''}
+            </Text>
           </View>
           <TouchableOpacity onPress={() => Alert.alert('Invite code', a.otp_code)}>
             <Text style={[sc.tag, { color: G }]}>{a.otp_code}</Text>
@@ -1933,6 +1970,28 @@ function DemoSection({ token }: { token: string | null }) {
     </ScrollView>
   );
 }
+
+const ds = StyleSheet.create({
+  fieldLabel: {
+    fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint,
+    letterSpacing: 1, marginTop: spacing.md, marginBottom: spacing.xs,
+  },
+  field: {
+    backgroundColor: colors.bg, color: colors.textPrimary,
+    borderRadius: radius.tag, borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: spacing.md, paddingVertical: 10,
+    fontFamily: fonts.body, fontSize: 14,
+  },
+  chip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: spacing.md, paddingVertical: 8,
+    borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: colors.bg,
+  },
+  chipOn: { backgroundColor: G, borderColor: G },
+  chipText: { fontFamily: fonts.bodyMedium, fontSize: 12, color: colors.textSecondary },
+  liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: G },
+});
 
 const TABS = [
   { key: 'activity', label: 'ACTIVITY', icon: 'stats-chart' as const },
