@@ -1805,6 +1805,135 @@ function InfraSection({ token }: { token: string | null }) {
 
 // ── Tab config ────────────────────────────────────────────────────────────────
 
+// ── SECTION: Demo accounts ────────────────────────────────────────────────────
+// Provision fully-functional demo accounts with a per-account OTP-bypass code
+// (sign in without Clerk SMS). Same endpoints as the web /admin/demo-accounts.
+
+interface DemoAcct {
+  id: string; phone: string; role: 'driver' | 'rider'; otp_code: string;
+  market_slug: string | null; label: string | null; handle: string | null;
+  account_status: string | null;
+}
+
+function DemoSection({ token }: { token: string | null }) {
+  const [accounts, setAccounts] = useState<DemoAcct[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [phone, setPhone] = useState('');
+  const [role, setRole] = useState<'driver' | 'rider'>('rider');
+  const [marketSlug, setMarketSlug] = useState<string>('atl');
+  const [label, setLabel] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const d = await apiClient<{ accounts: DemoAcct[] }>('/admin/demo-accounts', token);
+      setAccounts(d.accounts ?? []);
+    } catch { setAccounts([]); }
+    finally { setLoading(false); }
+  }, [token]);
+  useEffect(() => { void load(); }, [load]);
+
+  async function provision() {
+    if (!phone.trim()) { setErr('Enter a phone number'); return; }
+    setSaving(true); setErr(null);
+    try {
+      const d = await apiClient<{ account: DemoAcct }>('/admin/demo-accounts', token, {
+        method: 'POST',
+        body: JSON.stringify({ phone, role, marketSlug: marketSlug === 'all' ? null : marketSlug, label: label || null }),
+      });
+      setPhone(''); setLabel('');
+      Alert.alert('Demo account ready', `${d.account.phone}\nInvite code: ${d.account.otp_code}`);
+      await load();
+    } catch (e: unknown) {
+      setErr((e as { message?: string }).message ?? 'Failed to provision');
+    } finally { setSaving(false); }
+  }
+
+  async function rotate(id: string) {
+    try {
+      const d = await apiClient<{ otp_code: string }>(`/admin/demo-accounts/${id}`, token, {
+        method: 'PATCH', body: JSON.stringify({ action: 'rotate' }),
+      });
+      Alert.alert('New invite code', d.otp_code);
+      await load();
+    } catch { Alert.alert('Rotate failed'); }
+  }
+
+  function confirmDelete(a: DemoAcct) {
+    Alert.alert('Delete demo account', `${a.phone} — frees the phone and deactivates the account.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        try { await apiClient(`/admin/demo-accounts/${a.id}`, token, { method: 'DELETE' }); await load(); }
+        catch { Alert.alert('Delete failed'); }
+      } },
+    ]);
+  }
+
+  return (
+    <ScrollView contentContainerStyle={{ gap: spacing.md }} keyboardShouldPersistTaps="handled">
+      {/* Provision form */}
+      <View style={sc.pricingCard}>
+        <SectionHeader title="PROVISION DEMO ACCOUNT" />
+        <View style={sc.costRow}>
+          <Text style={sc.costLabel}>PHONE (US)</Text>
+          <TextInput
+            style={sc.costInput} value={phone} onChangeText={(v) => { setPhone(v); setErr(null); }}
+            keyboardType="phone-pad" placeholder="(404) 555-0142" placeholderTextColor={colors.textFaint}
+          />
+        </View>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+          {(['rider', 'driver'] as const).map((r) => (
+            <TouchableOpacity key={r} style={[sc.modeBtn, role === r && sc.modeBtnActive]} onPress={() => setRole(r)}>
+              <Text style={[sc.modeBtnText, role === r && { color: G }]}>{r.toUpperCase()}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <TouchableOpacity
+          style={[sc.modeBtn, { alignSelf: 'flex-start' }]}
+          onPress={() => {
+            const idx = MARKET_OPTS.indexOf(marketSlug as typeof MARKET_OPTS[number]);
+            setMarketSlug(MARKET_OPTS[(idx + 1) % MARKET_OPTS.length]);
+          }}
+        >
+          <Text style={sc.modeBtnText}>MARKET: {marketSlug.toUpperCase()}</Text>
+        </TouchableOpacity>
+        <View style={[sc.costRow, { marginTop: spacing.sm }]}>
+          <Text style={sc.costLabel}>LABEL</Text>
+          <TextInput
+            style={sc.costInput} value={label} onChangeText={setLabel}
+            placeholder="QA driver / reviewer" placeholderTextColor={colors.textFaint}
+          />
+        </View>
+        {err && <Text style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.red }}>{err}</Text>}
+        <TouchableOpacity style={sc.saveBtn} onPress={provision} disabled={saving}>
+          {saving ? <ActivityIndicator size="small" color={colors.bg} /> : <Text style={sc.saveBtnText}>PROVISION + INVITE CODE</Text>}
+        </TouchableOpacity>
+      </View>
+
+      <SectionHeader title={`DEMO ACCOUNTS (${accounts.length})`} />
+      {loading ? <LoadingCard /> : !accounts.length ? <EmptyState msg="NONE YET" /> : accounts.map((a) => (
+        <View key={a.id} style={[sc.row, a.account_status === 'deleted' && { opacity: 0.5 }]}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={sc.rowTitle}>{a.phone} · {a.role}{a.handle ? ` · @${a.handle}` : ''}</Text>
+            <Text style={sc.rowSub}>{a.market_slug ?? 'no market'}{a.label ? ` · ${a.label}` : ''}</Text>
+          </View>
+          <TouchableOpacity onPress={() => Alert.alert('Invite code', a.otp_code)}>
+            <Text style={[sc.tag, { color: G }]}>{a.otp_code}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => rotate(a.id)} style={{ paddingHorizontal: 6 }}>
+            <Ionicons name="refresh" size={16} color={colors.textFaint} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => confirmDelete(a)} style={{ paddingHorizontal: 4 }}>
+            <Ionicons name="trash-outline" size={16} color={colors.red} />
+          </TouchableOpacity>
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
 const TABS = [
   { key: 'activity', label: 'ACTIVITY', icon: 'stats-chart' as const },
   { key: 'revenue',  label: 'REVENUE',  icon: 'cash' as const },
@@ -1815,6 +1944,7 @@ const TABS = [
   { key: 'blasts',   label: 'BLASTS',   icon: 'radio' as const },
   { key: 'users',    label: 'USERS',    icon: 'people' as const },
   { key: 'infra',    label: 'INFRA',    icon: 'pulse' as const },
+  { key: 'demo',     label: 'DEMO',     icon: 'ticket' as const },
 ];
 
 // ── Main Sheet ────────────────────────────────────────────────────────────────
@@ -1879,6 +2009,7 @@ export function AdminSheet({ visible, onClose }: AdminSheetProps) {
       case 6: return <BlastsSection token={token} market={market} />;
       case 7: return <UsersSection token={token} />;
       case 8: return <InfraSection token={token} />;
+      case 9: return <DemoSection token={token} />;
       default: return null;
     }
   };

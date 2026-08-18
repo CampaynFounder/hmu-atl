@@ -1,7 +1,7 @@
 'use client';
 
 // Demo Accounts admin — provision fully-functional demo accounts with a
-// per-account OTP-bypass code (log in without Clerk SMS). Copy / rotate / delete.
+// per-account invite code (log in without Clerk SMS). Copy / rotate / delete.
 // Super-admin only (enforced server-side).
 
 import { useEffect, useState } from 'react';
@@ -46,7 +46,7 @@ export default function DemoAccountsClient({ markets }: { markets: Market[] }) {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Failed');
-      flash(`Provisioned ${d.account.phone} — code ${d.account.otp_code}`);
+      flash(`Provisioned ${d.account.phone} — invite code ${d.account.otp_code}`);
       setPhone(''); setLabelText('');
       load();
     } catch (e) { flash(e instanceof Error ? e.message : 'Failed', false); } finally { setSaving(false); }
@@ -56,7 +56,7 @@ export default function DemoAccountsClient({ markets }: { markets: Market[] }) {
     const r = await fetch(`/api/admin/demo-accounts/${id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'rotate' }),
     });
-    if (r.ok) { flash(`New code: ${(await r.json()).otp_code}`); load(); } else flash('Rotate failed', false);
+    if (r.ok) { flash(`New invite code: ${(await r.json()).otp_code}`); load(); } else flash('Rotate failed', false);
   }
   async function remove(id: string, phone: string) {
     if (!confirm(`Delete demo account ${phone}? This frees the phone and deactivates the account.`)) return;
@@ -69,8 +69,8 @@ export default function DemoAccountsClient({ markets }: { markets: Market[] }) {
     <div style={{ maxWidth: 860, margin: '0 auto', padding: 24, color: '#fff' }}>
       <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>🎟️ Demo Accounts</h1>
       <p style={{ color: '#888', fontSize: 13, marginBottom: 20 }}>
-        Provision fully-functional demo accounts that sign in with a per-account code — no Clerk SMS.
-        In the app&apos;s demo login, enter the phone + code below. Rotate or delete a code any time.
+        Provision fully-functional demo accounts that sign in with a per-account invite code — no Clerk SMS.
+        In the in-app invite-code login, enter the phone + invite code below. Rotate or delete a code any time.
       </p>
 
       <div style={card}>
@@ -91,7 +91,7 @@ export default function DemoAccountsClient({ markets }: { markets: Market[] }) {
           <div><span style={label}>Label (optional)</span><input style={inp} value={labelText} onChange={(e) => setLabelText(e.target.value)} placeholder="QA driver / reviewer" /></div>
         </div>
         <button style={{ ...btn('#00E676', '#00E676', '#000'), marginTop: 14 }} onClick={provision} disabled={saving}>
-          {saving ? 'Provisioning…' : 'Provision + generate code'}
+          {saving ? 'Provisioning…' : 'Provision + generate invite code'}
         </button>
       </div>
 
@@ -107,7 +107,7 @@ export default function DemoAccountsClient({ markets }: { markets: Market[] }) {
                   </div>
                   <div style={{ color: '#666', fontSize: 11 }}>{a.market_slug ?? 'no market'}{a.label ? ` · ${a.label}` : ''}</div>
                 </div>
-                <button style={{ ...btn('#0b2a17', '#00E676', '#00E676'), fontFamily: 'monospace' }} onClick={() => copy(a.otp_code)} title="Copy code">
+                <button style={{ ...btn('#0b2a17', '#00E676', '#00E676'), fontFamily: 'monospace' }} onClick={() => copy(a.otp_code)} title="Copy invite code">
                   {a.otp_code} ⧉
                 </button>
                 <button style={btn('transparent', '#2a2a2a', '#bbb')} onClick={() => rotate(a.id)}>Rotate</button>

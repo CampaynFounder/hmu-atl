@@ -108,7 +108,7 @@ export default function SignIn() {
         {/* Logo */}
         <Text style={s.logo}>HMU ATL</Text>
         <Text style={s.tagline}>
-          {step === 'phone' ? 'Enter your number to get in' : demo ? 'Enter your demo code' : 'Check your texts'}
+          {step === 'phone' ? 'Enter your number to get in' : demo ? 'Enter your invite code' : 'Check your texts'}
         </Text>
 
         {step === 'phone' ? (
@@ -132,29 +132,33 @@ export default function SignIn() {
                 : <Text style={s.btnText}>SEND CODE</Text>
               }
             </TouchableOpacity>
-            {/* Demo/test accounts: enter the phone + admin-issued code, no SMS.
-                Isolated from the normal Clerk flow above — inert without a code. */}
+            {/* Invite-code accounts: enter the phone + admin-issued invite code,
+                no SMS. Isolated from the normal Clerk flow above — inert without a code. */}
             <TouchableOpacity
               style={s.ghost}
               onPress={() => {
-                if (!phone) { setError('Enter the demo phone number first'); return; }
+                if (!phone) { setError('Enter your phone number first'); return; }
                 setError(null); setDemo(true); setCode(''); setStep('code');
               }}
             >
-              <Text style={s.ghostText}>Have a demo code?</Text>
+              <Text style={s.ghostText}>Have an invite code?</Text>
             </TouchableOpacity>
           </>
         ) : (
           <>
             <TextInput
               style={s.input}
-              placeholder="6-digit code"
+              placeholder={demo ? 'Invite code (e.g. HMU-7F2A)' : '6-digit code'}
               placeholderTextColor={colors.textFaint}
-              keyboardType="number-pad"
+              // Invite codes are alphanumeric (HMU-XXXX) — use the default keyboard
+              // so letters can be typed; real OTP stays numeric.
+              keyboardType={demo ? 'default' : 'number-pad'}
+              autoCapitalize={demo ? 'characters' : 'none'}
+              autoCorrect={false}
               value={code}
               onChangeText={setCode}
-              autoComplete="one-time-code"
-              textContentType="oneTimeCode"
+              autoComplete={demo ? 'off' : 'one-time-code'}
+              textContentType={demo ? 'none' : 'oneTimeCode'}
               autoFocus
               returnKeyType="done"
               onSubmitEditing={verifyCode}
