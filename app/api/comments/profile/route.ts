@@ -10,6 +10,7 @@ import { checkRateLimit } from '@/lib/rate-limit/check';
 import { notifyUser } from '@/lib/ably/server';
 import { notifyUserWithPush } from '@/lib/notify';
 import { resolveSubjectByHandle } from '@/lib/comments/profile-comments';
+import { getCloudflareContext } from '@opennextjs/cloudflare';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -89,48 +90,45 @@ export async function POST(req: NextRequest) {
     `;
     const id = (result[0] as { id: string }).id;
 
-    // Notify (in-app + OS push) — best-effort, never blocks the response.
-    // sendPushToUser no-ops when the recipient has no push token (e.g. seed users).
-    const ah = await sql`
-      SELECT COALESCE(dp.handle, rp.handle) AS handle
-      FROM users u
-      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
-      LEFT JOIN rider_profiles  rp ON rp.user_id = u.id
-      WHERE u.id = ${authorId} LIMIT 1
-    `;
-    const who = (ah[0]?.handle as string | null) ? `@${ah[0].handle}` : 'Someone';
-    const preview = content.length > 90 ? `${content.slice(0, 87)}…` : content;
+    // All notify/push work runs AFTER the response via ctx.waitUntil(). On
+    // Cloudflare Workers an un-awaited promise is dropped when the isolate is
+    // torn down after responding, so a fire-and-forget push never actually
+    // reaches Expo. waitUntil keeps the isolate alive until the pushes finish.
+    const notifyJob = async () => {
+      try {
+        const ah = await sql`
+          SELECT COALESCE(dp.handle, rp.handle) AS handle
+          FROM users u
+          LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+          LEFT JOIN rider_profiles  rp ON rp.user_id = u.id
+          WHERE u.id = ${authorId} LIMIT 1
+        `;
+        const who = (ah[0]?.handle as string | null) ? `@${ah[0].handle}` : 'Someone';
+        const preview = content.length > 90 ? `${content.slice(0, 87)}…` : content;
 
-    if (parentId) {
-      // Reply → push the person whose comment was replied to (if a different real user).
-      if (parentAuthorId && parentAuthorId !== authorId) {
-        notifyUserWithPush(parentAuthorId, 'new_comment', { commentId: id, subjectHandle, parentId }, {
-          title: `${who} replied to your comment 💬`,
-          body: preview,
-          data: { type: 'comment_reply', subjectHandle },
-        }).catch(() => {});
-      }
-      // Profile owner still gets the in-app event (no extra push, to avoid noise).
-      if (subject.id !== authorId && subject.id !== parentAuthorId) {
-        notifyUser(subject.id, 'new_comment', { commentId: id, subjectHandle, parentId }).catch(() => {});
-      }
-    } else if (subject.id !== authorId) {
-      // Top-level comment → push the profile owner: "someone commented on your profile".
-      notifyUserWithPush(subject.id, 'new_comment', { commentId: id, subjectHandle }, {
-        title: `${who} commented on your profile 💬`,
-        body: preview,
-        data: { type: 'new_comment', subjectHandle },
-      }).catch(() => {});
-    }
+        if (parentId) {
+          if (parentAuthorId && parentAuthorId !== authorId) {
+            await notifyUserWithPush(parentAuthorId, 'new_comment', { commentId: id, subjectHandle, parentId }, {
+              title: `${who} replied to your comment 💬`,
+              body: preview,
+              data: { type: 'comment_reply', subjectHandle },
+            });
+          }
+          if (subject.id !== authorId && subject.id !== parentAuthorId) {
+            await notifyUser(subject.id, 'new_comment', { commentId: id, subjectHandle, parentId });
+          }
+        } else if (subject.id !== authorId) {
+          await notifyUserWithPush(subject.id, 'new_comment', { commentId: id, subjectHandle }, {
+            title: `${who} commented on your profile 💬`,
+            body: preview,
+            data: { type: 'new_comment', subjectHandle },
+          });
+        }
 
-    // Engagement / anti-churn fan-out: also ping OTHER real people who've
-    // commented on this photo, to pull them back into the conversation. Excludes
-    // the author, the owner and the replied-to author (they already got a push),
-    // and is per-user throttled (superadmin-configurable window) so an active
-    // thread can't spam. Fire-and-forget — never blocks the response.
-    if (settings.engagementPushEnabled) {
-      void (async () => {
-        try {
+        // Engagement / anti-churn fan-out: also ping OTHER real people who've
+        // commented on this photo. Excludes the author, owner and replied-to
+        // author (already pushed), throttled per (user, thread).
+        if (settings.engagementPushEnabled) {
           const participants = await sql`
             SELECT DISTINCT c.author_id
             FROM comments c
@@ -145,19 +143,25 @@ export async function POST(req: NextRequest) {
           `;
           const windowSeconds = Math.round((settings.engagementThrottleHours || 0) * 3600);
           for (const p of participants as { author_id: string }[]) {
-            // Throttle per (user, photo/thread). windowSeconds<=0 disables the throttle.
             if (windowSeconds > 0) {
               const t = await checkRateLimit({ key: `comment-engage:${p.author_id}:${subject.id}`, limit: 1, windowSeconds });
               if (!t.ok) continue;
             }
-            notifyUserWithPush(p.author_id, 'comment_thread_activity', { commentId: id, subjectHandle }, {
+            await notifyUserWithPush(p.author_id, 'comment_thread_activity', { commentId: id, subjectHandle }, {
               title: `${who} added to a photo you commented on 💬`,
               body: preview,
               data: { type: 'comment_thread_activity', subjectHandle },
-            }).catch(() => {});
+            });
           }
-        } catch (e) { console.error('[comment engagement fan-out]', e); }
-      })();
+        }
+      } catch (e) { console.error('[comment notify]', e); }
+    };
+
+    try {
+      getCloudflareContext().ctx.waitUntil(notifyJob());
+    } catch {
+      // Local/dev (no CF context) — just run it.
+      void notifyJob();
     }
 
     return NextResponse.json({ id, created_at: (result[0] as { created_at: string }).created_at }, { status: 201 });
