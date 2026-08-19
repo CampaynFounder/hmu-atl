@@ -26,6 +26,7 @@ import {
 import { toLatLng, LatLng } from '@/components/ride/types';
 import { useRideMessages, ChatMessage } from '@/components/ride/useRideMessages';
 import { RideChat } from '@/components/ride/RideChat';
+import { Avatar } from '@/components/Avatar';
 import { useRideSafety } from '@/components/ride/useRideSafety';
 import { RideSafety } from '@/components/ride/RideSafety';
 import { RideAcceptedCelebration } from '@/components/ride/RideAcceptedCelebration';
@@ -1090,6 +1091,7 @@ export default function RiderActiveScreen() {
         viewerRole="rider"
         rideStatus={ride.status}
         otherName={driverName}
+        otherAvatarUrl={ride.driverAvatarUrl}
       />
 
       {canChat && (
@@ -1153,16 +1155,8 @@ export default function RiderActiveScreen() {
 // ── Driver avatar ─────────────────────────────────────────────────────────────
 
 function DriverAvatar({ url, name }: { url: string | null; name: string }) {
-  const [failed, setFailed] = useState(false);
-  const letter = (name ?? '?')[0].toUpperCase();
-  if (url && !failed) {
-    return <Image source={{ uri: url }} style={s.avatar} onError={() => setFailed(true)} />;
-  }
-  return (
-    <View style={[s.avatar, s.avatarFallback]}>
-      <Text style={s.avatarLetter}>{letter}</Text>
-    </View>
-  );
+  // Autoplays when the driver's avatar is a video, else photo/initials.
+  return <Avatar uri={url} size={44} fallbackInitials={(name ?? '?')[0].toUpperCase()} />;
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────

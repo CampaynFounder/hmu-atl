@@ -22,6 +22,8 @@ import * as Haptics from 'expo-haptics';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { CommentsModal } from '@/components/comments/CommentsModal';
+import { isVideoUrl } from '@/components/Avatar';
+import { AutoplayVideo } from '@/components/AutoplayVideo';
 import {
   AdFeedCard, type AdCardData, type AdApiRow, toAdCard,
   interleaveAds, type FeedItem, isAdItem,
@@ -280,6 +282,7 @@ export default function FindRidersScreen() {
                 <RiderCard
                   rider={item}
                   cardHeight={CARD_H}
+                  active={activeKey === item.id}
                   hmuStatus={hmuState[item.id] ?? 'idle'}
                   onHmu={() => sendHmu(item)}
                   onComments={() => openComments(
@@ -316,10 +319,11 @@ export default function FindRidersScreen() {
 // ── RiderCard ─────────────────────────────────────────────────────────────────
 
 function RiderCard({
-  rider, cardHeight, hmuStatus, onHmu, onComments,
+  rider, cardHeight, active, hmuStatus, onHmu, onComments,
 }: {
   rider: MaskedRider;
   cardHeight: number;
+  active: boolean;
   hmuStatus: 'idle' | 'sending' | 'sent' | 'error';
   onHmu: () => void;
   onComments: () => void;
@@ -328,97 +332,83 @@ function RiderCard({
   const sent = hmuStatus === 'sent';
   const sending = hmuStatus === 'sending';
   const errored = hmuStatus === 'error';
+  const hasVideo = isVideoUrl(rider.avatarUrl);
 
   const btnScale = useRef(new Animated.Value(1)).current;
   const pressIn = () => Animated.spring(btnScale, { toValue: 0.95, useNativeDriver: true, speed: 60, bounciness: 0 }).start();
   const pressOut = () => Animated.spring(btnScale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 5 }).start();
 
   return (
-    <View style={[c.card, { height: cardHeight }]}>
-      {/* Avatar / initials */}
-      <View style={c.avatarWrap}>
-        {rider.avatarUrl ? (
-          <Image source={{ uri: rider.avatarUrl }} style={c.avatar} />
-        ) : (
-          <View style={c.initialsCircle}>
-            <Text style={c.initials}>{initials}</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Identity */}
-      <View style={c.identity}>
-        <Text style={c.handle}>@{rider.handle}</Text>
-        <Text style={c.name}>{rider.firstName} {rider.lastName[0] ? `${rider.lastName[0]}.` : ''}</Text>
-      </View>
-
-      {/* Badges */}
-      <View style={c.badges}>
-        {rider.completedRides > 0 && (
-          <View style={c.badge}>
-            <Ionicons name="car" size={11} color={colors.green} />
-            <Text style={c.badgeText}>{rider.completedRides} ride{rider.completedRides !== 1 ? 's' : ''}</Text>
-          </View>
-        )}
-        {rider.lgbtqFriendly && (
-          <View style={[c.badge, c.badgePride]}>
-            <Text style={c.badgeText}>🏳️‍🌈 LGBTQ+</Text>
-          </View>
-        )}
-        {rider.driverPreference && rider.driverPreference !== 'no_preference' && rider.driverPreference !== 'any' && (
-          <View style={[c.badge, c.badgePref]}>
-            <Ionicons name="person" size={11} color={colors.blue} />
-            <Text style={[c.badgeText, { color: colors.blue }]}>
-              {rider.driverPreference.replace(/_/g, ' ')}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* Home areas */}
-      {rider.homeAreas.length > 0 && (
-        <View style={c.areasRow}>
-          <Ionicons name="location" size={12} color={colors.textFaint} />
-          <Text style={c.areasText} numberOfLines={1}>
-            {rider.homeAreas.map((a) => a.replace(/-/g, ' ')).join(' · ')}
-          </Text>
+    <View style={[c.card, { height: cardHeight, width: SCREEN_W }]}>
+      {/* Full-bleed media: autoplay video on the visible card, else photo, else initials */}
+      {hasVideo && active ? (
+        <AutoplayVideo uri={rider.avatarUrl as string} active={active} />
+      ) : rider.avatarUrl ? (
+        <Image source={{ uri: rider.avatarUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      ) : (
+        <View style={[StyleSheet.absoluteFill, c.fallbackBg]}>
+          <Text style={c.fallbackInitials}>{initials}</Text>
         </View>
       )}
 
-      {/* CTA */}
-      <View style={c.cta}>
+      {/* Play glyph when a video card isn't the active one yet */}
+      {hasVideo && !active && (
+        <View style={c.playBadge}><Ionicons name="play" size={18} color={colors.textPrimary} /></View>
+      )}
+
+      {/* Dark scrim + info panel over the media */}
+      <View style={c.scrim} />
+      <View style={c.infoPanel}>
+        <Text style={c.handleBig} numberOfLines={1}>@{rider.handle}</Text>
+        <Text style={c.nameBig} numberOfLines={1}>
+          {rider.firstName} {rider.lastName[0] ? `${rider.lastName[0]}.` : ''}
+        </Text>
+
+        {rider.homeAreas.length > 0 && (
+          <View style={c.areasRow}>
+            <Ionicons name="location-outline" size={12} color={colors.textFaint} />
+            <Text style={c.areasText} numberOfLines={1}>
+              {rider.homeAreas.map((a) => a.replace(/-/g, ' ')).join(' · ')}
+            </Text>
+          </View>
+        )}
+
+        <View style={c.badges}>
+          {rider.completedRides > 0 && (
+            <View style={c.badge}>
+              <Ionicons name="car" size={11} color={colors.green} />
+              <Text style={c.badgeText}>{rider.completedRides} ride{rider.completedRides !== 1 ? 's' : ''}</Text>
+            </View>
+          )}
+          {rider.lgbtqFriendly && (
+            <View style={[c.badge, c.badgePride]}><Text style={c.badgeText}>🏳️‍🌈 LGBTQ+</Text></View>
+          )}
+          {rider.driverPreference && rider.driverPreference !== 'no_preference' && rider.driverPreference !== 'any' && (
+            <View style={[c.badge, c.badgePref]}>
+              <Ionicons name="person" size={11} color={colors.blue} />
+              <Text style={[c.badgeText, { color: colors.blue }]}>{rider.driverPreference.replace(/_/g, ' ')}</Text>
+            </View>
+          )}
+        </View>
+
         <Pressable onPress={onHmu} onPressIn={pressIn} onPressOut={pressOut} disabled={sent || sending} style={c.hmuBtnWrap}>
-          <Animated.View style={[
-            c.hmuBtn,
-            sent && c.hmuBtnSent,
-            errored && c.hmuBtnError,
-            { transform: [{ scale: btnScale }] },
-          ]}>
+          <Animated.View style={[c.hmuBtn, sent && c.hmuBtnSent, errored && c.hmuBtnError, { transform: [{ scale: btnScale }] }]}>
             {sending ? (
               <ActivityIndicator size="small" color={colors.bg} />
             ) : sent ? (
-              <>
-                <Ionicons name="checkmark" size={16} color={colors.bg} />
-                <Text style={c.hmuBtnText}>HMU SENT</Text>
-              </>
+              <><Ionicons name="checkmark" size={16} color={colors.bg} /><Text style={c.hmuBtnText}>HMU SENT</Text></>
             ) : errored ? (
               <Text style={[c.hmuBtnText, { color: colors.bg }]}>TRY AGAIN</Text>
             ) : (
-              <>
-                <Text style={c.hmuBtnText}>HMU</Text>
-                <Ionicons name="paper-plane" size={14} color={colors.bg} />
-              </>
+              <><Text style={c.hmuBtnText}>HMU @{rider.handle}</Text><Ionicons name="paper-plane" size={14} color={colors.bg} /></>
             )}
           </Animated.View>
         </Pressable>
+
         <TouchableOpacity style={c.commentsLink} activeOpacity={0.7} onPress={onComments} hitSlop={8}>
           <Ionicons name="chatbubbles-outline" size={13} color={colors.textSecondary} />
           <Text style={c.commentsText}>Comments</Text>
         </TouchableOpacity>
-        <View style={c.swipeHintRow}>
-          <Ionicons name="chevron-up" size={12} color={colors.textFaint} />
-          <Text style={c.swipeHint}>NEXT RIDER</Text>
-        </View>
       </View>
     </View>
   );
@@ -471,37 +461,27 @@ const s = StyleSheet.create({
 });
 
 const c = StyleSheet.create({
-  card: {
-    width: SCREEN_W,
-    backgroundColor: colors.card,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
-    // Top accent line signals "swipe up for next card"
-    borderTopWidth: 3,
-    borderTopColor: colors.greenBorder,
-    // Subtle bottom separator
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+  // Full-bleed TikTok-style card: media fills the screen, info overlaid at bottom.
+  card: { backgroundColor: colors.card, justifyContent: 'flex-end' },
+
+  fallbackBg: { backgroundColor: colors.cardAlt, alignItems: 'center', justifyContent: 'center' },
+  fallbackInitials: { fontFamily: fonts.display, fontSize: 96, color: colors.textFaint },
+
+  playBadge: {
+    position: 'absolute', top: spacing.xl, right: spacing.xl,
+    width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center', justifyContent: 'center',
   },
 
-  avatarWrap: { marginBottom: spacing.xl },
-  avatar: {
-    width: 120, height: 120, borderRadius: 60,
-    borderWidth: 2, borderColor: colors.greenBorder,
+  scrim: {
+    position: 'absolute', left: 0, right: 0, bottom: 0, height: '55%',
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
-  initialsCircle: {
-    width: 120, height: 120, borderRadius: 60,
-    backgroundColor: colors.cardAlt, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: colors.border,
-  },
-  initials: { fontFamily: fonts.display, fontSize: 48, color: colors.textSecondary },
+  infoPanel: { padding: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.sm },
+  handleBig: { fontFamily: fonts.display, fontSize: 34, color: colors.textPrimary, letterSpacing: 0.5 },
+  nameBig: { fontFamily: fonts.body, fontSize: 15, color: colors.textSecondary, marginTop: -6 },
 
-  identity: { alignItems: 'center', marginBottom: spacing.lg },
-  handle: { fontFamily: fonts.display, fontSize: 32, color: colors.textPrimary, lineHeight: 36 },
-  name: { fontFamily: fonts.body, fontSize: 15, color: colors.textTertiary, marginTop: 2 },
-
-  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, justifyContent: 'center', marginBottom: spacing.md },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs },
   badge: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: colors.greenDim, borderRadius: radius.pill,
@@ -511,11 +491,10 @@ const c = StyleSheet.create({
   badgePref: { backgroundColor: colors.blueDim, borderColor: colors.blueBorder },
   badgeText: { fontFamily: fonts.mono, fontSize: 10, color: colors.green, letterSpacing: 0.5 },
 
-  areasRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: spacing.xxxl },
-  areasText: { fontFamily: fonts.body, fontSize: 13, color: colors.textFaint, flex: 1, textAlign: 'center' },
+  areasRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  areasText: { fontFamily: fonts.body, fontSize: 13, color: colors.textSecondary, flex: 1 },
 
-  cta: { width: '100%', alignItems: 'center', gap: spacing.sm },
-  hmuBtnWrap: { width: '80%' },
+  hmuBtnWrap: { width: '100%', marginTop: spacing.sm },
   hmuBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     backgroundColor: colors.green, borderRadius: radius.pill,
@@ -525,8 +504,6 @@ const c = StyleSheet.create({
   hmuBtnSent: { backgroundColor: colors.textFaint, shadowOpacity: 0 },
   hmuBtnError: { backgroundColor: colors.red, shadowColor: colors.red },
   hmuBtnText: { fontFamily: fonts.mono, fontSize: 14, color: colors.bg },
-  swipeHintRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: spacing.sm, opacity: 0.6 },
-  swipeHint: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, letterSpacing: 1 },
-  commentsLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: spacing.xs, marginTop: spacing.sm },
+  commentsLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: spacing.xs },
   commentsText: { fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary, letterSpacing: 0.5 },
 });

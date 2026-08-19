@@ -16,12 +16,14 @@ import { apiClient } from '@/lib/api';
 import { useUserContext } from '@/contexts/UserContext';
 import { VersionBadge } from '@/components/VersionBadge';
 import { AdminSheet } from '@/components/AdminSheet';
+import { Avatar } from '@/components/Avatar';
 
 interface DriverProfile {
   id: string;
   handle: string;
   displayName: string;
   phone: string | null;
+  avatarUrl: string | null;
   vehicleInfo: { licensePlate: string; plateState: string; photoUrl: string | null };
   areaSlugs: string[];
   servicesEntireMarket: boolean;
@@ -125,13 +127,11 @@ export default function DriverProfileScreen() {
       >
       <View style={[s.card, shadow.card]}>
         <View style={s.avatarWrap}>
-          {profile?.vehicleInfo?.photoUrl ? (
-            <Image source={{ uri: profile.vehicleInfo.photoUrl }} style={s.avatar} />
-          ) : (
-            <View style={[s.avatar, s.avatarFallback]}>
-              <Text style={s.avatarLetter}>{handle[0]?.toUpperCase() ?? '?'}</Text>
-            </View>
-          )}
+          <Avatar
+            uri={profile?.avatarUrl ?? profile?.vehicleInfo?.photoUrl ?? null}
+            size={76}
+            fallbackInitials={handle[0]?.toUpperCase() ?? '?'}
+          />
         </View>
         <Text style={s.handle}>@{handle}</Text>
         {profile?.displayName && profile.displayName !== handle && (
