@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { colors, fonts, radius, spacing } from '@/lib/theme';
+import { Avatar } from '@/components/Avatar';
 
 const AUTO_DISMISS_MS = 3000;
 
@@ -133,15 +134,7 @@ export function RideAcceptedCelebration({
 
             {/* Driver card */}
             <View style={styles.driverRow}>
-              {avatarUrl
-                ? <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-                : (
-                  <View style={[styles.avatar, styles.avatarFallback]}>
-                    <Text style={styles.avatarInitial}>
-                      {(name.replace('@', '')[0] ?? 'D').toUpperCase()}
-                    </Text>
-                  </View>
-                )}
+              <Avatar uri={avatarUrl} size={46} fallbackInitials={(name.replace('@', '')[0] ?? 'D').toUpperCase()} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.driverName} numberOfLines={1}>{name}</Text>
                 <View style={styles.metaRow}>

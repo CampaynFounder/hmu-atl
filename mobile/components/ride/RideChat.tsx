@@ -10,6 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing } from '@/lib/theme';
+import { Avatar } from '@/components/Avatar';
 import { ChatMessage } from './useRideMessages';
 import { ViewerRole } from './types';
 
@@ -49,7 +50,7 @@ function MessageBody({ content, mine }: { content: string; mine: boolean }) {
 }
 
 export function RideChat({
-  visible, onClose, messages, isMine, onSend, sending, viewerRole, rideStatus, otherName,
+  visible, onClose, messages, isMine, onSend, sending, viewerRole, rideStatus, otherName, otherAvatarUrl,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -60,6 +61,7 @@ export function RideChat({
   viewerRole: ViewerRole;
   rideStatus: string;
   otherName: string;
+  otherAvatarUrl?: string | null;
 }) {
   const insets = useSafeAreaInsets();
   const [input, setInput] = useState('');
@@ -100,7 +102,10 @@ export function RideChat({
             <View style={s.header}>
               <View style={s.handle} />
               <View style={s.headerRow}>
-                <Text style={s.title}>CHAT — {otherName}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
+                  <Avatar uri={otherAvatarUrl ?? null} size={28} fallbackInitials={(otherName ?? '?').replace(/^@/, '')[0]?.toUpperCase()} />
+                  <Text style={s.title}>{otherName}</Text>
+                </View>
                 <TouchableOpacity onPress={onClose} hitSlop={12}>
                   <Ionicons name="close" size={20} color={colors.textSecondary} />
                 </TouchableOpacity>

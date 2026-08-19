@@ -68,6 +68,9 @@ export async function GET() {
       phone: r.phone,
       gender: r.gender,
       pronouns: r.pronouns,
+      // Avatar shown on the self-profile. thumbnail_url is the latest avatar
+      // upload (a video avatar is an .mp4 here); fall back to the cover photo.
+      avatarUrl: (r.thumbnail_url as string) || (vi.photo_url as string) || null,
       lgbtqFriendly: r.lgbtq_friendly ?? false,
       areas: Array.isArray(r.areas) ? r.areas : [],
       areaSlugs: Array.isArray(r.area_slugs) ? r.area_slugs : [],

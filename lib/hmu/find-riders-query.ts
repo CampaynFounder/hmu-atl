@@ -85,7 +85,9 @@ export async function queryMaskedRiders(
     firstName: (r.first_name as string) || (r.display_name as string) || '',
     lastName: (r.last_name as string) || '',
     homeAreas: Array.isArray(r.home_areas) ? (r.home_areas as string[]) : [],
-    avatarUrl: (r.avatar_url as string) || (r.thumbnail_url as string) || null,
+    // Prefer thumbnail_url — it's the LATEST avatar upload (a video avatar lands
+    // there as an .mp4). avatar_url is the legacy/photo fallback.
+    avatarUrl: (r.thumbnail_url as string) || (r.avatar_url as string) || null,
     gender: (r.rider_gender as string) || null,
     driverPreference: (r.driver_preference as string) || null,
     lgbtqFriendly: !!r.lgbtq_friendly,

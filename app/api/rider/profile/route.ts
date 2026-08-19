@@ -13,7 +13,7 @@ export async function GET(_req: NextRequest) {
   if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const rows = await sql`
-    SELECT rp.gender, rp.handle, rp.avatar_url, rp.display_name
+    SELECT rp.gender, rp.handle, rp.avatar_url, rp.thumbnail_url, rp.display_name
     FROM rider_profiles rp
     JOIN users u ON u.id = rp.user_id
     WHERE u.clerk_id = ${clerkId}
@@ -21,11 +21,13 @@ export async function GET(_req: NextRequest) {
   `;
 
   if (!rows.length) return NextResponse.json({ gender: null, handle: null, avatarUrl: null, displayName: null });
-  const row = rows[0] as { gender: string | null; handle: string | null; avatar_url: string | null; display_name: string | null };
+  const row = rows[0] as { gender: string | null; handle: string | null; avatar_url: string | null; thumbnail_url: string | null; display_name: string | null };
   return NextResponse.json({
     gender: row.gender ?? null,
     handle: row.handle ?? null,
-    avatarUrl: row.avatar_url ?? null,
+    // thumbnail_url is the latest avatar upload (a video avatar is an .mp4 here);
+    // avatar_url is the legacy photo fallback.
+    avatarUrl: row.thumbnail_url ?? row.avatar_url ?? null,
     displayName: row.display_name ?? null,
   });
 }

@@ -22,6 +22,7 @@ import * as Haptics from 'expo-haptics';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { CommentsModal } from '@/components/comments/CommentsModal';
+import { Avatar } from '@/components/Avatar';
 import {
   AdFeedCard, type AdCardData, type AdApiRow, toAdCard,
   interleaveAds, type FeedItem, isAdItem,
@@ -335,15 +336,9 @@ function RiderCard({
 
   return (
     <View style={[c.card, { height: cardHeight }]}>
-      {/* Avatar / initials */}
+      {/* Avatar / initials — autoplays when the avatar is a video */}
       <View style={c.avatarWrap}>
-        {rider.avatarUrl ? (
-          <Image source={{ uri: rider.avatarUrl }} style={c.avatar} />
-        ) : (
-          <View style={c.initialsCircle}>
-            <Text style={c.initials}>{initials}</Text>
-          </View>
-        )}
+        <Avatar uri={rider.avatarUrl} size={120} fallbackInitials={initials} style={c.avatar} />
       </View>
 
       {/* Identity */}
