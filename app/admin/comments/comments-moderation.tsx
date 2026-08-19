@@ -23,6 +23,8 @@ interface CommentConfig {
   maxInitialPerRide: number;
   maxDriverInitialPerRide: number;
   maxRepliesPerRide: number;
+  engagementPushEnabled: boolean;
+  engagementThrottleHours: number;
 }
 
 type Tab = 'flagged' | 'all';
@@ -107,7 +109,9 @@ export default function CommentsModeration() {
     config.maxChars !== configDraft.maxChars ||
     config.maxInitialPerRide !== configDraft.maxInitialPerRide ||
     config.maxDriverInitialPerRide !== configDraft.maxDriverInitialPerRide ||
-    config.maxRepliesPerRide !== configDraft.maxRepliesPerRide
+    config.maxRepliesPerRide !== configDraft.maxRepliesPerRide ||
+    config.engagementPushEnabled !== configDraft.engagementPushEnabled ||
+    config.engagementThrottleHours !== configDraft.engagementThrottleHours
   );
 
   return (
@@ -160,7 +164,26 @@ export default function CommentsModeration() {
                 min={0} max={20} step={1}
                 onChange={v => setConfigDraft(d => d ? { ...d, maxRepliesPerRide: v } : d)}
               />
+              <ConfigStepper
+                label="Engagement push throttle (hrs)"
+                value={configDraft.engagementThrottleHours}
+                min={0} max={168} step={1}
+                onChange={v => setConfigDraft(d => d ? { ...d, engagementThrottleHours: v } : d)}
+              />
             </div>
+
+            {/* Engagement push toggle — pings past thread participants when a new
+                comment lands on a photo, throttled by the window above (0 = off throttle). */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={configDraft.engagementPushEnabled}
+                onChange={e => setConfigDraft(d => d ? { ...d, engagementPushEnabled: e.target.checked } : d)}
+              />
+              <span style={{ fontSize: 13 }}>
+                Engagement pushes — notify past commenters when a photo&apos;s thread gets a new comment
+              </span>
+            </label>
             <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
               <button
                 onClick={saveConfig}
