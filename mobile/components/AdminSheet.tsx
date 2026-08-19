@@ -1824,7 +1824,7 @@ function formatUsPhone(v: string): string {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
 }
 
-function DemoSection({ token }: { token: string | null }) {
+function DemoSection() {
   const [accounts, setAccounts] = useState<DemoAcct[]>([]);
   const [loading, setLoading] = useState(true);
   const [markets, setMarkets] = useState<DemoMarket[]>([]);
@@ -1835,33 +1835,42 @@ function DemoSection({ token }: { token: string | null }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Fetch a FRESH Clerk token per request. Clerk JWTs expire in ~60s, so a
+  // token cached when the sheet opened is stale by the time a form is filled →
+  // 403. Provisioning is form-heavy, so it must always mint a current token.
+  const getFreshToken = useStableToken();
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await apiClient<{ accounts: DemoAcct[] }>('/admin/demo-accounts', token);
+      const t = await getFreshToken();
+      const d = await apiClient<{ accounts: DemoAcct[] }>('/admin/demo-accounts', t);
       setAccounts(d.accounts ?? []);
     } catch { setAccounts([]); }
     finally { setLoading(false); }
-  }, [token]);
+  }, [getFreshToken]);
   useEffect(() => { void load(); }, [load]);
 
   // Real markets (friendly names, live-first) for the picker — no hardcoded slugs.
   useEffect(() => {
-    apiClient<{ markets: DemoMarket[] }>('/admin/markets', token)
-      .then((d) => {
+    (async () => {
+      try {
+        const t = await getFreshToken();
+        const d = await apiClient<{ markets: DemoMarket[] }>('/admin/markets', t);
         const ms = d.markets ?? [];
         setMarkets(ms);
         const firstLive = ms.find((m) => m.status === 'live') ?? ms[0];
         if (firstLive) setMarketId((cur) => cur ?? firstLive.id);
-      })
-      .catch(() => {});
-  }, [token]);
+      } catch { /* leave empty */ }
+    })();
+  }, [getFreshToken]);
 
   async function provision() {
     if (!phone.trim()) { setErr('Enter a phone number'); return; }
     setSaving(true); setErr(null);
     try {
-      const d = await apiClient<{ account: DemoAcct }>('/admin/demo-accounts', token, {
+      const t = await getFreshToken();
+      const d = await apiClient<{ account: DemoAcct }>('/admin/demo-accounts', t, {
         method: 'POST',
         body: JSON.stringify({ phone, role, marketId, label: label || null }),
       });
@@ -1875,7 +1884,8 @@ function DemoSection({ token }: { token: string | null }) {
 
   async function rotate(id: string) {
     try {
-      const d = await apiClient<{ otp_code: string }>(`/admin/demo-accounts/${id}`, token, {
+      const t = await getFreshToken();
+      const d = await apiClient<{ otp_code: string }>(`/admin/demo-accounts/${id}`, t, {
         method: 'PATCH', body: JSON.stringify({ action: 'rotate' }),
       });
       Alert.alert('New invite code', d.otp_code);
@@ -1887,7 +1897,7 @@ function DemoSection({ token }: { token: string | null }) {
     Alert.alert('Delete demo account', `${a.phone} — frees the phone and deactivates the account.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
-        try { await apiClient(`/admin/demo-accounts/${a.id}`, token, { method: 'DELETE' }); await load(); }
+        try { const t = await getFreshToken(); await apiClient(`/admin/demo-accounts/${a.id}`, t, { method: 'DELETE' }); await load(); }
         catch { Alert.alert('Delete failed'); }
       } },
     ]);
@@ -2068,7 +2078,7 @@ export function AdminSheet({ visible, onClose }: AdminSheetProps) {
       case 6: return <BlastsSection token={token} market={market} />;
       case 7: return <UsersSection token={token} />;
       case 8: return <InfraSection token={token} />;
-      case 9: return <DemoSection token={token} />;
+      case 9: return <DemoSection />;
       default: return null;
     }
   };
