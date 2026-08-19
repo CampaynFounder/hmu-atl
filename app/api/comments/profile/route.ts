@@ -16,10 +16,20 @@ export const dynamic = 'force-dynamic';
 
 const DEFAULT_MAX_CHARS = 300;
 
-async function getMaxChars(): Promise<number> {
+interface CommentSettings {
+  maxChars: number;
+  engagementPushEnabled: boolean;
+  engagementThrottleHours: number;
+}
+
+async function getCommentSettings(): Promise<CommentSettings> {
   const rows = await sql`SELECT config_value FROM platform_config WHERE config_key = 'comments.settings' LIMIT 1`;
-  const v = (rows[0]?.config_value as Record<string, number> | undefined) ?? {};
-  return v.maxChars ?? DEFAULT_MAX_CHARS;
+  const v = (rows[0]?.config_value as Record<string, unknown> | undefined) ?? {};
+  return {
+    maxChars: typeof v.maxChars === 'number' ? v.maxChars : DEFAULT_MAX_CHARS,
+    engagementPushEnabled: v.engagementPushEnabled !== false, // default on
+    engagementThrottleHours: typeof v.engagementThrottleHours === 'number' ? v.engagementThrottleHours : 1,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -38,7 +48,8 @@ export async function POST(req: NextRequest) {
 
     if (!subjectHandle) return NextResponse.json({ error: 'subjectHandle required' }, { status: 400 });
 
-    const maxChars = await getMaxChars();
+    const settings = await getCommentSettings();
+    const maxChars = settings.maxChars;
     if (!content || content.length > maxChars) {
       return NextResponse.json({ error: `Content must be 1–${maxChars} characters` }, { status: 400 });
     }
@@ -110,6 +121,43 @@ export async function POST(req: NextRequest) {
         body: preview,
         data: { type: 'new_comment', subjectHandle },
       }).catch(() => {});
+    }
+
+    // Engagement / anti-churn fan-out: also ping OTHER real people who've
+    // commented on this photo, to pull them back into the conversation. Excludes
+    // the author, the owner and the replied-to author (they already got a push),
+    // and is per-user throttled (superadmin-configurable window) so an active
+    // thread can't spam. Fire-and-forget — never blocks the response.
+    if (settings.engagementPushEnabled) {
+      void (async () => {
+        try {
+          const participants = await sql`
+            SELECT DISTINCT c.author_id
+            FROM comments c
+            JOIN users u ON u.id = c.author_id
+            WHERE c.subject_id = ${subject.id}
+              AND c.deleted_at IS NULL
+              AND c.author_id <> ${authorId}
+              AND c.author_id <> ${subject.id}
+              AND (${parentAuthorId}::uuid IS NULL OR c.author_id <> ${parentAuthorId})
+              AND u.push_token IS NOT NULL
+              AND u.account_status <> 'deleted'
+          `;
+          const windowSeconds = Math.round((settings.engagementThrottleHours || 0) * 3600);
+          for (const p of participants as { author_id: string }[]) {
+            // Throttle per (user, photo/thread). windowSeconds<=0 disables the throttle.
+            if (windowSeconds > 0) {
+              const t = await checkRateLimit({ key: `comment-engage:${p.author_id}:${subject.id}`, limit: 1, windowSeconds });
+              if (!t.ok) continue;
+            }
+            notifyUserWithPush(p.author_id, 'comment_thread_activity', { commentId: id, subjectHandle }, {
+              title: `${who} added to a photo you commented on 💬`,
+              body: preview,
+              data: { type: 'comment_thread_activity', subjectHandle },
+            }).catch(() => {});
+          }
+        } catch (e) { console.error('[comment engagement fan-out]', e); }
+      })();
     }
 
     return NextResponse.json({ id, created_at: (result[0] as { created_at: string }).created_at }, { status: 201 });

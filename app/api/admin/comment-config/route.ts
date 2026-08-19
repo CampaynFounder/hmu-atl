@@ -10,7 +10,13 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const CONFIG_KEY = 'comments.settings';
-const DEFAULTS = { maxChars: 160, maxInitialPerRide: 1, maxDriverInitialPerRide: 1, maxRepliesPerRide: 1 };
+const DEFAULTS = {
+  maxChars: 160, maxInitialPerRide: 1, maxDriverInitialPerRide: 1, maxRepliesPerRide: 1,
+  // Engagement push: when someone comments on a photo, also ping past thread
+  // participants (throttled) to pull them back. See /api/comments/profile.
+  engagementPushEnabled: true,
+  engagementThrottleHours: 1,
+};
 
 async function assertAdmin(clerkId: string): Promise<string> {
   const rows = await sql`SELECT id, profile_type FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
@@ -47,8 +53,10 @@ export async function PATCH(req: NextRequest) {
   const maxInitialPerRide       = Math.max(1,  Math.min(20,   Number(body.maxInitialPerRide)       || DEFAULTS.maxInitialPerRide));
   const maxDriverInitialPerRide = Math.max(0,  Math.min(20,   Number(body.maxDriverInitialPerRide) ?? DEFAULTS.maxDriverInitialPerRide));
   const maxRepliesPerRide       = Math.max(0,  Math.min(20,   Number(body.maxRepliesPerRide)       || DEFAULTS.maxRepliesPerRide));
+  const engagementPushEnabled   = typeof body.engagementPushEnabled === 'boolean' ? body.engagementPushEnabled : DEFAULTS.engagementPushEnabled;
+  const engagementThrottleHours = Math.max(0, Math.min(168, Number(body.engagementThrottleHours) ?? DEFAULTS.engagementThrottleHours));
 
-  const next = { maxChars, maxInitialPerRide, maxDriverInitialPerRide, maxRepliesPerRide };
+  const next = { maxChars, maxInitialPerRide, maxDriverInitialPerRide, maxRepliesPerRide, engagementPushEnabled, engagementThrottleHours };
   const json = JSON.stringify(next);
 
   await sql`
