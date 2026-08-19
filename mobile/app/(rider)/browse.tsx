@@ -21,6 +21,7 @@ import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { HmuImage } from '@/components/HmuImage';
 import { AutoplayVideo } from '@/components/AutoplayVideo';
+import { BottomScrim } from '@/components/BottomScrim';
 import { CommentsModal } from '@/components/comments/CommentsModal';
 import {
   AdFeedCard, type AdCardData, type AdApiRow, toAdCard,
@@ -163,7 +164,7 @@ function DriverCardView({ driver, cardH, canDirect, canDownBad, active, onHmu, o
       )}
 
       {/* Dark scrim + info panel */}
-      <View style={s.scrim} />
+      <BottomScrim height={220} />
       <View style={s.infoPanel}>
         {/* Top row: name + price */}
         <View style={s.nameRow}>
@@ -891,8 +892,8 @@ const s = StyleSheet.create({
   },
 
   nameRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
-  displayName: { fontFamily: fonts.monoBold, fontSize: 15, color: colors.textPrimary },
-  handle: { fontFamily: fonts.mono, fontSize: 10, color: colors.textFaint, marginTop: 2 },
+  displayName: { fontFamily: fonts.monoBold, fontSize: 15, color: colors.textPrimary, textShadowColor: 'rgba(0,0,0,0.55)', textShadowRadius: 5 },
+  handle: { fontFamily: fonts.mono, fontSize: 10, color: colors.textSecondary, marginTop: 2, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
 
   priceWrap: { alignItems: 'flex-end' },
   priceDollar: { fontFamily: fonts.mono, fontSize: 12, color: colors.green, position: 'absolute', top: 2, left: -10 },
