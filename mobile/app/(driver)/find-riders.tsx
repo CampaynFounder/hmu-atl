@@ -24,6 +24,7 @@ import { apiClient } from '@/lib/api';
 import { CommentsModal } from '@/components/comments/CommentsModal';
 import { isVideoUrl } from '@/components/Avatar';
 import { AutoplayVideo } from '@/components/AutoplayVideo';
+import { BottomScrim } from '@/components/BottomScrim';
 import {
   AdFeedCard, type AdCardData, type AdApiRow, toAdCard,
   interleaveAds, type FeedItem, isAdItem,
@@ -356,8 +357,8 @@ function RiderCard({
         <View style={c.playBadge}><Ionicons name="play" size={18} color={colors.textPrimary} /></View>
       )}
 
-      {/* Dark scrim + info panel over the media */}
-      <View style={c.scrim} />
+      {/* Bottom gradient scrim (short, fades up) + info panel over the media */}
+      <BottomScrim height={210} />
       <View style={c.infoPanel}>
         <Text style={c.handleBig} numberOfLines={1}>@{rider.handle}</Text>
         <Text style={c.nameBig} numberOfLines={1}>
@@ -473,13 +474,9 @@ const c = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
 
-  scrim: {
-    position: 'absolute', left: 0, right: 0, bottom: 0, height: '55%',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  infoPanel: { padding: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.sm },
-  handleBig: { fontFamily: fonts.display, fontSize: 34, color: colors.textPrimary, letterSpacing: 0.5 },
-  nameBig: { fontFamily: fonts.body, fontSize: 15, color: colors.textSecondary, marginTop: -6 },
+  infoPanel: { padding: spacing.xl, paddingBottom: spacing.lg, gap: spacing.sm },
+  handleBig: { fontFamily: fonts.display, fontSize: 34, color: colors.textPrimary, letterSpacing: 0.5, textShadowColor: 'rgba(0,0,0,0.55)', textShadowRadius: 5 },
+  nameBig: { fontFamily: fonts.body, fontSize: 15, color: colors.textSecondary, marginTop: -6, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
 
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs },
   badge: {
