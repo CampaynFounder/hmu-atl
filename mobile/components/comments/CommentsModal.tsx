@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { apiClient } from '@/lib/api';
+import { Avatar } from '@/components/Avatar';
 import { colors, fonts, radius, spacing } from '@/lib/theme';
 
 export interface CommentNode {
@@ -217,14 +218,8 @@ export function CommentsModal({
 
 function CommentAvatar({ photo, label }: { photo: string | null; label: string }) {
   const initial = (label.replace(/^@/, '')[0] ?? '?').toUpperCase();
-  if (photo) {
-    return <Image source={{ uri: photo }} style={s.avatar} />;
-  }
-  return (
-    <View style={[s.avatar, s.avatarFallback]}>
-      <Text style={s.avatarInitial}>{initial}</Text>
-    </View>
-  );
+  // Avatar autoplays the video if `photo` is a video URL, else renders the image.
+  return <Avatar uri={photo} size={22} fallbackInitials={initial} />;
 }
 
 function CommentRow({

@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { VersionBadge } from '@/components/VersionBadge';
+import { Avatar } from '@/components/Avatar';
 import { apiClient, API_BASE } from '@/lib/api';
 import { useUserContext } from '@/contexts/UserContext';
 import { AdminSheet } from '@/components/AdminSheet';
@@ -199,17 +200,8 @@ export default function RiderProfileScreen() {
             activeOpacity={0.85}
             accessibilityLabel="Change profile photo"
           >
-            {avatarUri ? (
-              <Image
-                source={{ uri: avatarUri }}
-                style={s.avatar}
-                resizeMode="cover"
-              />
-            ) : (
-              <View style={[s.avatar, s.avatarFallback]}>
-                <Text style={s.avatarLetter}>{avatarLetter}</Text>
-              </View>
-            )}
+            {/* Autoplays when the rider's avatar is a video, else shows the photo. */}
+            <Avatar uri={avatarUri} size={76} fallbackInitials={avatarLetter} />
             {uploadingPhoto ? (
               <View style={[s.avatar, s.avatarUploading]}>
                 <ActivityIndicator color={colors.green} />

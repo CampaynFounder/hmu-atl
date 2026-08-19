@@ -24,6 +24,7 @@ import { DepositSplitCard } from '@/components/ride/DepositSplitCard';
 import { toLatLng, LatLng } from '@/components/ride/types';
 import { useRideMessages, ChatMessage } from '@/components/ride/useRideMessages';
 import { RideChat } from '@/components/ride/RideChat';
+import { Avatar } from '@/components/Avatar';
 import { useRideSafety } from '@/components/ride/useRideSafety';
 import { RideSafety } from '@/components/ride/RideSafety';
 
@@ -1422,6 +1423,7 @@ export default function ActiveRideScreen() {
         viewerRole="driver"
         rideStatus={ride.status}
         otherName={riderDisplayName}
+        otherAvatarUrl={ride.riderAvatarUrl}
       />
 
       {canChat && (
@@ -1568,22 +1570,8 @@ export default function ActiveRideScreen() {
 // ── Rider avatar ──────────────────────────────────────────────────────────────
 
 function RiderAvatar({ url, name }: { url: string | null; name: string }) {
-  const [failed, setFailed] = useState(false);
-  const letter = (name ?? '?')[0].toUpperCase();
-  if (url && !failed) {
-    return (
-      <Image
-        source={{ uri: url }}
-        style={s.avatar}
-        onError={() => setFailed(true)}
-      />
-    );
-  }
-  return (
-    <View style={[s.avatar, s.avatarFallback]}>
-      <Text style={s.avatarLetter}>{letter}</Text>
-    </View>
-  );
+  // Autoplays when the rider's avatar is a video, else photo/initials.
+  return <Avatar uri={url} size={48} fallbackInitials={(name ?? '?')[0].toUpperCase()} />;
 }
 
 // ── Timeline row ──────────────────────────────────────────────────────────────
