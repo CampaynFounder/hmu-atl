@@ -1986,7 +1986,8 @@ function DemoSection() {
 // (everyone / drivers / riders, optionally a market). Same endpoints as the web
 // /admin/push tool. Fresh token per request (Clerk JWTs expire ~60s).
 
-interface PushUser { id: string; displayName: string; profileType: string; phone: string | null }
+interface PushUser { id: string; handle: string | null; display_name: string | null; profile_type: string; phone: string | null }
+function pushUserLabel(u: PushUser): string { return u.handle ? `@${u.handle}` : (u.display_name || 'Unnamed'); }
 
 function PushSection() {
   const getFreshToken = useStableToken();
@@ -2035,8 +2036,10 @@ function PushSection() {
     const h = setTimeout(async () => {
       try {
         const t = await getFreshToken();
-        const d = await apiClient<{ users: PushUser[] }>(`/admin/users?search=${encodeURIComponent(query.trim())}&limit=8`, t);
-        setResults(d.users ?? []);
+        // /admin/users/search matches BOTH driver + rider handles and returns the
+        // handle, so you can autocomplete by @handle. (?q= not ?search=.)
+        const d = await apiClient<{ results: PushUser[] }>(`/admin/users/search?q=${encodeURIComponent(query.trim().replace(/^@+/, ''))}&limit=8`, t);
+        setResults(d.results ?? []);
       } catch { /* */ }
     }, 300);
     return () => clearTimeout(h);
@@ -2058,7 +2061,7 @@ function PushSection() {
           method: 'POST',
           body: JSON.stringify({ userId: picked.id, title: title.trim(), body: body.trim(), sendPush, sendInApp }),
         });
-        Alert.alert('Sent', `Push sent to ${picked.displayName}`);
+        Alert.alert('Sent', `Push sent to ${pushUserLabel(picked)}`);
       }
       setTitle(''); setBody('');
     } catch (e) { Alert.alert('Send failed', e instanceof Error ? e.message : 'Try again'); }
@@ -2127,11 +2130,11 @@ function PushSection() {
           {picked ? (
             <View style={{ marginTop: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
               <Ionicons name="checkmark-circle" size={16} color={G} />
-              <Text style={sc.rowTitle}>{picked.displayName} <Text style={sc.rowSub}>· {picked.profileType}</Text></Text>
+              <Text style={sc.rowTitle}>{pushUserLabel(picked)} <Text style={sc.rowSub}>· {picked.profile_type}{picked.display_name && picked.handle ? ` · ${picked.display_name}` : ''}</Text></Text>
             </View>
           ) : results.map((u) => (
             <TouchableOpacity key={u.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }} onPress={() => { setPicked(u); setResults([]); }}>
-              <Text style={sc.rowTitle}>{u.displayName} <Text style={sc.rowSub}>· {u.profileType}{u.phone ? ` · ${u.phone}` : ''}</Text></Text>
+              <Text style={sc.rowTitle}>{pushUserLabel(u)} <Text style={sc.rowSub}>· {u.profile_type}{u.display_name && u.handle ? ` · ${u.display_name}` : ''}{u.phone ? ` · ${u.phone}` : ''}</Text></Text>
             </TouchableOpacity>
           ))}
         </View>
