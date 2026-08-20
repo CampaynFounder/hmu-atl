@@ -9,6 +9,7 @@ import {
 } from '@/lib/db/direct-bookings';
 import { notifyUser, publishAdminEvent } from '@/lib/ably/server';
 import { alertRideRequested } from '@/lib/admin/push-alerts';
+import { deferPush } from '@/lib/notify';
 import { notifyUserWithPush } from '@/lib/notify';
 import { afterResponse } from '@/lib/runtime/after-response';
 import { notifyDriverNewBooking } from '@/lib/sms/textbee';
@@ -361,7 +362,7 @@ export async function POST(
   }).catch(() => {});
 
   // Push super-admins on the new ride request (gated by admin.push_alerts).
-  alertRideRequested({ kind: 'direct_booking', price }).catch(() => {});
+  deferPush(alertRideRequested({ kind: 'direct_booking', price }));
 
   // SMS notification to driver — inline VoIP.ms call to bypass any env issues
   try {
