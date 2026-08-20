@@ -14,6 +14,8 @@ export default async function PushPage() {
 
   // Preload the reviewer demo accounts for one-click targeting.
   const demo = await getDemoUserHandles();
+  const markets = (await sql`SELECT slug, name FROM markets ORDER BY status = 'live' DESC, name ASC`) as
+    { slug: string; name: string }[];
 
-  return <PushClient demo={demo} />;
+  return <PushClient demo={demo} markets={markets} />;
 }
