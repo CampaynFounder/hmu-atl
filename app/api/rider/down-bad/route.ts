@@ -21,6 +21,7 @@ import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolv
 import { isBookingTypeEnabled } from '@/lib/markets/booking-types';
 import { publishToChannel } from '@/lib/ably/server';
 import { alertRideRequested } from '@/lib/admin/push-alerts';
+import { deferPush } from '@/lib/notify';
 import { notifyDriverDownBadPosted } from '@/lib/sms/textbee';
 
 interface DownBadConfig {
@@ -276,7 +277,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Push super-admins on the new Down Bad request (gated by admin.push_alerts).
-    alertRideRequested({ kind: 'down_bad', price }).catch(() => {});
+    deferPush(alertRideRequested({ kind: 'down_bad', price }));
 
     return NextResponse.json({ postId, expiresAt: expiresAt.toISOString() }, { status: 201 });
   } catch (err) {
