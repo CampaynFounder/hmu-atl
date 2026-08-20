@@ -2086,7 +2086,14 @@ function PushSection() {
   }
 
   return (
-    <ScrollView contentContainerStyle={{ gap: spacing.md }} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      contentContainerStyle={{ gap: spacing.md, paddingBottom: 340 }}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+      // iOS: auto-inset the scroll content by the keyboard height so a focused
+      // input (title/message near the bottom) scrolls above the keyboard.
+      automaticallyAdjustKeyboardInsets
+    >
       {/* Audience mode */}
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         {(['segment', 'user'] as const).map((m) => (
