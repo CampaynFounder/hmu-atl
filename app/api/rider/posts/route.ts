@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
 import { publishToChannel, publishAdminEvent } from '@/lib/ably/server';
 import { alertRideRequested } from '@/lib/admin/push-alerts';
+import { deferPush } from '@/lib/notify';
 import { resolveMarketForUser, feedChannelForMarket } from '@/lib/markets/resolver';
 import { parseRoute, resolveProvidedSlugs } from '@/lib/markets/parse-areas';
 import { globalDefaultAllowsCashOnly } from '@/lib/payments/strategies';
@@ -153,10 +154,12 @@ export async function POST(req: NextRequest) {
     }).catch(() => {});
 
     // Push super-admins on the new ride request (gated by admin.push_alerts).
-    alertRideRequested({
+    // deferPush → ctx.waitUntil so the push isn't dropped when the Worker
+    // isolate is torn down after the response.
+    deferPush(alertRideRequested({
       kind: 'rider_request', price,
       areas: [route.pickup_area_slug, route.dropoff_area_slug].filter(Boolean).join(' → ') || null,
-    }).catch(() => {});
+    }));
 
     return NextResponse.json({
       postId,
