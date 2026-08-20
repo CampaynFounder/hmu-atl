@@ -37,3 +37,35 @@ export async function sendPushToUser(userId: string, msg: PushMessage): Promise<
     console.error('[push] send error:', err);
   }
 }
+
+// Bulk push to many device tokens. Expo accepts up to 100 messages per request,
+// so we chunk. Best-effort; returns how many were accepted (HTTP-level). Use for
+// admin broadcasts — pair with ctx.waitUntil so it finishes after the response.
+export async function sendPushBulk(tokens: string[], msg: PushMessage): Promise<number> {
+  const valid = tokens.filter((t) => typeof t === 'string' && t.length > 0);
+  let accepted = 0;
+  for (let i = 0; i < valid.length; i += 100) {
+    const chunk = valid.slice(i, i + 100);
+    const messages = chunk.map((to) => ({
+      to,
+      title: msg.title,
+      body: msg.body,
+      data: msg.data ?? {},
+      sound: 'default',
+      priority: 'high',
+      channelId: 'default',
+    }));
+    try {
+      const res = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(messages),
+      });
+      if (res.ok) accepted += chunk.length;
+      else console.error('[push] bulk chunk failed:', await res.text());
+    } catch (err) {
+      console.error('[push] bulk send error:', err);
+    }
+  }
+  return accepted;
+}
