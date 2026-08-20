@@ -1981,6 +1981,189 @@ function DemoSection() {
   );
 }
 
+// ── SECTION: Push (send notifications) ────────────────────────────────────────
+// Send an OS push + in-app banner to one user, or broadcast to a segment
+// (everyone / drivers / riders, optionally a market). Same endpoints as the web
+// /admin/push tool. Fresh token per request (Clerk JWTs expire ~60s).
+
+interface PushUser { id: string; displayName: string; profileType: string; phone: string | null }
+
+function PushSection() {
+  const getFreshToken = useStableToken();
+  const [mode, setMode] = useState<'segment' | 'user'>('segment');
+
+  // segment
+  const [role, setRole] = useState<'all' | 'driver' | 'rider'>('all');
+  const [markets, setMarkets] = useState<DemoMarket[]>([]);
+  const [marketSlug, setMarketSlug] = useState<string>(''); // '' = all
+  const [count, setCount] = useState<{ total: number; withPushToken: number } | null>(null);
+
+  // one user
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<PushUser[]>([]);
+  const [picked, setPicked] = useState<PushUser | null>(null);
+
+  // compose
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [sendPush, setSendPush] = useState(true);
+  const [sendInApp, setSendInApp] = useState(true);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    (async () => { try { const t = await getFreshToken(); const d = await apiClient<{ markets: DemoMarket[] }>('/admin/markets', t); setMarkets(d.markets ?? []); } catch { /* */ } })();
+  }, [getFreshToken]);
+
+  // Live reach count for the current segment.
+  useEffect(() => {
+    if (mode !== 'segment') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const t = await getFreshToken();
+        const q = `role=${role}${marketSlug ? `&market=${encodeURIComponent(marketSlug)}` : ''}`;
+        const d = await apiClient<{ total: number; withPushToken: number }>(`/admin/push/broadcast?${q}`, t);
+        if (!cancelled) setCount(d);
+      } catch { /* */ }
+    })();
+    return () => { cancelled = true; };
+  }, [mode, role, marketSlug, getFreshToken]);
+
+  // Debounced user search.
+  useEffect(() => {
+    if (mode !== 'user' || !query.trim()) { setResults([]); return; }
+    const h = setTimeout(async () => {
+      try {
+        const t = await getFreshToken();
+        const d = await apiClient<{ users: PushUser[] }>(`/admin/users?search=${encodeURIComponent(query.trim())}&limit=8`, t);
+        setResults(d.users ?? []);
+      } catch { /* */ }
+    }, 300);
+    return () => clearTimeout(h);
+  }, [mode, query, getFreshToken]);
+
+  async function doSend() {
+    setSending(true);
+    try {
+      const t = await getFreshToken();
+      if (mode === 'segment') {
+        const d = await apiClient<{ recipients: number; withPushToken: number }>('/admin/push/broadcast', t, {
+          method: 'POST',
+          body: JSON.stringify({ title: title.trim(), body: body.trim(), sendPush, sendInApp, target: { type: 'segment', role, marketSlug: marketSlug || null } }),
+        });
+        Alert.alert('Broadcast queued', `${d.recipients} recipients · ${d.withPushToken} with a device`);
+      } else {
+        if (!picked) { setSending(false); return; }
+        await apiClient('/admin/push', t, {
+          method: 'POST',
+          body: JSON.stringify({ userId: picked.id, title: title.trim(), body: body.trim(), sendPush, sendInApp }),
+        });
+        Alert.alert('Sent', `Push sent to ${picked.displayName}`);
+      }
+      setTitle(''); setBody('');
+    } catch (e) { Alert.alert('Send failed', e instanceof Error ? e.message : 'Try again'); }
+    finally { setSending(false); }
+  }
+
+  function send() {
+    if (!title.trim() || !body.trim()) { Alert.alert('Add a title and message'); return; }
+    if (!sendPush && !sendInApp) { Alert.alert('Enable push or in-app'); return; }
+    if (mode === 'segment') {
+      const n = count?.total ?? 0;
+      if (n === 0) { Alert.alert('No recipients for this segment'); return; }
+      if (n >= 25) {
+        Alert.alert('Send broadcast', `Send this to ${n} people?`, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Send', style: 'destructive', onPress: () => void doSend() },
+        ]);
+        return;
+      }
+    } else if (!picked) { Alert.alert('Pick a user'); return; }
+    void doSend();
+  }
+
+  return (
+    <ScrollView contentContainerStyle={{ gap: spacing.md }} keyboardShouldPersistTaps="handled">
+      {/* Audience mode */}
+      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+        {(['segment', 'user'] as const).map((m) => (
+          <TouchableOpacity key={m} style={[sc.modeBtn, { flex: 1 }, mode === m && sc.modeBtnActive]} onPress={() => setMode(m)}>
+            <Text style={[sc.modeBtnText, mode === m && { color: G }]}>{m === 'segment' ? 'BROADCAST' : 'ONE USER'}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {mode === 'segment' ? (
+        <View style={sc.pricingCard}>
+          <Text style={ds.fieldLabel}>AUDIENCE</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            {(['all', 'driver', 'rider'] as const).map((r) => (
+              <TouchableOpacity key={r} style={[sc.modeBtn, { flex: 1 }, role === r && sc.modeBtnActive]} onPress={() => setRole(r)}>
+                <Text style={[sc.modeBtnText, role === r && { color: G }]}>{r === 'all' ? 'EVERYONE' : r === 'driver' ? 'DRIVERS' : 'RIDERS'}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={ds.fieldLabel}>MARKET</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }} keyboardShouldPersistTaps="handled">
+            <TouchableOpacity style={[ds.chip, marketSlug === '' && ds.chipOn]} onPress={() => setMarketSlug('')}>
+              <Text style={[ds.chipText, marketSlug === '' && { color: colors.bg }]}>All markets</Text>
+            </TouchableOpacity>
+            {markets.map((m) => (
+              <TouchableOpacity key={m.id} style={[ds.chip, marketSlug === m.slug && ds.chipOn]} onPress={() => setMarketSlug(m.slug)}>
+                <Text style={[ds.chipText, marketSlug === m.slug && { color: colors.bg }]}>{m.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <View style={{ marginTop: spacing.md, padding: spacing.sm, backgroundColor: colors.bg, borderRadius: radius.tag, borderWidth: 1, borderColor: colors.border }}>
+            <Text style={sc.rowSub}>
+              {count == null ? 'Estimating…' : `Reaches ${count.total.toLocaleString()} ${count.total === 1 ? 'person' : 'people'} · ${count.withPushToken.toLocaleString()} with a device`}
+            </Text>
+          </View>
+        </View>
+      ) : (
+        <View style={sc.pricingCard}>
+          <Text style={ds.fieldLabel}>RECIPIENT</Text>
+          <TextInput style={ds.field} value={query} onChangeText={(v) => { setQuery(v); setPicked(null); }} placeholder="Search name, handle, or phone" placeholderTextColor={colors.textFaint} />
+          {picked ? (
+            <View style={{ marginTop: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <Ionicons name="checkmark-circle" size={16} color={G} />
+              <Text style={sc.rowTitle}>{picked.displayName} <Text style={sc.rowSub}>· {picked.profileType}</Text></Text>
+            </View>
+          ) : results.map((u) => (
+            <TouchableOpacity key={u.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }} onPress={() => { setPicked(u); setResults([]); }}>
+              <Text style={sc.rowTitle}>{u.displayName} <Text style={sc.rowSub}>· {u.profileType}{u.phone ? ` · ${u.phone}` : ''}</Text></Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* Compose */}
+      <View style={sc.pricingCard}>
+        <Text style={ds.fieldLabel}>TITLE</Text>
+        <TextInput style={ds.field} value={title} onChangeText={setTitle} placeholder="🎉 New drivers near you" placeholderTextColor={colors.textFaint} maxLength={100} />
+        <Text style={ds.fieldLabel}>MESSAGE</Text>
+        <TextInput style={[ds.field, { minHeight: 60 }]} value={body} onChangeText={setBody} placeholder="What do you want to say?" placeholderTextColor={colors.textFaint} maxLength={240} multiline />
+        <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.md }}>
+          <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} onPress={() => setSendPush((v) => !v)}>
+            <Ionicons name={sendPush ? 'checkbox' : 'square-outline'} size={18} color={sendPush ? G : colors.textFaint} />
+            <Text style={sc.rowSub}>OS push</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} onPress={() => setSendInApp((v) => !v)}>
+            <Ionicons name={sendInApp ? 'checkbox' : 'square-outline'} size={18} color={sendInApp ? G : colors.textFaint} />
+            <Text style={sc.rowSub}>In-app banner</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <TouchableOpacity style={sc.saveBtn} onPress={send} disabled={sending}>
+        {sending ? <ActivityIndicator size="small" color={colors.bg} /> : (
+          <Text style={sc.saveBtnText}>{mode === 'segment' ? `SEND TO ${count?.total ?? 0}` : 'SEND'}</Text>
+        )}
+      </TouchableOpacity>
+    </ScrollView>
+  );
+}
+
 const ds = StyleSheet.create({
   fieldLabel: {
     fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint,
@@ -2014,6 +2197,7 @@ const TABS = [
   { key: 'users',    label: 'USERS',    icon: 'people' as const },
   { key: 'infra',    label: 'INFRA',    icon: 'pulse' as const },
   { key: 'demo',     label: 'DEMO',     icon: 'ticket' as const },
+  { key: 'push',     label: 'PUSH',     icon: 'notifications' as const },
 ];
 
 // ── Main Sheet ────────────────────────────────────────────────────────────────
@@ -2079,6 +2263,7 @@ export function AdminSheet({ visible, onClose }: AdminSheetProps) {
       case 7: return <UsersSection token={token} />;
       case 8: return <InfraSection token={token} />;
       case 9: return <DemoSection />;
+      case 10: return <PushSection />;
       default: return null;
     }
   };
