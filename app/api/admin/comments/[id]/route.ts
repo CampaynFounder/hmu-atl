@@ -3,8 +3,8 @@
 // action: 'hide' | 'unhide' | 'redact' | 'annotate' | 'flag' | 'unflag'
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,14 +13,12 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { userId: clerkId } = await auth();
-  if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const adminRows = await sql`SELECT id, profile_type FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
-  if (!adminRows.length || (adminRows[0] as { profile_type: string }).profile_type !== 'admin') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
-  const adminId = (adminRows[0] as { id: string }).id;
+  // Role-based admin guard — mobile superadmins open the sheet from their own
+  // rider/driver profile, so profile_type isn't 'admin'; requireAdmin uses the
+  // admin role instead.
+  const admin = await requireAdmin();
+  if (!admin) return unauthorizedResponse();
+  const adminId = admin.id;
 
   const { id: commentId } = await params;
   const body = await req.json();

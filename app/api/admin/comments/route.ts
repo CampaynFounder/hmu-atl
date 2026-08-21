@@ -2,23 +2,18 @@
 // PATCH /api/admin/comments/[id] is the individual moderation action
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db/client';
+import { requireAdmin, unauthorizedResponse } from '@/lib/admin/helpers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-async function assertAdmin(clerkId: string) {
-  const rows = await sql`SELECT profile_type FROM users WHERE clerk_id = ${clerkId} LIMIT 1`;
-  if (!rows.length || (rows[0] as { profile_type: string }).profile_type !== 'admin') {
-    throw new Error('Admin only');
-  }
-}
-
 export async function GET(req: NextRequest) {
-  const { userId: clerkId } = await auth();
-  if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  try { await assertAdmin(clerkId); } catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }); }
+  // Any admin identity (role-based) — NOT profile_type === 'admin'. Mobile
+  // superadmins open the sheet from their own rider/driver profile, so their
+  // profile_type is 'rider'/'driver'; requireAdmin authorizes off the admin role.
+  const admin = await requireAdmin();
+  if (!admin) return unauthorizedResponse();
 
   const flaggedOnly = req.nextUrl.searchParams.get('flagged') === '1';
   const offset = Math.max(0, Number(req.nextUrl.searchParams.get('offset') ?? 0));

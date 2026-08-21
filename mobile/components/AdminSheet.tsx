@@ -2224,7 +2224,9 @@ function modLabel(handle: string | null, name: string | null): string {
 
 function ModerationSection() {
   const getFreshToken = useStableToken();
-  const [tab, setTab] = useState<'flagged' | 'all'>('flagged');
+  // Default to ALL so opening COMMENTS shows every comment immediately; FLAGGED
+  // is the narrower moderation queue you switch to.
+  const [tab, setTab] = useState<'flagged' | 'all'>('all');
   const [rows, setRows] = useState<CommentModRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
