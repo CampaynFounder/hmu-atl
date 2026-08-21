@@ -35,16 +35,21 @@ export async function GET(req: NextRequest) {
       c.created_at,
       c.redacted_at,
       a.id AS author_id,
-      adp.handle AS author_handle,
-      adp.display_name AS author_name,
+      -- Seed comments carry their own display identity; otherwise resolve the
+      -- author/subject across BOTH driver and rider profiles so rider comments
+      -- aren't left anonymous in the moderation view.
+      COALESCE(c.seed_author_handle, adp.handle, arp.handle) AS author_handle,
+      COALESCE(c.seed_author_name, adp.display_name, arp.display_name) AS author_name,
       s.id AS subject_id,
-      sdp.handle AS subject_handle,
-      sdp.display_name AS subject_name
+      COALESCE(sdp.handle, srp.handle) AS subject_handle,
+      COALESCE(sdp.display_name, srp.display_name) AS subject_name
     FROM comments c
     JOIN users a ON a.id = c.author_id
     LEFT JOIN driver_profiles adp ON adp.user_id = a.id
+    LEFT JOIN rider_profiles  arp ON arp.user_id = a.id
     JOIN users s ON s.id = c.subject_id
     LEFT JOIN driver_profiles sdp ON sdp.user_id = s.id
+    LEFT JOIN rider_profiles  srp ON srp.user_id = s.id
     WHERE (NOT ${flaggedOnly}::boolean OR c.flagged_for_review = true)
       AND c.deleted_at IS NULL
     ORDER BY c.flagged_for_review DESC, c.created_at DESC

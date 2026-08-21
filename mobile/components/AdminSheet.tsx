@@ -2196,6 +2196,232 @@ const ds = StyleSheet.create({
   liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: G },
 });
 
+// ── SECTION: Comment Moderation ───────────────────────────────────────────────
+// Superadmin view of every comment for moderation. Reuses the same admin APIs as
+// the web moderation page: GET /admin/comments (flagged|all) + PATCH
+// /admin/comments/{id} (hide/unhide/flag/unflag/redact/delete).
+
+interface CommentModRow {
+  id: string;
+  content: string;
+  redacted_content: string | null;
+  admin_note: string | null;
+  is_visible: boolean;
+  flagged_for_review: boolean;
+  parent_id: string | null;
+  created_at: string;
+  author_handle: string | null;
+  author_name: string | null;
+  subject_handle: string | null;
+  subject_name: string | null;
+}
+
+function modLabel(handle: string | null, name: string | null): string {
+  if (handle) return `@${handle}`;
+  if (name) return name;
+  return 'unknown';
+}
+
+function ModerationSection() {
+  const getFreshToken = useStableToken();
+  const [tab, setTab] = useState<'flagged' | 'all'>('flagged');
+  const [rows, setRows] = useState<CommentModRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [redactId, setRedactId] = useState<string | null>(null);
+  const [redactText, setRedactText] = useState('');
+  const offsetRef = useRef(0);
+
+  const load = useCallback(async (reset: boolean) => {
+    if (reset) setLoading(true); else setLoadingMore(true);
+    try {
+      const t = await getFreshToken();
+      const off = reset ? 0 : offsetRef.current;
+      const d = await apiClient<{ comments: CommentModRow[] }>(
+        `/admin/comments?flagged=${tab === 'flagged' ? '1' : '0'}&offset=${off}`, t,
+      );
+      const list = d.comments ?? [];
+      setHasMore(list.length === 50);
+      offsetRef.current = off + list.length;
+      setRows(reset ? () => list : (prev) => [...prev, ...list]);
+    } catch { /* keep prior list */ }
+    finally { setLoading(false); setLoadingMore(false); }
+  }, [tab, getFreshToken]);
+
+  useEffect(() => { void load(true); }, [load]);
+
+  async function act(id: string, action: string, extra?: Record<string, string>) {
+    setBusyId(id);
+    try {
+      const t = await getFreshToken();
+      await apiClient(`/admin/comments/${id}`, t, {
+        method: 'PATCH',
+        body: JSON.stringify({ action, ...extra }),
+      });
+      // Optimistic local update — no full reload needed.
+      setRows((prev) => prev.flatMap((r) => {
+        if (r.id !== id) return [r];
+        switch (action) {
+          case 'delete': return [];
+          case 'hide':   return [{ ...r, is_visible: false }];
+          case 'unhide': return [{ ...r, is_visible: true }];
+          case 'flag':   return [{ ...r, flagged_for_review: true }];
+          // Un-flagging drops it from the FLAGGED tab; keep it in ALL.
+          case 'unflag': return tab === 'flagged' ? [] : [{ ...r, flagged_for_review: false }];
+          case 'redact': return [{ ...r, redacted_content: extra?.redactedContent ?? r.redacted_content }];
+          default: return [r];
+        }
+      }));
+      Haptics.selectionAsync().catch(() => {});
+    } catch (e) {
+      Alert.alert('Action failed', e instanceof Error ? e.message : 'Try again');
+    } finally { setBusyId(null); }
+  }
+
+  function confirmDelete(id: string) {
+    Alert.alert('Delete comment', 'This removes it and hides it from everyone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => void act(id, 'delete') },
+    ]);
+  }
+
+  function openRedact(r: CommentModRow) {
+    setRedactId(r.id);
+    setRedactText(r.redacted_content ?? r.content);
+  }
+  function submitRedact(id: string) {
+    const text = redactText.trim();
+    if (!text) return;
+    void act(id, 'redact', { redactedContent: text });
+    setRedactId(null); setRedactText('');
+  }
+
+  return (
+    <ScrollView
+      contentContainerStyle={{ gap: spacing.md, paddingBottom: 340 }}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+      automaticallyAdjustKeyboardInsets
+    >
+      {/* Flagged / All toggle */}
+      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+        {(['flagged', 'all'] as const).map((k) => (
+          <TouchableOpacity key={k} style={[sc.modeBtn, { flex: 1 }, tab === k && sc.modeBtnActive]} onPress={() => setTab(k)}>
+            <Text style={[sc.modeBtnText, tab === k && { color: G }]}>{k === 'flagged' ? 'FLAGGED' : 'ALL COMMENTS'}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {loading ? <LoadingCard /> : rows.length === 0 ? (
+        <EmptyState msg={tab === 'flagged' ? 'NO FLAGGED COMMENTS' : 'NO COMMENTS YET'} />
+      ) : rows.map((r) => {
+        const busy = busyId === r.id;
+        return (
+          <View key={r.id} style={mod.card}>
+            {/* who → whom + time */}
+            <View style={mod.head}>
+              <Text style={mod.who} numberOfLines={1}>
+                {modLabel(r.author_handle, r.author_name)}
+                <Text style={mod.arrow}>  ›  </Text>
+                {modLabel(r.subject_handle, r.subject_name)}
+              </Text>
+              <Text style={mod.time}>{new Date(parseTs(r.created_at)).toLocaleDateString()}</Text>
+            </View>
+
+            {/* status chips */}
+            {(r.flagged_for_review || !r.is_visible || r.redacted_content || r.parent_id) && (
+              <View style={mod.chips}>
+                {r.flagged_for_review && <Text style={[mod.chip, { color: colors.amber, borderColor: colors.amberBorder }]}>FLAGGED</Text>}
+                {!r.is_visible && <Text style={[mod.chip, { color: colors.red, borderColor: colors.redBorder }]}>HIDDEN</Text>}
+                {r.redacted_content && <Text style={[mod.chip, { color: colors.blue, borderColor: colors.blueBorder }]}>REDACTED</Text>}
+                {r.parent_id && <Text style={[mod.chip, { color: colors.textFaint, borderColor: colors.border }]}>REPLY</Text>}
+              </View>
+            )}
+
+            {/* body */}
+            <Text style={mod.body}>{r.content}</Text>
+            {r.redacted_content && (
+              <Text style={mod.redacted}>Shown to users: “{r.redacted_content}”</Text>
+            )}
+
+            {/* redact editor */}
+            {redactId === r.id ? (
+              <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
+                <TextInput
+                  style={[sc.costInput, { width: '100%', textAlign: 'left', minHeight: 60 }]}
+                  value={redactText}
+                  onChangeText={setRedactText}
+                  placeholder="Cleaned text shown to users…"
+                  placeholderTextColor={colors.textFaint}
+                  multiline
+                />
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <TouchableOpacity style={[sc.saveBtn, { flex: 1, backgroundColor: colors.blue }]} onPress={() => submitRedact(r.id)}>
+                    <Text style={sc.saveBtnText}>SAVE REDACTION</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[sc.saveBtn, { flex: 1, backgroundColor: colors.cardAlt }]} onPress={() => { setRedactId(null); setRedactText(''); }}>
+                    <Text style={[sc.saveBtnText, { color: colors.textSecondary }]}>CANCEL</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <View style={mod.actions}>
+                {busy ? <ActivityIndicator size="small" color={G} /> : (
+                  <>
+                    <ModAction label={r.is_visible ? 'Hide' : 'Unhide'} color={r.is_visible ? colors.amber : colors.green}
+                      onPress={() => void act(r.id, r.is_visible ? 'hide' : 'unhide')} />
+                    <ModAction label={r.flagged_for_review ? 'Unflag' : 'Flag'} color={colors.textTertiary}
+                      onPress={() => void act(r.id, r.flagged_for_review ? 'unflag' : 'flag')} />
+                    <ModAction label="Redact" color={colors.blue} onPress={() => openRedact(r)} />
+                    <ModAction label="Delete" color={colors.red} onPress={() => confirmDelete(r.id)} />
+                  </>
+                )}
+              </View>
+            )}
+          </View>
+        );
+      })}
+
+      {hasMore && !loading && (
+        <TouchableOpacity style={[sc.saveBtn, { backgroundColor: colors.cardAlt }]} onPress={() => void load(false)} disabled={loadingMore}>
+          {loadingMore ? <ActivityIndicator size="small" color={G} /> : <Text style={[sc.saveBtnText, { color: colors.textSecondary }]}>LOAD MORE</Text>}
+        </TouchableOpacity>
+      )}
+    </ScrollView>
+  );
+}
+
+function ModAction({ label, color, onPress }: { label: string; color: string; onPress: () => void }) {
+  return (
+    <TouchableOpacity style={mod.actionBtn} onPress={onPress} hitSlop={6} activeOpacity={0.7}>
+      <Text style={[mod.actionText, { color }]}>{label.toUpperCase()}</Text>
+    </TouchableOpacity>
+  );
+}
+
+const mod = StyleSheet.create({
+  card: {
+    backgroundColor: colors.card, borderRadius: radius.card,
+    padding: spacing.md, gap: 6, borderWidth: 1, borderColor: colors.border,
+  },
+  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  who: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.textSecondary, letterSpacing: 0.3, flex: 1 },
+  arrow: { color: colors.textFaint },
+  time: { fontFamily: fonts.mono, fontSize: 9, color: colors.textFaint },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chip: {
+    fontFamily: fonts.mono, fontSize: 8, letterSpacing: 1,
+    borderWidth: 1, borderRadius: radius.tag, paddingHorizontal: 6, paddingVertical: 2,
+  },
+  body: { fontFamily: fonts.body, fontSize: 14, color: colors.textPrimary, lineHeight: 19 },
+  redacted: { fontFamily: fonts.body, fontSize: 12, color: colors.blue, fontStyle: 'italic' },
+  actions: { flexDirection: 'row', gap: spacing.lg, marginTop: 4, flexWrap: 'wrap', minHeight: 20 },
+  actionBtn: {},
+  actionText: { fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 0.5 },
+});
+
 const TABS = [
   { key: 'activity', label: 'ACTIVITY', icon: 'stats-chart' as const },
   { key: 'revenue',  label: 'REVENUE',  icon: 'cash' as const },
@@ -2208,6 +2434,7 @@ const TABS = [
   { key: 'infra',    label: 'INFRA',    icon: 'pulse' as const },
   { key: 'demo',     label: 'DEMO',     icon: 'ticket' as const },
   { key: 'push',     label: 'PUSH',     icon: 'notifications' as const },
+  { key: 'comments', label: 'COMMENTS', icon: 'chatbubbles-outline' as const },
 ];
 
 // ── Main Sheet ────────────────────────────────────────────────────────────────
@@ -2274,6 +2501,7 @@ export function AdminSheet({ visible, onClose }: AdminSheetProps) {
       case 8: return <InfraSection token={token} />;
       case 9: return <DemoSection />;
       case 10: return <PushSection />;
+      case 11: return <ModerationSection />;
       default: return null;
     }
   };
