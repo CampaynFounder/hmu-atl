@@ -210,6 +210,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   commentIndicatorsRef.current = commentIndicators;
   const isDriverAccountRef = useRef(false);
   isDriverAccountRef.current = isDriverAccount;
+  // Authoritative in-memory "last viewed the comments" stamp used as the `since`
+  // for the unread count. Kept in a ref (not read from AsyncStorage per-request)
+  // so marking-seen can't race a concurrent refresh reading a stale stored value
+  // — that race made the badge reappear right after you opened the inbox.
+  // AsyncStorage is only for persistence across cold starts (loaded on sign-in).
+  const lastSeenRef = useRef<string | null>(null);
 
   const feedRefreshCallbacks = useRef<Set<() => void>>(new Set());
   const rideRefreshCallbacks = useRef<Set<() => void>>(new Set());
@@ -351,8 +357,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       try {
         const t = await getTokenRef.current();
         if (!t) return;
-        const uid = dbUserIdRef.current;
-        const since = uid ? await AsyncStorage.getItem(`comments_seen_at:${uid}`) : null;
+        // In-memory last-seen is the source of truth for "unread since last view".
+        const since = lastSeenRef.current;
         const qs = since ? `?since=${encodeURIComponent(since)}` : '';
         const res = await fetch(`${API_BASE}/comments/activity${qs}`, {
           headers: { Authorization: `Bearer ${t}` },
@@ -378,10 +384,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     })();
   }, []);
 
-  // Stamp "seen now" so the next refresh (and cold start) computes a fresh
-  // unread count, and optimistically clear the badge + mark items read.
+  // Stamp "seen now" so every subsequent unread count is measured from this
+  // moment. Updates the in-memory ref SYNCHRONOUSLY (so an immediately-following
+  // refresh already uses the new stamp and can't resurrect the badge), persists
+  // it for cold starts, and optimistically clears the badge + marks items read.
   const markCommentsSeen = useCallback(() => {
     const nowIso = new Date().toISOString();
+    lastSeenRef.current = nowIso;
     const uid = dbUserIdRef.current;
     if (uid) void AsyncStorage.setItem(`comments_seen_at:${uid}`, nowIso);
     setUnreadCommentCount(0);
@@ -483,10 +492,16 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         if (!res.ok || cancelled) return;
         const data = await res.json() as { id?: string; profile_type?: string };
         if (data?.id && !cancelled) {
+          dbUserIdRef.current = data.id;
           setDbUserId(data.id);
           setIsDriverAccount(data.profile_type === 'driver');
-          // First comment-activity pull once we know who we are (the fetch keys
-          // its last-seen stamp on this id).
+          // Hydrate the last-seen stamp from storage into the in-memory ref
+          // BEFORE the first fetch, so the unread count is measured from the
+          // last time this user viewed comments (not from epoch every launch).
+          try {
+            lastSeenRef.current = await AsyncStorage.getItem(`comments_seen_at:${data.id}`);
+          } catch { /* no stored stamp — treat everything as unread */ }
+          if (cancelled) return;
           refreshCommentActivity();
         }
       } catch { /* best-effort — without this, app-wide notify stays silent */ }
