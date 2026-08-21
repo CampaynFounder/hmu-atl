@@ -749,6 +749,10 @@ export default function BrowseDrivers() {
           columnWrapperStyle={{ gap: GRID_GAP }}
           contentContainerStyle={{ padding: GRID_PAD, gap: GRID_GAP, paddingBottom: GRID_PAD + 48 }}
           showsVerticalScrollIndicator={false}
+          windowSize={7}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          removeClippedSubviews
           renderItem={({ item }) => (
             <GridCard
               driver={item}
@@ -781,6 +785,12 @@ export default function BrowseDrivers() {
             showsVerticalScrollIndicator={false}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
+            // Keep only the current card + immediate neighbors mounted so
+            // off-screen autoplay-video cards unmount (free their players).
+            windowSize={3}
+            initialNumToRender={2}
+            maxToRenderPerBatch={3}
+            removeClippedSubviews
             onEndReached={onEndReached}
             onEndReachedThreshold={0.5}
             ListFooterComponent={loadingMore ? (

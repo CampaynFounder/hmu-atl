@@ -52,49 +52,51 @@ export default function Index() {
           accountDeletionEnabled: me.accountDeletionEnabled !== false,
         });
 
-        // Geo-based market check — skipped in dev builds to avoid simulator location issues.
-        // Also skipped for app-store reviewer demo accounts, which run from
-        // outside an active market and would otherwise hit the coming-soon screen.
-        // In production, fails open on denied permission or API error.
-        if (!__DEV__ && !me.isDemo) {
+        // Run the two independent post-auth gates CONCURRENTLY instead of in a
+        // serial waterfall (this used to add up to 4s of geolocation + a second
+        // round-trip before home rendered):
+        //  1. Geo-based market check — bounce users physically outside an active
+        //     market to the coming-soon screen. Skipped in dev + for demo accounts;
+        //     fails open on denied permission / error. Geo capped at 1.5s.
+        //  2. Onboarding check — catch users who picked a role but never finished.
+        type MarketGate = { isActive: boolean; displayName: string; marketSlug: string | null } | null;
+        const marketCheck = async (): Promise<MarketGate> => {
+          if (__DEV__ || me.isDemo) return null;
           try {
             const { status } = await Location.requestForegroundPermissionsAsync();
-            if (status === 'granted') {
-              const loc = await Promise.race([
-                Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low }),
-                new Promise<null>((res) => setTimeout(() => res(null), 4000)),
-              ]);
-              if (loc) {
-                const market = await apiClient<{ isActive: boolean; displayName: string; marketSlug: string | null }>(
-                  `/markets/active-check?lat=${loc.coords.latitude}&lng=${loc.coords.longitude}`,
-                  token,
-                );
-                if (market.isActive === false) {
-                  router.replace({
-                    pathname: '/not-in-market',
-                    params: { area: market.displayName ?? 'Your area', slug: market.marketSlug ?? '' },
-                  } as never);
-                  return;
-                }
-              }
-            }
-          } catch {
-            // Proceed normally if location or market check fails
-          }
+            if (status !== 'granted') return null;
+            const loc = await Promise.race([
+              Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Lowest }),
+              new Promise<null>((res) => setTimeout(() => res(null), 1500)),
+            ]);
+            if (!loc) return null;
+            return await apiClient<{ isActive: boolean; displayName: string; marketSlug: string | null }>(
+              `/markets/active-check?lat=${loc.coords.latitude}&lng=${loc.coords.longitude}`, token,
+            );
+          } catch { return null; }
+        };
+        const onboardingCheck = async () => {
+          try {
+            return await apiClient<{
+              needsRiderProfile: boolean; needsDriverProfile: boolean;
+              hasRiderProfile: boolean; hasDriverProfile: boolean;
+            }>('/users/onboarding', token);
+          } catch { return null; }
+        };
+
+        const [market, onb] = await Promise.all([marketCheck(), onboardingCheck()]);
+
+        // Market gate takes precedence (unchanged order of authority).
+        if (market && market.isActive === false) {
+          router.replace({
+            pathname: '/not-in-market',
+            params: { area: market.displayName ?? 'Your area', slug: market.marketSlug ?? '' },
+          } as never);
+          return;
         }
 
-        // Gate: check if profile was created. Catches users who chose a role
-        // but killed the app before finishing onboarding.
-        try {
-          const onb = await apiClient<{
-            needsRiderProfile: boolean; needsDriverProfile: boolean;
-            hasRiderProfile: boolean; hasDriverProfile: boolean;
-          }>('/users/onboarding', token);
-          // Brand-new account — no profile of EITHER type yet means the user has
-          // not picked a role. Send them to the picker. profile_type defaults to
-          // 'rider' server-side, so without this they'd skip straight into rider
-          // onboarding and could never choose "I drive". (After they pick + finish
-          // onboarding a profile exists, so this never re-fires for set-up users.)
+        // Onboarding gate — brand-new account (no profile of either type) → picker.
+        if (onb) {
           if (!onb.hasRiderProfile && !onb.hasDriverProfile) {
             router.replace('/(auth)/choose-role' as any);
             return;
@@ -107,7 +109,7 @@ export default function Index() {
             router.replace('/(rider)/onboarding' as any);
             return;
           }
-        } catch { /* proceed to home if check fails */ }
+        }
 
         if (me.profileType === 'driver') {
           router.replace('/(driver)/home');

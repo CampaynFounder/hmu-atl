@@ -276,6 +276,11 @@ export default function FindRidersScreen() {
             getItemLayout={(_, i) => ({ length: CARD_H, offset: CARD_H * i, index: i })}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
+            // Unmount off-screen full-bleed cards (frees their video players).
+            windowSize={3}
+            initialNumToRender={2}
+            maxToRenderPerBatch={3}
+            removeClippedSubviews
             renderItem={({ item }) => (
               isAdItem(item) ? (
                 <AdFeedCard ad={item} height={CARD_H} active={activeKey === `ad:${item.id}`} />
