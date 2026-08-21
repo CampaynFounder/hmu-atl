@@ -168,9 +168,12 @@ export default function RiderHome() {
         <Text style={s.sub}>ATL</Text>
       </View>
 
-      {loading ? (
-        <ActivityIndicator size="large" color={colors.green} style={{ marginTop: 60 }} />
-      ) : (
+      {/* Render the shell + booking categories immediately — they're static and
+          need no data. The active-request banner (below) fades in once the
+          background checks resolve; availability defaults to all-enabled so
+          categories show instantly. This removes the full-screen spinner that
+          used to block home until all 6 calls settled. */}
+      {(
         <ScrollView
           style={s.scroll}
           contentContainerStyle={s.scrollContent}
