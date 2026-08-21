@@ -68,97 +68,83 @@ export async function GET() {
     // moving Stripe in front of them is what made every container read $0 for
     // drivers without a funded/approved Stripe account.
 
+    // These five earnings queries + two config reads are all independent (same
+    // driver, no cross-dependency), so run them in ONE parallel batch instead of
+    // seven serial Neon round-trips. Cuts driver-home latency substantially.
+    //
     // Cash and Deposits exclude no-show rides so the three buckets don't
-    // double-count. No-shows get their own bucket below.
-    const cashRows = await sql`
-      SELECT
-        COUNT(*) as cash_rides,
-        COALESCE(SUM(COALESCE(final_agreed_price, amount, 0) + COALESCE(add_on_total, 0)), 0) as cash_total
-      FROM rides
-      WHERE driver_id = ${driverUserId}
-        AND is_cash = true
-        AND status IN ('active', 'in_progress', 'ended', 'completed')
-        AND (no_show_percent IS NULL OR no_show_percent = 0)
-    `;
+    // double-count. No-shows get their own bucket. Deposit-only Pull Up Cash is
+    // the fare minus the digital deposit handed over in person (is_cash is FALSE
+    // on those, so the legacy cash query misses them — count it separately).
+    // Delivery = net courier fee, completed + captured only (chart-only; not in
+    // the Stripe balance). depositsDetailSheet gates the tile overlay; chartPalette
+    // is the superadmin-tunable chart colors.
+    const [cashRows, depositCashRows, digitalRows, noShowRows, deliveryRows, depositsDetailSheet, chartPalette] = await Promise.all([
+      sql`
+        SELECT
+          COUNT(*) as cash_rides,
+          COALESCE(SUM(COALESCE(final_agreed_price, amount, 0) + COALESCE(add_on_total, 0)), 0) as cash_total
+        FROM rides
+        WHERE driver_id = ${driverUserId}
+          AND is_cash = true
+          AND status IN ('active', 'in_progress', 'ended', 'completed')
+          AND (no_show_percent IS NULL OR no_show_percent = 0)
+      `,
+      sql`
+        SELECT
+          COUNT(*) as rides,
+          COALESCE(SUM(GREATEST(COALESCE(final_agreed_price, amount, 0) - COALESCE(visible_deposit, 0), 0)), 0) as cash_total
+        FROM rides
+        WHERE driver_id = ${driverUserId}
+          AND pricing_mode_key = 'deposit_only'
+          AND (is_cash IS NULL OR is_cash = false)
+          AND status IN ('active', 'in_progress', 'ended', 'completed')
+          AND (no_show_percent IS NULL OR no_show_percent = 0)
+      `,
+      sql`
+        SELECT
+          COUNT(*) as digital_rides,
+          COALESCE(SUM(driver_payout_amount), 0) as digital_total
+        FROM rides
+        WHERE driver_id = ${driverUserId}
+          AND (is_cash IS NULL OR is_cash = false)
+          AND (payment_captured = true OR status IN ('ended', 'completed'))
+          AND (no_show_percent IS NULL OR no_show_percent = 0)
+      `,
+      sql`
+        SELECT
+          COUNT(*) as no_show_rides,
+          COALESCE(SUM(driver_payout_amount), 0) as no_show_total
+        FROM rides
+        WHERE driver_id = ${driverUserId}
+          AND (payment_captured = true OR status IN ('ended', 'completed'))
+          AND no_show_percent > 0
+      `,
+      sql`
+        SELECT
+          COUNT(*) as delivery_jobs,
+          COALESCE(SUM(GREATEST(delivery_fee_cents - platform_fee_cents, 0)), 0) / 100.0 as delivery_total
+        FROM delivery_requests
+        WHERE courier_id = ${driverUserId}
+          AND status = 'completed'
+          AND payment_captured = true
+      `,
+      isFeatureEnabled('driver_deposits_detail_sheet', { userId: driverUserId }),
+      getChartPalette(),
+    ]);
+
     const legacyCashRides = Number((cashRows[0] as Record<string, unknown>).cash_rides || 0);
     const legacyCashTotal = Number((cashRows[0] as Record<string, unknown>).cash_total || 0);
-
-    // Deposit-only Pull Up Cash: the rider hands the driver the fare minus the
-    // digital deposit, in person. is_cash is FALSE on these rides (they carry a
-    // digital deposit), so the legacy cash query above misses them entirely —
-    // which is why deposit-mode drivers saw $0 cash. Count it here and fold it
-    // into the cash figure so the wallet reflects real cash in hand. (Extras
-    // are charged digitally, so they do NOT add to the cash remainder.)
-    const depositCashRows = await sql`
-      SELECT
-        COUNT(*) as rides,
-        COALESCE(SUM(GREATEST(COALESCE(final_agreed_price, amount, 0) - COALESCE(visible_deposit, 0), 0)), 0) as cash_total
-      FROM rides
-      WHERE driver_id = ${driverUserId}
-        AND pricing_mode_key = 'deposit_only'
-        AND (is_cash IS NULL OR is_cash = false)
-        AND status IN ('active', 'in_progress', 'ended', 'completed')
-        AND (no_show_percent IS NULL OR no_show_percent = 0)
-    `;
     const depositCashRides = Number((depositCashRows[0] as Record<string, unknown>).rides || 0);
     const depositCashTotal = Number((depositCashRows[0] as Record<string, unknown>).cash_total || 0);
-
     const cashRides = legacyCashRides + depositCashRides;
     const cashTotal = Math.round((legacyCashTotal + depositCashTotal) * 100) / 100;
-
-    const digitalRows = await sql`
-      SELECT
-        COUNT(*) as digital_rides,
-        COALESCE(SUM(driver_payout_amount), 0) as digital_total
-      FROM rides
-      WHERE driver_id = ${driverUserId}
-        AND (is_cash IS NULL OR is_cash = false)
-        AND (payment_captured = true OR status IN ('ended', 'completed'))
-        AND (no_show_percent IS NULL OR no_show_percent = 0)
-    `;
     const digitalRides = Number((digitalRows[0] as Record<string, unknown>).digital_rides || 0);
     const digitalTotal = Number((digitalRows[0] as Record<string, unknown>).digital_total || 0);
-
-    const noShowRows = await sql`
-      SELECT
-        COUNT(*) as no_show_rides,
-        COALESCE(SUM(driver_payout_amount), 0) as no_show_total
-      FROM rides
-      WHERE driver_id = ${driverUserId}
-        AND (payment_captured = true OR status IN ('ended', 'completed'))
-        AND no_show_percent > 0
-    `;
     const noShowRides = Number((noShowRows[0] as Record<string, unknown>).no_show_rides || 0);
     const noShowTotal = Number((noShowRows[0] as Record<string, unknown>).no_show_total || 0);
-
-    // Delivery (store-run) earnings — net courier fee (delivery fee minus the
-    // platform cut), completed + captured jobs only. This feeds the earnings
-    // breakdown / chart ONLY; delivery payouts are not yet in the Stripe
-    // balance, so they are deliberately kept out of `available`/cashout to
-    // avoid surfacing a phantom withdrawable balance.
-    const deliveryRows = await sql`
-      SELECT
-        COUNT(*) as delivery_jobs,
-        COALESCE(SUM(GREATEST(delivery_fee_cents - platform_fee_cents, 0)), 0) / 100.0 as delivery_total
-      FROM delivery_requests
-      WHERE courier_id = ${driverUserId}
-        AND status = 'completed'
-        AND payment_captured = true
-    `;
     const deliveryJobs = Number((deliveryRows[0] as Record<string, unknown>).delivery_jobs || 0);
     const deliveryTotal = Number((deliveryRows[0] as Record<string, unknown>).delivery_total || 0);
-
-    // Per-driver feature flag for the Deposits Detail Sheet overlay. Dormant
-    // when the flag row is missing — keeps the tile static (pre-launch
-    // behavior). The client gates tappability on this value.
-    const depositsDetailSheet = await isFeatureEnabled(
-      'driver_deposits_detail_sheet',
-      { userId: driverUserId },
-    );
-
-    // Superadmin-tunable chart palette (cached). Sent on the balance response so
-    // the mobile chart recolors live on next refresh — no app rebuild.
-    const chartPalette = await getChartPalette();
 
     const earnings = {
       cashEarnings: { rides: cashRides, total: cashTotal },
