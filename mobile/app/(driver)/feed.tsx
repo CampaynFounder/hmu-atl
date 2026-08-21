@@ -445,6 +445,10 @@ export default function DriverFeed() {
           data={deliveries}
           keyExtractor={(item) => item.id}
           contentContainerStyle={s.list}
+          windowSize={7}
+          initialNumToRender={6}
+          maxToRenderPerBatch={8}
+          removeClippedSubviews
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.pink} />}
           ListEmptyComponent={
             deliveriesLoading
