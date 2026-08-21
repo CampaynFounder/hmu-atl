@@ -32,8 +32,19 @@ export async function GET() {
       if (demo.enabled) return NextResponse.json(buildDemoAnalytics(demo));
     }
 
-    // Per-ride metrics (last 50 completed rides with analytics)
-    const rides = await sql`
+    // These five reads are all independent (keyed only on the driver's userId),
+    // so run them in ONE parallel batch instead of five serial Neon round-trips.
+    // The peer-comparison query below is the only one that depends on their
+    // results (needs primaryArea + avgRatePerMile), so it stays serial after.
+    //
+    //  • rides — per-ride metrics (last 50 completed rides with analytics)
+    //  • aggRows — money-weighted driver aggregate (AVG(rate_per_mile) would
+    //    weight a $10/0.1mi outlier equal to a $30/10mi ride, so we use SUM/SUM)
+    //  • dailyRows — daily NET earnings time-series (cash vs digital), captured funds
+    //  • deliveryRows — daily delivery (store-run) net courier earnings
+    //  • driverProfileRows — the driver's areas, for the peer comparison
+    const [rides, aggRows, dailyRows, deliveryRows, driverProfileRows] = await Promise.all([
+      sql`
       SELECT
         r.id, r.ended_at as date,
         r.pickup_address, r.dropoff_address,
@@ -47,11 +58,8 @@ export async function GET() {
         AND r.total_distance_miles IS NOT NULL
       ORDER BY r.ended_at DESC
       LIMIT 50
-    ` as Record<string, unknown>[];
-
-    // Driver aggregate — money-weighted, excludes sub-threshold rides from rate math.
-    // AVG(rate_per_mile) would weight a $10/0.1mi outlier equal to a $30/10mi ride, so we use SUM/SUM.
-    const aggRows = await sql`
+    ` as Promise<Record<string, unknown>[]>,
+      sql`
       SELECT
         COUNT(*) FILTER (
           WHERE total_distance_miles >= ${MIN_DISTANCE_MI}
@@ -81,32 +89,21 @@ export async function GET() {
       WHERE driver_id = ${userId}
         AND status IN ('ended', 'completed')
         AND total_distance_miles IS NOT NULL
-    ` as Record<string, unknown>[];
-
-    const agg = aggRows[0] || {};
-
-    const ratedMiles = Number(agg.rated_miles || 0);
-    const ratedMinutes = Number(agg.rated_minutes || 0);
-    const ratedEarned = Number(agg.rated_earned || 0);
-
-    const avgRatePerMile = ratedMiles > 0 ? ratedEarned / ratedMiles : 0;
-    const avgRatePerMinute = ratedMinutes > 0 ? ratedEarned / ratedMinutes : 0;
-    const avgRatePerHour = ratedMinutes > 0 ? (ratedEarned / ratedMinutes) * 60 : 0;
-
-    // Daily time-series (last 30 days) — NET earnings on CAPTURED funds, stacked
-    // by cash vs digital. This deliberately tracks money the driver actually
-    // received, not just fully-completed rides, so it matches the wallet:
-    //   • Inclusion = payment_captured (set the moment Stripe captures the
-    //     deposit at "I'm In", and on no-show / after-OTW-cancel captures) OR a
-    //     completed ride (keeps pure-cash rides that never hit Stripe).
-    //   • Date = payment_captured_at (exact capture day) so a started-but-not-
-    //     ended ride's deposit lands on the day it was captured.
-    //   • Digital (non_cash) = driver_payout_amount — already NET of platform +
-    //     Stripe fees; no gross fallback. Counts for every captured ride.
-    //   • Cash = collected in person (no fee → already net). Only counts once the
-    //     rider has actually boarded/completed (never a no-show or pre-board
-    //     cancel), so off-platform cash is never over-counted.
-    const dailyRows = await sql`
+    ` as Promise<Record<string, unknown>[]>,
+      // Daily time-series (last 30 days) — NET earnings on CAPTURED funds, stacked
+      // by cash vs digital. This deliberately tracks money the driver actually
+      // received, not just fully-completed rides, so it matches the wallet:
+      //   • Inclusion = payment_captured (set the moment Stripe captures the
+      //     deposit at "I'm In", and on no-show / after-OTW-cancel captures) OR a
+      //     completed ride (keeps pure-cash rides that never hit Stripe).
+      //   • Date = payment_captured_at (exact capture day) so a started-but-not-
+      //     ended ride's deposit lands on the day it was captured.
+      //   • Digital (non_cash) = driver_payout_amount — already NET of platform +
+      //     Stripe fees; no gross fallback. Counts for every captured ride.
+      //   • Cash = collected in person (no fee → already net). Only counts once the
+      //     rider has actually boarded/completed (never a no-show or pre-board
+      //     cancel), so off-platform cash is never over-counted.
+      sql`
       SELECT
         DATE(COALESCE(payment_captured_at, ended_at, completed_at, started_at, updated_at) AT TIME ZONE 'America/New_York') as day,
         SUM(
@@ -128,14 +125,13 @@ export async function GET() {
         AND COALESCE(payment_captured_at, ended_at, completed_at, started_at, updated_at) >= NOW() - make_interval(days => ${TIMESERIES_DAYS})
       GROUP BY DATE(COALESCE(payment_captured_at, ended_at, completed_at, started_at, updated_at) AT TIME ZONE 'America/New_York')
       ORDER BY day ASC
-    ` as Record<string, unknown>[];
-
-    // Daily delivery (store-run) earnings (last 30 days). A courier's net
-    // earnings on a delivery is the delivery fee minus the platform cut — the
-    // merchant spend is a reimbursement pass-through, not income (mirrors the
-    // courierPayout math in app/api/delivery/[id]/verify). Only completed,
-    // payment-captured jobs count, so this never shows notional revenue.
-    const deliveryRows = await sql`
+    ` as Promise<Record<string, unknown>[]>,
+      // Daily delivery (store-run) earnings (last 30 days). A courier's net
+      // earnings on a delivery is the delivery fee minus the platform cut — the
+      // merchant spend is a reimbursement pass-through, not income (mirrors the
+      // courierPayout math in app/api/delivery/[id]/verify). Only completed,
+      // payment-captured jobs count, so this never shows notional revenue.
+      sql`
       SELECT
         DATE(completed_at AT TIME ZONE 'America/New_York') as day,
         SUM(GREATEST(delivery_fee_cents - platform_fee_cents, 0)) / 100.0 as delivery,
@@ -147,7 +143,23 @@ export async function GET() {
         AND completed_at >= NOW() - make_interval(days => ${TIMESERIES_DAYS})
       GROUP BY DATE(completed_at AT TIME ZONE 'America/New_York')
       ORDER BY day ASC
-    ` as Record<string, unknown>[];
+    ` as Promise<Record<string, unknown>[]>,
+      // Driver's areas — feeds the peer comparison below.
+      sql`
+      SELECT areas FROM driver_profiles WHERE user_id = ${userId} LIMIT 1
+    ` as Promise<Record<string, unknown>[]>,
+    ]);
+
+    // ── Post-batch extraction (was interleaved with the serial queries above) ──
+    const agg = aggRows[0] || {};
+
+    const ratedMiles = Number(agg.rated_miles || 0);
+    const ratedMinutes = Number(agg.rated_minutes || 0);
+    const ratedEarned = Number(agg.rated_earned || 0);
+
+    const avgRatePerMile = ratedMiles > 0 ? ratedEarned / ratedMiles : 0;
+    const avgRatePerMinute = ratedMinutes > 0 ? ratedEarned / ratedMinutes : 0;
+    const avgRatePerHour = ratedMinutes > 0 ? (ratedEarned / ratedMinutes) * 60 : 0;
 
     // Merge ride + delivery days into one keyed map so a day with only a
     // delivery (no rides) still gets a bar.
@@ -175,11 +187,6 @@ export async function GET() {
     }
 
     const timeseries = fillDailyGaps([...byDay.values()], TIMESERIES_DAYS);
-
-    // Get driver's areas for comparison
-    const driverProfileRows = await sql`
-      SELECT areas FROM driver_profiles WHERE user_id = ${userId} LIMIT 1
-    ` as Record<string, unknown>[];
 
     const driverAreas = driverProfileRows[0]?.areas;
     // areas is JSONB — could be array or object with keys
