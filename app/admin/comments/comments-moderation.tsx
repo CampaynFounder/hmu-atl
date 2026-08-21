@@ -25,6 +25,9 @@ interface CommentConfig {
   maxRepliesPerRide: number;
   engagementPushEnabled: boolean;
   engagementThrottleHours: number;
+  indicatorTabBadge: boolean;
+  indicatorActivityInbox: boolean;
+  indicatorLiveBanner: boolean;
 }
 
 type Tab = 'flagged' | 'all';
@@ -111,7 +114,10 @@ export default function CommentsModeration() {
     config.maxDriverInitialPerRide !== configDraft.maxDriverInitialPerRide ||
     config.maxRepliesPerRide !== configDraft.maxRepliesPerRide ||
     config.engagementPushEnabled !== configDraft.engagementPushEnabled ||
-    config.engagementThrottleHours !== configDraft.engagementThrottleHours
+    config.engagementThrottleHours !== configDraft.engagementThrottleHours ||
+    config.indicatorTabBadge !== configDraft.indicatorTabBadge ||
+    config.indicatorActivityInbox !== configDraft.indicatorActivityInbox ||
+    config.indicatorLiveBanner !== configDraft.indicatorLiveBanner
   );
 
   return (
@@ -184,6 +190,48 @@ export default function CommentsModeration() {
                 Engagement pushes — notify past commenters when a photo&apos;s thread gets a new comment
               </span>
             </label>
+
+            {/* In-app "new comment on your photo" indicator surfaces. Each one is
+                independent so a market can turn any single surface off. */}
+            <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#aaa', marginBottom: 4 }}>
+                In-app comment indicators
+              </div>
+              <div style={{ fontSize: 11, color: '#666', marginBottom: 12 }}>
+                How users are told someone commented on their photo. Disable any one independently.
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={configDraft.indicatorTabBadge}
+                  onChange={e => setConfigDraft(d => d ? { ...d, indicatorTabBadge: e.target.checked } : d)}
+                />
+                <span style={{ fontSize: 13 }}>
+                  Profile-tab badge — red count on the PROFILE tab for unread comments
+                </span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={configDraft.indicatorActivityInbox}
+                  onChange={e => setConfigDraft(d => d ? { ...d, indicatorActivityInbox: e.target.checked } : d)}
+                />
+                <span style={{ fontSize: 13 }}>
+                  Activity inbox — a list of comment notifications on the profile screen
+                </span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={configDraft.indicatorLiveBanner}
+                  onChange={e => setConfigDraft(d => d ? { ...d, indicatorLiveBanner: e.target.checked } : d)}
+                />
+                <span style={{ fontSize: 13 }}>
+                  Live banner — a pop-in toast when a comment lands while the app is open
+                </span>
+              </label>
+            </div>
+
             <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
               <button
                 onClick={saveConfig}

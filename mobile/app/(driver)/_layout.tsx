@@ -35,8 +35,10 @@ function RequestsTabIcon({ focused, color }: { focused: boolean; color: ColorVal
 }
 
 export default function DriverLayout() {
-  const { markRequestsSeen } = useNotifications();
+  const { markRequestsSeen, unreadCommentCount, commentIndicators } = useNotifications();
   const insets = useSafeAreaInsets();
+  // Red count on PROFILE for unread comments (when the superadmin has the badge on).
+  const showCommentBadge = commentIndicators.tabBadge && unreadCommentCount > 0;
 
   return (
     <Tabs
@@ -168,10 +170,24 @@ export default function DriverLayout() {
         options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
+        name="activity"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'PROFILE',
           tabBarIcon: tabIcon('person', 'person-outline'),
+          tabBarBadge: showCommentBadge ? unreadCommentCount : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.red,
+            color: '#fff',
+            fontFamily: fonts.mono,
+            fontSize: 10,
+            minWidth: 16,
+            height: 16,
+            lineHeight: 15,
+          },
         }}
       />
     </Tabs>

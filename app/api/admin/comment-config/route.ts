@@ -16,6 +16,11 @@ const DEFAULTS = {
   // participants (throttled) to pull them back. See /api/comments/profile.
   engagementPushEnabled: true,
   engagementThrottleHours: 1,
+  // In-app "new comment on your photo" indicator surfaces (see
+  // lib/comments/indicator-config.ts). Each can be disabled independently.
+  indicatorTabBadge: true,
+  indicatorActivityInbox: true,
+  indicatorLiveBanner: true,
 };
 
 async function assertAdmin(clerkId: string): Promise<string> {
@@ -55,8 +60,15 @@ export async function PATCH(req: NextRequest) {
   const maxRepliesPerRide       = Math.max(0,  Math.min(20,   Number(body.maxRepliesPerRide)       || DEFAULTS.maxRepliesPerRide));
   const engagementPushEnabled   = typeof body.engagementPushEnabled === 'boolean' ? body.engagementPushEnabled : DEFAULTS.engagementPushEnabled;
   const engagementThrottleHours = Math.max(0, Math.min(168, Number(body.engagementThrottleHours) ?? DEFAULTS.engagementThrottleHours));
+  const indicatorTabBadge       = typeof body.indicatorTabBadge === 'boolean' ? body.indicatorTabBadge : DEFAULTS.indicatorTabBadge;
+  const indicatorActivityInbox  = typeof body.indicatorActivityInbox === 'boolean' ? body.indicatorActivityInbox : DEFAULTS.indicatorActivityInbox;
+  const indicatorLiveBanner     = typeof body.indicatorLiveBanner === 'boolean' ? body.indicatorLiveBanner : DEFAULTS.indicatorLiveBanner;
 
-  const next = { maxChars, maxInitialPerRide, maxDriverInitialPerRide, maxRepliesPerRide, engagementPushEnabled, engagementThrottleHours };
+  const next = {
+    maxChars, maxInitialPerRide, maxDriverInitialPerRide, maxRepliesPerRide,
+    engagementPushEnabled, engagementThrottleHours,
+    indicatorTabBadge, indicatorActivityInbox, indicatorLiveBanner,
+  };
   const json = JSON.stringify(next);
 
   await sql`

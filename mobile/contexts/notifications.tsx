@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
-import { Platform } from 'react-native';
+import { Platform, AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@clerk/clerk-expo';
 import { useStableToken } from '@/hooks/use-stable-token';
 import { useRouter, usePathname } from 'expo-router';
@@ -56,6 +57,30 @@ export interface DeclinedRequest {
   message: string | null;
 }
 
+/** One item in the comment Activity inbox — a comment someone left on your
+ *  profile, or a reply to a comment you wrote. Mirrors GET /comments/activity. */
+export interface CommentActivityItem {
+  id: string;
+  kind: 'comment_on_profile' | 'reply_to_comment';
+  authorHandle: string | null;
+  authorName: string | null;
+  authorPhoto: string | null;
+  preview: string;
+  createdAt: string;
+  /** Handle (or id) of the profile whose thread this lives on — open it here. */
+  subjectHandle: string;
+  unread: boolean;
+}
+
+/** Superadmin toggles controlling which comment-indicator surfaces are live. */
+export interface CommentIndicators {
+  tabBadge: boolean;
+  activityInbox: boolean;
+  liveBanner: boolean;
+}
+
+const DEFAULT_COMMENT_INDICATORS: CommentIndicators = { tabBadge: true, activityInbox: true, liveBanner: true };
+
 // Live statuses where a ride is still in-flight (anything past this is history).
 const LIVE_RIDE_STATUSES = ['matched', 'otw', 'here', 'confirming', 'active', 'in_progress'];
 
@@ -102,6 +127,23 @@ interface NotificationContextValue {
    *  the unread badge, and (via feed refetch) the persistent request bar. Call
    *  when the driver resolves a request (passes or accepts). */
   clearRequestAlerts: () => void;
+
+  // ── Comments on your photo ────────────────────────────────────────────────
+  /** Unread comments left on your profile / replies to you, since you last
+   *  opened the Activity inbox. Drives the PROFILE-tab badge. */
+  unreadCommentCount: number;
+  /** Recent comment activity (newest first) for the Activity inbox. */
+  commentActivity: CommentActivityItem[];
+  /** Which comment-indicator surfaces the superadmin has enabled. */
+  commentIndicators: CommentIndicators;
+  /** Your own comment subject handle (or id) — open your own thread with it. */
+  selfCommentHandle: string | null;
+  /** Whether the signed-in user is a driver (routes pushes to the right group). */
+  isDriverAccount: boolean;
+  /** Re-pull the comment activity list + unread count from the server. */
+  refreshCommentActivity: () => void;
+  /** Mark all comment activity as seen (persists a last-seen stamp, clears badge). */
+  markCommentsSeen: () => void;
 }
 
 const NotificationContext = createContext<NotificationContextValue>({
@@ -117,6 +159,13 @@ const NotificationContext = createContext<NotificationContextValue>({
   declinedRequest: null,
   clearDeclinedRequest: () => {},
   clearRequestAlerts: () => {},
+  unreadCommentCount: 0,
+  commentActivity: [],
+  commentIndicators: DEFAULT_COMMENT_INDICATORS,
+  selfCommentHandle: null,
+  isDriverAccount: false,
+  refreshCommentActivity: () => {},
+  markCommentsSeen: () => {},
 });
 
 export function useNotifications() {
@@ -146,6 +195,21 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   // app-wide notification (request banners, backstop ride refresh, wallet, etc).
   // So we resolve the DB id first and key the notify subscription on it.
   const [dbUserId, setDbUserId] = useState<string | null>(null);
+  const dbUserIdRef = useRef<string | null>(null);
+  dbUserIdRef.current = dbUserId;
+
+  // Comment-indicator state. Its config + self-handle come from the same
+  // /comments/activity call that returns the list, so one fetch drives all three
+  // surfaces. profileType routes comment pushes to the right (rider)/(driver) group.
+  const [unreadCommentCount, setUnreadCommentCount] = useState(0);
+  const [commentActivity, setCommentActivity] = useState<CommentActivityItem[]>([]);
+  const [commentIndicators, setCommentIndicators] = useState<CommentIndicators>(DEFAULT_COMMENT_INDICATORS);
+  const [selfCommentHandle, setSelfCommentHandle] = useState<string | null>(null);
+  const [isDriverAccount, setIsDriverAccount] = useState(false);
+  const commentIndicatorsRef = useRef<CommentIndicators>(DEFAULT_COMMENT_INDICATORS);
+  commentIndicatorsRef.current = commentIndicators;
+  const isDriverAccountRef = useRef(false);
+  isDriverAccountRef.current = isDriverAccount;
 
   const feedRefreshCallbacks = useRef<Set<() => void>>(new Set());
   const rideRefreshCallbacks = useRef<Set<() => void>>(new Set());
@@ -223,6 +287,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         // otherwise the tap just opens the app on the current/home screen.
         if (typeof data.route === 'string' && data.route) router.push(data.route as never);
         break;
+      case 'new_comment':
+      case 'comment_reply':
+      case 'comment_thread_activity':
+        // Someone commented on your photo / replied to you — open the Activity
+        // inbox (the group is picked off the resolved profile type).
+        router.push((isDriverAccountRef.current ? '/(driver)/activity' : '/(rider)/activity') as never);
+        break;
       default:
         break;
     }
@@ -270,6 +341,51 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const markRequestsSeen = useCallback(() => {
     setUnreadRequestCount(0);
+  }, []);
+
+  // Re-pull comment activity + unread count from the server. The badge is
+  // accurate across restarts because "unread" is computed server-side against
+  // the last-seen stamp we persist locally per user (no server-side column).
+  const refreshCommentActivity = useCallback(() => {
+    void (async () => {
+      try {
+        const t = await getTokenRef.current();
+        if (!t) return;
+        const uid = dbUserIdRef.current;
+        const since = uid ? await AsyncStorage.getItem(`comments_seen_at:${uid}`) : null;
+        const qs = since ? `?since=${encodeURIComponent(since)}` : '';
+        const res = await fetch(`${API_BASE}/comments/activity${qs}`, {
+          headers: { Authorization: `Bearer ${t}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json() as {
+          unreadCount?: number;
+          items?: CommentActivityItem[];
+          config?: Partial<CommentIndicators>;
+          selfHandle?: string | null;
+        };
+        setCommentActivity(data.items ?? []);
+        setUnreadCommentCount(typeof data.unreadCount === 'number' ? data.unreadCount : 0);
+        if (data.config) {
+          setCommentIndicators({
+            tabBadge: data.config.tabBadge !== false,
+            activityInbox: data.config.activityInbox !== false,
+            liveBanner: data.config.liveBanner !== false,
+          });
+        }
+        if (data.selfHandle) setSelfCommentHandle(data.selfHandle);
+      } catch { /* best-effort — keep prior state on transient errors */ }
+    })();
+  }, []);
+
+  // Stamp "seen now" so the next refresh (and cold start) computes a fresh
+  // unread count, and optimistically clear the badge + mark items read.
+  const markCommentsSeen = useCallback(() => {
+    const nowIso = new Date().toISOString();
+    const uid = dbUserIdRef.current;
+    if (uid) void AsyncStorage.setItem(`comments_seen_at:${uid}`, nowIso);
+    setUnreadCommentCount(0);
+    setCommentActivity((items) => items.map((i) => ({ ...i, unread: false })));
   }, []);
 
   const registerFeedRefresh = useCallback((fn: () => void) => {
@@ -339,6 +455,21 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     refreshActiveRide();
   }, [isSignedIn, refreshActiveRide]);
 
+  // Re-pull comment activity whenever the app returns to the foreground — a
+  // comment could have landed while the app was backgrounded (only the OS push
+  // fired then), so the badge must reconcile on resume. Also clear it on sign-out.
+  useEffect(() => {
+    if (!isSignedIn) {
+      setUnreadCommentCount(0);
+      setCommentActivity([]);
+      return;
+    }
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshCommentActivity();
+    });
+    return () => sub.remove();
+  }, [isSignedIn, refreshCommentActivity]);
+
   // Resolve the DB users.id (the channel the server actually publishes to).
   // Mirrors web's global-ride-alert, which fetches /api/users/me → data.id.
   useEffect(() => {
@@ -350,12 +481,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         if (!t || cancelled) return;
         const res = await fetch(`${API_BASE}/users/me`, { headers: { Authorization: `Bearer ${t}` } });
         if (!res.ok || cancelled) return;
-        const data = await res.json() as { id?: string };
-        if (data?.id && !cancelled) setDbUserId(data.id);
+        const data = await res.json() as { id?: string; profile_type?: string };
+        if (data?.id && !cancelled) {
+          setDbUserId(data.id);
+          setIsDriverAccount(data.profile_type === 'driver');
+          // First comment-activity pull once we know who we are (the fetch keys
+          // its last-seen stamp on this id).
+          refreshCommentActivity();
+        }
       } catch { /* best-effort — without this, app-wide notify stays silent */ }
     })();
     return () => { cancelled = true; };
-  }, [isSignedIn]);
+  }, [isSignedIn, refreshCommentActivity]);
 
   useEffect(() => {
     if (!isSignedIn || !dbUserId) return;
@@ -717,6 +854,29 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         break;
       }
 
+      // Someone commented on your profile, or added to a thread you're in. The
+      // notify payload is minimal ({ commentId, subjectHandle }), so optimistically
+      // bump the badge + show a banner, then refetch to fill the real author/preview
+      // and reconcile the server-computed unread count.
+      case 'new_comment':
+      case 'comment_thread_activity': {
+        setUnreadCommentCount((c) => c + 1);
+        if (commentIndicatorsRef.current.liveBanner) {
+          enqueue({
+            id: `comment-${Date.now()}`,
+            type: 'info',
+            title: '💬 NEW COMMENT',
+            body: name === 'comment_thread_activity'
+              ? 'New activity on a photo you commented on — tap to see.'
+              : 'Someone commented on your profile — tap to reply.',
+            route: isDriverAccountRef.current ? '/(driver)/activity' : '/(rider)/activity',
+            timestamp: Date.now(),
+          });
+        }
+        refreshCommentActivity();
+        break;
+      }
+
       default:
         break;
     }
@@ -731,6 +891,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         registerFeedRefresh, registerRideRefresh,
         activeRide, nextAction, refreshActiveRide,
         declinedRequest, clearDeclinedRequest, clearRequestAlerts,
+        unreadCommentCount, commentActivity, commentIndicators, selfCommentHandle,
+        isDriverAccount, refreshCommentActivity, markCommentsSeen,
       }}
     >
       {children}
