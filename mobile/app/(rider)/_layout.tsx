@@ -23,7 +23,9 @@ export default function RiderLayout() {
   const insets = useSafeAreaInsets();
   // Badge the REQUESTS tab while a ride is in-flight — it's the surface that
   // holds the live ride, so the dot points the rider at their next action.
-  const { activeRide } = useNotifications();
+  const { activeRide, unreadCommentCount, commentIndicators } = useNotifications();
+  // Red count on PROFILE for unread comments (when the superadmin has the badge on).
+  const showCommentBadge = commentIndicators.tabBadge && unreadCommentCount > 0;
   return (
     <Tabs
       backBehavior="history"
@@ -91,7 +93,21 @@ export default function RiderLayout() {
         options={{
           title: 'PROFILE',
           tabBarIcon: tabIcon('person', 'person-outline'),
+          tabBarBadge: showCommentBadge ? unreadCommentCount : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.red,
+            color: '#fff',
+            fontFamily: fonts.mono,
+            fontSize: 10,
+            minWidth: 16,
+            height: 16,
+            lineHeight: 15,
+          },
         }}
+      />
+      <Tabs.Screen
+        name="activity"
+        options={{ href: null, headerShown: false }}
       />
       <Tabs.Screen
         name="onboarding"

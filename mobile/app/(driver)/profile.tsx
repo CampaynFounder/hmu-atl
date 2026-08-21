@@ -14,6 +14,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing, shadow } from '@/lib/theme';
 import { apiClient } from '@/lib/api';
 import { useUserContext } from '@/contexts/UserContext';
+import { useNotifications } from '@/contexts/notifications';
+import { CommentsModal } from '@/components/comments/CommentsModal';
 import { VersionBadge } from '@/components/VersionBadge';
 import { AdminSheet } from '@/components/AdminSheet';
 import { Avatar } from '@/components/Avatar';
@@ -73,8 +75,21 @@ export default function DriverProfileScreen() {
   const getToken = useStableToken();
   const router = useRouter();
   const { isSuperAdmin, accountDeletionEnabled } = useUserContext();
+  const { unreadCommentCount, commentIndicators, selfCommentHandle, markCommentsSeen } = useNotifications();
   const [adminVisible, setAdminVisible] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentsToken, setCommentsToken] = useState<string | null>(null);
   const [profile, setProfile] = useState<DriverProfile | null>(null);
+
+  // Open the comment thread on your OWN profile — rich Activity inbox when
+  // enabled, else the thread modal. Counts as "seen" so the badge clears.
+  const openComments = useCallback(async () => {
+    markCommentsSeen();
+    if (commentIndicators.activityInbox) { router.push('/(driver)/activity' as never); return; }
+    const t = await getToken();
+    setCommentsToken(t);
+    setCommentsOpen(true);
+  }, [commentIndicators.activityInbox, getToken, markCommentsSeen, router]);
   const [activation, setActivation] = useState<ActivationProgress | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -199,6 +214,23 @@ export default function DriverProfileScreen() {
         </View>
       )}
 
+      {/* Comments on your profile — the in-app entry to see + reply to comments. */}
+      <TouchableOpacity style={s.commentsRow} onPress={openComments} activeOpacity={0.8}>
+        <Ionicons name="chatbubbles-outline" size={18} color={colors.green} />
+        <View style={{ flex: 1 }}>
+          <Text style={s.commentsTitle}>Comments on your profile</Text>
+          <Text style={s.commentsSub}>
+            {unreadCommentCount > 0 ? `${unreadCommentCount} new — tap to reply` : 'See what riders are saying'}
+          </Text>
+        </View>
+        {unreadCommentCount > 0 && (
+          <View style={s.commentsBadge}>
+            <Text style={s.commentsBadgeText}>{unreadCommentCount > 99 ? '99+' : unreadCommentCount}</Text>
+          </View>
+        )}
+        <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+      </TouchableOpacity>
+
       {/* Account nav */}
       <View style={[s.menu, shadow.card]}>
         <Text style={s.sectionLabel}>ACCOUNT</Text>
@@ -234,6 +266,13 @@ export default function DriverProfileScreen() {
 
       <VersionBadge />
     </ScrollView>
+
+    <CommentsModal
+      visible={commentsOpen}
+      onClose={() => setCommentsOpen(false)}
+      handle={selfCommentHandle ?? ''}
+      token={commentsToken}
+    />
     </View>
   );
 }
@@ -305,6 +344,20 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.amberBorder,
   },
   payoutWarningText: { fontFamily: fonts.body, fontSize: 12, color: colors.amber, flex: 1 },
+
+  commentsRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.card, borderRadius: radius.card,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    borderWidth: 1, borderColor: colors.greenBorder, marginBottom: spacing.lg,
+  },
+  commentsTitle: { fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.textPrimary },
+  commentsSub: { fontFamily: fonts.body, fontSize: 12, color: colors.textTertiary, marginTop: 1 },
+  commentsBadge: {
+    backgroundColor: colors.red, borderRadius: radius.pill,
+    minWidth: 20, height: 20, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',
+  },
+  commentsBadgeText: { fontFamily: fonts.monoBold, fontSize: 11, color: '#fff' },
 
   activationCard: {
     backgroundColor: colors.card, borderRadius: radius.card,

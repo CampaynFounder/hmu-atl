@@ -32,8 +32,11 @@ export async function GET(
     }
   }
 
-  // Riders are private — only authenticated drivers/admins can view their comments.
-  if (subject.profile_type === 'rider') {
+  // Riders are private — only authenticated drivers/admins can view their
+  // comments. Exception: you can ALWAYS read the comments left on your OWN
+  // profile (this is what powers the in-app "someone commented on you" thread
+  // for riders — without it a rider could be pinged but never open the thread).
+  if (subject.profile_type === 'rider' && viewerUserId !== subject.id) {
     if (!viewerUserId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     if (viewerType !== 'driver' && viewerType !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
