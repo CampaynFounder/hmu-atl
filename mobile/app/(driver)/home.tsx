@@ -274,14 +274,10 @@ export default function DriverHome() {
   const depositMode = isDepositMode(balance?.activeMode);
   const hmuFirst = useHmuFirst();
 
-  if (loading) {
-    return (
-      <View style={[s.loader, { paddingTop: insets.top }]}>
-        <ActivityIndicator size="large" color={colors.green} />
-      </View>
-    );
-  }
-
+  // Progressive render (parity with rider home): the shell — header, mode
+  // banner, active-ride banner, Find Riders — paints immediately; only the
+  // wallet card waits on data (contained skeleton below), so there's no
+  // full-screen spinner on cold load.
   return (
     <ScrollView
       style={s.root}
@@ -356,25 +352,27 @@ export default function DriverHome() {
         </View>
       </DepthButton>
 
-      {/* Unified wallet card */}
-      {balance
-        ? (
-          <DriverWalletCard
-            balance={balance}
-            timeseries={timeseries}
-            token={authToken}
-            onRefresh={onRefresh}
-            isFirst={isFirst}
-          />
-        )
-        : (
-          <View style={[s.card, shadow.card, { alignItems: 'center', paddingVertical: 40 }]}>
-            <Text style={{ fontFamily: fonts.body, fontSize: 14, color: colors.textFaint }}>
-              Could not load balance
-            </Text>
-          </View>
-        )
-      }
+      {/* Unified wallet card — three states so an initial load shows a contained
+          skeleton (not the scary "could not load", and not a full-screen spinner). */}
+      {balance ? (
+        <DriverWalletCard
+          balance={balance}
+          timeseries={timeseries}
+          token={authToken}
+          onRefresh={onRefresh}
+          isFirst={isFirst}
+        />
+      ) : loading ? (
+        <View style={[s.card, shadow.card, { alignItems: 'center', paddingVertical: 48 }]}>
+          <ActivityIndicator color={colors.green} />
+        </View>
+      ) : (
+        <View style={[s.card, shadow.card, { alignItems: 'center', paddingVertical: 40 }]}>
+          <Text style={{ fontFamily: fonts.body, fontSize: 14, color: colors.textFaint }}>
+            Could not load balance
+          </Text>
+        </View>
+      )}
 
       {/* HMU First upsell — suppressed when a superadmin closes enrollment. */}
       {!isFirst && hmuFirst.enabled && (

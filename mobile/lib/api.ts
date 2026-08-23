@@ -28,6 +28,10 @@ export async function apiClient<T = unknown>(
   path: string,
   token: string | null,
   options: RequestInit = {},
+  // Per-call override of the 30s ceiling. Used by the startup gate, which must
+  // fall back to a cached route (or sign-in) fast rather than spin for 30s on a
+  // stalled origin. Omit everywhere else to keep the generous default.
+  opts: { timeoutMs?: number } = {},
 ): Promise<T> {
   const method = ((options.method as string | undefined) ?? 'GET').toUpperCase();
   const headers: Record<string, string> = {};
@@ -40,7 +44,7 @@ export async function apiClient<T = unknown>(
   Object.assign(headers, options.headers ?? {});
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? REQUEST_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, { ...options, headers, signal: controller.signal });
