@@ -64,7 +64,7 @@ jobs:
         run: |
           BRANCH="${{ github.event.inputs.branch || 'preview' }}"
           echo "EMERGENCY: rolling $BRANCH back to the embedded (store) bundle"
-          eas update:roll-back-to-embedded --branch "$BRANCH" --message "emergency rollback: revert to embedded bundle" --non-interactive
+          eas update:roll-back-to-embedded --branch "$BRANCH" --runtimeVersion 1.0.9 --message "emergency rollback: revert to embedded bundle" --non-interactive
           {
             echo "### Mobile OTA ROLLED BACK to embedded"
             echo "**Branch/channel:** $BRANCH"
