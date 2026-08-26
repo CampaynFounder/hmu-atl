@@ -45,7 +45,6 @@ export function CommentActivityScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [openHandle, setOpenHandle] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(null);
 
   // Opening the inbox = you've seen these. Mark seen + pull the latest.
   useFocusEffect(useCallback(() => {
@@ -60,11 +59,9 @@ export function CommentActivityScreen() {
     setTimeout(() => setRefreshing(false), 600);
   }, [refreshCommentActivity]);
 
-  const openThread = useCallback(async (item: CommentActivityItem) => {
-    const t = await getToken();
-    setToken(t);
+  const openThread = useCallback((item: CommentActivityItem) => {
     setOpenHandle(item.subjectHandle);
-  }, [getToken]);
+  }, []);
 
   const renderItem = useCallback(({ item }: { item: CommentActivityItem }) => {
     const who = item.authorHandle ? `@${item.authorHandle}` : (item.authorName ?? 'Someone');
@@ -120,7 +117,7 @@ export function CommentActivityScreen() {
         visible={!!openHandle}
         onClose={() => { setOpenHandle(null); refreshCommentActivity(); }}
         handle={openHandle ?? ''}
-        token={token}
+        getToken={getToken}
       />
     </View>
   );

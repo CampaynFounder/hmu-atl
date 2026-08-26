@@ -1,5 +1,7 @@
 // POST /api/comments/[id]/react
 // Toggle a reaction on a comment. Sending the same reaction removes it.
+// Any emoji is allowed (Instagram-style) — the old like/heart/haha/dislike
+// whitelist is gone (migration 2026-08-26-comment-reactions-any-emoji.sql).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
@@ -8,8 +10,24 @@ import { sql } from '@/lib/db/client';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const VALID_REACTIONS = ['like', 'heart', 'haha', 'dislike'] as const;
-type Reaction = typeof VALID_REACTIONS[number];
+// The web ride-comments UI (components/hmu/comments/CommentsSection.tsx) still
+// posts these four word reactions — keep accepting them so it doesn't regress.
+const LEGACY_WORD_REACTIONS = new Set(['like', 'heart', 'haha', 'dislike']);
+
+// Accept either a legacy word reaction OR a single emoji (incl. ZWJ sequences +
+// skin-tone modifiers) — and nothing else (no arbitrary text, no long strings).
+function normalizeReaction(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const r = raw.trim();
+  if (!r || r.length > 16) return null;
+  if (LEGACY_WORD_REACTIONS.has(r)) return r;
+  // Emoji path: no letters/digits, at least one pictographic code point, and a
+  // small cap on distinct code points so we can't be handed a wall of emoji.
+  if (/[\p{L}\p{N}]/u.test(r)) return null;
+  if (!/\p{Extended_Pictographic}/u.test(r)) return null;
+  if ([...r].length > 8) return null;
+  return r;
+}
 
 export async function POST(
   req: NextRequest,
@@ -19,9 +37,9 @@ export async function POST(
   if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { id: commentId } = await params;
-  const body = await req.json();
-  const reaction = body.reaction as Reaction;
-  if (!VALID_REACTIONS.includes(reaction)) {
+  const body = await req.json().catch(() => ({}));
+  const reaction = normalizeReaction((body as { reaction?: unknown }).reaction);
+  if (!reaction) {
     return NextResponse.json({ error: 'Invalid reaction' }, { status: 400 });
   }
 
