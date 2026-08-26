@@ -43,7 +43,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # eas-cli (latest) pulls @oclif/plugin-autocomplete which requires
+          # Node >=22; Node 20 fails `eas-cli` install at "Setup EAS".
+          node-version: 22
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 
