@@ -412,13 +412,14 @@ export default function BrowseDrivers() {
   const [ads, setAds] = useState<AdCardData[]>([]);
   // The on-screen card key in the paging feed — only it autoplays video.
   const [activeKey, setActiveKey] = useState<string | null>(null);
-  // Comments modal target: { handle, token }.
-  const [commentsCtx, setCommentsCtx] = useState<{ handle: string; token: string | null } | null>(null);
+  // Comments modal target. The modal mints its own fresh token per request via
+  // getToken — we don't capture a token here (a captured JWT goes stale in ~60s
+  // and 401s the reply).
+  const [commentsCtx, setCommentsCtx] = useState<{ handle: string } | null>(null);
 
-  const openComments = useCallback(async (handle: string) => {
-    const t = await getToken().catch(() => null);
-    setCommentsCtx({ handle, token: t });
-  }, [getToken]);
+  const openComments = useCallback((handle: string) => {
+    setCommentsCtx({ handle });
+  }, []);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
   const onViewableItemsChanged = useRef(
@@ -806,7 +807,7 @@ export default function BrowseDrivers() {
         <CommentsModal
           visible
           handle={commentsCtx.handle}
-          token={commentsCtx.token}
+          getToken={getToken}
           subjectLabel={`@${commentsCtx.handle}`}
           onClose={() => setCommentsCtx(null)}
         />

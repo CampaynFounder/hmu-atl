@@ -1,0 +1,13 @@
+-- Allow ANY emoji as a comment reaction.
+--
+-- The v2 comments migration (sql/008_comments_v2.sql) created
+-- comment_reactions.reaction with a CHECK constraint limiting it to
+-- ('like','heart','haha','dislike'). We now let riders/drivers react with any
+-- emoji (Instagram-style), so drop the whitelist. Emoji shape is validated
+-- server-side in POST /api/comments/[id]/react. The column is already TEXT and
+-- the UNIQUE (comment_id, user_id) constraint still enforces one reaction per
+-- user per comment (toggle / replace).
+--
+-- Idempotent: DROP CONSTRAINT IF EXISTS. The inline CHECK from CREATE TABLE is
+-- auto-named comment_reactions_reaction_check by Postgres.
+ALTER TABLE comment_reactions DROP CONSTRAINT IF EXISTS comment_reactions_reaction_check;

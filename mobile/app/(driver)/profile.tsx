@@ -78,18 +78,15 @@ export default function DriverProfileScreen() {
   const { unreadCommentCount, commentIndicators, selfCommentHandle, markCommentsSeen } = useNotifications();
   const [adminVisible, setAdminVisible] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const [commentsToken, setCommentsToken] = useState<string | null>(null);
   const [profile, setProfile] = useState<DriverProfile | null>(null);
 
   // Open the comment thread on your OWN profile — rich Activity inbox when
   // enabled, else the thread modal. Counts as "seen" so the badge clears.
-  const openComments = useCallback(async () => {
+  const openComments = useCallback(() => {
     markCommentsSeen();
     if (commentIndicators.activityInbox) { router.push('/(driver)/activity' as never); return; }
-    const t = await getToken();
-    setCommentsToken(t);
     setCommentsOpen(true);
-  }, [commentIndicators.activityInbox, getToken, markCommentsSeen, router]);
+  }, [commentIndicators.activityInbox, markCommentsSeen, router]);
   const [activation, setActivation] = useState<ActivationProgress | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -271,7 +268,7 @@ export default function DriverProfileScreen() {
       visible={commentsOpen}
       onClose={() => setCommentsOpen(false)}
       handle={selfCommentHandle ?? ''}
-      token={commentsToken}
+      getToken={getToken}
     />
     </View>
   );

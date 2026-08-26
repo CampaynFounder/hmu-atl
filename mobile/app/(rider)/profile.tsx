@@ -55,18 +55,15 @@ export default function RiderProfileScreen() {
   const { unreadCommentCount, commentIndicators, selfCommentHandle, markCommentsSeen } = useNotifications();
   const [adminVisible, setAdminVisible] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const [commentsToken, setCommentsToken] = useState<string | null>(null);
 
   // Open the comment thread on your OWN profile. Routes to the rich Activity
   // inbox when enabled, else drops straight into the thread modal. Either way
   // this counts as "seen", so the badge clears.
-  const openComments = useCallback(async () => {
+  const openComments = useCallback(() => {
     markCommentsSeen();
     if (commentIndicators.activityInbox) { router.push('/(rider)/activity' as never); return; }
-    const t = await getToken();
-    setCommentsToken(t);
     setCommentsOpen(true);
-  }, [commentIndicators.activityInbox, getToken, markCommentsSeen, router]);
+  }, [commentIndicators.activityInbox, markCommentsSeen, router]);
   const [profile, setProfile] = useState<RiderProfile | null>(null);
   const [rides, setRides] = useState<RideSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -328,7 +325,7 @@ export default function RiderProfileScreen() {
         visible={commentsOpen}
         onClose={() => setCommentsOpen(false)}
         handle={selfCommentHandle ?? ''}
-        token={commentsToken}
+        getToken={getToken}
       />
     </View>
   );

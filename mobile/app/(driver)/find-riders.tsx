@@ -70,13 +70,14 @@ export default function FindRidersScreen() {
 
   const [ads, setAds] = useState<AdCardData[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
-  const [commentsCtx, setCommentsCtx] = useState<{ subject: string; label: string; token: string | null } | null>(null);
+  const [commentsCtx, setCommentsCtx] = useState<{ subject: string; label: string } | null>(null);
 
   // Many riders have no handle, so address the comment subject by id when needed.
-  const openComments = useCallback(async (subject: string, label: string) => {
-    const t = await getToken().catch(() => null);
-    setCommentsCtx({ subject, label, token: t });
-  }, [getToken]);
+  // The modal mints a fresh token per request via getToken (a captured JWT goes
+  // stale in ~60s and 401s the reply), so we don't grab one here.
+  const openComments = useCallback((subject: string, label: string) => {
+    setCommentsCtx({ subject, label });
+  }, []);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
   const onViewableItemsChanged = useRef(
@@ -313,7 +314,7 @@ export default function FindRidersScreen() {
         <CommentsModal
           visible
           handle={commentsCtx.subject}
-          token={commentsCtx.token}
+          getToken={getToken}
           subjectLabel={commentsCtx.label}
           onClose={() => setCommentsCtx(null)}
         />
