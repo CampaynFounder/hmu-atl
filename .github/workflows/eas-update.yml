@@ -59,17 +59,15 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Publish update
+      - name: Roll back to embedded (EMERGENCY)
         working-directory: mobile
         run: |
           BRANCH="${{ github.event.inputs.branch || 'preview' }}"
-          MSG=$(git log -1 --pretty=%s)
-          echo "Publishing OTA update to branch: $BRANCH"
-          eas update --branch "$BRANCH" --message "$MSG" --non-interactive
+          echo "EMERGENCY: rolling $BRANCH back to the embedded (store) bundle"
+          eas update:roll-back-to-embedded --branch "$BRANCH" --message "emergency rollback: revert to embedded bundle" --non-interactive
           {
-            echo "### Mobile OTA Update published"
+            echo "### Mobile OTA ROLLED BACK to embedded"
             echo "**Branch/channel:** $BRANCH"
-            echo "**Message:** $MSG"
             echo ""
-            echo "Installed preview builds (matching runtimeVersion) pick this up on next launch."
+            echo "Devices on this channel revert to the bundle embedded in the installed build on next launch."
           } >> "$GITHUB_STEP_SUMMARY"
