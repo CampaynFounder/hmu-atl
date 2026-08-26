@@ -59,15 +59,11 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Roll back to embedded (EMERGENCY)
+      - name: EAS diagnostics (read-only)
         working-directory: mobile
         run: |
-          BRANCH="${{ github.event.inputs.branch || 'preview' }}"
-          echo "EMERGENCY: rolling $BRANCH back to the embedded (store) bundle"
-          eas update:roll-back-to-embedded --branch "$BRANCH" --runtime-version 1.0.9 --message "emergency rollback: revert to embedded bundle" --non-interactive
-          {
-            echo "### Mobile OTA ROLLED BACK to embedded"
-            echo "**Branch/channel:** $BRANCH"
-            echo ""
-            echo "Devices on this channel revert to the bundle embedded in the installed build on next launch."
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "===== channel: production ====="; eas channel:view production --non-interactive || true
+          echo "===== channel: preview ====="; eas channel:view preview --non-interactive || true
+          echo "===== updates on production ====="; eas update:list --branch production --limit 8 --non-interactive || true
+          echo "===== updates on preview ====="; eas update:list --branch preview --limit 8 --non-interactive || true
+          echo "===== recent builds (version + channel + runtime) ====="; eas build:list --limit 8 --non-interactive || true
