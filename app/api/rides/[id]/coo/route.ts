@@ -73,19 +73,27 @@ export async function POST(
     // Get rider's payment method and driver's Stripe account
     const [riderPmRows, driverRows, riderProfileRows] = await Promise.all([
       sql`SELECT stripe_payment_method_id FROM rider_payment_methods WHERE rider_id = ${userId} AND is_default = true LIMIT 1`,
-      sql`SELECT stripe_account_id FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1`,
+      sql`SELECT stripe_account_id, payout_setup_complete FROM driver_profiles WHERE user_id = ${ride.driver_id} LIMIT 1`,
       sql`SELECT stripe_customer_id FROM rider_profiles WHERE user_id = ${userId} LIMIT 1`,
     ]);
 
     const paymentMethodId = (riderPmRows[0] as Record<string, unknown>)?.stripe_payment_method_id as string;
     const driverStripeAccountId = (driverRows[0] as Record<string, unknown>)?.stripe_account_id as string;
+    const driverPayoutComplete = (driverRows[0] as Record<string, unknown>)?.payout_setup_complete === true;
     const stripeCustomerId = (riderProfileRows[0] as Record<string, unknown>)?.stripe_customer_id as string;
 
     if (!paymentMethodId || !stripeCustomerId) {
       return NextResponse.json({ error: 'No payment method linked. Add a payment method first.', code: 'no_payment_method' }, { status: 400 });
     }
 
-    if (!driverStripeAccountId) {
+    // The hold is a destination charge (transfer_data.destination = the driver's
+    // connected account). If the driver has NO account, or an account that hasn't
+    // finished payout onboarding (transfers capability not active yet), Stripe
+    // rejects the charge — which the rider sees as a confusing "card declined" on
+    // a perfectly good card. Guard on payout COMPLETENESS, not just account
+    // existence, and return the accurate reason instead of attempting a doomed
+    // charge. (Root fix: keep non-payout-ready drivers out of the bookable pool.)
+    if (!driverStripeAccountId || !driverPayoutComplete) {
       return NextResponse.json({ error: 'Driver has not set up payouts yet', code: 'driver_no_payout' }, { status: 400 });
     }
 
