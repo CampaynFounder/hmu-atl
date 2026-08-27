@@ -63,9 +63,7 @@ jobs:
         working-directory: mobile
         run: |
           echo "===== production environment variable NAMES (values redacted) ====="
-          eas env:list --environment production --non-interactive 2>&1 \
+          eas env:list --environment production 2>&1 \
             | sed -E 's/(pk_(test|live)|sk_(test|live))_[A-Za-z0-9]+/\1_***/g' \
             | sed -E 's/(=|: )[A-Za-z0-9_\-]{20,}/\1<redacted-value>/g' \
-            | head -60
-          echo "===== does production define EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY? ====="
-          eas env:list --environment production --non-interactive 2>&1 | grep -c "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY" || true
+            | head -80
