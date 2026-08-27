@@ -59,11 +59,13 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: EAS env Stripe key mode (read-only)
+      - name: EAS env names (read-only, values redacted)
         working-directory: mobile
         run: |
-          echo "===== production env: publishable key MODES (redacted) ====="
-          eas env:list --environment production --non-interactive 2>/dev/null \
-            | grep -iE "STRIPE|CLERK_PUBLISHABLE|API_BASE|EXPO_PUBLIC" \
-            | sed -E 's/(pk_(test|live))_[A-Za-z0-9]+/\1_***REDACTED***/g' \
-            | sed -E 's/(sk_(test|live))_[A-Za-z0-9]+/\1_***REDACTED***/g' || echo "env:list failed"
+          echo "===== production environment variable NAMES (values redacted) ====="
+          eas env:list --environment production --non-interactive 2>&1 \
+            | sed -E 's/(pk_(test|live)|sk_(test|live))_[A-Za-z0-9]+/\1_***/g' \
+            | sed -E 's/(=|: )[A-Za-z0-9_\-]{20,}/\1<redacted-value>/g' \
+            | head -60
+          echo "===== does production define EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY? ====="
+          eas env:list --environment production --non-interactive 2>&1 | grep -c "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY" || true
