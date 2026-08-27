@@ -84,13 +84,19 @@ export async function savePaymentMethod(
     isCashAppPay = pm.type === 'cashapp';
   }
 
-  // Check if first method
-  const existing = await sql`SELECT COUNT(*) as count FROM rider_payment_methods WHERE rider_id = ${riderId}`;
-  const isFirst = Number((existing[0] as Record<string, unknown>).count) === 0;
+  // A newly added card becomes the ACTIVE (default-charged) method. This is what
+  // "updating your payment method" means to a rider — add a card and it's the one
+  // you're charged on — and it matches the Stripe customer default we set above.
+  // Previously this only defaulted the FIRST card (is_default = isFirst), so adding
+  // a second card to switch cards silently left the OLD card as is_default while
+  // Stripe's customer default pointed at the new one — the ride hold reads the DB
+  // flag, so the rider's chosen card never took effect. Clear prior defaults, then
+  // insert the new card as the sole default.
+  await sql`UPDATE rider_payment_methods SET is_default = false WHERE rider_id = ${riderId} AND is_default = true`;
 
   await sql`
     INSERT INTO rider_payment_methods (rider_id, stripe_payment_method_id, type, brand, last4, exp_month, exp_year, is_default, apple_pay, google_pay, cash_app_pay)
-    VALUES (${riderId}, ${paymentMethodId}, ${type}, ${brand}, ${last4}, ${expMonth}, ${expYear}, ${isFirst}, ${isApplePay}, ${isGooglePay}, ${isCashAppPay})
+    VALUES (${riderId}, ${paymentMethodId}, ${type}, ${brand}, ${last4}, ${expMonth}, ${expYear}, true, ${isApplePay}, ${isGooglePay}, ${isCashAppPay})
   `;
 }
 
