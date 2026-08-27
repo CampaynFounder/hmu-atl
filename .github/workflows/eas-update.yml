@@ -59,11 +59,11 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: EAS diagnostics (read-only)
+      - name: EAS env Stripe key mode (read-only)
         working-directory: mobile
         run: |
-          echo "===== channel: production ====="; eas channel:view production --non-interactive || true
-          echo "===== channel: preview ====="; eas channel:view preview --non-interactive || true
-          echo "===== updates on production ====="; eas update:list --branch production --limit 8 --non-interactive || true
-          echo "===== updates on preview ====="; eas update:list --branch preview --limit 8 --non-interactive || true
-          echo "===== recent builds (version + channel + runtime) ====="; eas build:list --limit 8 --non-interactive || true
+          echo "===== production env: publishable key MODES (redacted) ====="
+          eas env:list --environment production --non-interactive 2>/dev/null \
+            | grep -iE "STRIPE|CLERK_PUBLISHABLE|API_BASE|EXPO_PUBLIC" \
+            | sed -E 's/(pk_(test|live))_[A-Za-z0-9]+/\1_***REDACTED***/g' \
+            | sed -E 's/(sk_(test|live))_[A-Za-z0-9]+/\1_***REDACTED***/g' || echo "env:list failed"
